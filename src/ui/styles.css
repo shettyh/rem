@@ -230,37 +230,6 @@ a.list-row:hover {
   font-size: 14px;
 }
 
-.editor-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  align-items: start;
-}
-
-.cm-wrap {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--surface);
-  font-size: 14px;
-}
-
-.cm-wrap .cm-editor {
-  min-height: 120px;
-}
-
-.cm-wrap .cm-focused {
-  outline: none;
-}
-
-.preview {
-  min-height: 120px;
-  padding: 10px 12px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-
 .card-snippet {
   flex: 1;
   overflow: hidden;
@@ -272,12 +241,6 @@ a.list-row:hover {
 
 .card-snippet:hover {
   color: var(--accent);
-}
-
-@media (max-width: 640px) {
-  .editor-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* Rich (WYSIWYG) editor */

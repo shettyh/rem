@@ -12,13 +12,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@codemirror/lang-markdown": "^6.5.0",
     "@tiptap/extension-code-block-lowlight": "^3.27.1",
     "@tiptap/extensions": "^3.27.1",
     "@tiptap/pm": "^3.27.1",
     "@tiptap/react": "^3.27.1",
     "@tiptap/starter-kit": "^3.27.1",
-    "@uiw/react-codemirror": "^4.25.10",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
     "highlight.js": "^11.11.1",
