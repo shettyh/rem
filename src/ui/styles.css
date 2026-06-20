@@ -280,6 +280,85 @@ a.list-row:hover {
   }
 }
 
+/* Rich (WYSIWYG) editor */
+.rich-editor {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.rich-editor:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.rich-editor-content {
+  min-height: 120px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.rich-editor-content > :first-child {
+  margin-top: 0;
+}
+
+.rich-editor-content > :last-child {
+  margin-bottom: 0;
+}
+
+.rich-editor-content pre {
+  background: #1e1e2e;
+  color: #f8f8f2;
+  padding: 12px 14px;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 13px;
+}
+
+.rich-editor-content code {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.rich-editor-content :not(pre) > code {
+  background: #f4f4f5;
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+
+.rich-editor-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.bubble-menu {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--text);
+  border-radius: 8px;
+}
+
+.bubble-menu button {
+  background: transparent;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.bubble-menu button:hover,
+.bubble-menu button.active {
+  background: rgba(255, 255, 255, 0.18);
+}
+
 /* Review session */
 .review-card {
   background: var(--surface);
