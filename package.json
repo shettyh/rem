@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@tiptap/extension-bubble-menu": "^3.27.1",
     "@tiptap/extension-code-block-lowlight": "^3.27.1",
     "@tiptap/extensions": "^3.27.1",
     "@tiptap/pm": "^3.27.1",

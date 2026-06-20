@@ -50,14 +50,28 @@ export function RichMarkdownEditor({
       {editor && (
         <BubbleMenu editor={editor} className="bubble-menu">
           <button type="button" onMouseDown={(e) => e.preventDefault()}
+            aria-label="Bold" aria-pressed={editor.isActive('bold')}
             onClick={() => editor.chain().focus().toggleBold().run()}
             className={editor.isActive('bold') ? 'active' : ''}>B</button>
           <button type="button" onMouseDown={(e) => e.preventDefault()}
+            aria-label="Italic" aria-pressed={editor.isActive('italic')}
             onClick={() => editor.chain().focus().toggleItalic().run()}
             className={editor.isActive('italic') ? 'active' : ''}>i</button>
           <button type="button" onMouseDown={(e) => e.preventDefault()}
+            aria-label="Inline code" aria-pressed={editor.isActive('code')}
             onClick={() => editor.chain().focus().toggleCode().run()}
             className={editor.isActive('code') ? 'active' : ''}>{'</>'}</button>
+          <button type="button" onMouseDown={(e) => e.preventDefault()}
+            aria-label="Link" aria-pressed={editor.isActive('link')}
+            onClick={() => {
+              if (editor.isActive('link')) {
+                editor.chain().focus().unsetLink().run()
+              } else {
+                const url = window.prompt('URL')
+                if (url) editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
+              }
+            }}
+            className={editor.isActive('link') ? 'active' : ''}>link</button>
         </BubbleMenu>
       )}
       <EditorContent editor={editor} />
