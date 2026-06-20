@@ -1,0 +1,20 @@
+import { createBrowserRouter } from 'react-router-dom'
+import { Layout } from '../ui/Layout'
+import { DeckListPage } from '../features/decks/DeckListPage'
+import { DeckDetailPage } from '../features/cards/DeckDetailPage'
+import { CardEditorPage } from '../features/cards/CardEditorPage'
+import { ReviewPage } from '../features/review/ReviewPage'
+
+export const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <Layout />,
+    children: [
+      { index: true, element: <DeckListPage /> },
+      { path: 'decks/:deckId', element: <DeckDetailPage /> },
+      { path: 'decks/:deckId/cards/new', element: <CardEditorPage /> },
+      { path: 'decks/:deckId/cards/:cardId', element: <CardEditorPage /> },
+      { path: 'decks/:deckId/study', element: <ReviewPage /> },
+    ],
+  },
+])

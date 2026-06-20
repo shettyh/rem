@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/shetty/.claude/**)",
+      "Bash(claude --version)"
+    ]
+  },
+  "outputStyle": "default"
+}
