@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import { createEditorExtensions } from './editorExtensions'
@@ -16,6 +16,11 @@ export function RichMarkdownEditor({
   placeholder?: string
   ariaLabel?: string
 }) {
+  const onChangeRef = useRef(onChange)
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+
   const editor = useEditor({
     extensions: createEditorExtensions(placeholder),
     content: value,
@@ -27,7 +32,7 @@ export function RichMarkdownEditor({
       },
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    onUpdate: ({ editor }) => onChange((editor.storage as any).markdown.getMarkdown()),
+    onUpdate: ({ editor }) => onChangeRef.current((editor.storage as any).markdown.getMarkdown()),
   })
 
   // Re-sync when the external value changes (e.g. async card load on Edit).
