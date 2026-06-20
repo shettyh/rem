@@ -14,7 +14,8 @@ broader visual redesign (that is Near-term #2).
 ## Scope & blast radius
 
 Only the **editing** surface changes. `MarkdownView.tsx` (react-markdown +
-`rehype-highlight`) still renders cards in `ReviewPage` and `DeckDetailPage`.
+`rehype-highlight`) still renders cards in `ReviewPage` (`DeckDetailPage` shows a
+plain-text `.card-snippet`, not `MarkdownView`).
 
 - **New** `src/features/cards/RichMarkdownEditor.tsx` — controlled TipTap editor.
   Props mirror today's `MarkdownEditor`:
@@ -40,7 +41,7 @@ representation.
   useEffect(() => {
     if (!editor) return
     if (value !== editor.storage.markdown.getMarkdown()) {
-      editor.commands.setContent(value, false) // false = do not emit an update
+      editor.commands.setContent(value, { emitUpdate: false }) // v3: do not emit update
     }
   }, [value, editor])
   ```
@@ -58,8 +59,9 @@ plus:
   language identifier preserved in markdown.
 - `Markdown` (from `tiptap-markdown`) — serialize/parse; configure
   `transformPastedText: true` so pasted markdown is parsed.
-- `Placeholder` — empty-field hint.
-- `Link` — inline links.
+- `Placeholder` — empty-field hint (from `@tiptap/extensions` in TipTap v3).
+- `Link` — inline links. Provided by `StarterKit` itself in v3 (no separate package);
+  it is not disabled, so markdown links parse, round-trip, and render as clickable.
 
 Interaction: **markdown input rules** (type `**bold**`, `- `, `` ``` ``, `# `, etc. and
 it transforms live) plus a minimal **bubble menu** on text selection
@@ -78,19 +80,19 @@ github-dark stylesheet import is shared/available on both surfaces.
 
 ## Dependencies
 
-**Add:** `@tiptap/react`, `@tiptap/pm`, `@tiptap/starter-kit`,
-`@tiptap/extension-code-block-lowlight`, `@tiptap/extension-placeholder`,
-`@tiptap/extension-link`, `tiptap-markdown`, `lowlight`. (`highlight.js` already
-present.)
+**Add (as built):** `@tiptap/react`, `@tiptap/pm`, `@tiptap/starter-kit`,
+`@tiptap/extension-code-block-lowlight`, `@tiptap/extensions` (provides `Placeholder`
+in v3), `@tiptap/extension-bubble-menu` (explicit — `BubbleMenu` is imported from
+`@tiptap/react/menus`), `tiptap-markdown`, `lowlight`. (`highlight.js` already present;
+`Link` ships inside `StarterKit` in v3, so no `@tiptap/extension-link`.)
 
 **Remove** (orphaned by deleting `MarkdownEditor`): `@uiw/react-codemirror`,
 `@codemirror/lang-markdown`.
 
-**Version compatibility:** `tiptap-markdown` has historically tracked TipTap v2.
-During implementation, pin the TipTap packages + `tiptap-markdown` to a mutually
-compatible set and confirm `npm run build` / `npm run typecheck` are green before
-building further. If a compatible v3 set is not available, pin the whole TipTap suite
-to v2.
+**Version compatibility (resolved):** TipTap **v3** (`@tiptap/*` ^3.27) with
+`tiptap-markdown` **^0.9.0** (which peers on `@tiptap/core ^3`) and `lowlight` **^3**
+(matching the existing `highlight.js` ^11). Build + typecheck confirmed green on this
+set — the earlier v2 fallback was not needed.
 
 **Styling:** TipTap is headless, so the editor CSS is written here — a clean, minimal
 `.rich-editor` style reusing existing CSS tokens (`--surface`, `--border`, `--radius`,
