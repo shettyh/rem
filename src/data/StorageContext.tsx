@@ -5,11 +5,18 @@ import { DexieStorage } from './dexie/DexieStorage'
 import { RemDB } from './dexie/db'
 
 /** The single app-wide storage instance (IndexedDB via Dexie). */
-const storage: Storage = new DexieStorage(new RemDB(), scheduler)
+const defaultStorage: Storage = new DexieStorage(new RemDB(), scheduler)
 
-const StorageContext = createContext<Storage>(storage)
+const StorageContext = createContext<Storage>(defaultStorage)
 
-export function StorageProvider({ children }: { children: ReactNode }) {
+export function StorageProvider({
+  children,
+  storage = defaultStorage,
+}: {
+  children: ReactNode
+  /** Override the storage instance — used by tests to inject seeded data. */
+  storage?: Storage
+}) {
   return <StorageContext.Provider value={storage}>{children}</StorageContext.Provider>
 }
 
