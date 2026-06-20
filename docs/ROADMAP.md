@@ -77,7 +77,9 @@ the important part.
 ## Roadmap (proposed order)
 
 **Near-term (UX & polish)**
-1. **Single WYSIWYG-markdown editor** (#4) — TipTap/Milkdown, replace two-pane.
+1. ✅ **Single WYSIWYG-markdown editor** (#4) — **shipped**: TipTap v3 inline editor with
+   markdown input rules, syntax-highlighted code blocks, and a selection bubble menu;
+   replaced the two-pane CodeMirror editor. Markdown remains the stored source of truth.
 2. **UI redesign pass** (#1) — tokens, typography, study-screen motion, empty states.
 3. **Export / import backup** — carried over from MVP; cheap insurance for browser-only data.
 
