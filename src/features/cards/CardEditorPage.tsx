@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStorage } from '../../data/StorageContext'
-import { MarkdownEditor } from './MarkdownEditor'
-import { MarkdownView } from './MarkdownView'
+import { RichMarkdownEditor } from './RichMarkdownEditor'
 
 export function CardEditorPage() {
   const { deckId, cardId } = useParams()
@@ -85,16 +84,12 @@ function CardField({
   return (
     <div className="stack">
       <span className="field-label">{label}</span>
-      <div className="editor-grid">
-        <MarkdownEditor value={value} onChange={onChange} placeholder={`${label} (markdown)…`} />
-        <div className="preview">
-          {value.trim() ? (
-            <MarkdownView source={value} />
-          ) : (
-            <span className="muted">Preview</span>
-          )}
-        </div>
-      </div>
+      <RichMarkdownEditor
+        value={value}
+        onChange={onChange}
+        placeholder={`${label} (markdown)…`}
+        ariaLabel={label}
+      />
     </div>
   )
 }
