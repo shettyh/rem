@@ -28,7 +28,7 @@ test('deck list — with decks', async () => {
 test('deck list — empty', async () => {
   const storage = freshStorage()
   await renderRoute({ storage, entry: '/', path: '/', element: <DeckListPage /> })
-  await expect.element(page.getByText('No decks yet.', { exact: false })).toBeVisible()
+  await expect.element(page.getByText('No decks yet', { exact: false })).toBeVisible()
   await shoot('screen', 'deck-list-empty')
 })
 

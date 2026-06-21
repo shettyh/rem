@@ -11,7 +11,11 @@ export function DeckListPage() {
     const all = await storage.listDecks()
     const now = Date.now()
     return Promise.all(
-      all.map(async (deck) => ({ deck, due: await storage.countDue(deck.id, now) })),
+      all.map(async (deck) => ({
+        deck,
+        due: await storage.countDue(deck.id, now),
+        count: (await storage.listCards(deck.id)).length,
+      })),
     )
   }, [])
 
@@ -25,11 +29,9 @@ export function DeckListPage() {
 
   return (
     <div className="stack">
-      <div className="row between">
-        <h1 className="page-title">Decks</h1>
-      </div>
+      <h1 className="page-title">Decks</h1>
 
-      <form className="row" onSubmit={addDeck}>
+      <form className="add-row" onSubmit={addDeck}>
         <input
           className="text-input"
           placeholder="New deck name…"
@@ -43,13 +45,26 @@ export function DeckListPage() {
       </form>
 
       {decks === undefined ? null : decks.length === 0 ? (
-        <p className="empty">No decks yet. Create one above to start.</p>
+        <div className="empty-state">
+          <div className="ico">🗂️</div>
+          <h3>No decks yet</h3>
+          <p>Name a deck above to start building your memory.</p>
+        </div>
       ) : (
         <div className="stack">
-          {decks.map(({ deck, due }) => (
-            <Link key={deck.id} to={`/decks/${deck.id}`} className="list-row">
-              <span>{deck.name}</span>
-              <span className={due > 0 ? 'badge' : 'badge badge-zero'}>{due} due</span>
+          {decks.map(({ deck, due, count }) => (
+            <Link key={deck.id} to={`/decks/${deck.id}`} className="deck-row">
+              <div className="deck-text">
+                <span className="deck-name">{deck.name}</span>
+                <span className="deck-meta">
+                  {count} card{count === 1 ? '' : 's'}
+                </span>
+              </div>
+              {due > 0 ? (
+                <span className="due-chip">{due} due</span>
+              ) : (
+                <span className="due-none">All caught up</span>
+              )}
             </Link>
           ))}
         </div>
