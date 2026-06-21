@@ -1,6 +1,6 @@
 # rem — Progress & Roadmap
 
-_Last updated: 2026-06-20_
+_Last updated: 2026-06-21_
 
 ## Where we are (MVP shipped)
 
@@ -13,6 +13,7 @@ The smallest genuinely-useful loop is built and tested:
 - **Scheduling** — SM-2 behind a `Scheduler` interface.
 
 Verified: scheduler (9 tests), storage (7 tests), review cycle (1 integration test), build + typecheck green.
+Plus a real-browser UI test harness (Vitest browser mode + Playwright Chromium) — **34 tests total**.
 
 **Two extension seams already exist** — `Scheduler` and `Storage`. Most of what follows slots behind
 an interface rather than rewriting the app. New capability should keep that discipline.
@@ -80,8 +81,15 @@ the important part.
 1. ✅ **Single WYSIWYG-markdown editor** (#4) — **shipped**: TipTap v3 inline editor with
    markdown input rules, syntax-highlighted code blocks, and a selection bubble menu;
    replaced the two-pane CodeMirror editor. Markdown remains the stored source of truth.
-2. **UI redesign pass** (#1) — tokens, typography, study-screen motion, empty states.
-3. **Export / import backup** — carried over from MVP; cheap insurance for browser-only data.
+2. ✅ **Real-browser UI test harness** — **shipped**: Vitest browser mode + Playwright Chromium
+   renders components and full pages with real CSS and screenshots (split `unit`/`browser` projects;
+   `npm test` runs both). A `StorageProvider` test seam + `freshStorage`/`renderRoute`/`shoot` helpers
+   drive an 11-screen sweep. Produced a screenshot-grounded issues list
+   (`docs/superpowers/specs/2026-06-20-ui-issues.md`) as the input for the redesign.
+3. **UI redesign pass** (#1) — **next**: tokens, typography, study-screen motion, empty states —
+   designed against the issues list above (headline: "Add deck" button wraps; "Nothing due" on an
+   empty deck; ghost-button affordance; faint keyboard hints; weak empty states; thin token system).
+4. **Export / import backup** — carried over from MVP; cheap insurance for browser-only data.
 
 **Mid-term (smarter, still local)**
 4. **FSRS scheduler** (#3) behind the existing `Scheduler` interface.
