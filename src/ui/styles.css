@@ -83,7 +83,7 @@ body {
 }
 
 .btn:hover {
-  background: #f4f4f5;
+  background: var(--surface-inset);
 }
 
 .btn-primary {
@@ -97,7 +97,7 @@ body {
 }
 
 .btn-danger {
-  color: #b91c1c;
+  color: var(--danger);
 }
 
 .btn:disabled {
@@ -266,14 +266,14 @@ textarea {
   display: flex;
   gap: 4px;
   padding: 4px;
-  background: var(--text);
+  background: var(--code-bg);
   border-radius: 8px;
 }
 
 .bubble-menu button {
   background: transparent;
   border: none;
-  color: #fff;
+  color: var(--code-fg);
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 4px;
