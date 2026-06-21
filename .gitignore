@@ -4,3 +4,5 @@ dist
 .DS_Store
 test-artifacts
 .superpowers
+.vitest-attachments
+**/__screenshots__
