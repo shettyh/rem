@@ -144,12 +144,6 @@ body {
   gap: 12px;
 }
 
-.empty {
-  text-align: center;
-  color: var(--muted);
-  padding: 48px 0;
-}
-
 input,
 textarea {
   font: inherit;
@@ -169,43 +163,6 @@ textarea {
   outline-offset: -1px;
 }
 
-/* Card list rows */
-.list-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  text-decoration: none;
-  color: inherit;
-}
-
-a.list-row:hover {
-  border-color: #d4d4d8;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.badge-zero {
-  background: #f4f4f5;
-  color: var(--muted);
-}
-
 /* Markdown rendering */
 .markdown {
   word-break: break-word;
@@ -214,6 +171,8 @@ a.list-row:hover {
 .markdown > :first-child {
   margin-top: 0;
 }
+
+.markdown p { margin: 0 0 var(--space-3); }
 
 .markdown > :last-child {
   margin-bottom: 0;
@@ -237,19 +196,6 @@ a.list-row:hover {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
-}
-
-.card-snippet {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-decoration: none;
-  color: inherit;
-}
-
-.card-snippet:hover {
-  color: var(--accent);
 }
 
 /* Rich (WYSIWYG) editor */
