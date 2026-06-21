@@ -49,7 +49,7 @@ test('deck detail — nothing due', async () => {
   const card = await storage.createCard(deck.id, 'Reviewed already', 'Yes')
   await pushToFuture(storage, card.id)
   await renderRoute({ storage, entry: `/decks/${deck.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
-  await expect.element(page.getByText('Nothing due', { exact: false })).toBeVisible()
+  await expect.element(page.getByText('All caught up today', { exact: false })).toBeVisible()
   await shoot('screen', 'deck-detail-nothing-due')
 })
 
@@ -57,7 +57,7 @@ test('deck detail — empty', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Empty deck')
   await renderRoute({ storage, entry: `/decks/${deck.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
-  await expect.element(page.getByText('No cards yet.', { exact: false })).toBeVisible()
+  await expect.element(page.getByText('No cards yet', { exact: false })).toBeVisible()
   await shoot('screen', 'deck-detail-empty')
 })
 
