@@ -35,7 +35,7 @@ export function GradeButtons({
         >
           <span className="grade-label">{label}</span>
           <span className="grade-hint">{formatInterval(scheduler.next(scheduling, grade, now).intervalDays)}</span>
-          <span className="grade-key">{key}</span>
+          <span className="kbd">{key}</span>
         </button>
       ))}
     </div>

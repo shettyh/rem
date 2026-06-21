@@ -340,36 +340,104 @@ a.list-row:hover {
   background: rgba(255, 255, 255, 0.18);
 }
 
-/* Review session */
-.review-card {
+/* Review — 3D flip card */
+.flip {
+  perspective: 1600px;
+}
+
+.flip-inner {
+  position: relative;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform var(--flip-ms) cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.flip-inner[data-revealed='true'] {
+  transform: rotateX(180deg);
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 28px 24px;
-  min-height: 200px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.face-front {
+  padding: 26px;
+}
+
+.face-front .face-inner {
+  flex: 1;
+}
+
+.face-back {
+  transform: rotateX(180deg);
+}
+
+.face-back .scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 26px 30px;
+}
+
+.answer-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 10px;
 }
 
 .review-side {
-  font-size: 18px;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  line-height: 1.55;
+  color: var(--text);
 }
 
-.divider {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 20px 0;
+.show-btn {
+  margin-top: auto;
+  width: 100%;
+  padding: 13px;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .flip-inner {
+    transition: none;
+  }
+}
+
+/* Grade buttons */
 .grade-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
 
 .grade {
-  flex: 1;
+  display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 2px;
-  padding: 10px 8px;
+  padding: 10px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--text);
+}
+
+.grade:hover {
+  background: var(--surface-inset);
 }
 
 .grade-label {
@@ -377,38 +445,14 @@ a.list-row:hover {
 }
 
 .grade-hint {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 
-.grade-key {
-  font-size: 11px;
-  opacity: 0.45;
-}
-
-.grade-again {
-  border-color: #fecaca;
-  color: #b91c1c;
-}
-
-.grade-hard {
-  border-color: #fed7aa;
-  color: #c2410c;
-}
-
-.grade-good {
-  border-color: #bbf7d0;
-  color: #15803d;
-}
-
-.grade-easy {
-  border-color: #bfdbfe;
-  color: #1d4ed8;
-}
-
-.grade:hover {
-  background: #f9fafb;
-}
+.grade-again { box-shadow: inset 3px 0 0 var(--again); }
+.grade-hard  { box-shadow: inset 3px 0 0 var(--hard); }
+.grade-good  { box-shadow: inset 3px 0 0 var(--good); }
+.grade-easy  { box-shadow: inset 3px 0 0 var(--easy); }
 
 /* Keyboard hint chip */
 .kbd {

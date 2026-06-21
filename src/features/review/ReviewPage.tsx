@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { Card, Grade } from '../../domain/models'
 import { scheduler } from '../../domain/scheduler'
@@ -10,11 +10,13 @@ export function ReviewPage() {
   const { deckId } = useParams()
   const storage = useStorage()
 
-  // The queue is a snapshot taken when the session starts, so cards graded into
-  // the future don't disappear or reorder mid-session.
   const [queue, setQueue] = useState<Card[] | null>(null)
   const [index, setIndex] = useState(0)
   const [revealed, setRevealed] = useState(false)
+
+  const frontRef = useRef<HTMLDivElement>(null)
+  const backRef = useRef<HTMLDivElement>(null)
+  const [cardH, setCardH] = useState(220)
 
   useEffect(() => {
     if (!deckId) return
@@ -29,6 +31,20 @@ export function ReviewPage() {
 
   const current = queue && index < queue.length ? queue[index] : null
 
+  // Size the flip card to the taller face, capped to 65vh; the answer scrolls beyond that.
+  useLayoutEffect(() => {
+    if (!current) return
+    const measure = () => {
+      const f = frontRef.current?.scrollHeight ?? 0
+      const b = backRef.current?.scrollHeight ?? 0
+      const cap = Math.round(window.innerHeight * 0.65)
+      setCardH(Math.max(160, Math.min(cap, Math.max(f, b))))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [current])
+
   const grade = useCallback(
     async (g: Grade) => {
       if (!current) return
@@ -40,7 +56,6 @@ export function ReviewPage() {
     [current, storage],
   )
 
-  // Keyboard: Space/Enter reveals; 1–4 grade once revealed.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (!current) return
@@ -67,8 +82,12 @@ export function ReviewPage() {
   if (queue.length === 0) {
     return (
       <div className="stack">
-        <p className="empty">Nothing due in this deck right now.</p>
-        <BackToDeck deckId={deckId} />
+        <div className="empty-state">
+          <div className="ico">🌙</div>
+          <h3>Nothing due</h3>
+          <p>Nothing due in this deck right now.</p>
+          <BackToDeck deckId={deckId} className="btn btn-ghost cta" />
+        </div>
       </div>
     )
   }
@@ -76,10 +95,14 @@ export function ReviewPage() {
   if (current === null) {
     return (
       <div className="stack">
-        <p className="empty">
-          Review complete — {queue.length} card{queue.length === 1 ? '' : 's'} done. 🎉
-        </p>
-        <BackToDeck deckId={deckId} />
+        <div className="empty-state">
+          <div className="ico">🎉</div>
+          <h3>Review complete</h3>
+          <p>
+            {queue.length} card{queue.length === 1 ? '' : 's'} done. Nice work.
+          </p>
+          <BackToDeck deckId={deckId} className="btn btn-primary cta" />
+        </div>
       </div>
     )
   }
@@ -90,37 +113,50 @@ export function ReviewPage() {
         <span className="muted">
           {index + 1} / {queue.length}
         </span>
-        <BackToDeck deckId={deckId} label="End session" />
+        <BackToDeck deckId={deckId} label="End session" className="btn btn-ghost" />
       </div>
 
-      <div className="review-card">
-        <div className="review-side">
-          <MarkdownView source={current.front} />
-        </div>
-        {revealed && (
-          <>
-            <hr className="divider" />
-            <div className="review-side">
-              <MarkdownView source={current.back} />
+      <div className="flip" style={{ height: `${cardH}px` }}>
+        <div className="flip-inner" data-testid="flip" data-revealed={revealed}>
+          <div className="face face-front">
+            <div className="face-inner" ref={frontRef}>
+              <div className="review-side">
+                <MarkdownView source={current.front} />
+              </div>
             </div>
-          </>
-        )}
+            <button className="btn btn-primary show-btn" onClick={() => setRevealed(true)}>
+              Show answer <span className="kbd">space</span>
+            </button>
+          </div>
+          <div className="face face-back">
+            <div className="scroll" ref={backRef}>
+              <p className="answer-label">Answer</p>
+              <div className="review-side">
+                <MarkdownView source={current.back} />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {revealed ? (
+      {revealed && (
         <GradeButtons scheduling={current.scheduling} now={Date.now()} onGrade={grade} />
-      ) : (
-        <button className="btn btn-primary" onClick={() => setRevealed(true)}>
-          Show answer <span className="grade-key">space</span>
-        </button>
       )}
     </div>
   )
 }
 
-function BackToDeck({ deckId, label = 'Back to deck' }: { deckId: string; label?: string }) {
+function BackToDeck({
+  deckId,
+  label = 'Back to deck',
+  className = 'btn btn-ghost',
+}: {
+  deckId: string
+  label?: string
+  className?: string
+}) {
   return (
-    <Link to={`/decks/${deckId}`} className="btn btn-ghost">
+    <Link to={`/decks/${deckId}`} className={className}>
       {label}
     </Link>
   )
