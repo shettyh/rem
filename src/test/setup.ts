@@ -1,33 +1,29 @@
 import '@testing-library/jest-dom'
 import 'fake-indexeddb/auto'
 
-// Polyfill localStorage for jsdom
-declare global {
-  var localStorage: Storage
-}
-
-if (typeof globalThis !== 'undefined' && !globalThis.localStorage) {
-  const store: Record<string, string> = {}
-  globalThis.localStorage = {
-    getItem: (key: string) => store[key] || null,
-    setItem: (key: string, value: string) => {
-      store[key] = value
+// jsdom in this Vitest setup does not provide localStorage; install a minimal,
+// spec-correct in-memory implementation for unit tests that use it.
+if (typeof globalThis.localStorage === 'undefined') {
+  const store = new Map<string, string>()
+  const localStorageMock: Storage = {
+    getItem: (key) => (store.has(key) ? store.get(key)! : null),
+    setItem: (key, value) => {
+      store.set(key, String(value))
     },
-    removeItem: (key: string) => {
-      delete store[key]
+    removeItem: (key) => {
+      store.delete(key)
     },
     clear: () => {
-      for (const key in store) {
-        delete store[key]
-      }
+      store.clear()
     },
-    key: (index: number) => {
-      const keys = Object.keys(store)
-      return keys[index] || null
+    key: (index) => [...store.keys()][index] ?? null,
+    get length() {
+      return store.size
     },
-    length: 0,
-  } as Storage
-  Object.defineProperty(globalThis.localStorage, 'length', {
-    get: () => Object.keys(store).length,
+  }
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: localStorageMock,
+    writable: true,
+    configurable: true,
   })
 }
