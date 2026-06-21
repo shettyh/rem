@@ -28,16 +28,36 @@ body {
 .app-header {
   display: flex;
   align-items: center;
-  height: 60px;
+  justify-content: space-between;
+  height: 48px;
   border-bottom: 1px solid var(--border);
 }
 
 .app-title {
-  font-weight: 700;
-  font-size: 20px;
-  letter-spacing: -0.01em;
+  font-weight: 800;
+  font-size: var(--text-lg);
+  letter-spacing: -0.03em;
   color: var(--text);
   text-decoration: none;
+}
+
+.theme-toggle {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-toggle:hover {
+  color: var(--text);
 }
 
 .app-main {
