@@ -1,0 +1,68 @@
+/* Design tokens — the single source of truth for colors, spacing, type, motion.
+   Light values on :root; warm-dark overrides under [data-theme='dark']. */
+:root {
+  /* color roles */
+  --bg: #f7f5f1;
+  --surface: #fffefb;
+  --surface-inset: #efe9dd;
+  --border: #e7e3da;
+  --border-strong: #ddd6c9;
+  --text: #1c1a17;
+  --muted: #8a8578;
+  --accent: #6534c9;
+  --accent-hover: #5a2db0;
+  --accent-soft: #efe9dd;
+  --code-bg: #211f2e;
+  --code-fg: #eceaf6;
+
+  /* grade + semantic roles */
+  --again: #d6553f;
+  --hard: #cf8a3a;
+  --good: #4c9a6a;
+  --easy: var(--accent);
+  --danger: #b91c1c;
+
+  /* spacing scale */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
+
+  /* type scale */
+  --text-xs: 12px; --text-sm: 13px; --text-base: 15px;
+  --text-lg: 18px; --text-xl: 21px; --text-2xl: 25px;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: Georgia, 'Times New Roman', serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+
+  /* radii / shadow / motion */
+  --radius-sm: 6px; --radius-md: 11px; --radius-lg: 16px;
+  --radius: var(--radius-md);
+  --shadow-sm: 0 1px 2px rgba(40, 30, 10, 0.05);
+  --shadow-md: 0 4px 18px rgba(40, 30, 10, 0.06);
+  --shadow: var(--shadow-sm);
+  --flip-ms: 600ms;
+
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #1a1815;
+  --surface: #232019;
+  --surface-inset: #2c2820;
+  --border: #34302a;
+  --border-strong: #423d35;
+  --text: #f2ede3;
+  --muted: #a39d8f;
+  --accent: #b9a0f5;
+  --accent-hover: #c9b6f8;
+  --accent-soft: #2c2820;
+  --code-bg: #2a2733;
+  --code-fg: #eceaf6;
+  --again: #e87a63;
+  --hard: #e0a85a;
+  --good: #6fc28e;
+  --danger: #f08a7a;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 22px rgba(0, 0, 0, 0.4);
+
+  color-scheme: dark;
+}
