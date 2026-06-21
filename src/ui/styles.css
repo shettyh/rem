@@ -100,14 +100,20 @@ body {
   color: #b91c1c;
 }
 
-.btn-ghost {
+.btn:disabled {
+  background: var(--surface-inset);
   border-color: transparent;
-  background: transparent;
+  color: var(--muted);
+  cursor: not-allowed;
 }
 
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.btn-ghost {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+.btn-ghost:hover {
+  background: var(--surface-inset);
 }
 
 /* Generic layout helpers */
@@ -399,4 +405,51 @@ a.list-row:hover {
 
 .grade:hover {
   background: #f9fafb;
+}
+
+/* Keyboard hint chip */
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-inset);
+  color: var(--muted);
+}
+
+.btn-primary .kbd {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+/* Shared empty / completion state */
+.empty-state {
+  text-align: center;
+  padding: var(--space-6) 0 var(--space-5);
+}
+
+.empty-state .ico {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.empty-state h3 {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  color: var(--text);
+  margin: var(--space-3) 0 var(--space-1);
+}
+
+.empty-state p {
+  color: var(--muted);
+  font-size: var(--text-base);
+  margin: 0 auto;
+  max-width: 38ch;
+}
+
+.empty-state .cta {
+  margin-top: var(--space-4);
+  display: inline-flex;
 }
