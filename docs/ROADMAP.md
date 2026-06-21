@@ -86,9 +86,7 @@ the important part.
    `npm test` runs both). A `StorageProvider` test seam + `freshStorage`/`renderRoute`/`shoot` helpers
    drive an 11-screen sweep. Produced a screenshot-grounded issues list
    (`docs/superpowers/specs/2026-06-20-ui-issues.md`) as the input for the redesign.
-3. **UI redesign pass** (#1) — **next**: tokens, typography, study-screen motion, empty states —
-   designed against the issues list above (headline: "Add deck" button wraps; "Nothing due" on an
-   empty deck; ghost-button affordance; faint keyboard hints; weak empty states; thin token system).
+3. ✅ **UI redesign pass** (#1) — **shipped**: CSS token system, light/dark themes (no-FOUC toggle), true 3D study-card flip, and per-surface fixes (deck list, detail, editor, review end states).
 4. **Export / import backup** — carried over from MVP; cheap insurance for browser-only data.
 
 **Mid-term (smarter, still local)**
