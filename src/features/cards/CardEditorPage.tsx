@@ -82,8 +82,8 @@ function CardField({
   onChange: (value: string) => void
 }) {
   return (
-    <div className="stack">
-      <span className="field-label">{label}</span>
+    <div className="field">
+      <label className="field-label">{label}</label>
       <RichMarkdownEditor
         value={value}
         onChange={onChange}

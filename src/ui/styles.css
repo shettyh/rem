@@ -219,30 +219,24 @@ a.list-row:hover {
   margin-bottom: 0;
 }
 
-.markdown pre {
-  background: #1e1e2e;
-  color: #f8f8f2;
-  padding: 12px 14px;
-  border-radius: 8px;
-  overflow-x: auto;
-  font-size: 13px;
-}
-
 .markdown code {
   font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
   font-size: 0.9em;
 }
 
-.markdown :not(pre) > code {
-  background: #f4f4f5;
-  padding: 1px 5px;
-  border-radius: 5px;
+/* Card editor */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
-/* Card editor */
 .field-label {
-  font-weight: 600;
-  font-size: 14px;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .card-snippet {
@@ -272,9 +266,12 @@ a.list-row:hover {
 }
 
 .rich-editor-content {
-  min-height: 120px;
-  padding: 10px 12px;
+  min-height: 60px;
+  padding: 12px 14px;
   outline: none;
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  line-height: 1.55;
 }
 
 .rich-editor-content > :first-child {
@@ -285,11 +282,12 @@ a.list-row:hover {
   margin-bottom: 0;
 }
 
-.rich-editor-content pre {
-  background: #1e1e2e;
-  color: #f8f8f2;
+.rich-editor-content pre,
+.markdown pre {
+  background: var(--code-bg);
+  color: var(--code-fg);
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow-x: auto;
   font-size: 13px;
 }
@@ -299,10 +297,15 @@ a.list-row:hover {
   font-size: 0.9em;
 }
 
-.rich-editor-content :not(pre) > code {
-  background: #f4f4f5;
+/* even spacing around inline code so following punctuation isn't pushed away */
+.rich-editor-content :not(pre) > code,
+.markdown :not(pre) > code {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
   padding: 1px 5px;
-  border-radius: 5px;
+  margin: 0 1px;
+  border-radius: var(--radius-sm);
 }
 
 .rich-editor-content p.is-editor-empty:first-child::before {
