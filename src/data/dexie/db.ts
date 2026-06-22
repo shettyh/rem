@@ -1,7 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type { Card, Deck } from '../../domain/models'
 
-/** IndexedDB schema (v1). Indexed fields are listed; payloads are stored whole. */
+/** IndexedDB schema. Indexed fields are listed; payloads are stored whole. */
 export class RemDB extends Dexie {
   decks!: EntityTable<Deck, 'id'>
   cards!: EntityTable<Card, 'id'>
@@ -12,5 +12,20 @@ export class RemDB extends Dexie {
       decks: 'id, createdAt',
       cards: 'id, deckId, createdAt',
     })
+    // v2: stamp the scheduling-algorithm discriminant onto pre-existing
+    // records written before per-deck schedulers existed. Schema unchanged.
+    this.version(2)
+      .stores({
+        decks: 'id, createdAt',
+        cards: 'id, deckId, createdAt',
+      })
+      .upgrade(async (tx) => {
+        await tx.table('decks').toCollection().modify((d) => {
+          if (!d.schedulerKind) d.schedulerKind = 'sm2'
+        })
+        await tx.table('cards').toCollection().modify((c) => {
+          if (c.scheduling && !c.scheduling.kind) c.scheduling.kind = 'sm2'
+        })
+      })
   }
 }
