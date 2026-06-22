@@ -93,7 +93,10 @@ the important part.
    existing `Storage` seam (pure `backup.ts` + atomic `Storage.importDecks`).
 
 **Mid-term (smarter, still local)**
-4. **FSRS scheduler** (#3) behind the existing `Scheduler` interface.
+4. ✅ **FSRS scheduler** (#3) — **shipped**: `ts-fsrs` behind the existing `Scheduler`
+   interface, chosen **per deck** at creation (new decks default to FSRS; existing
+   decks stay SM-2). `SchedulingState` is now a discriminated union; a Dexie v2
+   migration stamps legacy records; backup round-trips the algorithm.
 5. **Embedding-powered features** (#2) — duplicate guard + related cards + semantic search, via a
    local embedding model (transformers.js).
 
