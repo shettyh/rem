@@ -1,11 +1,10 @@
 import { createContext, useContext, type ReactNode } from 'react'
-import { scheduler } from '../domain/scheduler'
 import type { Storage } from './Storage'
 import { DexieStorage } from './dexie/DexieStorage'
 import { RemDB } from './dexie/db'
 
 /** The single app-wide storage instance (IndexedDB via Dexie). */
-const defaultStorage: Storage = new DexieStorage(new RemDB(), scheduler)
+const defaultStorage: Storage = new DexieStorage(new RemDB())
 
 const StorageContext = createContext<Storage>(defaultStorage)
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { Card, Grade } from '../../domain/models'
-import { scheduler } from '../../domain/scheduler'
+import { getScheduler } from '../../domain/scheduler'
 import { useStorage } from '../../data/StorageContext'
 import { MarkdownView } from '../cards/MarkdownView'
 import { GradeButtons } from './GradeButtons'
@@ -48,7 +48,7 @@ export function ReviewPage() {
   const grade = useCallback(
     async (g: Grade) => {
       if (!current) return
-      const next = scheduler.next(current.scheduling, g, Date.now())
+      const next = getScheduler(current.scheduling.kind).next(current.scheduling, g, Date.now())
       await storage.updateCard(current.id, { scheduling: next })
       setIndex((i) => i + 1)
       setRevealed(false)

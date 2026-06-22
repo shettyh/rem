@@ -1,15 +1,12 @@
 import type { Card, Deck, ID, SchedulerKind } from '../../domain/models'
-import type { Scheduler } from '../../domain/scheduler'
+import { getScheduler } from '../../domain/scheduler'
 import type { CardPatch, ImportResult, Storage } from '../Storage'
 import { planImport, type DeckBackup } from '../backup'
 import type { RemDB } from './db'
 
 /** IndexedDB-backed {@link Storage}, using Dexie. */
 export class DexieStorage implements Storage {
-  constructor(
-    private readonly db: RemDB,
-    private readonly scheduler: Scheduler,
-  ) {}
+  constructor(private readonly db: RemDB) {}
 
   async createDeck(name: string, kind: SchedulerKind = 'sm2'): Promise<Deck> {
     const deck: Deck = {
@@ -39,6 +36,8 @@ export class DexieStorage implements Storage {
 
   async createCard(deckId: ID, front: string, back: string): Promise<Card> {
     const now = Date.now()
+    const deck = await this.db.decks.get(deckId)
+    const kind = deck?.schedulerKind ?? 'sm2'
     const card: Card = {
       id: crypto.randomUUID(),
       deckId,
@@ -46,7 +45,7 @@ export class DexieStorage implements Storage {
       back,
       createdAt: now,
       updatedAt: now,
-      scheduling: this.scheduler.initial(now),
+      scheduling: getScheduler(kind).initial(now),
     }
     await this.db.cards.add(card)
     return card

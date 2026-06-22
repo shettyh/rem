@@ -1,6 +1,6 @@
 import { DexieStorage } from '../data/dexie/DexieStorage'
 import { RemDB } from '../data/dexie/db'
-import { scheduler, MS_PER_DAY } from '../domain/scheduler'
+import { MS_PER_DAY } from '../domain/scheduler'
 import type { Storage } from '../data/Storage'
 
 let counter = 0
@@ -12,7 +12,7 @@ let counter = 0
 export function freshStorage(): Storage {
   counter += 1
   const name = `rem-test-${Date.now()}-${counter}`
-  return new DexieStorage(new RemDB(name), scheduler)
+  return new DexieStorage(new RemDB(name))
 }
 
 export { MS_PER_DAY }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Dexie from 'dexie'
 import { RemDB } from './db'
 import { DexieStorage } from './DexieStorage'
-import { SM2Scheduler, MS_PER_DAY } from '../../domain/scheduler/sm2'
+import { MS_PER_DAY } from '../../domain/scheduler'
 
 const DB_NAME = 'rem-test'
 let db: RemDB
@@ -11,7 +11,7 @@ let storage: DexieStorage
 beforeEach(async () => {
   await Dexie.delete(DB_NAME)
   db = new RemDB(DB_NAME)
-  storage = new DexieStorage(db, new SM2Scheduler())
+  storage = new DexieStorage(db)
 })
 
 afterEach(() => {
@@ -69,6 +69,12 @@ describe('cards', () => {
     await storage.deleteCard(card.id)
 
     expect(await storage.getCard(card.id)).toBeUndefined()
+  })
+
+  it('creates FSRS-scheduled cards in an FSRS deck', async () => {
+    const deck = await storage.createDeck('Algo', 'fsrs')
+    const card = await storage.createCard(deck.id, 'q', 'a')
+    expect(card.scheduling.kind).toBe('fsrs')
   })
 })
 
