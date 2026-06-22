@@ -66,6 +66,7 @@ export function SettingsPage() {
     if (!file) return
     setError(null)
     setMessage(null)
+    setPending(null)
     let parsed: DeckBackup[]
     try {
       parsed = parseBackup(await file.text())
