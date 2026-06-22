@@ -87,7 +87,10 @@ the important part.
    drive an 11-screen sweep. Produced a screenshot-grounded issues list
    (`docs/superpowers/specs/2026-06-20-ui-issues.md`) as the input for the redesign.
 3. ✅ **UI redesign pass** (#1) — **shipped**: CSS token system, light/dark themes (no-FOUC toggle), true 3D study-card flip, and per-surface fixes (deck list, detail, editor, review end states).
-4. **Export / import backup** — carried over from MVP; cheap insurance for browser-only data.
+4. ✅ **Export / import backup** — **shipped**: a reusable Settings page (`/settings`, header ⚙)
+   with deck-scoped JSON export (multi-select + select-all) and replace-by-name import behind a
+   confirm-before-replace warning. Full-fidelity round-trip (scheduling preserved); all behind the
+   existing `Storage` seam (pure `backup.ts` + atomic `Storage.importDecks`).
 
 **Mid-term (smarter, still local)**
 4. **FSRS scheduler** (#3) behind the existing `Scheduler` interface.
