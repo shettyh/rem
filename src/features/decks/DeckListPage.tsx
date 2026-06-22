@@ -3,6 +3,13 @@ import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
 
+/** Time-of-day greeting for the home header. */
+function greeting(hour: number): string {
+  if (hour < 12) return 'Good morning.'
+  if (hour < 18) return 'Good afternoon.'
+  return 'Good evening.'
+}
+
 export function DeckListPage() {
   const storage = useStorage()
   const [name, setName] = useState('')
@@ -27,8 +34,34 @@ export function DeckListPage() {
     setName('')
   }
 
+  const totalDue = decks?.reduce((n, d) => n + d.due, 0) ?? 0
+  const deckCount = decks?.length ?? 0
+  const dueLine =
+    totalDue > 0
+      ? `You have ${totalDue} card${totalDue === 1 ? '' : 's'} due today.`
+      : "You're all caught up — nothing due today."
+
   return (
     <div className="stack">
+      {decks && decks.length > 0 && (
+        <header className="home-hero">
+          <div>
+            <p className="hero-greet">{greeting(new Date().getHours())}</p>
+            <p className="hero-sub">{dueLine}</p>
+          </div>
+          <div className="hero-stats">
+            <div className="stat stat-due">
+              <span className="stat-num">{totalDue}</span>
+              <span className="stat-label">due today</span>
+            </div>
+            <div className="stat">
+              <span className="stat-num">{deckCount}</span>
+              <span className="stat-label">deck{deckCount === 1 ? '' : 's'}</span>
+            </div>
+          </div>
+        </header>
+      )}
+
       <h1 className="page-title">Decks</h1>
 
       <form className="add-row" onSubmit={addDeck}>

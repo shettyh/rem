@@ -238,6 +238,14 @@ textarea {
   font-size: 13px;
 }
 
+/* highlight.js paints code.hljs with its own background + padding; neutralize it
+   so the single pre box (var(--code-bg)) shows instead of a nested dark block. */
+.rich-editor-content pre code.hljs,
+.markdown pre code.hljs {
+  background: transparent;
+  padding: 0;
+}
+
 .rich-editor-content code {
   font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
   font-size: 0.9em;
@@ -445,6 +453,61 @@ textarea {
 .empty-state .cta {
   margin-top: var(--space-4);
   display: inline-flex;
+}
+
+/* Home header + at-a-glance summary */
+.home-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-2) 0 var(--space-3);
+}
+
+.hero-greet {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  color: var(--text);
+  margin: 0;
+}
+
+.hero-sub {
+  color: var(--muted);
+  font-size: var(--text-base);
+  margin: var(--space-1) 0 0;
+}
+
+.hero-stats {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 132px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-num {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.stat-due .stat-num {
+  color: var(--accent);
+}
+
+.stat-label {
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 
 .add-row {

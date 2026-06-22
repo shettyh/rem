@@ -4,9 +4,17 @@ import { useStorage } from '../../data/StorageContext'
 import type { SchedulingState } from '../../domain/models'
 import { MS_PER_DAY } from '../../domain/scheduler'
 
-/** First non-empty line of markdown, used as a one-line card preview. */
-function firstLine(md: string): string {
-  return md.split('\n').find((l) => l.trim())?.trim() ?? ''
+/** First non-empty line of markdown, reduced to plain text for a one-line card preview. */
+export function cardPreview(md: string): string {
+  const line = md.split('\n').find((l) => l.trim())?.trim() ?? ''
+  return line
+    .replace(/^#{1,6}\s+/, '') // heading
+    .replace(/^>\s?/, '') // blockquote
+    .replace(/^[-*+]\s+/, '') // bullet list
+    .replace(/^\d+\.\s+/, '') // ordered list
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // link -> text
+    .replace(/(\*\*|__|~~|[*_`])/g, '') // emphasis / inline-code markers
+    .trim()
 }
 
 /** A card's review status, derived from existing scheduling state. */
@@ -75,7 +83,7 @@ export function DeckDetailPage() {
                   key={card.id}
                 >
                   <span className="card-front">
-                    {firstLine(card.front) || <span className="muted">Untitled card</span>}
+                    {cardPreview(card.front) || <span className="muted">Untitled card</span>}
                   </span>
                   <span className={`status-tag status-${status.kind}`}>{status.label}</span>
                   <span className="card-edit">edit</span>
