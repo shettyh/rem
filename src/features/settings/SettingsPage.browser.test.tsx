@@ -31,7 +31,7 @@ test('importing a same-named deck warns, then replaces on confirm', async () => 
       name: 'Spanish',
       createdAt: 1,
       cards: [
-        { front: 'hola', back: 'hello', createdAt: 1, updatedAt: 1, scheduling: { repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 1 } },
+        { front: 'hola', back: 'hello', createdAt: 1, updatedAt: 1, scheduling: { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 1 } },
       ],
     },
   ]

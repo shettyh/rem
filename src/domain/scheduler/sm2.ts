@@ -23,10 +23,11 @@ const QUALITY: Record<Grade, number> = {
  */
 export class SM2Scheduler implements Scheduler {
   initial(now: number): SchedulingState {
-    return { repetitions: 0, intervalDays: 0, easeFactor: INITIAL_EASE, due: now }
+    return { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: INITIAL_EASE, due: now }
   }
 
   next(state: SchedulingState, grade: Grade, now: number): SchedulingState {
+    if (state.kind !== 'sm2') throw new Error('SM2Scheduler received non-SM-2 state')
     const q = QUALITY[grade]
     const easeFactor = Math.max(
       MIN_EASE,
@@ -49,6 +50,6 @@ export class SM2Scheduler implements Scheduler {
       intervalDays = Math.round(state.intervalDays * easeFactor)
     }
 
-    return { repetitions, intervalDays, easeFactor, due: now + intervalDays * MS_PER_DAY }
+    return { kind: 'sm2', repetitions, intervalDays, easeFactor, due: now + intervalDays * MS_PER_DAY }
   }
 }

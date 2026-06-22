@@ -1,5 +1,5 @@
 import type { Grade, SchedulingState } from '../../domain/models'
-import { scheduler } from '../../domain/scheduler'
+import { scheduler, MS_PER_DAY } from '../../domain/scheduler'
 
 const GRADES: { grade: Grade; label: string; key: string }[] = [
   { grade: 'again', label: 'Again', key: '1' },
@@ -34,7 +34,11 @@ export function GradeButtons({
           onClick={() => onGrade(grade)}
         >
           <span className="grade-label">{label}</span>
-          <span className="grade-hint">{formatInterval(scheduler.next(scheduling, grade, now).intervalDays)}</span>
+          <span className="grade-hint">
+            {formatInterval(
+              Math.max(1, Math.round((scheduler.next(scheduling, grade, now).due - now) / MS_PER_DAY)),
+            )}
+          </span>
           <span className="kbd">{key}</span>
         </button>
       ))}

@@ -120,16 +120,32 @@ function parseCard(raw: unknown): CardBackup {
     back: raw.back,
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
-    scheduling: raw.scheduling,
+    scheduling: normalizeScheduling(raw.scheduling),
   }
 }
 
 function isScheduling(v: unknown): v is SchedulingState {
+  if (!isObject(v) || typeof v.due !== 'number') return false
+  if (v.kind === 'fsrs') {
+    return (
+      typeof v.stability === 'number' &&
+      typeof v.difficulty === 'number' &&
+      typeof v.reps === 'number' &&
+      typeof v.lapses === 'number' &&
+      typeof v.state === 'number' &&
+      (v.lastReview === null || typeof v.lastReview === 'number')
+    )
+  }
+  // sm2 (kind 'sm2' or legacy/absent)
   return (
-    isObject(v) &&
     typeof v.repetitions === 'number' &&
     typeof v.intervalDays === 'number' &&
-    typeof v.easeFactor === 'number' &&
-    typeof v.due === 'number'
+    typeof v.easeFactor === 'number'
   )
+}
+
+/** Stamp a `kind` onto legacy (pre-discriminant) scheduling state. */
+function normalizeScheduling(v: SchedulingState): SchedulingState {
+  if (v.kind === 'fsrs') return v
+  return { ...v, kind: 'sm2' }
 }

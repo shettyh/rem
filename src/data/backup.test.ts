@@ -9,7 +9,7 @@ import {
 import type { Storage } from './Storage'
 import type { Card, Deck } from '../domain/models'
 
-const sched = { repetitions: 1, intervalDays: 3, easeFactor: 2.6, due: 999 }
+const sched = { kind: 'sm2' as const, repetitions: 1, intervalDays: 3, easeFactor: 2.6, due: 999 }
 
 function fakeStorage(decks: Deck[], cardsByDeck: Record<string, Card[]>): Storage {
   return {
@@ -85,6 +85,25 @@ describe('parseBackup', () => {
   it('rejects a malformed card', () => {
     const bad = { format: 'rem-backup', version: 1, decks: [{ name: 'x', createdAt: 1, cards: [{ front: 'a' }] }] }
     expect(() => parseBackup(JSON.stringify(bad))).toThrow(/malformed/i)
+  })
+
+  it('stamps kind sm2 onto legacy scheduling without a kind', () => {
+    const legacy = JSON.stringify({
+      format: 'rem-backup', version: 1, exportedAt: 1,
+      decks: [{ name: 'X', createdAt: 1, cards: [
+        { front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: { repetitions: 1, intervalDays: 3, easeFactor: 2.6, due: 999 } },
+      ] }],
+    })
+    expect(parseBackup(legacy)[0].cards[0].scheduling).toEqual({ kind: 'sm2', repetitions: 1, intervalDays: 3, easeFactor: 2.6, due: 999 })
+  })
+
+  it('accepts FSRS scheduling', () => {
+    const f = { kind: 'fsrs', stability: 5, difficulty: 5, reps: 1, lapses: 0, state: 2, lastReview: 1, due: 2 }
+    const file = JSON.stringify({
+      format: 'rem-backup', version: 1, exportedAt: 1,
+      decks: [{ name: 'X', createdAt: 1, cards: [{ front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: f }] }],
+    })
+    expect(parseBackup(file)[0].cards[0].scheduling).toEqual(f)
   })
 })
 

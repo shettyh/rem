@@ -47,8 +47,7 @@ describe('cards', () => {
     const card = await storage.createCard(deck.id, 'front', 'back')
 
     expect(card.front).toBe('front')
-    expect(card.scheduling.easeFactor).toBe(2.5)
-    expect(card.scheduling.repetitions).toBe(0)
+    expect(card.scheduling).toMatchObject({ kind: 'sm2', easeFactor: 2.5, repetitions: 0 })
     expect(card.scheduling.due).toBeGreaterThanOrEqual(before)
   })
 
@@ -82,7 +81,7 @@ describe('due queue', () => {
     const now = Date.now()
     // Push card A into the future so it is no longer due.
     await storage.updateCard(a.id, {
-      scheduling: { repetitions: 1, intervalDays: 1, easeFactor: 2.5, due: now + MS_PER_DAY },
+      scheduling: { kind: 'sm2', repetitions: 1, intervalDays: 1, easeFactor: 2.5, due: now + MS_PER_DAY },
     })
 
     const due = await storage.dueCards(deck.id, now)
@@ -109,7 +108,7 @@ describe('importDecks', () => {
         name: 'Spanish',
         createdAt: 5,
         cards: [
-          { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, scheduling: { repetitions: 2, intervalDays: 4, easeFactor: 2.7, due: 8 } },
+          { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, scheduling: { kind: 'sm2', repetitions: 2, intervalDays: 4, easeFactor: 2.7, due: 8 } },
         ],
       },
     ])
@@ -120,7 +119,7 @@ describe('importDecks', () => {
     const cards = await storage.listCards(decks[0].id)
     expect(cards).toHaveLength(1)
     expect(cards[0].front).toBe('hola')
-    expect(cards[0].scheduling).toEqual({ repetitions: 2, intervalDays: 4, easeFactor: 2.7, due: 8 })
+    expect(cards[0].scheduling).toEqual({ kind: 'sm2', repetitions: 2, intervalDays: 4, easeFactor: 2.7, due: 8 })
     expect(cards[0].createdAt).toBe(6)
     expect(cards[0].updatedAt).toBe(7)
   })
@@ -131,7 +130,7 @@ describe('importDecks', () => {
 
     const result = await storage.importDecks([
       { name: 'Spanish', createdAt: 5, cards: [
-        { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, scheduling: { repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 8 } },
+        { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, scheduling: { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 8 } },
       ] },
     ])
 

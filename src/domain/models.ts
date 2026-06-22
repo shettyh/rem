@@ -11,8 +11,12 @@ export interface Deck {
 /** How well the user recalled a card during review. */
 export type Grade = 'again' | 'hard' | 'good' | 'easy'
 
-/** Per-card scheduling state owned by the scheduling algorithm. */
-export interface SchedulingState {
+/** Which scheduling algorithm owns a deck's cards. */
+export type SchedulerKind = 'sm2' | 'fsrs'
+
+/** SM-2 per-card scheduling state. */
+export interface SM2State {
+  kind: 'sm2'
   /** Number of consecutive successful reviews. */
   repetitions: number
   /** Current inter-review interval in days. */
@@ -22,6 +26,28 @@ export interface SchedulingState {
   /** When the card is next due (epoch ms). */
   due: number
 }
+
+/** FSRS per-card scheduling state. */
+export interface FSRSState {
+  kind: 'fsrs'
+  /** Memory stability in days. */
+  stability: number
+  /** Card difficulty (1–10). */
+  difficulty: number
+  /** Total reviews so far. */
+  reps: number
+  /** Number of failed reviews. */
+  lapses: number
+  /** ts-fsrs State enum: 0 New / 1 Learning / 2 Review / 3 Relearning. */
+  state: number
+  /** Last review time (epoch ms), or null if never reviewed. */
+  lastReview: number | null
+  /** When the card is next due (epoch ms). */
+  due: number
+}
+
+/** Per-card scheduling state, owned by the deck's scheduling algorithm. */
+export type SchedulingState = SM2State | FSRSState
 
 export interface Card {
   id: ID

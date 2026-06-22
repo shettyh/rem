@@ -22,7 +22,8 @@ export function cardStatus(
   s: SchedulingState,
   now: number,
 ): { kind: 'new' | 'due' | 'scheduled'; label: string } {
-  if (s.repetitions === 0) return { kind: 'new', label: 'new' }
+  const isNew = s.kind === 'sm2' ? s.repetitions === 0 : s.reps === 0
+  if (isNew) return { kind: 'new', label: 'new' }
   if (s.due <= now) return { kind: 'due', label: 'due' }
   const days = Math.max(1, Math.round((s.due - now) / MS_PER_DAY))
   const label = days >= 30 ? `${Math.round(days / 30)}mo` : `${days}d`
