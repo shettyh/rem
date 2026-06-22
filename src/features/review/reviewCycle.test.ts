@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import Dexie from 'dexie'
 import { RemDB } from '../../data/dexie/db'
 import { DexieStorage } from '../../data/dexie/DexieStorage'
-import { MS_PER_DAY } from '../../domain/scheduler/sm2'
-import { getScheduler } from '../../domain/scheduler'
+import { getScheduler, MS_PER_DAY } from '../../domain/scheduler'
 
 /**
  * Composes storage + scheduler exactly as ReviewPage does, guarding the

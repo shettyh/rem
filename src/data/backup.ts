@@ -151,7 +151,8 @@ function isScheduling(v: unknown): v is SchedulingState {
   )
 }
 
-/** Stamp a `kind` onto legacy (pre-discriminant) scheduling state. */
+/** Stamp a `kind` onto legacy (pre-discriminant) scheduling state. `v` may be a
+ *  legacy object with no `kind` — `isScheduling` admits those as the SM-2 shape. */
 function normalizeScheduling(v: SchedulingState): SchedulingState {
   if (v.kind === 'fsrs') return v
   return { ...v, kind: 'sm2' }

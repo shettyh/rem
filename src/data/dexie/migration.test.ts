@@ -26,7 +26,7 @@ describe('v2 migration', () => {
     const deck = await db.decks.get('d1')
     const card = await db.cards.get('c1')
     expect(deck?.schedulerKind).toBe('sm2')
-    expect(card?.scheduling.kind).toBe('sm2')
+    expect(card?.scheduling?.kind).toBe('sm2')
     db.close()
   })
 })

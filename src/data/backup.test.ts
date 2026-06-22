@@ -102,9 +102,11 @@ describe('parseBackup', () => {
     const f = { kind: 'fsrs', stability: 5, difficulty: 5, reps: 1, lapses: 0, state: 2, lastReview: 1, due: 2 }
     const file = JSON.stringify({
       format: 'rem-backup', version: 1, exportedAt: 1,
-      decks: [{ name: 'X', createdAt: 1, cards: [{ front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: f }] }],
+      decks: [{ name: 'X', createdAt: 1, schedulerKind: 'fsrs', cards: [{ front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: f }] }],
     })
-    expect(parseBackup(file)[0].cards[0].scheduling).toEqual(f)
+    const parsed = parseBackup(file)[0]
+    expect(parsed.schedulerKind).toBe('fsrs')
+    expect(parsed.cards[0].scheduling).toEqual(f)
   })
 
   it('defaults a deck without schedulerKind to sm2', () => {

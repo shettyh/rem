@@ -21,13 +21,13 @@ export class FSRSScheduler implements Scheduler {
   private readonly f = fsrs(params)
 
   initial(now: number): SchedulingState {
-    return toState(createEmptyCard(new Date(now)), now)
+    return toState(createEmptyCard(new Date(now)))
   }
 
   next(state: SchedulingState, grade: Grade, now: number): SchedulingState {
     if (state.kind !== 'fsrs') throw new Error('FSRSScheduler received non-FSRS state')
     const { card } = this.f.next(toCard(state), new Date(now), RATING[grade])
-    return toState(card, now)
+    return toState(card)
   }
 }
 
@@ -46,7 +46,7 @@ function toCard(s: FSRSState): FsrsCard {
   } as FsrsCard
 }
 
-function toState(card: FsrsCard, _now: number): FSRSState {
+function toState(card: FsrsCard): FSRSState {
   return {
     kind: 'fsrs',
     due: card.due.getTime(),
