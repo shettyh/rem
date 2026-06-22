@@ -1,6 +1,7 @@
 import type { Card, Deck, ID } from '../../domain/models'
 import type { Scheduler } from '../../domain/scheduler'
-import type { CardPatch, Storage } from '../Storage'
+import type { CardPatch, ImportResult, Storage } from '../Storage'
+import { planImport, type DeckBackup } from '../backup'
 import type { RemDB } from './db'
 
 /** IndexedDB-backed {@link Storage}, using Dexie. */
@@ -76,5 +77,37 @@ export class DexieStorage implements Storage {
   async countDue(deckId: ID, now: number): Promise<number> {
     const cards = await this.dueCards(deckId, now)
     return cards.length
+  }
+
+  async importDecks(decks: DeckBackup[]): Promise<ImportResult> {
+    const incomingNames = decks.map((d) => d.name)
+    return this.db.transaction('rw', this.db.decks, this.db.cards, async () => {
+      const existing = await this.db.decks.toArray()
+      const result = planImport(incomingNames, existing.map((d) => d.name))
+
+      const toReplace = new Set(result.replaced)
+      const deckIdsToDelete = existing.filter((d) => toReplace.has(d.name)).map((d) => d.id)
+      for (const id of deckIdsToDelete) {
+        await this.db.cards.where('deckId').equals(id).delete()
+        await this.db.decks.delete(id)
+      }
+
+      for (const d of decks) {
+        const deckId = crypto.randomUUID()
+        await this.db.decks.add({ id: deckId, name: d.name, createdAt: d.createdAt })
+        for (const c of d.cards) {
+          await this.db.cards.add({
+            id: crypto.randomUUID(),
+            deckId,
+            front: c.front,
+            back: c.back,
+            createdAt: c.createdAt,
+            updatedAt: c.updatedAt,
+            scheduling: c.scheduling,
+          })
+        }
+      }
+      return result
+    })
   }
 }

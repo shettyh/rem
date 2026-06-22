@@ -1,4 +1,11 @@
 import type { Card, Deck, ID, SchedulingState } from '../domain/models'
+import type { DeckBackup } from './backup'
+
+/** Outcome of an import: deck names added fresh vs. names that replaced existing decks. */
+export interface ImportResult {
+  added: string[]
+  replaced: string[]
+}
 
 /** Fields of a card that can be patched after creation. */
 export interface CardPatch {
@@ -30,4 +37,8 @@ export interface Storage {
   dueCards(deckId: ID, now: number): Promise<Card[]>
   /** How many cards in a deck are due at or before `now`. */
   countDue(deckId: ID, now: number): Promise<number>
+
+  /** Insert decks+cards; any existing deck whose name matches an incoming deck
+   *  is removed first (replace-by-name). IDs are regenerated. */
+  importDecks(decks: DeckBackup[]): Promise<ImportResult>
 }

@@ -101,3 +101,56 @@ describe('due queue', () => {
     expect(await storage.countDue(d2.id, now)).toBe(1)
   })
 })
+
+describe('importDecks', () => {
+  it('adds brand-new decks with their cards', async () => {
+    const result = await storage.importDecks([
+      {
+        name: 'Spanish',
+        createdAt: 5,
+        cards: [
+          { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, scheduling: { repetitions: 2, intervalDays: 4, easeFactor: 2.7, due: 8 } },
+        ],
+      },
+    ])
+
+    expect(result).toEqual({ added: ['Spanish'], replaced: [] })
+    const decks = await storage.listDecks()
+    expect(decks).toHaveLength(1)
+    const cards = await storage.listCards(decks[0].id)
+    expect(cards).toHaveLength(1)
+    expect(cards[0].front).toBe('hola')
+    expect(cards[0].scheduling).toEqual({ repetitions: 2, intervalDays: 4, easeFactor: 2.7, due: 8 })
+    expect(cards[0].createdAt).toBe(6)
+    expect(cards[0].updatedAt).toBe(7)
+  })
+
+  it('replaces a same-named deck, dropping its old cards', async () => {
+    const old = await storage.createDeck('Spanish')
+    await storage.createCard(old.id, 'old-front', 'old-back')
+
+    const result = await storage.importDecks([
+      { name: 'Spanish', createdAt: 5, cards: [
+        { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, scheduling: { repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 8 } },
+      ] },
+    ])
+
+    expect(result).toEqual({ added: [], replaced: ['Spanish'] })
+    const decks = await storage.listDecks()
+    expect(decks).toHaveLength(1)
+    expect(decks[0].id).not.toBe(old.id) // fresh id
+    const cards = await storage.listCards(decks[0].id)
+    expect(cards.map((c) => c.front)).toEqual(['new'])
+    expect(await storage.getCard('old-front')).toBeUndefined()
+  })
+
+  it('removes every existing deck sharing an incoming name', async () => {
+    await storage.createDeck('Dup')
+    await storage.createDeck('Dup')
+
+    await storage.importDecks([{ name: 'Dup', createdAt: 1, cards: [] }])
+
+    const decks = await storage.listDecks()
+    expect(decks.filter((d) => d.name === 'Dup')).toHaveLength(1)
+  })
+})
