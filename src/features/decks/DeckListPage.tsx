@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
+import type { SchedulerKind } from '../../domain/models'
 
 /** Time-of-day greeting for the home header. */
 function greeting(hour: number): string {
@@ -13,6 +14,7 @@ function greeting(hour: number): string {
 export function DeckListPage() {
   const storage = useStorage()
   const [name, setName] = useState('')
+  const [kind, setKind] = useState<SchedulerKind>('fsrs')
 
   const decks = useLiveQuery(async () => {
     const all = await storage.listDecks()
@@ -30,7 +32,7 @@ export function DeckListPage() {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) return
-    await storage.createDeck(trimmed)
+    await storage.createDeck(trimmed, kind)
     setName('')
   }
 
@@ -72,6 +74,15 @@ export function DeckListPage() {
           onChange={(e) => setName(e.target.value)}
           aria-label="New deck name"
         />
+        <select
+          className="text-input sched-picker"
+          value={kind}
+          onChange={(e) => setKind(e.target.value as SchedulerKind)}
+          aria-label="Scheduler"
+        >
+          <option value="fsrs">FSRS (recommended)</option>
+          <option value="sm2">SM-2</option>
+        </select>
         <button className="btn btn-primary" type="submit" disabled={!name.trim()}>
           Add deck
         </button>

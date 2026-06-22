@@ -45,7 +45,10 @@ export function DeckDetailPage() {
   return (
     <div className="stack">
       <div className="row between">
-        <h1 className="page-title">{deck.name}</h1>
+        <h1 className="page-title">
+          {deck.name}
+          <span className="sched-badge">{deck.schedulerKind === 'fsrs' ? 'FSRS' : 'SM-2'}</span>
+        </h1>
         {cards.length === 0 ? null : due && due > 0 ? (
           <Link to={`/decks/${deckId}/study`} className="btn btn-primary">
             Study {due}
