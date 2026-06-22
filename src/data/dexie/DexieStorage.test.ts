@@ -127,7 +127,7 @@ describe('importDecks', () => {
 
   it('replaces a same-named deck, dropping its old cards', async () => {
     const old = await storage.createDeck('Spanish')
-    await storage.createCard(old.id, 'old-front', 'old-back')
+    const oldCard = await storage.createCard(old.id, 'old-front', 'old-back')
 
     const result = await storage.importDecks([
       { name: 'Spanish', createdAt: 5, cards: [
@@ -141,7 +141,7 @@ describe('importDecks', () => {
     expect(decks[0].id).not.toBe(old.id) // fresh id
     const cards = await storage.listCards(decks[0].id)
     expect(cards.map((c) => c.front)).toEqual(['new'])
-    expect(await storage.getCard('old-front')).toBeUndefined()
+    expect(await storage.getCard(oldCard.id)).toBeUndefined()
   })
 
   it('removes every existing deck sharing an incoming name', async () => {
