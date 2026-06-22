@@ -107,6 +107,7 @@ describe('importDecks', () => {
       {
         name: 'Spanish',
         createdAt: 5,
+        schedulerKind: 'sm2',
         cards: [
           { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, scheduling: { kind: 'sm2', repetitions: 2, intervalDays: 4, easeFactor: 2.7, due: 8 } },
         ],
@@ -129,7 +130,7 @@ describe('importDecks', () => {
     const oldCard = await storage.createCard(old.id, 'old-front', 'old-back')
 
     const result = await storage.importDecks([
-      { name: 'Spanish', createdAt: 5, cards: [
+      { name: 'Spanish', createdAt: 5, schedulerKind: 'sm2', cards: [
         { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, scheduling: { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 8 } },
       ] },
     ])
@@ -147,7 +148,7 @@ describe('importDecks', () => {
     await storage.createDeck('Dup')
     await storage.createDeck('Dup')
 
-    await storage.importDecks([{ name: 'Dup', createdAt: 1, cards: [] }])
+    await storage.importDecks([{ name: 'Dup', createdAt: 1, schedulerKind: 'sm2', cards: [] }])
 
     const decks = await storage.listDecks()
     expect(decks.filter((d) => d.name === 'Dup')).toHaveLength(1)

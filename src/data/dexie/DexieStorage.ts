@@ -1,4 +1,4 @@
-import type { Card, Deck, ID } from '../../domain/models'
+import type { Card, Deck, ID, SchedulerKind } from '../../domain/models'
 import type { Scheduler } from '../../domain/scheduler'
 import type { CardPatch, ImportResult, Storage } from '../Storage'
 import { planImport, type DeckBackup } from '../backup'
@@ -11,11 +11,12 @@ export class DexieStorage implements Storage {
     private readonly scheduler: Scheduler,
   ) {}
 
-  async createDeck(name: string): Promise<Deck> {
+  async createDeck(name: string, kind: SchedulerKind = 'sm2'): Promise<Deck> {
     const deck: Deck = {
       id: crypto.randomUUID(),
       name: name.trim(),
       createdAt: Date.now(),
+      schedulerKind: kind,
     }
     await this.db.decks.add(deck)
     return deck
@@ -94,7 +95,7 @@ export class DexieStorage implements Storage {
 
       for (const d of decks) {
         const deckId = crypto.randomUUID()
-        await this.db.decks.add({ id: deckId, name: d.name, createdAt: d.createdAt })
+        await this.db.decks.add({ id: deckId, name: d.name, createdAt: d.createdAt, schedulerKind: d.schedulerKind })
         for (const c of d.cards) {
           await this.db.cards.add({
             id: crypto.randomUUID(),

@@ -1,4 +1,4 @@
-import type { ID, SchedulingState } from '../domain/models'
+import type { ID, SchedulerKind, SchedulingState } from '../domain/models'
 import type { Storage } from './Storage'
 
 export interface CardBackup {
@@ -12,6 +12,7 @@ export interface CardBackup {
 export interface DeckBackup {
   name: string
   createdAt: number
+  schedulerKind: SchedulerKind
   cards: CardBackup[]
 }
 
@@ -34,6 +35,7 @@ export async function collectBackup(storage: Storage, deckIds: ID[]): Promise<De
     out.push({
       name: deck.name,
       createdAt: deck.createdAt,
+      schedulerKind: deck.schedulerKind,
       cards: cards.map((c) => ({
         front: c.front,
         back: c.back,
@@ -101,7 +103,12 @@ function parseDeck(raw: unknown): DeckBackup {
   ) {
     throw new Error('Backup file is malformed.')
   }
-  return { name: raw.name, createdAt: raw.createdAt, cards: raw.cards.map(parseCard) }
+  return {
+    name: raw.name,
+    createdAt: raw.createdAt,
+    schedulerKind: raw.schedulerKind === 'fsrs' ? 'fsrs' : 'sm2',
+    cards: raw.cards.map(parseCard),
+  }
 }
 
 function parseCard(raw: unknown): CardBackup {

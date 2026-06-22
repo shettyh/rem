@@ -18,7 +18,7 @@ function fakeStorage(decks: Deck[], cardsByDeck: Record<string, Card[]>): Storag
   } as unknown as Storage
 }
 
-const deckA: Deck = { id: 'a', name: 'Spanish', createdAt: 10 }
+const deckA: Deck = { id: 'a', name: 'Spanish', createdAt: 10, schedulerKind: 'sm2' }
 const cardA: Card = {
   id: 'c1', deckId: 'a', front: 'hola', back: 'hello',
   createdAt: 11, updatedAt: 12, scheduling: sched,
@@ -32,6 +32,7 @@ describe('collectBackup', () => {
       {
         name: 'Spanish',
         createdAt: 10,
+        schedulerKind: 'sm2',
         cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }],
       },
     ])
@@ -45,7 +46,7 @@ describe('collectBackup', () => {
 
 describe('serializeBackup', () => {
   it('emits the format/version/exportedAt envelope', () => {
-    const decks: DeckBackup[] = [{ name: 'Spanish', createdAt: 10, cards: [] }]
+    const decks: DeckBackup[] = [{ name: 'Spanish', createdAt: 10, schedulerKind: 'sm2', cards: [] }]
     const parsed = JSON.parse(serializeBackup(decks, 1234))
     expect(parsed.format).toBe('rem-backup')
     expect(parsed.version).toBe(1)
@@ -56,13 +57,13 @@ describe('serializeBackup', () => {
 
 describe('parseBackup', () => {
   const valid = serializeBackup(
-    [{ name: 'Spanish', createdAt: 10, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] }],
+    [{ name: 'Spanish', createdAt: 10, schedulerKind: 'sm2', cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] }],
     1234,
   )
 
   it('round-trips valid input', () => {
     expect(parseBackup(valid)).toEqual([
-      { name: 'Spanish', createdAt: 10, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] },
+      { name: 'Spanish', createdAt: 10, schedulerKind: 'sm2', cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] },
     ])
   })
 
@@ -104,6 +105,14 @@ describe('parseBackup', () => {
       decks: [{ name: 'X', createdAt: 1, cards: [{ front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: f }] }],
     })
     expect(parseBackup(file)[0].cards[0].scheduling).toEqual(f)
+  })
+
+  it('defaults a deck without schedulerKind to sm2', () => {
+    const legacy = JSON.stringify({
+      format: 'rem-backup', version: 1, exportedAt: 1,
+      decks: [{ name: 'X', createdAt: 1, cards: [] }],
+    })
+    expect(parseBackup(legacy)[0].schedulerKind).toBe('sm2')
   })
 })
 

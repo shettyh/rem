@@ -1,4 +1,4 @@
-import type { Card, Deck, ID, SchedulingState } from '../domain/models'
+import type { Card, Deck, ID, SchedulerKind, SchedulingState } from '../domain/models'
 import type { DeckBackup } from './backup'
 
 /** Outcome of an import: deck names added fresh vs. names that replaced existing decks. */
@@ -22,7 +22,7 @@ export interface CardPatch {
  * implement the same interface without the UI noticing.
  */
 export interface Storage {
-  createDeck(name: string): Promise<Deck>
+  createDeck(name: string, kind?: SchedulerKind): Promise<Deck>
   listDecks(): Promise<Deck[]>
   getDeck(id: ID): Promise<Deck | undefined>
   deleteDeck(id: ID): Promise<void>

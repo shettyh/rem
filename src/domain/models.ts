@@ -6,6 +6,8 @@ export interface Deck {
   id: ID
   name: string
   createdAt: number
+  /** Which scheduling algorithm this deck's cards use (fixed at creation). */
+  schedulerKind: SchedulerKind
 }
 
 /** How well the user recalled a card during review. */
