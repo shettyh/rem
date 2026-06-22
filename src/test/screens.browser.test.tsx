@@ -4,6 +4,7 @@ import { DeckListPage } from '../features/decks/DeckListPage'
 import { DeckDetailPage } from '../features/cards/DeckDetailPage'
 import { CardEditorPage } from '../features/cards/CardEditorPage'
 import { ReviewPage } from '../features/review/ReviewPage'
+import { SettingsPage } from '../features/settings/SettingsPage'
 import { freshStorage, MS_PER_DAY } from './seed'
 import { renderRoute } from './renderRoute'
 import { shoot } from './screenshot'
@@ -66,6 +67,17 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       const deck = await storage.createDeck('Empty deck')
       await renderRoute({ storage, entry: `/decks/${deck.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
       await expect.element(page.getByText('No cards yet', { exact: false })).toBeVisible()
+    },
+  },
+  {
+    name: 'settings',
+    run: async () => {
+      const storage = freshStorage()
+      await storage.createDeck('TypeScript')
+      await storage.createDeck('Spanish vocabulary')
+      await renderRoute({ storage, entry: '/settings', path: '/settings', element: <SettingsPage /> })
+      await expect.element(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+      await expect.element(page.getByLabelText('Settings')).toBeVisible() // header gear link
     },
   },
   {
