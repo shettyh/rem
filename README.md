@@ -41,4 +41,4 @@ cards repeat in a day; successful cards grow 1 → 6 → ×ease days. Ease never
 
 ## Not yet built (next iterations)
 
-Export/import backup · images in cards · nested deck namespacing · stats dashboard · sync backend.
+Images in cards · nested deck namespacing · stats dashboard.
