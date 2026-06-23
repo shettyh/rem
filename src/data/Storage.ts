@@ -1,5 +1,7 @@
 import type { Card, Deck, ID, SchedulerKind, SchedulingState } from '../domain/models'
 import type { DeckBackup } from './backup'
+import type { RepoSnapshot } from './sync/snapshot'
+import type { DbOps } from './sync/merge'
 
 /** Outcome of an import: deck names added fresh vs. names that replaced existing decks. */
 export interface ImportResult {
@@ -41,4 +43,9 @@ export interface Storage {
   /** Insert decks+cards; any existing deck whose name matches an incoming deck
    *  is removed first (replace-by-name). IDs are regenerated. */
   importDecks(decks: DeckBackup[]): Promise<ImportResult>
+
+  /** Full point-in-time snapshot of the store, for sync. */
+  exportSnapshot(): Promise<RepoSnapshot>
+  /** Apply a merge result: upsert records, delete by id, persist tombstones. */
+  applyMerge(ops: DbOps): Promise<void>
 }

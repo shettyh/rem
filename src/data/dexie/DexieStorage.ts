@@ -2,6 +2,8 @@ import type { Card, Deck, ID, SchedulerKind } from '../../domain/models'
 import { getScheduler } from '../../domain/scheduler'
 import type { CardPatch, ImportResult, Storage } from '../Storage'
 import { planImport, type DeckBackup } from '../backup'
+import type { RepoSnapshot } from '../sync/snapshot'
+import type { DbOps } from '../sync/merge'
 import type { RemDB } from './db'
 
 /** IndexedDB-backed {@link Storage}, using Dexie. */
@@ -28,9 +30,10 @@ export class DexieStorage implements Storage {
   }
 
   async deleteDeck(id: ID): Promise<void> {
-    await this.db.transaction('rw', this.db.decks, this.db.cards, async () => {
+    await this.db.transaction('rw', this.db.decks, this.db.cards, this.db.tombstones, async () => {
       await this.db.cards.where('deckId').equals(id).delete()
       await this.db.decks.delete(id)
+      await this.db.tombstones.put({ id, kind: 'deck', deletedAt: Date.now() })
     })
   }
 
@@ -64,7 +67,10 @@ export class DexieStorage implements Storage {
   }
 
   async deleteCard(id: ID): Promise<void> {
-    await this.db.cards.delete(id)
+    await this.db.transaction('rw', this.db.cards, this.db.tombstones, async () => {
+      await this.db.cards.delete(id)
+      await this.db.tombstones.put({ id, kind: 'card', deletedAt: Date.now() })
+    })
   }
 
   async dueCards(deckId: ID, now: number): Promise<Card[]> {
@@ -108,6 +114,25 @@ export class DexieStorage implements Storage {
         }
       }
       return result
+    })
+  }
+
+  async exportSnapshot(): Promise<RepoSnapshot> {
+    const [decks, cards, tombstones] = await Promise.all([
+      this.db.decks.toArray(),
+      this.db.cards.toArray(),
+      this.db.tombstones.toArray(),
+    ])
+    return { decks, cards, tombstones }
+  }
+
+  async applyMerge(ops: DbOps): Promise<void> {
+    await this.db.transaction('rw', this.db.decks, this.db.cards, this.db.tombstones, async () => {
+      if (ops.deleteCardIds.length) await this.db.cards.bulkDelete(ops.deleteCardIds)
+      if (ops.deleteDeckIds.length) await this.db.decks.bulkDelete(ops.deleteDeckIds)
+      if (ops.upsertDecks.length) await this.db.decks.bulkPut(ops.upsertDecks)
+      if (ops.upsertCards.length) await this.db.cards.bulkPut(ops.upsertCards)
+      if (ops.tombstones.length) await this.db.tombstones.bulkPut(ops.tombstones)
     })
   }
 }
