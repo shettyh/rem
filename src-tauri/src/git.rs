@@ -222,4 +222,143 @@ mod tests {
 
         fs::remove_dir_all(&dir).unwrap();
     }
+
+    /// Helper: run a plain git command for fixture setup; panics on failure.
+    fn fixture_git(args: &[&str], dir: &str) {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git not found");
+        if !out.status.success() {
+            panic!(
+                "fixture git {:?} failed in {}:\n{}",
+                args,
+                dir,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+    }
+
+    /// Contract #3 + first push: git_fetch_reset returns Ok(false) for an empty remote,
+    /// then Ok(true) after git_commit_push creates origin/main.
+    #[test]
+    fn test_fetch_reset_empty_vs_populated() {
+        let root = std::env::temp_dir()
+            .join(format!("rem-git-it-{}-0", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+
+        let origin = root.join("origin.git");
+        let clone1 = root.join("clone1");
+        let origin_str = origin.to_string_lossy().to_string();
+        let clone1_str = clone1.to_string_lossy().to_string();
+
+        // 1. Bare repo as the remote.
+        fixture_git(&["init", "--bare", &origin_str], &root_str);
+
+        // 2. Clone the empty bare repo (prints a harmless warning, that's fine).
+        fixture_git(&["clone", &origin_str, &clone1_str], &root_str);
+
+        // 3. fetch_reset on an empty remote → Ok(false).
+        let result = git_fetch_reset(clone1_str.clone());
+        assert_eq!(result, Ok(false), "expected Ok(false) for empty remote, got {:?}", result);
+
+        // 4. Write the required files.
+        let mut files = HashMap::new();
+        files.insert("rem.json".to_string(), "{}".to_string());
+        files.insert("decks/a.json".to_string(), "{}".to_string());
+        files.insert("tombstones.json".to_string(), "[]".to_string());
+        git_write_files(clone1_str.clone(), files).unwrap();
+
+        // 5. First push creates origin/main.
+        let push_result = git_commit_push(clone1_str.clone(), "first".to_string()).unwrap();
+        assert!(push_result.pushed, "expected pushed==true on first commit");
+        assert!(!push_result.rejected, "expected rejected==false on first commit");
+
+        // 6. fetch_reset now sees origin/main → Ok(true).
+        let result2 = git_fetch_reset(clone1_str.clone());
+        assert_eq!(result2, Ok(true), "expected Ok(true) after first push, got {:?}", result2);
+
+        // 7. git_read_files contains decks/a.json.
+        let files_read = git_read_files(clone1_str).unwrap();
+        assert!(
+            files_read.contains_key("decks/a.json"),
+            "expected decks/a.json in read result; keys: {:?}",
+            files_read.keys().collect::<Vec<_>>()
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Contract #4: non-fast-forward push returns pushed==false, rejected==true;
+    /// after fetch_reset the retry succeeds.
+    #[test]
+    fn test_commit_push_non_fast_forward() {
+        let root = std::env::temp_dir()
+            .join(format!("rem-git-it-{}-1", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let root_str = root.to_string_lossy().to_string();
+
+        let origin = root.join("origin.git");
+        let clone1 = root.join("clone1");
+        let clone2 = root.join("clone2");
+        let origin_str = origin.to_string_lossy().to_string();
+        let clone1_str = clone1.to_string_lossy().to_string();
+        let clone2_str = clone2.to_string_lossy().to_string();
+
+        // 1. Bare remote + clone1.
+        fixture_git(&["init", "--bare", &origin_str], &root_str);
+        fixture_git(&["clone", &origin_str, &clone1_str], &root_str);
+
+        // 2. Seed origin via clone1 (first commit).
+        let mut seed_files = HashMap::new();
+        seed_files.insert("rem.json".to_string(), "{}".to_string());
+        seed_files.insert("tombstones.json".to_string(), "[]".to_string());
+        git_write_files(clone1_str.clone(), seed_files).unwrap();
+        let r = git_commit_push(clone1_str.clone(), "first".to_string()).unwrap();
+        assert!(r.pushed, "seed push from clone1 should succeed");
+
+        // 3. clone2 gets the first commit.
+        fixture_git(&["clone", &origin_str, &clone2_str], &root_str);
+
+        // 4. clone2 advances origin/main.
+        let result_fetch2 = git_fetch_reset(clone2_str.clone());
+        assert_eq!(result_fetch2, Ok(true), "clone2 fetch_reset should see origin/main");
+        let mut files2 = HashMap::new();
+        files2.insert("rem.json".to_string(), "{}".to_string());
+        files2.insert("decks/b.json".to_string(), "{}".to_string());
+        files2.insert("tombstones.json".to_string(), "[]".to_string());
+        git_write_files(clone2_str.clone(), files2).unwrap();
+        let r2 = git_commit_push(clone2_str.clone(), "from2".to_string()).unwrap();
+        assert!(r2.pushed, "clone2 push should be a fast-forward");
+
+        // 5. clone1 is behind; its push must be rejected (non-fast-forward).
+        let mut files1 = HashMap::new();
+        files1.insert("rem.json".to_string(), "{}".to_string());
+        files1.insert("decks/c.json".to_string(), "{}".to_string());
+        files1.insert("tombstones.json".to_string(), "[]".to_string());
+        git_write_files(clone1_str.clone(), files1.clone()).unwrap();
+        let r_rejected = git_commit_push(clone1_str.clone(), "from1".to_string()).unwrap();
+        assert!(
+            !r_rejected.pushed && r_rejected.rejected,
+            "expected pushed==false, rejected==true; got {:?}/{:?}",
+            r_rejected.pushed,
+            r_rejected.rejected
+        );
+
+        // 6. Retry: fetch_reset resets clone1 to clone2's state, then push succeeds.
+        let result_retry_fetch = git_fetch_reset(clone1_str.clone());
+        assert_eq!(result_retry_fetch, Ok(true), "retry fetch_reset should see origin/main");
+        git_write_files(clone1_str.clone(), files1).unwrap();
+        let r_retry = git_commit_push(clone1_str.clone(), "from1-retry".to_string()).unwrap();
+        assert!(
+            r_retry.pushed && !r_retry.rejected,
+            "retry push should succeed; got pushed={} rejected={}",
+            r_retry.pushed,
+            r_retry.rejected
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }
