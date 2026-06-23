@@ -4,7 +4,7 @@ import { DexieStorage } from './dexie/DexieStorage'
 import { RemDB } from './dexie/db'
 
 /** The single app-wide storage instance (IndexedDB via Dexie). */
-const defaultStorage: Storage = new DexieStorage(new RemDB())
+export const defaultStorage: Storage = new DexieStorage(new RemDB())
 
 const StorageContext = createContext<Storage>(defaultStorage)
 

@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
+import { SyncSection } from './SyncSection'
 import {
   collectBackup,
   serializeBackup,
@@ -85,6 +86,8 @@ export function SettingsPage() {
   return (
     <div className="stack">
       <h1 className="page-title">Settings</h1>
+
+      <SyncSection />
 
       <section className="settings-section">
         <h2>Export decks</h2>

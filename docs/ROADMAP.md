@@ -100,6 +100,13 @@ the important part.
 5. **Embedding-powered features** (#2) — duplicate guard + related cards + semantic search, via a
    local embedding model (transformers.js).
 
+**Sync & multi-device**
+- ✅ **Git-backed sync** — **shipped (pending real-world validation)**: rem now also builds as a
+  **Tauri v2 desktop app** that syncs decks/cards across machines via a GitHub repo, shelling out to
+  the **system `git`** with the user's existing credentials (no token stored). Per-record
+  last-writer-wins merge with tombstones, behind the existing `Storage` seam; a `rem-sync`
+  file-per-deck format in the repo. See `docs/superpowers/specs/2026-06-23-github-git-sync-design.md`.
+
 **Longer-term (generative, opt-in)**
 6. **AI card generation from uploads** (#5) — `CardGenerator` interface; BYO-key cloud first,
    local WebLLM later; review-before-save.

@@ -107,6 +107,54 @@ describe('due queue', () => {
   })
 })
 
+describe('sync storage', () => {
+  it('exportSnapshot returns decks, cards, and tombstones', async () => {
+    const deck = await storage.createDeck('S')
+    await storage.createCard(deck.id, 'q', 'a')
+    const snap = await storage.exportSnapshot()
+    expect(snap.decks).toHaveLength(1)
+    expect(snap.cards).toHaveLength(1)
+    expect(snap.tombstones).toHaveLength(0)
+  })
+
+  it('deleteCard writes a card tombstone', async () => {
+    const deck = await storage.createDeck('S')
+    const c = await storage.createCard(deck.id, 'q', 'a')
+    await storage.deleteCard(c.id)
+    const snap = await storage.exportSnapshot()
+    expect(snap.tombstones).toEqual([
+      expect.objectContaining({ id: c.id, kind: 'card' }),
+    ])
+  })
+
+  it('deleteDeck writes a deck tombstone', async () => {
+    const deck = await storage.createDeck('S')
+    await storage.deleteDeck(deck.id)
+    const snap = await storage.exportSnapshot()
+    expect(snap.tombstones).toEqual([
+      expect.objectContaining({ id: deck.id, kind: 'deck' }),
+    ])
+  })
+
+  it('applyMerge upserts and deletes records', async () => {
+    const deck = await storage.createDeck('S')
+    const stale = await storage.createCard(deck.id, 'old', 'old')
+    await storage.applyMerge({
+      upsertDecks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, schedulerKind: 'sm2' }],
+      upsertCards: [{
+        id: 'new', deckId: deck.id, front: 'new', back: 'new', createdAt: 1, updatedAt: 2,
+        scheduling: { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 0 },
+      }],
+      deleteDeckIds: [],
+      deleteCardIds: [stale.id],
+      tombstones: [{ id: stale.id, kind: 'card', deletedAt: 5 }],
+    })
+    expect(await storage.getCard(stale.id)).toBeUndefined()
+    expect(await storage.getCard('new')).toBeTruthy()
+    expect((await storage.exportSnapshot()).tombstones).toHaveLength(1)
+  })
+})
+
 describe('importDecks', () => {
   it('adds brand-new decks with their cards', async () => {
     const result = await storage.importDecks([

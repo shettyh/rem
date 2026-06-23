@@ -35,7 +35,10 @@ export function ReviewPage() {
   useLayoutEffect(() => {
     if (!current) return
     const measure = () => {
-      const f = frontRef.current?.scrollHeight ?? 0
+      // The front face also holds 26px padding (×2) plus the Show-answer button;
+      // reserve ~96px so a card sized to its content still has room for the
+      // button instead of overlapping/scrolling it.
+      const f = (frontRef.current?.scrollHeight ?? 0) + 96
       const b = backRef.current?.scrollHeight ?? 0
       const cap = Math.round(window.innerHeight * 0.65)
       setCardH(Math.max(160, Math.min(cap, Math.max(f, b))))

@@ -5,6 +5,8 @@ import { playwright } from '@vitest/browser-playwright'
 
 export default defineConfig({
   plugins: [react()],
+  clearScreen: false,
+  server: { port: 5173, strictPort: true },
   test: {
     projects: [
       {

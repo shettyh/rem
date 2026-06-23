@@ -62,3 +62,11 @@ export interface Card {
   updatedAt: number
   scheduling: SchedulingState
 }
+
+/** Records that a deck or card was deleted, so the deletion propagates on sync. */
+export interface Tombstone {
+  id: ID
+  kind: 'deck' | 'card'
+  /** When the deletion happened (epoch ms). */
+  deletedAt: number
+}

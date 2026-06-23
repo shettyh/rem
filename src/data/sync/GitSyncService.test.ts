@@ -1,0 +1,82 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import Dexie from 'dexie'
+import { RemDB } from '../dexie/db'
+import { DexieStorage } from '../dexie/DexieStorage'
+import { FakeGitBridge } from './FakeGitBridge'
+import { GitSyncService } from './GitSyncService'
+import { serializeSnapshot } from './snapshot'
+
+const DB = 'rem-sync-service-test'
+let db: RemDB
+let storage: DexieStorage
+
+beforeEach(async () => {
+  await Dexie.delete(DB)
+  db = new RemDB(DB)
+  storage = new DexieStorage(db)
+})
+afterEach(() => db.close())
+
+const cfg = { remoteUrl: 'url', repoDir: 'dir' }
+
+describe('GitSyncService', () => {
+  it('pushes local data to an empty remote on first sync', async () => {
+    const deck = await storage.createDeck('S')
+    await storage.createCard(deck.id, 'q', 'a')
+    const bridge = new FakeGitBridge(null)
+    await new GitSyncService(storage, bridge, cfg).sync()
+    expect(bridge.remote).not.toBeNull()
+    expect(Object.keys(bridge.remote!)).toContain(`decks/${deck.id}.json`)
+  })
+
+  it('pulls a remote-only deck into the local store', async () => {
+    const remote = serializeSnapshot({
+      decks: [{ id: 'd1', name: 'Remote', createdAt: 1, schedulerKind: 'sm2' }],
+      cards: [],
+      tombstones: [],
+    })
+    const bridge = new FakeGitBridge(remote)
+    await new GitSyncService(storage, bridge, cfg).sync()
+    const decks = await storage.listDecks()
+    expect(decks.map((d) => d.name)).toEqual(['Remote'])
+  })
+
+  it('applies a remote tombstone to delete a local card', async () => {
+    const deck = await storage.createDeck('S')
+    const c = await storage.createCard(deck.id, 'q', 'a')
+    const remote = serializeSnapshot({
+      decks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, schedulerKind: 'sm2' }],
+      cards: [],
+      tombstones: [{ id: c.id, kind: 'card', deletedAt: Date.now() + 10000 }],
+    })
+    const bridge = new FakeGitBridge(remote)
+    await new GitSyncService(storage, bridge, cfg).sync()
+    expect(await storage.getCard(c.id)).toBeUndefined()
+  })
+
+  it('retries when the push is rejected, then succeeds', async () => {
+    await storage.createDeck('S')
+    const bridge = new FakeGitBridge({ 'rem.json': '{}' })
+    bridge.pushInterceptor = () => {
+      bridge.remote = { 'rem.json': '{}', 'tombstones.json': '[]' }
+      bridge.bumpRemote()
+    }
+    const outcome = await new GitSyncService(storage, bridge, cfg).sync()
+    expect(outcome.pushed).toBe(true)
+  })
+
+  it('is idempotent: a second sync leaves remote and local unchanged', async () => {
+    const deck = await storage.createDeck('S')
+    await storage.createCard(deck.id, 'q', 'a')
+    const bridge = new FakeGitBridge(null)
+    const service = new GitSyncService(storage, bridge, cfg)
+    await service.sync()
+    const remoteAfterFirst = JSON.stringify(bridge.remote)
+    const decksAfterFirst = await storage.listDecks()
+    const cardsAfterFirst = await storage.listCards(deck.id)
+    await service.sync()
+    expect(JSON.stringify(bridge.remote)).toBe(remoteAfterFirst)
+    expect(await storage.listDecks()).toEqual(decksAfterFirst)
+    expect(await storage.listCards(deck.id)).toEqual(cardsAfterFirst)
+  })
+})

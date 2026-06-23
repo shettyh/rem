@@ -1,10 +1,11 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Card, Deck } from '../../domain/models'
+import type { Card, Deck, Tombstone } from '../../domain/models'
 
 /** IndexedDB schema. Indexed fields are listed; payloads are stored whole. */
 export class RemDB extends Dexie {
   decks!: EntityTable<Deck, 'id'>
   cards!: EntityTable<Card, 'id'>
+  tombstones!: EntityTable<Tombstone, 'id'>
 
   constructor(name = 'rem') {
     super(name)
@@ -27,5 +28,11 @@ export class RemDB extends Dexie {
           if (c.scheduling && !c.scheduling.kind) c.scheduling.kind = 'sm2'
         })
       })
+    // v3: add the tombstones table for deletion sync. Additive — existing data untouched.
+    this.version(3).stores({
+      decks: 'id, createdAt',
+      cards: 'id, deckId, createdAt',
+      tombstones: 'id, deletedAt',
+    })
   }
 }

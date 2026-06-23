@@ -145,7 +145,8 @@ body {
 }
 
 input,
-textarea {
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
@@ -156,6 +157,8 @@ textarea {
   border: 1px solid var(--border);
   background: var(--surface);
   width: 100%;
+  font-size: 14px;
+  line-height: 1.2;
 }
 
 .text-input:focus {
@@ -330,6 +333,8 @@ textarea {
 
 .face-front .face-inner {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .face-back {
@@ -707,6 +712,7 @@ textarea {
 
 .sched-picker {
   flex: 0 0 auto;
+  width: auto;
 }
 
 .sched-badge {
@@ -720,4 +726,14 @@ textarea {
   border: 1px solid var(--border);
   border-radius: 999px;
   vertical-align: middle;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 28rem;
+}
+.settings-field input {
+  width: 100%;
 }
