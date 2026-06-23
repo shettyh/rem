@@ -721,3 +721,13 @@ textarea {
   border-radius: 999px;
   vertical-align: middle;
 }
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 28rem;
+}
+.settings-field input {
+  width: 100%;
+}
