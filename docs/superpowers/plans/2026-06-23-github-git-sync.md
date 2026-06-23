@@ -1083,6 +1083,13 @@ git commit -m "feat: GitSyncService 8-step protocol with push-retry"
 **Interfaces:**
 - Produces Tauri commands (invoked from TS in Task 9): `git_is_cloned(dir) -> bool`, `git_clone(remote_url, dir)`, `git_fetch_reset(dir) -> bool`, `git_read_files(dir) -> HashMap<String,String>`, `git_write_files(dir, files: HashMap<String,String>)`, `git_commit_push(dir, message) -> CommitPushResult { pushed, rejected }`.
 
+**Contract acceptance criteria (from the TS-core whole-branch review — these are data-integrity-grade; honor them exactly):**
+
+1. **`git_read_files` path keys must be forward-slash, root-relative, exactly `rem.json` / `decks/<id>.json` / `tombstones.json`** — no leading `./`, no backslashes (Windows). `deserializeSnapshot` matches on the `decks/` prefix and exact filenames; a mismatched key silently yields an empty snapshot, which would **resurrect remotely-deleted data**. The `.replace('\\','/')` + `strip_prefix(root)` in the code below is required, not optional. *Add a Rust unit test asserting the key format for a nested `decks/<id>.json`.*
+2. **`git_write_files` MUST DELETE files absent from the incoming map**, not merely overwrite. The pre-clear of `decks/`, `tombstones.json`, `rem.json` before writing is the mechanism. If this regresses to overwrite-only, a tombstoned deck's file survives on the remote and the deck **resurrects on the next pull** (highest-stakes contract; guarded by Task 12 Step 5).
+3. **`git_fetch_reset` must return `false` ONLY when `origin/main` genuinely does not exist** (empty remote). A transient fetch/network failure must `Err`, never return `false` — returning `false` makes the service treat a populated remote as empty and re-push local-only state, **clobbering remote deletions**. So: `git fetch` failure → `Err`; `origin/main` absent → `Ok(false)`; else `reset --hard` then `Ok(true)`.
+4. **`git_commit_push` rejection classification:** non-fast-forward (`rejected`/`non-fast-forward`/`fetch first` in stderr) → `Ok({pushed:false, rejected:true})` (retryable); auth/offline/any other push failure → `Err(stderr)` (so the UI shows the real error instead of silently looping 5× to the generic retry-exhausted message).
+
 - [ ] **Step 1: Write `src-tauri/src/git.rs`**
 
 ```rust
