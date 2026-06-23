@@ -6,3 +6,4 @@ test-artifacts
 .superpowers
 .vitest-attachments
 **/__screenshots__
+src-tauri/target/
