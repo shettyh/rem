@@ -145,7 +145,8 @@ body {
 }
 
 input,
-textarea {
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
@@ -156,6 +157,8 @@ textarea {
   border: 1px solid var(--border);
   background: var(--surface);
   width: 100%;
+  font-size: 14px;
+  line-height: 1.2;
 }
 
 .text-input:focus {
