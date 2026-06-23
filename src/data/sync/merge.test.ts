@@ -67,4 +67,26 @@ describe('merge', () => {
     const { merged } = merge(local, remote)
     expect(merged.tombstones).toEqual([{ id: 'a', kind: 'card', deletedAt: 99 }])
   })
+
+  it('deletes a deck when the tombstone equals its createdAt (>= boundary)', () => {
+    const local = snap({ decks: [deck], cards: [card('a', 10)] })
+    const remote = snap({ tombstones: [{ id: 'd1', kind: 'deck', deletedAt: deck.createdAt }] })
+    const { merged } = merge(local, remote)
+    expect(merged.decks).toHaveLength(0)
+  })
+
+  it('keeps the remote card when updatedAt ties (first-seen wins, remote is spread first)', () => {
+    const local = snap({ decks: [deck], cards: [card('a', 10, 'local')] })
+    const remote = snap({ decks: [deck], cards: [card('a', 10, 'remote')] })
+    const { merged } = merge(local, remote)
+    expect(merged.cards).toHaveLength(1)
+    expect(merged.cards[0].front).toBe('remote')
+  })
+
+  it('keeps a card when the tombstone equals its updatedAt (strict > boundary)', () => {
+    const local = snap({ decks: [deck], cards: [card('a', 20)] })
+    const remote = snap({ decks: [deck], tombstones: [{ id: 'a', kind: 'card', deletedAt: 20 }] })
+    const { merged } = merge(local, remote)
+    expect(merged.cards.map((c) => c.id)).toEqual(['a'])
+  })
 })
