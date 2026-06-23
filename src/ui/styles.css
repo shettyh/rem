@@ -707,6 +707,7 @@ textarea {
 
 .sched-picker {
   flex: 0 0 auto;
+  width: auto;
 }
 
 .sched-badge {
