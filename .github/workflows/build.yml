@@ -1,0 +1,70 @@
+name: Build installers
+
+# Builds desktop installers for every push to main and uploads them as
+# workflow artifacts (downloadable from the run page; auto-expire per retention).
+# Versioned GitHub Releases are handled separately by release.yml on v* tags.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.artifact }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            bundle: src-tauri/target/universal-apple-darwin/release/bundle
+            artifact: rem-macos
+          - platform: ubuntu-22.04
+            args: ''
+            rust-targets: ''
+            bundle: src-tauri/target/release/bundle
+            artifact: rem-linux
+          - platform: windows-latest
+            args: ''
+            rust-targets: ''
+            bundle: src-tauri/target/release/bundle
+            artifact: rem-windows
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - run: npm ci
+
+      # `tauri build` runs the frontend build (beforeBuildCommand) then bundles.
+      - name: Build installers
+        run: npx tauri build ${{ matrix.args }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.bundle }}/**
+          if-no-files-found: error
+          retention-days: 14
