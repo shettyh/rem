@@ -45,7 +45,7 @@ export function DeckDetailPage() {
 
   const title = (
     <>
-      {deck.name}
+      <span className="header-title-text">{deck.name}</span>
       <span className="sched-badge">{deck.schedulerKind === 'fsrs' ? 'FSRS' : 'SM-2'}</span>
     </>
   )

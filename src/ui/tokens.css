@@ -8,24 +8,25 @@
   --sidebar: #f4f4f6;       /* sidebar (solid fallback; vibrancy replaces on macOS) */
   --surface: #ffffff;
   --surface-inset: #f0f0f3;
-  --border: #e4e4e7;
-  --border-strong: #d3d3d8;
+  --border: #d6d6db;
+  --border-strong: #b8b8bd;
   --text: #1d1d1f;
-  --muted: #86868b;
-  --accent: #5856d6;        /* macOS Indigo */
+  --muted: #6b6b70;         /* AA on white (4.6:1) and on insets */
+  --accent: #5856d6;        /* macOS Indigo — solid fills */
   --accent-hover: #4a48c4;
   --accent-soft: #ecebfb;
+  --accent-text: #4a48c4;   /* accent as TEXT (chips, inline code, due count) */
   --on-accent: #ffffff;
   --code-bg: #1e1e22;       /* code stays dark in both themes (github-dark) */
   --code-fg: #eceaf6;
   --selection: #e6e6fb;     /* sidebar/list selected row */
 
   /* grade + semantic roles */
-  --again: #e5484d;
+  --again: #c92a2e;
   --hard: #e0892a;
-  --good: #30a46c;
+  --good: #127c4a;
   --easy: var(--accent);
-  --danger: #e5484d;
+  --danger: #c92a2e;
 
   /* spacing scale */
   --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
@@ -59,13 +60,14 @@
   --sidebar: #232325;
   --surface: #2a2a2c;
   --surface-inset: #333336;
-  --border: #3a3a3d;
-  --border-strong: #4a4a4e;
+  --border: #48484c;
+  --border-strong: #5c5c61;
   --text: #f5f5f7;
-  --muted: #98989d;
+  --muted: #a1a1a6;
   --accent: #5e5ce6;
   --accent-hover: #6f6df0;
-  --accent-soft: #2e2e4d;
+  --accent-soft: #26263d;
+  --accent-text: #8a88ff;
   --on-accent: #ffffff;
   --code-bg: #28282e;
   --code-fg: #eceaf6;

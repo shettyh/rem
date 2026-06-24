@@ -42,6 +42,13 @@ body {
   overflow-y: auto;
 }
 
+/* Reclaim content width on narrow windows by trimming the sidebar. */
+@media (max-width: 900px) {
+  :root {
+    --sidebar-w: 200px;
+  }
+}
+
 /* macOS (Tauri) vibrancy: let the window material show through the sidebar.
    In the browser / on other platforms the sidebar stays solid. */
 html[data-tauri='yes'][data-platform='mac'] body,
@@ -134,6 +141,7 @@ html[data-tauri='yes'] .titlebar-spacer {
 
 .nav-item .nav-grow {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -203,19 +211,31 @@ html[data-tauri='yes'] .titlebar-spacer {
   font-weight: 600;
   letter-spacing: -0.01em;
   margin: 0;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+.header-title-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .page-header-actions {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: var(--space-2);
 }
 
 .page-body {
   padding: var(--space-5);
+  max-width: 880px;
+  margin-inline: auto;
 }
 .page-body.measure {
   max-width: 720px;
@@ -258,8 +278,10 @@ html[data-tauri='yes'] .titlebar-spacer {
 }
 
 .btn:disabled {
-  opacity: 0.4;
   cursor: not-allowed;
+  background: var(--surface-inset);
+  border-color: var(--border-strong);
+  color: var(--muted);
 }
 
 .btn-ghost {
@@ -326,10 +348,14 @@ select.text-input {
   -webkit-appearance: none;
   appearance: none;
   padding-right: 30px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%2386868b' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%236b6b70' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
   background-size: 12px;
+}
+
+[data-theme='dark'] select.text-input {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%23a1a1a6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 input[type='checkbox'] {
@@ -383,6 +409,20 @@ input[type='file']::file-selector-button:hover {
   font-size: 0.9em;
 }
 
+.markdown ul,
+.markdown ol {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+}
+
+.markdown li {
+  margin: var(--space-1) 0;
+}
+
+.markdown li > p {
+  margin: 0;
+}
+
 /* Card editor */
 .field {
   display: flex;
@@ -417,7 +457,7 @@ input[type='file']::file-selector-button:hover {
   outline: none;
   font-family: var(--font-serif);
   font-size: var(--text-lg);
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
 .rich-editor-content > :first-child {
@@ -435,7 +475,8 @@ input[type='file']::file-selector-button:hover {
   padding: 12px 14px;
   border-radius: var(--radius-md);
   overflow-x: auto;
-  font-size: 13px;
+  font-size: var(--text-base);
+  line-height: 1.5;
 }
 
 /* highlight.js paints code.hljs with its own background + padding; neutralize it
@@ -455,7 +496,7 @@ input[type='file']::file-selector-button:hover {
 .rich-editor-content :not(pre) > code,
 .markdown :not(pre) > code {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-text);
   font-family: var(--font-mono);
   padding: 1px 5px;
   margin: 0 1px;
@@ -501,13 +542,13 @@ input[type='file']::file-selector-button:hover {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-1);
 }
 
 /* Grade buttons */
 .grade-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 10px;
 }
 
@@ -516,6 +557,7 @@ input[type='file']::file-selector-button:hover {
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  min-width: 0;
   padding: 10px 6px;
   background: var(--surface);
   border: 1px solid var(--border-strong);
@@ -636,7 +678,7 @@ input[type='file']::file-selector-button:hover {
 }
 
 .stat-due .stat-num {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .stat-label {
@@ -646,9 +688,15 @@ input[type='file']::file-selector-button:hover {
 
 .add-row {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
   align-items: center;
   justify-content: space-between;
+}
+
+.add-row > input.text-input {
+  flex: 1 1 240px;
+  min-width: 0;
 }
 
 .add-row .btn {
@@ -675,6 +723,7 @@ input[type='file']::file-selector-button:hover {
 
 .card-front {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -691,16 +740,16 @@ input[type='file']::file-selector-button:hover {
 
 .status-new {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .status-due {
-  background: color-mix(in srgb, var(--again) 16%, transparent);
+  background: color-mix(in srgb, var(--again) 22%, transparent);
   color: var(--again);
 }
 
 .status-scheduled {
-  background: color-mix(in srgb, var(--good) 16%, transparent);
+  background: color-mix(in srgb, var(--good) 22%, transparent);
   color: var(--good);
 }
 
@@ -801,6 +850,7 @@ input[type='file']::file-selector-button:hover {
   border: 1px solid var(--border);
   border-radius: 999px;
   vertical-align: middle;
+  flex-shrink: 0;
 }
 
 .settings-field {
@@ -881,7 +931,8 @@ input[type='file']::file-selector-button:hover {
 /* ─── Review (clean reveal, replaces the 3D flip) ──────────────────────── */
 .review {
   max-width: 640px;
-  margin: 0 auto;
+  margin: var(--space-5) auto 0;
+  padding: 0 var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -895,14 +946,20 @@ input[type='file']::file-selector-button:hover {
   padding: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
 }
 
-.review-q,
+.review-q {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  line-height: 1.5;
+  color: var(--text);
+}
+
 .review-a {
   font-family: var(--font-serif);
   font-size: var(--text-lg);
-  line-height: 1.6;
+  line-height: 1.65;
   color: var(--text);
 }
 
