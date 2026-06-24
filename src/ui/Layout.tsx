@@ -1,21 +1,12 @@
-import { Link, Outlet } from 'react-router-dom'
-import { ThemeToggle } from './ThemeToggle'
+import { Outlet } from 'react-router-dom'
+import { Sidebar } from './Sidebar'
 
+/** App shell: persistent sidebar + a window-filling content area. */
 export function Layout() {
   return (
     <div className="app">
-      <header className="app-header">
-        <Link to="/" className="app-title">
-          rem
-        </Link>
-        <div className="header-actions">
-          <Link to="/settings" className="settings-link" aria-label="Settings">
-            ⚙
-          </Link>
-          <ThemeToggle />
-        </div>
-      </header>
-      <main className="app-main">
+      <Sidebar />
+      <main className="content">
         <Outlet />
       </main>
     </div>

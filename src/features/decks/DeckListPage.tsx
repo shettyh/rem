@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
 import type { SchedulerKind } from '../../domain/models'
+import { PageHeader } from '../../ui/PageHeader'
 
-/** Time-of-day greeting for the home header. */
+/** Time-of-day greeting for the Today header. */
 function greeting(hour: number): string {
   if (hour < 12) return 'Good morning.'
   if (hour < 18) return 'Good afternoon.'
@@ -20,11 +21,7 @@ export function DeckListPage() {
     const all = await storage.listDecks()
     const now = Date.now()
     return Promise.all(
-      all.map(async (deck) => ({
-        deck,
-        due: await storage.countDue(deck.id, now),
-        count: (await storage.listCards(deck.id)).length,
-      })),
+      all.map(async (deck) => ({ deck, due: await storage.countDue(deck.id, now) })),
     )
   }, [])
 
@@ -42,77 +39,75 @@ export function DeckListPage() {
     totalDue > 0
       ? `You have ${totalDue} card${totalDue === 1 ? '' : 's'} due today.`
       : "You're all caught up — nothing due today."
+  const topDeck = [...(decks ?? [])].filter((d) => d.due > 0).sort((a, b) => b.due - a.due)[0]?.deck
 
   return (
-    <div className="stack">
-      {decks && decks.length > 0 && (
+    <>
+      <PageHeader title="Today" />
+      <div className="page-body measure stack">
         <header className="home-hero">
           <div>
             <p className="hero-greet">{greeting(new Date().getHours())}</p>
             <p className="hero-sub">{dueLine}</p>
           </div>
-          <div className="hero-stats">
-            <div className="stat stat-due">
-              <span className="stat-num">{totalDue}</span>
-              <span className="stat-label">due today</span>
-            </div>
-            <div className="stat">
-              <span className="stat-num">{deckCount}</span>
-              <span className="stat-label">deck{deckCount === 1 ? '' : 's'}</span>
-            </div>
-          </div>
-        </header>
-      )}
-
-      <h1 className="page-title">Decks</h1>
-
-      <form className="add-row" onSubmit={addDeck}>
-        <input
-          className="text-input"
-          placeholder="New deck name…"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          aria-label="New deck name"
-        />
-        <select
-          className="text-input sched-picker"
-          value={kind}
-          onChange={(e) => setKind(e.target.value as SchedulerKind)}
-          aria-label="Scheduler"
-        >
-          <option value="fsrs">FSRS (recommended)</option>
-          <option value="sm2">SM-2</option>
-        </select>
-        <button className="btn btn-primary" type="submit" disabled={!name.trim()}>
-          Add deck
-        </button>
-      </form>
-
-      {decks === undefined ? null : decks.length === 0 ? (
-        <div className="empty-state">
-          <div className="ico">🗂️</div>
-          <h3>No decks yet</h3>
-          <p>Name a deck above to start building your memory.</p>
-        </div>
-      ) : (
-        <div className="stack">
-          {decks.map(({ deck, due, count }) => (
-            <Link key={deck.id} to={`/decks/${deck.id}`} className="deck-row">
-              <div className="deck-text">
-                <span className="deck-name">{deck.name}</span>
-                <span className="deck-meta">
-                  {count} card{count === 1 ? '' : 's'}
-                </span>
+          {deckCount > 0 && (
+            <div className="hero-stats">
+              <div className="stat stat-due">
+                <span className="stat-num">{totalDue}</span>
+                <span className="stat-label">due today</span>
               </div>
-              {due > 0 ? (
-                <span className="due-chip">{due} due</span>
-              ) : (
-                <span className="due-none">All caught up</span>
-              )}
+              <div className="stat">
+                <span className="stat-num">{deckCount}</span>
+                <span className="stat-label">deck{deckCount === 1 ? '' : 's'}</span>
+              </div>
+            </div>
+          )}
+        </header>
+
+        {totalDue > 0 && topDeck && (
+          <div className="start-card">
+            <div>
+              <strong>Ready to review</strong>
+              <div className="muted">
+                {totalDue} card{totalDue === 1 ? '' : 's'} due across your decks.
+              </div>
+            </div>
+            <Link to={`/decks/${topDeck.id}/study`} className="btn btn-primary">
+              Start review
             </Link>
-          ))}
-        </div>
-      )}
-    </div>
+          </div>
+        )}
+
+        <form className="add-row" onSubmit={addDeck}>
+          <input
+            className="text-input"
+            placeholder="New deck name…"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-label="New deck name"
+          />
+          <select
+            className="text-input sched-picker"
+            value={kind}
+            onChange={(e) => setKind(e.target.value as SchedulerKind)}
+            aria-label="Scheduler"
+          >
+            <option value="fsrs">FSRS (recommended)</option>
+            <option value="sm2">SM-2</option>
+          </select>
+          <button className="btn btn-primary" type="submit" disabled={!name.trim()}>
+            Add deck
+          </button>
+        </form>
+
+        {decks !== undefined && decks.length === 0 && (
+          <div className="empty-state">
+            <div className="ico">🗂️</div>
+            <h3>No decks yet</h3>
+            <p>Name a deck above to start building your memory.</p>
+          </div>
+        )}
+      </div>
+    </>
   )
 }

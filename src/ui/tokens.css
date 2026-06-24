@@ -1,68 +1,81 @@
 /* Design tokens — the single source of truth for colors, spacing, type, motion.
-   Light values on :root; warm-dark overrides under [data-theme='dark']. */
+   Neutral macOS-style palette with a system Indigo accent.
+   Light values on :root; dark overrides under [data-theme='dark']. */
 :root {
   /* color roles */
-  --bg: #f7f5f1;
-  --surface: #fffefb;
-  --surface-inset: #efe9dd;
-  --border: #e7e3da;
-  --border-strong: #ddd6c9;
-  --text: #1c1a17;
-  --muted: #8a8578;
-  --accent: #6534c9;
-  --accent-hover: #5a2db0;
-  --accent-soft: #efe9dd;
-  --code-bg: #211f2e;
+  --bg: #ffffff;            /* content area */
+  --bg-inset: #f5f5f7;      /* subtle inset / hover wash */
+  --sidebar: #f4f4f6;       /* sidebar (solid fallback; vibrancy replaces on macOS) */
+  --surface: #ffffff;
+  --surface-inset: #f0f0f3;
+  --border: #e4e4e7;
+  --border-strong: #d3d3d8;
+  --text: #1d1d1f;
+  --muted: #86868b;
+  --accent: #5856d6;        /* macOS Indigo */
+  --accent-hover: #4a48c4;
+  --accent-soft: #ecebfb;
+  --on-accent: #ffffff;
+  --code-bg: #1e1e22;       /* code stays dark in both themes (github-dark) */
   --code-fg: #eceaf6;
+  --selection: #e6e6fb;     /* sidebar/list selected row */
 
   /* grade + semantic roles */
-  --again: #d6553f;
-  --hard: #cf8a3a;
-  --good: #4c9a6a;
+  --again: #e5484d;
+  --hard: #e0892a;
+  --good: #30a46c;
   --easy: var(--accent);
-  --danger: #b91c1c;
+  --danger: #e5484d;
 
   /* spacing scale */
   --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
   --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
 
   /* type scale */
-  --text-xs: 12px; --text-sm: 13px; --text-base: 15px;
-  --text-lg: 18px; --text-xl: 21px; --text-2xl: 25px;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --text-xs: 12px; --text-sm: 13px; --text-base: 14px;
+  --text-lg: 17px; --text-xl: 21px; --text-2xl: 26px;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
 
+  /* shell metrics */
+  --sidebar-w: 240px;
+  --titlebar-h: 38px;       /* drag strip / traffic-light inset on macOS */
+
   /* radii / shadow / motion */
-  --radius-sm: 6px; --radius-md: 11px; --radius-lg: 16px;
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
   --radius: var(--radius-md);
-  --shadow-sm: 0 1px 2px rgba(40, 30, 10, 0.05);
-  --shadow-md: 0 4px 18px rgba(40, 30, 10, 0.06);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.14);
   --shadow: var(--shadow-sm);
-  --flip-ms: 600ms;
+  --reveal-ms: 180ms;
 
   color-scheme: light;
 }
 
 [data-theme='dark'] {
-  --bg: #1a1815;
-  --surface: #232019;
-  --surface-inset: #2c2820;
-  --border: #34302a;
-  --border-strong: #423d35;
-  --text: #f2ede3;
-  --muted: #a39d8f;
-  --accent: #b9a0f5;
-  --accent-hover: #c9b6f8;
-  --accent-soft: #2c2820;
-  --code-bg: #2a2733;
+  --bg: #1c1c1e;
+  --bg-inset: #2a2a2c;
+  --sidebar: #232325;
+  --surface: #2a2a2c;
+  --surface-inset: #333336;
+  --border: #3a3a3d;
+  --border-strong: #4a4a4e;
+  --text: #f5f5f7;
+  --muted: #98989d;
+  --accent: #5e5ce6;
+  --accent-hover: #6f6df0;
+  --accent-soft: #2e2e4d;
+  --on-accent: #ffffff;
+  --code-bg: #28282e;
   --code-fg: #eceaf6;
-  --again: #e87a63;
-  --hard: #e0a85a;
-  --good: #6fc28e;
-  --danger: #f08a7a;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 6px 22px rgba(0, 0, 0, 0.4);
+  --selection: #34344f;
+  --again: #ff6b6b;
+  --hard: #ffa94d;
+  --good: #51cf8a;
+  --danger: #ff6b6b;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 10px 34px rgba(0, 0, 0, 0.5);
 
   color-scheme: dark;
 }

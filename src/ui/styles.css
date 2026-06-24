@@ -19,34 +19,145 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ─── App shell: sidebar + content ─────────────────────────────────────── */
 .app {
-  max-width: 820px;
-  margin: 0 auto;
-  padding: 0 20px;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  height: 100vh;
+  overflow: hidden;
 }
 
-.app-header {
+.content {
+  background: var(--bg);
+  height: 100vh;
+  overflow-y: auto;
+}
+
+/* macOS (Tauri) vibrancy: let the window material show through the sidebar.
+   In the browser / on other platforms the sidebar stays solid. */
+html[data-tauri='yes'][data-platform='mac'] body,
+html[data-tauri='yes'][data-platform='mac'] #root {
+  background: transparent;
+}
+html[data-tauri='yes'][data-platform='mac'] .sidebar {
+  background: transparent;
+}
+html[data-tauri='yes'] .titlebar-spacer {
+  height: var(--titlebar-h);
+}
+
+/* ─── Sidebar ──────────────────────────────────────────────────────────── */
+.sidebar {
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-2) var(--space-3);
+}
+
+.titlebar-spacer {
+  height: 0;
+  flex-shrink: 0;
+}
+
+.side-brand {
+  font-weight: 700;
+  font-size: var(--text-base);
+  letter-spacing: -0.01em;
+  color: var(--muted);
+  padding: var(--space-2) var(--space-2) var(--space-3);
+}
+
+.side-section {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 48px;
-  border-bottom: 1px solid var(--border);
+  padding: var(--space-3) var(--space-2) var(--space-1);
 }
 
-.app-title {
-  font-weight: 800;
-  font-size: var(--text-lg);
-  letter-spacing: -0.03em;
-  color: var(--text);
+.side-section-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.side-add {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   text-decoration: none;
 }
+.side-add:hover {
+  background: var(--bg-inset);
+  color: var(--text);
+}
 
-.theme-toggle {
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-decoration: none;
+  font-size: var(--text-base);
+  line-height: 1.3;
+}
+.nav-item:hover {
+  background: var(--bg-inset);
+}
+.nav-item.is-active {
+  background: var(--selection);
+  font-weight: 600;
+}
+
+.nav-item .nav-grow {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-badge {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--on-accent);
+  background: var(--accent);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.side-spacer {
+  flex: 1;
+}
+
+.side-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+}
+
+.theme-toggle,
+.icon-btn {
   width: 30px;
   height: 30px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
+  border: 1px solid transparent;
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
   font-size: 14px;
@@ -54,14 +165,51 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  text-decoration: none;
 }
-
-.theme-toggle:hover {
+.theme-toggle:hover,
+.icon-btn:hover {
+  background: var(--bg-inset);
   color: var(--text);
 }
 
-.app-main {
-  padding: 28px 0 64px;
+/* ─── Page header (toolbar) ────────────────────────────────────────────── */
+.page-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 52px;
+  padding: var(--space-2) var(--space-5);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-header h1 {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.page-body {
+  padding: var(--space-5);
+}
+.page-body.measure {
+  max-width: 720px;
 }
 
 /* Buttons */
@@ -101,9 +249,7 @@ body {
 }
 
 .btn:disabled {
-  background: var(--surface-inset);
-  border-color: transparent;
-  color: var(--muted);
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
@@ -164,6 +310,48 @@ select {
 .text-input:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
+}
+
+/* Native-feeling form controls */
+select.text-input {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%2386868b' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+}
+
+input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+}
+
+input[type='file'] {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  max-width: 100%;
+}
+input[type='file']::file-selector-button {
+  font: inherit;
+  margin-right: var(--space-2);
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+input[type='file']::file-selector-button:hover {
+  background: var(--surface-inset);
+}
+
+/* Full-width block button (sheets, review) */
+.btn-block {
+  width: 100%;
+  padding: 12px;
 }
 
 /* Markdown rendering */
@@ -736,4 +924,133 @@ select {
 }
 .settings-field input {
   width: 100%;
+}
+
+/* ─── Sheet (modal panel for add/edit card) ────────────────────────────── */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8vh var(--space-4) var(--space-4);
+  animation: sheet-fade var(--reveal-ms) ease both;
+}
+
+.sheet {
+  width: min(640px, 100%);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  animation: sheet-rise var(--reveal-ms) ease both;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+.sheet-header h2 {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0;
+}
+
+.sheet-body {
+  padding: var(--space-5);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.sheet-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--border);
+}
+
+@keyframes sheet-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sheet-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ─── Review (clean reveal, replaces the 3D flip) ──────────────────────── */
+.review {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.review-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.review-q,
+.review-a {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.review-rule {
+  height: 1px;
+  background: var(--border);
+  border: 0;
+  margin: 0;
+}
+
+.reveal-enter {
+  animation: reveal var(--reveal-ms) ease both;
+}
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ─── Today: start-review call to action ───────────────────────────────── */
+.start-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-backdrop,
+  .sheet,
+  .reveal-enter {
+    animation: none;
+  }
 }

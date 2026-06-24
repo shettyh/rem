@@ -12,6 +12,19 @@ pub fn run() {
             git::git_commit_push,
         ])
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = apply_vibrancy(
+                        &window,
+                        NSVisualEffectMaterial::Sidebar,
+                        Some(NSVisualEffectState::Active),
+                        None,
+                    );
+                }
+            }
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
