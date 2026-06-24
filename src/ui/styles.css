@@ -19,6 +19,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Web bundle opened in a plain browser (not the desktop app) */
+.desktop-only {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+  background: var(--bg);
+}
+
 /* ─── App shell: sidebar + content ─────────────────────────────────────── */
 .app {
   display: grid;
