@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use serde::Serialize;
 
@@ -17,6 +17,12 @@ fn run_git(args: &[&str], dir: &str) -> Result<(String, String, bool), String> {
     let out = Command::new("git")
         .args(args)
         .current_dir(dir)
+        // Never block on an interactive credential/passphrase prompt. If the
+        // remote is inaccessible, git must fail fast so the error surfaces in
+        // the UI instead of hanging on the launching terminal's stdin.
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
+        .stdin(Stdio::null())
         .output()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
