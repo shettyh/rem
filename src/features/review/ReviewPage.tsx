@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { Card, Grade } from '../../domain/models'
 import { getScheduler } from '../../domain/scheduler'
 import { useStorage } from '../../data/StorageContext'
+import { PageHeader } from '../../ui/PageHeader'
 import { MarkdownView } from '../cards/MarkdownView'
 import { GradeButtons } from './GradeButtons'
 
@@ -13,10 +14,6 @@ export function ReviewPage() {
   const [queue, setQueue] = useState<Card[] | null>(null)
   const [index, setIndex] = useState(0)
   const [revealed, setRevealed] = useState(false)
-
-  const frontRef = useRef<HTMLDivElement>(null)
-  const backRef = useRef<HTMLDivElement>(null)
-  const [cardH, setCardH] = useState(220)
 
   useEffect(() => {
     if (!deckId) return
@@ -30,23 +27,6 @@ export function ReviewPage() {
   }, [deckId, storage])
 
   const current = queue && index < queue.length ? queue[index] : null
-
-  // Size the flip card to the taller face, capped to 65vh; the answer scrolls beyond that.
-  useLayoutEffect(() => {
-    if (!current) return
-    const measure = () => {
-      // The front face also holds 26px padding (×2) plus the Show-answer button;
-      // reserve ~96px so a card sized to its content still has room for the
-      // button instead of overlapping/scrolling it.
-      const f = (frontRef.current?.scrollHeight ?? 0) + 96
-      const b = backRef.current?.scrollHeight ?? 0
-      const cap = Math.round(window.innerHeight * 0.65)
-      setCardH(Math.max(160, Math.min(cap, Math.max(f, b))))
-    }
-    measure()
-    window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
-  }, [current])
 
   const grade = useCallback(
     async (g: Grade) => {
@@ -84,7 +64,7 @@ export function ReviewPage() {
 
   if (queue.length === 0) {
     return (
-      <div className="stack">
+      <div className="page-body">
         <div className="empty-state">
           <div className="ico">🌙</div>
           <h3>Nothing due</h3>
@@ -97,7 +77,7 @@ export function ReviewPage() {
 
   if (current === null) {
     return (
-      <div className="stack">
+      <div className="page-body">
         <div className="empty-state">
           <div className="ico">🎉</div>
           <h3>Review complete</h3>
@@ -111,41 +91,39 @@ export function ReviewPage() {
   }
 
   return (
-    <div className="stack">
-      <div className="row between">
-        <span className="muted">
-          {index + 1} / {queue.length}
-        </span>
-        <BackToDeck deckId={deckId} label="End session" className="btn btn-ghost" />
-      </div>
-
-      <div className="flip" style={{ height: `${cardH}px` }}>
-        <div className="flip-inner" data-testid="flip" data-revealed={revealed}>
-          <div className="face face-front">
-            <div className="face-inner" ref={frontRef}>
-              <div className="review-side">
-                <MarkdownView source={current.front} />
-              </div>
-            </div>
-            <button className="btn btn-primary show-btn" onClick={() => setRevealed(true)}>
+    <>
+      <PageHeader
+        title={`${index + 1} / ${queue.length}`}
+        actions={<BackToDeck deckId={deckId} label="End session" className="btn btn-ghost" />}
+      />
+      <div className="review">
+        <div className="review-card">
+          <div className="review-q">
+            <MarkdownView source={current.front} />
+          </div>
+          {!revealed && (
+            <button
+              className="btn btn-primary btn-block"
+              onClick={() => setRevealed(true)}
+            >
               Show answer <span className="kbd">space</span>
             </button>
-          </div>
-          <div className="face face-back">
-            <div className="scroll" ref={backRef}>
+          )}
+          {revealed && (
+            <>
+              <hr className="review-rule" />
               <p className="answer-label">Answer</p>
-              <div className="review-side">
+              <div className="review-a reveal-enter">
                 <MarkdownView source={current.back} />
               </div>
-            </div>
-          </div>
+            </>
+          )}
         </div>
+        {revealed && (
+          <GradeButtons scheduling={current.scheduling} now={Date.now()} onGrade={grade} />
+        )}
       </div>
-
-      {revealed && (
-        <GradeButtons scheduling={current.scheduling} now={Date.now()} onGrade={grade} />
-      )}
-    </div>
+    </>
   )
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStorage } from '../../data/StorageContext'
+import { Sheet } from '../../ui/Sheet'
 import { RichMarkdownEditor } from './RichMarkdownEditor'
 
 export function CardEditorPage() {
@@ -44,31 +45,29 @@ export function CardEditorPage() {
     backToDeck()
   }
 
-  return (
-    <div className="stack">
-      <div className="row between">
-        <h1 className="page-title">{editing ? 'Edit card' : 'New card'}</h1>
+  const footer = (
+    <>
+      <div className="row">
+        <button className="btn btn-primary" onClick={save} disabled={!front.trim()}>
+          {editing ? 'Save' : 'Add card'}
+        </button>
+        <button className="btn btn-ghost" onClick={backToDeck}>
+          Cancel
+        </button>
       </div>
+      {editing && (
+        <button className="btn btn-ghost btn-danger" onClick={remove}>
+          Delete
+        </button>
+      )}
+    </>
+  )
 
+  return (
+    <Sheet title={editing ? 'Edit card' : 'New card'} onClose={backToDeck} footer={footer}>
       <CardField label="Front" value={front} onChange={setFront} />
       <CardField label="Back" value={back} onChange={setBack} />
-
-      <div className="row between">
-        <div className="row">
-          <button className="btn btn-primary" onClick={save} disabled={!front.trim()}>
-            {editing ? 'Save' : 'Add card'}
-          </button>
-          <button className="btn" onClick={backToDeck}>
-            Cancel
-          </button>
-        </div>
-        {editing && (
-          <button className="btn btn-ghost btn-danger" onClick={remove}>
-            Delete
-          </button>
-        )}
-      </div>
-    </div>
+    </Sheet>
   )
 }
 

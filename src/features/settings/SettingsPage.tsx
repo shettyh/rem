@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
+import { PageHeader } from '../../ui/PageHeader'
 import { SyncSection } from './SyncSection'
 import {
   collectBackup,
@@ -84,10 +85,10 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="stack">
-      <h1 className="page-title">Settings</h1>
-
-      <SyncSection />
+    <>
+      <PageHeader title="Settings" />
+      <div className="page-body measure stack">
+        <SyncSection />
 
       <section className="settings-section">
         <h2>Export decks</h2>
@@ -156,6 +157,7 @@ export function SettingsPage() {
           </div>
         )}
       </section>
-    </div>
+      </div>
+    </>
   )
 }

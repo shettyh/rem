@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
 import type { SchedulingState } from '../../domain/models'
 import { MS_PER_DAY } from '../../domain/scheduler'
+import { PageHeader } from '../../ui/PageHeader'
 
 /** First non-empty line of markdown, reduced to plain text for a one-line card preview. */
 export function cardPreview(md: string): string {
@@ -42,41 +43,43 @@ export function DeckDetailPage() {
 
   const now = Date.now()
 
-  return (
-    <div className="stack">
-      <div className="row between">
-        <h1 className="page-title">
-          {deck.name}
-          <span className="sched-badge">{deck.schedulerKind === 'fsrs' ? 'FSRS' : 'SM-2'}</span>
-        </h1>
-        {cards.length === 0 ? null : due && due > 0 ? (
+  const title = (
+    <>
+      {deck.name}
+      <span className="sched-badge">{deck.schedulerKind === 'fsrs' ? 'FSRS' : 'SM-2'}</span>
+    </>
+  )
+
+  const actions =
+    cards.length === 0 ? undefined : (
+      <>
+        {due && due > 0 ? (
           <Link to={`/decks/${deckId}/study`} className="btn btn-primary">
             Study {due}
           </Link>
         ) : (
-          <span className="caught-up">All caught up today</span>
+          <span className="muted">All caught up today</span>
         )}
-      </div>
+        <Link to={`/decks/${deckId}/cards/new`} className="btn btn-ghost">
+          + Add card
+        </Link>
+      </>
+    )
 
-      {cards.length === 0 ? (
-        <div className="empty-state">
-          <div className="ico">✏️</div>
-          <h3>No cards yet</h3>
-          <p>Add your first card — front, back, done.</p>
-          <Link to={`/decks/${deckId}/cards/new`} className="btn btn-primary cta">
-            + Add your first card
-          </Link>
-        </div>
-      ) : (
-        <>
-          <div className="add-row">
-            <span className="muted">
-              {cards.length} card{cards.length === 1 ? '' : 's'}
-            </span>
-            <Link to={`/decks/${deckId}/cards/new`} className="btn btn-ghost">
-              + Add card
+  return (
+    <>
+      <PageHeader title={title} actions={actions} />
+      <div className="page-body stack">
+        {cards.length === 0 ? (
+          <div className="empty-state">
+            <div className="ico">✏️</div>
+            <h3>No cards yet</h3>
+            <p>Add your first card — front, back, done.</p>
+            <Link to={`/decks/${deckId}/cards/new`} className="btn btn-primary cta">
+              + Add your first card
             </Link>
           </div>
+        ) : (
           <div className="stack">
             {cards.map((card) => {
               const status = cardStatus(card.scheduling, now)
@@ -95,8 +98,8 @@ export function DeckDetailPage() {
               )
             })}
           </div>
-        </>
-      )}
-    </div>
+        )}
+      </div>
+    </>
   )
 }
