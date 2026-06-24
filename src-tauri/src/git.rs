@@ -40,7 +40,11 @@ fn run_git(args: &[&str], dir: &str) -> Result<(String, String, bool), String> {
 
 fn ok_or_stderr(res: (String, String, bool)) -> Result<String, String> {
     let (stdout, stderr, success) = res;
-    if success { Ok(stdout) } else { Err(stderr) }
+    if success {
+        Ok(stdout)
+    } else {
+        Err(stderr)
+    }
 }
 
 #[tauri::command]
@@ -139,8 +143,13 @@ pub fn git_commit_push(dir: String, message: String) -> Result<CommitPushResult,
     if !has_changes {
         ok_or_stderr(run_git(
             &[
-                "-c", "user.name=rem", "-c", "user.email=rem@localhost",
-                "commit", "-m", &message,
+                "-c",
+                "user.name=rem",
+                "-c",
+                "user.email=rem@localhost",
+                "commit",
+                "-m",
+                &message,
             ],
             &dir,
         )?)?;
@@ -148,11 +157,20 @@ pub fn git_commit_push(dir: String, message: String) -> Result<CommitPushResult,
     // Push to main; classify non-fast-forward as a (retryable) rejection.
     let (_, stderr, success) = run_git(&["push", "origin", "HEAD:main"], &dir)?;
     if success {
-        return Ok(CommitPushResult { pushed: true, rejected: false });
+        return Ok(CommitPushResult {
+            pushed: true,
+            rejected: false,
+        });
     }
     let lower = stderr.to_lowercase();
-    if lower.contains("rejected") || lower.contains("non-fast-forward") || lower.contains("fetch first") {
-        return Ok(CommitPushResult { pushed: false, rejected: true });
+    if lower.contains("rejected")
+        || lower.contains("non-fast-forward")
+        || lower.contains("fetch first")
+    {
+        return Ok(CommitPushResult {
+            pushed: false,
+            rejected: true,
+        });
     }
     Err(stderr)
 }
@@ -166,11 +184,7 @@ mod tests {
 
     fn make_temp_dir() -> PathBuf {
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!(
-            "rem-git-test-{}-{}",
-            std::process::id(),
-            n
-        ));
+        let dir = std::env::temp_dir().join(format!("rem-git-test-{}-{}", std::process::id(), n));
         fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -184,16 +198,31 @@ mod tests {
 
         let mut files = HashMap::new();
         files.insert("rem.json".to_string(), r#"{"v":1}"#.to_string());
-        files.insert("decks/abc123.json".to_string(), r#"{"id":"abc123"}"#.to_string());
+        files.insert(
+            "decks/abc123.json".to_string(),
+            r#"{"id":"abc123"}"#.to_string(),
+        );
         files.insert("tombstones.json".to_string(), r#"[]"#.to_string());
 
         git_write_files(dir_str.clone(), files).unwrap();
 
         let result = git_read_files(dir_str).unwrap();
 
-        assert!(result.contains_key("rem.json"), "missing rem.json; keys: {:?}", result.keys().collect::<Vec<_>>());
-        assert!(result.contains_key("decks/abc123.json"), "missing decks/abc123.json; keys: {:?}", result.keys().collect::<Vec<_>>());
-        assert!(result.contains_key("tombstones.json"), "missing tombstones.json; keys: {:?}", result.keys().collect::<Vec<_>>());
+        assert!(
+            result.contains_key("rem.json"),
+            "missing rem.json; keys: {:?}",
+            result.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            result.contains_key("decks/abc123.json"),
+            "missing decks/abc123.json; keys: {:?}",
+            result.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            result.contains_key("tombstones.json"),
+            "missing tombstones.json; keys: {:?}",
+            result.keys().collect::<Vec<_>>()
+        );
 
         // No leading "./"
         for key in result.keys() {
@@ -223,8 +252,14 @@ mod tests {
 
         let result = git_read_files(dir_str).unwrap();
 
-        assert!(result.contains_key("decks/a.json"), "decks/a.json should be present");
-        assert!(!result.contains_key("decks/b.json"), "decks/b.json should have been deleted");
+        assert!(
+            result.contains_key("decks/a.json"),
+            "decks/a.json should be present"
+        );
+        assert!(
+            !result.contains_key("decks/b.json"),
+            "decks/b.json should have been deleted"
+        );
 
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -250,8 +285,7 @@ mod tests {
     /// then Ok(true) after git_commit_push creates origin/main.
     #[test]
     fn test_fetch_reset_empty_vs_populated() {
-        let root = std::env::temp_dir()
-            .join(format!("rem-git-it-{}-0", std::process::id()));
+        let root = std::env::temp_dir().join(format!("rem-git-it-{}-0", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let root_str = root.to_string_lossy().to_string();
 
@@ -268,7 +302,12 @@ mod tests {
 
         // 3. fetch_reset on an empty remote → Ok(false).
         let result = git_fetch_reset(clone1_str.clone());
-        assert_eq!(result, Ok(false), "expected Ok(false) for empty remote, got {:?}", result);
+        assert_eq!(
+            result,
+            Ok(false),
+            "expected Ok(false) for empty remote, got {:?}",
+            result
+        );
 
         // 4. Write the required files.
         let mut files = HashMap::new();
@@ -280,11 +319,19 @@ mod tests {
         // 5. First push creates origin/main.
         let push_result = git_commit_push(clone1_str.clone(), "first".to_string()).unwrap();
         assert!(push_result.pushed, "expected pushed==true on first commit");
-        assert!(!push_result.rejected, "expected rejected==false on first commit");
+        assert!(
+            !push_result.rejected,
+            "expected rejected==false on first commit"
+        );
 
         // 6. fetch_reset now sees origin/main → Ok(true).
         let result2 = git_fetch_reset(clone1_str.clone());
-        assert_eq!(result2, Ok(true), "expected Ok(true) after first push, got {:?}", result2);
+        assert_eq!(
+            result2,
+            Ok(true),
+            "expected Ok(true) after first push, got {:?}",
+            result2
+        );
 
         // 7. git_read_files contains decks/a.json.
         let files_read = git_read_files(clone1_str).unwrap();
@@ -301,8 +348,7 @@ mod tests {
     /// after fetch_reset the retry succeeds.
     #[test]
     fn test_commit_push_non_fast_forward() {
-        let root = std::env::temp_dir()
-            .join(format!("rem-git-it-{}-1", std::process::id()));
+        let root = std::env::temp_dir().join(format!("rem-git-it-{}-1", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let root_str = root.to_string_lossy().to_string();
 
@@ -330,7 +376,11 @@ mod tests {
 
         // 4. clone2 advances origin/main.
         let result_fetch2 = git_fetch_reset(clone2_str.clone());
-        assert_eq!(result_fetch2, Ok(true), "clone2 fetch_reset should see origin/main");
+        assert_eq!(
+            result_fetch2,
+            Ok(true),
+            "clone2 fetch_reset should see origin/main"
+        );
         let mut files2 = HashMap::new();
         files2.insert("rem.json".to_string(), "{}".to_string());
         files2.insert("decks/b.json".to_string(), "{}".to_string());
@@ -355,7 +405,11 @@ mod tests {
 
         // 6. Retry: fetch_reset resets clone1 to clone2's state, then push succeeds.
         let result_retry_fetch = git_fetch_reset(clone1_str.clone());
-        assert_eq!(result_retry_fetch, Ok(true), "retry fetch_reset should see origin/main");
+        assert_eq!(
+            result_retry_fetch,
+            Ok(true),
+            "retry fetch_reset should see origin/main"
+        );
         git_write_files(clone1_str.clone(), files1).unwrap();
         let r_retry = git_commit_push(clone1_str.clone(), "from1-retry".to_string()).unwrap();
         assert!(
