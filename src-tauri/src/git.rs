@@ -48,12 +48,12 @@ fn ok_or_stderr(res: (String, String, bool)) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn git_is_cloned(dir: String) -> Result<bool, String> {
+pub async fn git_is_cloned(dir: String) -> Result<bool, String> {
     Ok(Path::new(&dir).join(".git").exists())
 }
 
 #[tauri::command]
-pub fn git_clone(remote_url: String, dir: String) -> Result<(), String> {
+pub async fn git_clone(remote_url: String, dir: String) -> Result<(), String> {
     if let Some(parent) = Path::new(&dir).parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -71,7 +71,7 @@ pub fn git_clone(remote_url: String, dir: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn git_fetch_reset(dir: String) -> Result<bool, String> {
+pub async fn git_fetch_reset(dir: String) -> Result<bool, String> {
     ok_or_stderr(run_git(&["fetch", "origin"], &dir)?)?;
     let (_, _, has_main) = run_git(&["rev-parse", "--verify", "origin/main"], &dir)?;
     if !has_main {
@@ -110,7 +110,7 @@ fn collect_files(root: &Path, dir: &Path, out: &mut HashMap<String, String>) -> 
 }
 
 #[tauri::command]
-pub fn git_read_files(dir: String) -> Result<HashMap<String, String>, String> {
+pub async fn git_read_files(dir: String) -> Result<HashMap<String, String>, String> {
     let root = PathBuf::from(&dir);
     let mut out = HashMap::new();
     collect_files(&root, &root, &mut out)?;
@@ -118,7 +118,7 @@ pub fn git_read_files(dir: String) -> Result<HashMap<String, String>, String> {
 }
 
 #[tauri::command]
-pub fn git_write_files(dir: String, files: HashMap<String, String>) -> Result<(), String> {
+pub async fn git_write_files(dir: String, files: HashMap<String, String>) -> Result<(), String> {
     let root = PathBuf::from(&dir);
     // Clear the managed set so deletions take effect, then write incoming files.
     let _ = fs::remove_dir_all(root.join("decks"));
@@ -135,7 +135,7 @@ pub fn git_write_files(dir: String, files: HashMap<String, String>) -> Result<()
 }
 
 #[tauri::command]
-pub fn git_commit_push(dir: String, message: String) -> Result<CommitPushResult, String> {
+pub async fn git_commit_push(dir: String, message: String) -> Result<CommitPushResult, String> {
     ok_or_stderr(run_git(&["add", "-A"], &dir)?)?;
     // Commit only if something is staged. Identity passed inline so commits work
     // even without global git config.
