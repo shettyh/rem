@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../data/StorageContext'
 import { ThemeToggle } from './ThemeToggle'
@@ -10,6 +10,7 @@ const navClass = ({ isActive }: { isActive: boolean }) =>
 /** Persistent left sidebar: brand, Today, the deck list, and a footer. */
 export function Sidebar() {
   const storage = useStorage()
+  const navigate = useNavigate()
 
   const decks = useLiveQuery(async () => {
     const all = await storage.listDecks()
@@ -38,9 +39,15 @@ export function Sidebar() {
 
       <div className="side-section">
         <span className="side-section-label">Decks</span>
-        <NavLink to="/" end className="side-add" aria-label="New deck" title="Add deck">
+        <button
+          type="button"
+          className="side-add"
+          aria-label="New deck"
+          title="Add deck"
+          onClick={() => navigate('/', { state: { focusNewDeck: Date.now() } })}
+        >
           +
-        </NavLink>
+        </button>
       </div>
 
       <div className="side-decks">

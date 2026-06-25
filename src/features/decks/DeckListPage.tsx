@@ -1,5 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
 import type { SchedulerKind } from '../../domain/models'
@@ -22,12 +22,22 @@ function todayDate(): string {
 export function DeckListPage() {
   const storage = useStorage()
   const navigate = useNavigate()
+  const location = useLocation()
+  const newDeckRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
   const [kind, setKind] = useState<SchedulerKind>('fsrs')
 
   const overview = useLiveQuery(() => loadDueOverview(storage, Date.now()), [])
 
   const totalDue = overview?.totalDue ?? 0
+
+  // Focus the new-deck input when arriving via the sidebar "+".
+  useEffect(() => {
+    if ((location.state as { focusNewDeck?: number } | null)?.focusNewDeck) {
+      newDeckRef.current?.scrollIntoView({ block: 'center' })
+      newDeckRef.current?.focus()
+    }
+  }, [location.state])
 
   // Enter starts the cross-deck review session when something is due.
   useEffect(() => {
@@ -128,6 +138,7 @@ export function DeckListPage() {
 
           <form className="add-row" onSubmit={addDeck}>
             <input
+              ref={newDeckRef}
               className="text-input"
               placeholder="New deck name…"
               value={name}

@@ -21,7 +21,7 @@ body {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: rgba(126, 108, 255, 0.3);
 }
 
 /* Web bundle opened in a plain browser (not the desktop app) */
@@ -306,6 +306,16 @@ html[data-tauri='yes'] .titlebar-spacer {
   align-items: center;
   gap: 12px;
   min-width: 0;
+}
+
+/* The header is a macOS window drag strip (data-tauri-drag-region). Let the
+   title text pass drags through to it, but keep the action buttons clickable. */
+.page-header h1,
+.page-header h1 * {
+  pointer-events: none;
+}
+.page-header-actions {
+  pointer-events: auto;
 }
 
 .header-title-text {
@@ -598,21 +608,23 @@ select.text-input {
   box-shadow: var(--shadow-sm);
 }
 .review-band-left {
-  flex: 1;
-  padding: 34px 36px;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 32px 40px;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  gap: 20px;
 }
 .band-figure {
   display: flex;
-  align-items: baseline;
-  gap: 14px;
+  align-items: center;
+  gap: 16px;
 }
 .band-num {
   font-family: var(--font-serif);
-  font-size: 76px;
-  line-height: 0.8;
+  font-size: 72px;
+  line-height: 1;
   color: var(--accent);
 }
 .band-cap {
@@ -622,7 +634,6 @@ select.text-input {
 .band-chips {
   display: flex;
   gap: 8px;
-  margin-top: 24px;
   font-family: var(--font-mono);
   font-size: 11px;
 }
@@ -641,8 +652,8 @@ select.text-input {
 }
 
 .band-start {
-  flex: none;
-  width: 300px;
+  flex: 1 1 0;
+  min-width: 240px;
   border: none;
   cursor: pointer;
   color: #fff;
@@ -804,6 +815,23 @@ select.text-input {
 .add-row .btn {
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+/* Narrow windows: stack the review band and let stats wrap. */
+@media (max-width: 760px) {
+  .review-band {
+    flex-direction: column;
+  }
+  .band-start {
+    min-height: 132px;
+    padding: 28px;
+  }
+  .deck-stats {
+    flex-wrap: wrap;
+  }
+  .deck-stat {
+    flex-basis: 30%;
+  }
 }
 
 /* ─── Deck view ────────────────────────────────────────────────────────── */
