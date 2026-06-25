@@ -5,7 +5,7 @@
   /* color roles */
   --bg: #faf9f6;            /* content area */
   --bg-inset: #f4f2ed;      /* subtle inset / hover wash */
-  --sidebar: #f1efea;       /* sidebar (solid fallback; vibrancy replaces on macOS) */
+  --sidebar: #f1efea;       /* sidebar */
   --surface: #ffffff;
   --surface-inset: #f4f2ed;
   --border: #e7e4dd;

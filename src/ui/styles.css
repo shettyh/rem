@@ -54,14 +54,7 @@ body {
   }
 }
 
-/* macOS (Tauri) vibrancy: let the window material show through the sidebar. */
-html[data-tauri='yes'][data-platform='mac'] body,
-html[data-tauri='yes'][data-platform='mac'] #root {
-  background: transparent;
-}
-html[data-tauri='yes'][data-platform='mac'] .sidebar {
-  background: transparent;
-}
+/* Tauri desktop: reserve a top strip for the overlaid macOS traffic lights. */
 html[data-tauri='yes'] .titlebar-spacer {
   height: var(--titlebar-h);
 }

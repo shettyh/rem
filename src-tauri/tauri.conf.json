@@ -10,7 +10,6 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "rem",
@@ -20,7 +19,7 @@
         "minHeight": 540,
         "resizable": true,
         "fullscreen": false,
-        "transparent": true,
+        "transparent": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true
       }

@@ -43,7 +43,7 @@ src/
   features/    decks · cards (TipTap editor + view) · review · settings
   app/         entry, router
   ui/          app shell (sidebar + content) + design tokens / styles
-src-tauri/     Rust: window chrome (overlay titlebar, sidebar vibrancy) + git bridge
+src-tauri/     Rust: window chrome (overlay titlebar) + git bridge
 ```
 
 ## Sync
