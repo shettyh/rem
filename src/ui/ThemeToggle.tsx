@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { type Theme, resolveInitialTheme, applyTheme } from './theme'
 
-/** Header button that flips between light and dark and persists the choice. */
+/** Sidebar-footer button that flips between light and dark and persists the choice. */
 export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(resolveInitialTheme)
 
@@ -12,13 +12,9 @@ export function ThemeToggle() {
   }
 
   return (
-    <button
-      type="button"
-      className="theme-toggle"
-      aria-label="Toggle theme"
-      onClick={toggle}
-    >
-      {theme === 'dark' ? '☾' : '☀︎'}
+    <button type="button" className="theme-toggle" aria-label="Toggle theme" onClick={toggle}>
+      <span className="dot" style={{ background: theme === 'dark' ? 'transparent' : 'var(--accent)' }} />
+      {theme === 'dark' ? 'Dark' : 'Light'}
     </button>
   )
 }

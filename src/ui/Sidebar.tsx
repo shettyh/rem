@@ -2,11 +2,12 @@ import { NavLink } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../data/StorageContext'
 import { ThemeToggle } from './ThemeToggle'
+import { deckColor } from './deckColor'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
   isActive ? 'nav-item is-active' : 'nav-item'
 
-/** Persistent left sidebar: app nav, the deck list (navigation), and a footer. */
+/** Persistent left sidebar: brand, Today, the deck list, and a footer. */
 export function Sidebar() {
   const storage = useStorage()
 
@@ -21,35 +22,50 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="titlebar-spacer" data-tauri-drag-region />
-      <div className="side-brand">rem</div>
 
-      <nav>
+      <div className="side-brand">
+        <span className="brand-word">rem</span>
+        <span className="brand-dot" />
+        <span className="brand-tag">recall</span>
+      </div>
+
+      <nav className="side-nav">
         <NavLink to="/" end className={navClass}>
+          <span className="nav-dot" />
           <span className="nav-grow">Today</span>
         </NavLink>
       </nav>
 
       <div className="side-section">
         <span className="side-section-label">Decks</span>
-        <NavLink to="/" end className="side-add" aria-label="New deck" title="New deck">
+        <NavLink to="/" end className="side-add" aria-label="New deck" title="Add deck">
           +
         </NavLink>
       </div>
 
-      <nav>
+      <div className="side-decks">
         {(decks ?? []).map(({ deck, due }) => (
           <NavLink key={deck.id} to={`/decks/${deck.id}`} className={navClass}>
+            <span className="deck-dot" style={{ background: deckColor(deck.id) }} />
             <span className="nav-grow">{deck.name}</span>
             {due > 0 && <span className="side-badge">{due}</span>}
           </NavLink>
         ))}
-      </nav>
-
-      <div className="side-spacer" />
+      </div>
 
       <div className="side-footer">
-        <NavLink to="/settings" className="icon-btn" aria-label="Settings" title="Settings">
-          ⚙
+        <NavLink
+          to="/settings"
+          className={({ isActive }) => (isActive ? 'side-settings is-active' : 'side-settings')}
+          aria-label="Settings"
+          title="Settings"
+        >
+          <span className="ico-lines">
+            <span />
+            <span />
+            <span />
+          </span>
+          Settings
         </NavLink>
         <ThemeToggle />
       </div>

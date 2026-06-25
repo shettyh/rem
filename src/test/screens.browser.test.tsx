@@ -2,7 +2,6 @@ import { test, expect, afterEach } from 'vitest'
 import { page } from 'vitest/browser'
 import { DeckListPage } from '../features/decks/DeckListPage'
 import { DeckDetailPage } from '../features/cards/DeckDetailPage'
-import { CardEditorPage } from '../features/cards/CardEditorPage'
 import { ReviewPage } from '../features/review/ReviewPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
 import { freshStorage, MS_PER_DAY } from './seed'
@@ -27,7 +26,7 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       await storage.createDeck('TypeScript')
       await storage.createDeck('Spanish vocabulary')
       await renderRoute({ storage, entry: '/', path: '/', element: <DeckListPage /> })
-      await expect.element(page.getByText('TypeScript')).toBeVisible()
+      await expect.element(page.getByText('Your decks')).toBeVisible()
     },
   },
   {
@@ -85,7 +84,8 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
     run: async () => {
       const storage = freshStorage()
       const deck = await storage.createDeck('TypeScript')
-      await renderRoute({ storage, entry: `/decks/${deck.id}/cards/new`, path: '/decks/:deckId/cards/new', element: <CardEditorPage /> })
+      await renderRoute({ storage, entry: `/decks/${deck.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
+      await page.getByRole('button', { name: 'Add your first card', exact: false }).click()
       await expect.element(page.getByText('New card')).toBeVisible()
     },
   },
@@ -94,8 +94,9 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
     run: async () => {
       const storage = freshStorage()
       const deck = await storage.createDeck('TypeScript')
-      const card = await storage.createCard(deck.id, 'How to narrow `unknown`?', CODE_BACK)
-      await renderRoute({ storage, entry: `/decks/${deck.id}/cards/${card.id}`, path: '/decks/:deckId/cards/:cardId', element: <CardEditorPage /> })
+      await storage.createCard(deck.id, 'How to narrow `unknown`?', CODE_BACK)
+      await renderRoute({ storage, entry: `/decks/${deck.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
+      await page.getByText('How to narrow').click()
       await expect.element(page.getByText('Edit card')).toBeVisible()
     },
   },

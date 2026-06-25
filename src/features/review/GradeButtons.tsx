@@ -30,7 +30,8 @@ export function GradeButtons({
       {GRADES.map(({ grade, label, key }) => (
         <button
           key={grade}
-          className={`btn grade grade-${grade}`}
+          type="button"
+          className={`grade grade-${grade}`}
           onClick={() => onGrade(grade)}
         >
           <span className="grade-label">{label}</span>

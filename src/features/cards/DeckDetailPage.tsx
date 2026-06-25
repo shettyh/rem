@@ -1,9 +1,13 @@
+import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
 import type { SchedulingState } from '../../domain/models'
 import { MS_PER_DAY } from '../../domain/scheduler'
 import { PageHeader } from '../../ui/PageHeader'
+import { deckColor } from '../../ui/deckColor'
+import { isNew } from '../review/dueOverview'
+import { CardEditorModal } from './CardEditorModal'
 
 /** First non-empty line of markdown, reduced to plain text for a one-line card preview. */
 export function cardPreview(md: string): string {
@@ -23,8 +27,8 @@ export function cardStatus(
   s: SchedulingState,
   now: number,
 ): { kind: 'new' | 'due' | 'scheduled'; label: string } {
-  const isNew = s.kind === 'sm2' ? s.repetitions === 0 : s.reps === 0
-  if (isNew) return { kind: 'new', label: 'new' }
+  const isNewCard = s.kind === 'sm2' ? s.repetitions === 0 : s.reps === 0
+  if (isNewCard) return { kind: 'new', label: 'new' }
   if (s.due <= now) return { kind: 'due', label: 'due' }
   const days = Math.max(1, Math.round((s.due - now) / MS_PER_DAY))
   const label = days >= 30 ? `${Math.round(days / 30)}mo` : `${days}d`
@@ -34,6 +38,7 @@ export function cardStatus(
 export function DeckDetailPage() {
   const { deckId } = useParams()
   const storage = useStorage()
+  const [editing, setEditing] = useState<{ cardId?: string } | null>(null)
 
   const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const cards = useLiveQuery(() => (deckId ? storage.listCards(deckId) : []), [deckId])
@@ -42,17 +47,22 @@ export function DeckDetailPage() {
   if (!deckId || deck === undefined || cards === undefined) return null
 
   const now = Date.now()
+  const newCount = cards.filter((c) => isNew(c.scheduling)).length
 
   const title = (
     <>
+      <span className="header-dot" style={{ background: deckColor(deck.id) }} />
       <span className="header-title-text">{deck.name}</span>
-      <span className="sched-badge">{deck.schedulerKind === 'fsrs' ? 'FSRS' : 'SM-2'}</span>
+      <span className="algo-chip">{deck.schedulerKind === 'fsrs' ? 'FSRS' : 'SM-2'}</span>
     </>
   )
 
   const actions =
     cards.length === 0 ? undefined : (
       <>
+        <button className="btn btn-ghost" onClick={() => setEditing({})}>
+          + Add card
+        </button>
         {due && due > 0 ? (
           <Link to={`/decks/${deckId}/study`} className="btn btn-primary">
             Study {due}
@@ -60,46 +70,64 @@ export function DeckDetailPage() {
         ) : (
           <span className="muted">All caught up today</span>
         )}
-        <Link to={`/decks/${deckId}/cards/new`} className="btn btn-ghost">
-          + Add card
-        </Link>
       </>
     )
 
   return (
     <>
       <PageHeader title={title} actions={actions} />
-      <div className="page-body stack">
+      <div className="page-body">
         {cards.length === 0 ? (
           <div className="empty-state">
             <div className="ico">✏️</div>
             <h3>No cards yet</h3>
             <p>Add your first card — front, back, done.</p>
-            <Link to={`/decks/${deckId}/cards/new`} className="btn btn-primary cta">
+            <button className="btn btn-primary cta" onClick={() => setEditing({})}>
               + Add your first card
-            </Link>
+            </button>
           </div>
         ) : (
-          <div className="stack">
-            {cards.map((card) => {
-              const status = cardStatus(card.scheduling, now)
-              return (
-                <Link
-                  to={`/decks/${deckId}/cards/${card.id}`}
-                  className="card-row"
-                  key={card.id}
-                >
-                  <span className="card-front">
-                    {cardPreview(card.front) || <span className="muted">Untitled card</span>}
-                  </span>
-                  <span className={`status-tag status-${status.kind}`}>{status.label}</span>
-                  <span className="card-edit">edit</span>
-                </Link>
-              )
-            })}
-          </div>
+          <>
+            <div className="deck-stats">
+              <div className="deck-stat deck-stat-due">
+                <div className="deck-stat-num">{due ?? 0}</div>
+                <div className="deck-stat-label">Due now</div>
+              </div>
+              <div className="deck-stat">
+                <div className="deck-stat-num">{newCount}</div>
+                <div className="deck-stat-label">New</div>
+              </div>
+              <div className="deck-stat">
+                <div className="deck-stat-num">{cards.length}</div>
+                <div className="deck-stat-label">Total</div>
+              </div>
+            </div>
+
+            <div className="card-list">
+              {cards.map((card) => {
+                const status = cardStatus(card.scheduling, now)
+                return (
+                  <button
+                    key={card.id}
+                    className="card-row"
+                    onClick={() => setEditing({ cardId: card.id })}
+                  >
+                    <span className="card-front">
+                      {cardPreview(card.front) || <span className="muted">Untitled card</span>}
+                    </span>
+                    <span className="card-back">{cardPreview(card.back)}</span>
+                    <span className={`status-tag status-${status.kind}`}>{status.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </>
         )}
       </div>
+
+      {editing && (
+        <CardEditorModal deckId={deckId} cardId={editing.cardId} onClose={() => setEditing(null)} />
+      )}
     </>
   )
 }

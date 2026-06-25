@@ -65,22 +65,21 @@ export function SyncSection({
 
   return (
     <section className="settings-section">
-      <h2>Sync (Git)</h2>
+      <h2>Sync</h2>
       <p className="settings-hint">
         Sync decks across machines via a Git remote, using your existing git credentials.
       </p>
-      <label className="settings-field">
-        Git remote URL
-        <input
-          type="text"
-          aria-label="Git remote URL"
-          placeholder="git@github.com:you/rem-data.git"
-          value={remoteUrl}
-          onChange={(e) => onUrlChange(e.target.value)}
-        />
-      </label>
+      <label className="field-label">Git remote URL</label>
+      <input
+        type="text"
+        className="text-input settings-field-input"
+        aria-label="Git remote URL"
+        placeholder="git@github.com:you/rem-data.git"
+        value={remoteUrl}
+        onChange={(e) => onUrlChange(e.target.value)}
+      />
       <button
-        className="btn btn-primary"
+        className="btn btn-primary btn-block"
         type="button"
         disabled={status.kind === 'syncing'}
         onClick={onSync}
@@ -88,7 +87,7 @@ export function SyncSection({
         {status.kind === 'syncing' ? 'Syncing…' : 'Sync now'}
       </button>
       {status.kind === 'ok' && (
-        <p className="settings-ok">Synced at {new Date(status.at).toLocaleString()}.</p>
+        <p className="settings-status">Synced at {new Date(status.at).toLocaleString()}.</p>
       )}
       {status.kind === 'error' && <p className="settings-error">{status.message}</p>}
     </section>

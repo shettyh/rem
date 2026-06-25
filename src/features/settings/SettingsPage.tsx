@@ -87,76 +87,82 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" />
-      <div className="page-body measure stack">
+      <div className="settings-body">
         <SyncSection />
+        <hr className="settings-rule" />
 
-      <section className="settings-section">
-        <h2>Export decks</h2>
-        {list.length === 0 ? (
-          <p className="settings-hint">No decks to export yet.</p>
-        ) : (
-          <>
-            <label className="settings-check">
-              <input
-                type="checkbox"
-                aria-label="Select all decks"
-                checked={allSelected}
-                onChange={toggleAll}
-              />
-              Select all
-            </label>
-            {list.map((d) => (
-              <label key={d.id} className="settings-check">
-                <input
-                  type="checkbox"
-                  checked={selected.has(d.id)}
-                  onChange={() => toggle(d.id)}
-                />
-                {d.name}
-              </label>
-            ))}
-            <button
-              className="btn btn-primary"
-              type="button"
-              disabled={selected.size === 0}
-              onClick={onExport}
-            >
-              Export selected
-            </button>
-          </>
-        )}
-      </section>
+        <section className="settings-section">
+          <h2>Export decks</h2>
+          {list.length === 0 ? (
+            <p className="settings-hint">No decks to export yet.</p>
+          ) : (
+            <>
+              <div className="check-list">
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all decks"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                  />
+                  Select all
+                </label>
+                {list.map((d) => (
+                  <label key={d.id} className="check">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(d.id)}
+                      onChange={() => toggle(d.id)}
+                    />
+                    {d.name}
+                  </label>
+                ))}
+              </div>
+              <button
+                className="btn btn-primary btn-block"
+                type="button"
+                disabled={selected.size === 0}
+                onClick={onExport}
+              >
+                Export selected
+              </button>
+            </>
+          )}
+        </section>
+        <hr className="settings-rule" />
 
-      <section className="settings-section">
-        <h2>Import decks</h2>
-        <p className="settings-hint">Same-named decks are replaced on import.</p>
-        <input
-          type="file"
-          accept="application/json,.json"
-          aria-label="Import backup file"
-          onChange={onFile}
-        />
-        {error && <p className="settings-error">{error}</p>}
-        {message && <p className="settings-ok">{message}</p>}
-        {pending && (
-          <div className="settings-warning" role="alertdialog" aria-label="Confirm replace">
-            <p>These decks already exist and will be replaced:</p>
-            <ul>
-              {pending.replaced.map((name) => (
-                <li key={name}>{name}</li>
-              ))}
-            </ul>
-            <div className="add-row">
-              <button className="btn btn-danger" type="button" onClick={() => runImport(pending.decks)}>
-                Replace
-              </button>
-              <button className="btn btn-ghost" type="button" onClick={() => setPending(null)}>
-                Cancel
-              </button>
-            </div>
+        <section className="settings-section">
+          <h2>Import decks</h2>
+          <p className="settings-hint">Same-named decks are replaced on import.</p>
+          <div className="settings-import-row">
+            <input
+              type="file"
+              accept="application/json,.json"
+              aria-label="Import backup file"
+              onChange={onFile}
+            />
           </div>
-        )}
-      </section>
+          {error && <p className="settings-error">{error}</p>}
+          {message && <p className="settings-status">{message}</p>}
+          {pending && (
+            <div className="settings-warning" role="alertdialog" aria-label="Confirm replace">
+              <p>These decks already exist and will be replaced:</p>
+              <ul>
+                {pending.replaced.map((name) => (
+                  <li key={name}>{name}</li>
+                ))}
+              </ul>
+              <div className="row">
+                <button className="btn btn-danger" type="button" onClick={() => runImport(pending.decks)}>
+                  Replace
+                </button>
+                <button className="btn btn-ghost" type="button" onClick={() => setPending(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </>
   )

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { useLiveQuery } from 'dexie-react-hooks'
 import type { Card, Grade } from '../../domain/models'
 import { getScheduler } from '../../domain/scheduler'
 import { useStorage } from '../../data/StorageContext'
 import { PageHeader } from '../../ui/PageHeader'
 import { MarkdownView } from '../cards/MarkdownView'
 import { GradeButtons } from './GradeButtons'
+import { loadDueOverview, shuffle } from './dueOverview'
 
 export function ReviewPage() {
   const { deckId } = useParams()
@@ -15,10 +17,17 @@ export function ReviewPage() {
   const [index, setIndex] = useState(0)
   const [revealed, setRevealed] = useState(false)
 
+  const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
+  const deckName = deckId ? (deck?.name ?? '') : 'All decks'
+  const backTo = deckId ? `/decks/${deckId}` : '/'
+
   useEffect(() => {
-    if (!deckId) return
     let active = true
-    storage.dueCards(deckId, Date.now()).then((cards) => {
+    const now = Date.now()
+    const load = deckId
+      ? storage.dueCards(deckId, now)
+      : loadDueOverview(storage, now).then((ov) => shuffle(ov.queue))
+    load.then((cards) => {
       if (active) setQueue(cards)
     })
     return () => {
@@ -60,7 +69,7 @@ export function ReviewPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [current, revealed, grade])
 
-  if (!deckId || queue === null) return null
+  if (queue === null) return null
 
   if (queue.length === 0) {
     return (
@@ -68,8 +77,10 @@ export function ReviewPage() {
         <div className="empty-state">
           <div className="ico">🌙</div>
           <h3>Nothing due</h3>
-          <p>Nothing due in this deck right now.</p>
-          <BackToDeck deckId={deckId} className="btn btn-ghost cta" />
+          <p>{deckId ? 'Nothing due in this deck right now.' : 'Nothing due across your decks right now.'}</p>
+          <Link to={backTo} className="btn btn-ghost cta">
+            {deckId ? 'Back to deck' : 'Back to Today'}
+          </Link>
         </div>
       </div>
     )
@@ -84,61 +95,61 @@ export function ReviewPage() {
           <p>
             {queue.length} card{queue.length === 1 ? '' : 's'} done. Nice work.
           </p>
-          <BackToDeck deckId={deckId} className="btn btn-primary cta" />
+          <Link to={backTo} className="btn btn-primary cta">
+            {deckId ? 'Back to deck' : 'Back to Today'}
+          </Link>
         </div>
       </div>
     )
   }
 
+  const title = (
+    <>
+      <span className="review-pos">
+        {index + 1} / {queue.length}
+      </span>
+      <span className="review-deck">{deckName}</span>
+    </>
+  )
+
   return (
     <>
       <PageHeader
-        title={`${index + 1} / ${queue.length}`}
-        actions={<BackToDeck deckId={deckId} label="End session" className="btn btn-ghost" />}
+        title={title}
+        actions={
+          <Link to={backTo} className="btn btn-ghost">
+            End session
+          </Link>
+        }
       />
       <div className="review">
-        <div className="review-card">
-          <div className="review-q">
-            <MarkdownView source={current.front} />
-          </div>
-          {!revealed && (
-            <button
-              className="btn btn-primary btn-block"
-              onClick={() => setRevealed(true)}
-            >
+        {!revealed ? (
+          <div className="review-stage">
+            <div className="review-card">
+              <div className="review-q">
+                <MarkdownView source={current.front} />
+              </div>
+            </div>
+            <button className="review-show" onClick={() => setRevealed(true)}>
               Show answer <span className="kbd">space</span>
             </button>
-          )}
-          {revealed && (
-            <>
+          </div>
+        ) : (
+          <div className="review-stage reveal-enter">
+            <div className="review-card revealed">
+              <div className="review-q">
+                <MarkdownView source={current.front} />
+              </div>
               <hr className="review-rule" />
               <p className="answer-label">Answer</p>
-              <div className="review-a reveal-enter">
+              <div className="review-a">
                 <MarkdownView source={current.back} />
               </div>
-            </>
-          )}
-        </div>
-        {revealed && (
-          <GradeButtons scheduling={current.scheduling} now={Date.now()} onGrade={grade} />
+            </div>
+            <GradeButtons scheduling={current.scheduling} now={Date.now()} onGrade={grade} />
+          </div>
         )}
       </div>
     </>
-  )
-}
-
-function BackToDeck({
-  deckId,
-  label = 'Back to deck',
-  className = 'btn btn-ghost',
-}: {
-  deckId: string
-  label?: string
-  className?: string
-}) {
-  return (
-    <Link to={`/decks/${deckId}`} className={className}>
-      {label}
-    </Link>
   )
 }

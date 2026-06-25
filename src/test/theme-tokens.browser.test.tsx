@@ -10,10 +10,10 @@ function bg(): string {
 }
 
 test('--bg resolves to the light content value by default', () => {
-  expect(bg()).toBe('#ffffff')
+  expect(bg()).toBe('#faf9f6')
 })
 
 test('--bg resolves to the dark content value under [data-theme=dark]', () => {
   document.documentElement.dataset.theme = 'dark'
-  expect(bg()).toBe('#1c1c1e')
+  expect(bg()).toBe('#0f0e13')
 })

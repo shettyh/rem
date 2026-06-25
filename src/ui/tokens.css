@@ -1,32 +1,33 @@
 /* Design tokens — the single source of truth for colors, spacing, type, motion.
-   Neutral macOS-style palette with a system Indigo accent.
-   Light values on :root; dark overrides under [data-theme='dark']. */
+   Editorial palette from the rem.dc.html mockup: purple accent, warm-light +
+   warm-dark themes. Light values on :root; dark overrides under [data-theme='dark']. */
 :root {
   /* color roles */
-  --bg: #ffffff;            /* content area */
-  --bg-inset: #f5f5f7;      /* subtle inset / hover wash */
-  --sidebar: #f4f4f6;       /* sidebar (solid fallback; vibrancy replaces on macOS) */
+  --bg: #faf9f6;            /* content area */
+  --bg-inset: #f4f2ed;      /* subtle inset / hover wash */
+  --sidebar: #f1efea;       /* sidebar (solid fallback; vibrancy replaces on macOS) */
   --surface: #ffffff;
-  --surface-inset: #f0f0f3;
-  --border: #d6d6db;
-  --border-strong: #b8b8bd;
-  --text: #1d1d1f;
-  --muted: #6b6b70;         /* AA on white (4.6:1) and on insets */
-  --accent: #5856d6;        /* macOS Indigo — solid fills */
-  --accent-hover: #4a48c4;
-  --accent-soft: #ecebfb;
-  --accent-text: #4a48c4;   /* accent as TEXT (chips, inline code, due count) */
+  --surface-inset: #f4f2ed;
+  --border: #e7e4dd;
+  --border-strong: #d9d5cd;
+  --text: #1a1822;
+  --muted: #76727e;         /* secondary text */
+  --faint: #a6a1ac;         /* tertiary: Space Mono micro-labels, counts */
+  --accent: #5a47e8;        /* purple — solid fills */
+  --accent-hover: #4a39d6;
+  --accent-soft: #eeebff;   /* tinted chip / selected-row background */
+  --accent-text: #5a47e8;   /* accent as TEXT (chips, inline code, due count) */
   --on-accent: #ffffff;
   --code-bg: #1e1e22;       /* code stays dark in both themes (github-dark) */
   --code-fg: #eceaf6;
-  --selection: #e6e6fb;     /* sidebar/list selected row */
+  --selection: #eeebff;     /* sidebar/list selected row */
 
   /* grade + semantic roles */
-  --again: #c92a2e;
-  --hard: #e0892a;
-  --good: #127c4a;
+  --again: #dc2a2f;
+  --hard: #d97914;
+  --good: #1e9b5e;
   --easy: var(--accent);
-  --danger: #c92a2e;
+  --danger: #dc2a2f;
 
   /* spacing scale */
   --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
@@ -35,19 +36,19 @@
   /* type scale */
   --text-xs: 12px; --text-sm: 13px; --text-base: 14px;
   --text-lg: 17px; --text-xl: 21px; --text-2xl: 26px;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
-  --font-serif: Georgia, 'Times New Roman', serif;
-  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  --font-sans: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
 
   /* shell metrics */
-  --sidebar-w: 240px;
+  --sidebar-w: 264px;
   --titlebar-h: 38px;       /* drag strip / traffic-light inset on macOS */
 
   /* radii / shadow / motion */
-  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px;
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px; --radius-xl: 20px;
   --radius: var(--radius-md);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 8px 28px rgba(0, 0, 0, 0.14);
+  --shadow-sm: 0 1px 3px rgba(20, 18, 30, 0.08);
+  --shadow-md: 0 24px 60px rgba(20, 18, 30, 0.18);
   --shadow: var(--shadow-sm);
   --reveal-ms: 180ms;
 
@@ -55,29 +56,30 @@
 }
 
 [data-theme='dark'] {
-  --bg: #1c1c1e;
-  --bg-inset: #2a2a2c;
-  --sidebar: #232325;
-  --surface: #2a2a2c;
-  --surface-inset: #333336;
-  --border: #48484c;
-  --border-strong: #5c5c61;
-  --text: #f5f5f7;
-  --muted: #a1a1a6;
-  --accent: #5e5ce6;
-  --accent-hover: #6f6df0;
-  --accent-soft: #26263d;
-  --accent-text: #8a88ff;
+  --bg: #0f0e13;
+  --bg-inset: #232231;
+  --sidebar: #15141b;
+  --surface: #1b1a23;
+  --surface-inset: #232231;
+  --border: #2a2836;
+  --border-strong: #3a3848;
+  --text: #f4f3f8;
+  --muted: #9d99a8;
+  --faint: #615d6e;
+  --accent: #7e6cff;
+  --accent-hover: #8f80ff;
+  --accent-soft: #241f3d;
+  --accent-text: #9a8cff;
   --on-accent: #ffffff;
   --code-bg: #28282e;
   --code-fg: #eceaf6;
-  --selection: #34344f;
-  --again: #ff6b6b;
-  --hard: #ffa94d;
-  --good: #51cf8a;
-  --danger: #ff6b6b;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 10px 34px rgba(0, 0, 0, 0.5);
+  --selection: #241f3d;
+  --again: #e5484d;
+  --hard: #e8922e;
+  --good: #2fa86b;
+  --danger: #e5484d;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 24px 60px rgba(0, 0, 0, 0.5);
 
   color-scheme: dark;
 }
