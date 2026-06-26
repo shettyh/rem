@@ -224,4 +224,16 @@ describe('assets', () => {
     expect(b.hash).toBe(a.hash)
     expect(await storage.db.assets.count()).toBe(1)
   })
+
+  it('sweeps assets not referenced by any card', async () => {
+    const deck = await storage.createDeck('D')
+    const used = await storage.putAsset(new Uint8Array([1]), 'image/png')
+    const orphan = await storage.putAsset(new Uint8Array([2]), 'image/png')
+    await storage.createCard(deck.id, `![x](asset:${used.hash})`, 'back')
+
+    await storage.sweepOrphanAssets()
+
+    expect(await storage.getAsset(used.hash)).toBeDefined()
+    expect(await storage.getAsset(orphan.hash)).toBeUndefined()
+  })
 })

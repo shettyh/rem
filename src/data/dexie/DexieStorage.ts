@@ -1,5 +1,6 @@
 import type { Asset, Card, Deck, ID, SchedulerKind } from '../../domain/models'
 import { hashBytes } from '../assetHash'
+import { assetRefs } from '../assetRefs'
 import { getScheduler } from '../../domain/scheduler'
 import type { CardPatch, ImportResult, Storage } from '../Storage'
 import { planImport, type DeckBackup } from '../backup'
@@ -150,5 +151,10 @@ export class DexieStorage implements Storage {
     return this.db.assets.get(hash)
   }
 
-  async sweepOrphanAssets(): Promise<void> {}
+  async sweepOrphanAssets(): Promise<void> {
+    const [cards, assets] = await Promise.all([this.db.cards.toArray(), this.db.assets.toArray()])
+    const referenced = new Set(cards.flatMap((c) => [...assetRefs(c.front), ...assetRefs(c.back)]))
+    const orphans = assets.filter((a) => !referenced.has(a.hash)).map((a) => a.hash)
+    if (orphans.length) await this.db.assets.bulkDelete(orphans)
+  }
 }
