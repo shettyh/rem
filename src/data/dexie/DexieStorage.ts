@@ -1,4 +1,5 @@
-import type { Card, Deck, ID, SchedulerKind } from '../../domain/models'
+import type { Asset, Card, Deck, ID, SchedulerKind } from '../../domain/models'
+import { hashBytes } from '../assetHash'
 import { getScheduler } from '../../domain/scheduler'
 import type { CardPatch, ImportResult, Storage } from '../Storage'
 import { planImport, type DeckBackup } from '../backup'
@@ -8,7 +9,7 @@ import type { RemDB } from './db'
 
 /** IndexedDB-backed {@link Storage}, using Dexie. */
 export class DexieStorage implements Storage {
-  constructor(private readonly db: RemDB) {}
+  constructor(readonly db: RemDB) {}
 
   async createDeck(name: string, kind: SchedulerKind = 'sm2'): Promise<Deck> {
     const deck: Deck = {
@@ -135,4 +136,19 @@ export class DexieStorage implements Storage {
       if (ops.tombstones.length) await this.db.tombstones.bulkPut(ops.tombstones)
     })
   }
+
+  async putAsset(bytes: Uint8Array, mime: string): Promise<Asset> {
+    const hash = await hashBytes(bytes)
+    const existing = await this.db.assets.get(hash)
+    if (existing) return existing
+    const asset: Asset = { hash, mime, bytes, createdAt: Date.now() }
+    await this.db.assets.add(asset)
+    return asset
+  }
+
+  getAsset(hash: ID): Promise<Asset | undefined> {
+    return this.db.assets.get(hash)
+  }
+
+  async sweepOrphanAssets(): Promise<void> {}
 }

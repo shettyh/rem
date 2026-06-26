@@ -63,6 +63,16 @@ export interface Card {
   scheduling: SchedulingState
 }
 
+/** A content-addressed binary asset (image/GIF) embedded in card markdown as `asset:<hash>`. */
+export interface Asset {
+  /** SHA-256 hex of {@link bytes}; primary key. */
+  hash: ID
+  /** MIME type, e.g. image/png. */
+  mime: string
+  bytes: Uint8Array
+  createdAt: number
+}
+
 /** Records that a deck or card was deleted, so the deletion propagates on sync. */
 export interface Tombstone {
   id: ID

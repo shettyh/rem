@@ -208,3 +208,20 @@ describe('importDecks', () => {
     expect(decks.filter((d) => d.name === 'Dup')).toHaveLength(1)
   })
 })
+
+describe('assets', () => {
+  it('stores an asset and reads it back by hash', async () => {
+    const asset = await storage.putAsset(new Uint8Array([1, 2, 3]), 'image/png')
+    expect(asset.hash).toHaveLength(64)
+    expect(asset.mime).toBe('image/png')
+    const got = await storage.getAsset(asset.hash)
+    expect(got?.bytes).toEqual(new Uint8Array([1, 2, 3]))
+  })
+
+  it('dedupes identical bytes to one record', async () => {
+    const a = await storage.putAsset(new Uint8Array([9, 9]), 'image/png')
+    const b = await storage.putAsset(new Uint8Array([9, 9]), 'image/png')
+    expect(b.hash).toBe(a.hash)
+    expect(await storage.db.assets.count()).toBe(1)
+  })
+})
