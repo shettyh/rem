@@ -239,3 +239,28 @@ describe('assets', () => {
     expect(await storage.getAsset(orphan.hash)).toBeUndefined()
   })
 })
+
+describe('snapshot assets', () => {
+  it('exports stored assets in the snapshot', async () => {
+    const a = await storage.putAsset(new Uint8Array([7]), 'image/gif')
+    const snap = await storage.exportSnapshot()
+    expect(snap.assets.map((x) => x.hash)).toEqual([a.hash])
+    expect(snap.assets[0].mime).toBe('image/gif')
+  })
+
+  it('applyMerge upserts new assets and deletes by hash', async () => {
+    const keep = 'c'.repeat(64)
+    await storage.applyMerge({
+      upsertDecks: [], upsertCards: [], deleteDeckIds: [], deleteCardIds: [], tombstones: [],
+      upsertAssets: [{ hash: keep, mime: 'image/png', bytes: new Uint8Array([5]) }],
+      deleteAssetHashes: [],
+    })
+    expect((await storage.getAsset(keep))?.bytes).toEqual(new Uint8Array([5]))
+
+    await storage.applyMerge({
+      upsertDecks: [], upsertCards: [], deleteDeckIds: [], deleteCardIds: [], tombstones: [],
+      upsertAssets: [], deleteAssetHashes: [keep],
+    })
+    expect(await storage.getAsset(keep)).toBeUndefined()
+  })
+})

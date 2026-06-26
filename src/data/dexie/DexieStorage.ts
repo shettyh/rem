@@ -120,22 +120,38 @@ export class DexieStorage implements Storage {
   }
 
   async exportSnapshot(): Promise<RepoSnapshot> {
-    const [decks, cards, tombstones] = await Promise.all([
+    const [decks, cards, tombstones, assets] = await Promise.all([
       this.db.decks.toArray(),
       this.db.cards.toArray(),
       this.db.tombstones.toArray(),
+      this.db.assets.toArray(),
     ])
-    return { decks, cards, tombstones, assets: [] }
+    return {
+      decks,
+      cards,
+      tombstones,
+      assets: assets.map(({ hash, mime, bytes }) => ({ hash, mime, bytes })),
+    }
   }
 
   async applyMerge(ops: DbOps): Promise<void> {
-    await this.db.transaction('rw', this.db.decks, this.db.cards, this.db.tombstones, async () => {
-      if (ops.deleteCardIds.length) await this.db.cards.bulkDelete(ops.deleteCardIds)
-      if (ops.deleteDeckIds.length) await this.db.decks.bulkDelete(ops.deleteDeckIds)
-      if (ops.upsertDecks.length) await this.db.decks.bulkPut(ops.upsertDecks)
-      if (ops.upsertCards.length) await this.db.cards.bulkPut(ops.upsertCards)
-      if (ops.tombstones.length) await this.db.tombstones.bulkPut(ops.tombstones)
-    })
+    await this.db.transaction(
+      'rw',
+      this.db.decks, this.db.cards, this.db.tombstones, this.db.assets,
+      async () => {
+        if (ops.deleteCardIds.length) await this.db.cards.bulkDelete(ops.deleteCardIds)
+        if (ops.deleteDeckIds.length) await this.db.decks.bulkDelete(ops.deleteDeckIds)
+        if (ops.deleteAssetHashes.length) await this.db.assets.bulkDelete(ops.deleteAssetHashes)
+        if (ops.upsertDecks.length) await this.db.decks.bulkPut(ops.upsertDecks)
+        if (ops.upsertCards.length) await this.db.cards.bulkPut(ops.upsertCards)
+        if (ops.upsertAssets.length) {
+          await this.db.assets.bulkPut(
+            ops.upsertAssets.map((a) => ({ ...a, createdAt: Date.now() })),
+          )
+        }
+        if (ops.tombstones.length) await this.db.tombstones.bulkPut(ops.tombstones)
+      },
+    )
   }
 
   async putAsset(bytes: Uint8Array, mime: string): Promise<Asset> {
