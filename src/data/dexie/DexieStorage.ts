@@ -125,7 +125,7 @@ export class DexieStorage implements Storage {
       this.db.cards.toArray(),
       this.db.tombstones.toArray(),
     ])
-    return { decks, cards, tombstones }
+    return { decks, cards, tombstones, assets: [] }
   }
 
   async applyMerge(ops: DbOps): Promise<void> {

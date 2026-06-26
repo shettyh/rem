@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { merge } from './merge'
-import type { RepoSnapshot, CardRecord, DeckRecord } from './snapshot'
+import type { RepoSnapshot, CardRecord, DeckRecord, AssetBlob } from './snapshot'
 
 const deck: DeckRecord = { id: 'd1', name: 'D', createdAt: 1, schedulerKind: 'sm2' }
 function card(id: string, updatedAt: number, front = 'f'): CardRecord {
@@ -10,8 +10,16 @@ function card(id: string, updatedAt: number, front = 'f'): CardRecord {
   }
 }
 function snap(p: Partial<RepoSnapshot>): RepoSnapshot {
-  return { decks: [], cards: [], tombstones: [], ...p }
+  return { decks: [], cards: [], tombstones: [], assets: [], ...p }
 }
+const H = 'a'.repeat(64)
+function imgCard(id: string, hash: string): CardRecord {
+  return {
+    id, deckId: 'd1', front: `![x](asset:${hash})`, back: 'b', createdAt: 1, updatedAt: 10,
+    scheduling: { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 0 },
+  }
+}
+const blob = (hash: string): AssetBlob => ({ hash, mime: 'image/png', bytes: new Uint8Array([1]) })
 
 describe('merge', () => {
   it('unions cards edited on different sides', () => {
@@ -88,5 +96,27 @@ describe('merge', () => {
     const remote = snap({ decks: [deck], tombstones: [{ id: 'a', kind: 'card', deletedAt: 20 }] })
     const { merged } = merge(local, remote)
     expect(merged.cards.map((c) => c.id)).toEqual(['a'])
+  })
+})
+
+describe('merge assets', () => {
+  it('keeps an asset referenced by a merged card', () => {
+    const local = snap({ decks: [deck], cards: [imgCard('a', H)], assets: [blob(H)] })
+    const { merged } = merge(local, snap({ decks: [deck] }))
+    expect(merged.assets.map((a) => a.hash)).toEqual([H])
+  })
+
+  it('prunes an asset referenced by no merged card', () => {
+    const local = snap({ decks: [deck], cards: [], assets: [blob(H)] })
+    const { merged, dbOps } = merge(local, snap({}))
+    expect(merged.assets).toEqual([])
+    expect(dbOps.deleteAssetHashes).toEqual([H])
+  })
+
+  it('unions asset bytes from the remote side for a referenced card', () => {
+    const remote = snap({ decks: [deck], cards: [imgCard('a', H)], assets: [blob(H)] })
+    const { merged, dbOps } = merge(snap({ decks: [deck] }), remote)
+    expect(merged.assets.map((a) => a.hash)).toEqual([H])
+    expect(dbOps.upsertAssets.map((a) => a.hash)).toEqual([H])
   })
 })

@@ -148,6 +148,8 @@ describe('sync storage', () => {
       deleteDeckIds: [],
       deleteCardIds: [stale.id],
       tombstones: [{ id: stale.id, kind: 'card', deletedAt: 5 }],
+      upsertAssets: [],
+      deleteAssetHashes: [],
     })
     expect(await storage.getCard(stale.id)).toBeUndefined()
     expect(await storage.getCard('new')).toBeTruthy()

@@ -20,6 +20,7 @@ const sample: RepoSnapshot = {
     },
   ],
   tombstones: [{ id: 'c9', kind: 'card', deletedAt: 5 }],
+  assets: [],
 }
 
 describe('snapshot', () => {
