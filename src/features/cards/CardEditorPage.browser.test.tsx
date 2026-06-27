@@ -37,7 +37,7 @@ describe('CardEditorPage', () => {
     const front = screen.container.querySelector('[aria-label="Front"]') as HTMLElement
     front.focus()
     await userEvent.type(front, 'Capital of France')
-    await userEvent.click(screen.getByText('Save'))
+    await userEvent.click(screen.getByText('Save card'))
 
     await expect.poll(async () => (await storage.listCards(deck.id)).length).toBe(1)
     await expect.element(screen.getByText('deck page')).toBeInTheDocument()

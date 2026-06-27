@@ -3,20 +3,20 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github-dark.css'
 import { useAssetUrl } from './assetUrl'
+import { parseAssetSrc, isAssetSrc } from './imageSrc'
 
-const ASSET_SRC = /^asset:([0-9a-f]{64})$/
-
-/** An <img> whose `asset:<hash>` src resolves to an object URL; plain srcs pass through. */
+/** An <img> whose `asset:<hash>` src resolves to an object URL and reflects its
+ *  stored placement; plain srcs pass through unchanged. */
 function MarkdownImg({ src, alt }: { src?: string; alt?: string }) {
-  const match = src ? ASSET_SRC.exec(src) : null
-  const resolved = useAssetUrl(match?.[1])
-  const finalSrc = match ? (resolved ?? undefined) : src
-  return <img src={finalSrc} alt={alt ?? ''} />
+  const parsed = parseAssetSrc(src)
+  const resolved = useAssetUrl(parsed?.hash)
+  const finalSrc = parsed ? (resolved ?? undefined) : src
+  return <img className="card-img" src={finalSrc} alt={alt ?? ''} data-align={parsed?.align} />
 }
 
 /** Allow `asset:<hash>` URLs through in addition to the standard safe protocols. */
 function urlTransform(url: string): string {
-  return ASSET_SRC.test(url) ? url : defaultUrlTransform(url)
+  return isAssetSrc(url) ? url : defaultUrlTransform(url)
 }
 
 /** Renders markdown source (text, code with highlighting, lists, images, etc.). */

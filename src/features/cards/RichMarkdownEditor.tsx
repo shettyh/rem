@@ -1,9 +1,18 @@
 import { useEffect, useRef } from 'react'
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import { createEditorExtensions } from './editorExtensions'
 import 'highlight.js/styles/github-dark.css'
 
-/** A single inline WYSIWYG-markdown editor. Markdown is the value in and out. */
+/** Imperative handle handed to the parent once the editor is live, so a shared
+ *  toolbar can drive whichever field is focused. */
+export interface EditorHandle {
+  editor: Editor
+  openImagePicker: () => void
+}
+
+/** A single inline WYSIWYG-markdown editor. Markdown is the value in and out.
+ *  Formatting controls live in a shared toolbar (see EditorToolbar); this owns
+ *  only the editing surface plus paste/drop/file-picker image ingestion. */
 export function RichMarkdownEditor({
   value,
   onChange,
@@ -11,6 +20,8 @@ export function RichMarkdownEditor({
   ariaLabel,
   resolveAsset,
   ingestImage,
+  onReady,
+  onFocus,
 }: {
   value: string
   onChange: (markdown: string) => void
@@ -18,11 +29,17 @@ export function RichMarkdownEditor({
   ariaLabel?: string
   resolveAsset?: (hash: string) => Promise<string | null>
   ingestImage?: (file: File) => Promise<{ hash: string; mime: string }>
+  onReady?: (handle: EditorHandle) => void
+  onFocus?: () => void
 }) {
   const onChangeRef = useRef(onChange)
+  const onReadyRef = useRef(onReady)
+  const onFocusRef = useRef(onFocus)
   useEffect(() => {
     onChangeRef.current = onChange
-  }, [onChange])
+    onReadyRef.current = onReady
+    onFocusRef.current = onFocus
+  })
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const insertImageRef = useRef<(file: File) => void>(() => {})
@@ -66,6 +83,19 @@ export function RichMarkdownEditor({
     })
   }
 
+  // Hand the live editor (plus its image picker) up to the shared toolbar, and
+  // report focus so the toolbar retargets to the field the user is editing.
+  useEffect(() => {
+    if (!editor) return
+    const openImagePicker = () => fileInputRef.current?.click()
+    onReadyRef.current?.({ editor, openImagePicker })
+    const handleFocus = () => onFocusRef.current?.()
+    editor.on('focus', handleFocus)
+    return () => {
+      editor.off('focus', handleFocus)
+    }
+  }, [editor])
+
   // Re-sync when the external value changes (e.g. async card load on Edit).
   // Guard prevents cursor-jump / feedback loops while typing.
   useEffect(() => {
@@ -76,59 +106,8 @@ export function RichMarkdownEditor({
     }
   }, [value, editor])
 
-  function setLink() {
-    if (!editor) return
-    if (editor.isActive('link')) {
-      editor.chain().focus().unsetLink().run()
-      return
-    }
-    const url = window.prompt('URL')
-    if (url) editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
-  }
-
   return (
     <div className="rich-editor">
-      {editor && (
-        <div className="editor-toolbar" role="toolbar" aria-label="Formatting">
-          <button type="button" aria-label="Heading 1" onMouseDown={(e) => e.preventDefault()}
-            className={editor.isActive('heading', { level: 1 }) ? 'active' : ''}
-            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>H1</button>
-          <button type="button" aria-label="Heading 2" onMouseDown={(e) => e.preventDefault()}
-            className={editor.isActive('heading', { level: 2 }) ? 'active' : ''}
-            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</button>
-          <button type="button" aria-label="Heading 3" onMouseDown={(e) => e.preventDefault()}
-            className={editor.isActive('heading', { level: 3 }) ? 'active' : ''}
-            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>H3</button>
-          <span className="toolbar-sep" />
-          <button type="button" aria-label="Bold" onMouseDown={(e) => e.preventDefault()}
-            className={editor.isActive('bold') ? 'active' : ''}
-            onClick={() => editor.chain().focus().toggleBold().run()}>B</button>
-          <button type="button" aria-label="Italic" onMouseDown={(e) => e.preventDefault()}
-            className={editor.isActive('italic') ? 'active' : ''}
-            onClick={() => editor.chain().focus().toggleItalic().run()}>i</button>
-          <button type="button" aria-label="Inline code" onMouseDown={(e) => e.preventDefault()}
-            className={editor.isActive('code') ? 'active' : ''}
-            onClick={() => editor.chain().focus().toggleCode().run()}>{'</>'}</button>
-          <button type="button" aria-label="Code block" onMouseDown={(e) => e.preventDefault()}
-            className={editor.isActive('codeBlock') ? 'active' : ''}
-            onClick={() => editor.chain().focus().toggleCodeBlock().run()}>{'{ }'}</button>
-          <span className="toolbar-sep" />
-          <button type="button" aria-label="Bullet list" onMouseDown={(e) => e.preventDefault()}
-            className={editor.isActive('bulletList') ? 'active' : ''}
-            onClick={() => editor.chain().focus().toggleBulletList().run()}>•</button>
-          <button type="button" aria-label="Numbered list" onMouseDown={(e) => e.preventDefault()}
-            className={editor.isActive('orderedList') ? 'active' : ''}
-            onClick={() => editor.chain().focus().toggleOrderedList().run()}>1.</button>
-          <button type="button" aria-label="Quote" onMouseDown={(e) => e.preventDefault()}
-            className={editor.isActive('blockquote') ? 'active' : ''}
-            onClick={() => editor.chain().focus().toggleBlockquote().run()}>&ldquo;</button>
-          <span className="toolbar-sep" />
-          <button type="button" aria-label="Link" onMouseDown={(e) => e.preventDefault()}
-            className={editor.isActive('link') ? 'active' : ''} onClick={setLink}>link</button>
-          <button type="button" aria-label="Image" onMouseDown={(e) => e.preventDefault()}
-            onClick={() => fileInputRef.current?.click()}>img</button>
-        </div>
-      )}
       <input
         ref={fileInputRef}
         type="file"
