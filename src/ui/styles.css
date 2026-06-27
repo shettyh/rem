@@ -1253,14 +1253,6 @@ input[type='file']::file-selector-button:hover {
   from { transform: translateY(12px); }
   to { transform: translateY(0); }
 }
-@keyframes remPop {
-  from { transform: scale(0.985); }
-  to { transform: scale(1); }
-}
-@keyframes remOverlay {
-  from { background: rgba(8, 7, 12, 0); }
-  to { background: rgba(8, 7, 12, 0.55); }
-}
 .reveal-enter {
   animation: remFade var(--reveal-ms) ease both;
 }
