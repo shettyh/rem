@@ -1334,3 +1334,26 @@ input[type='file']::file-selector-button:hover {
     animation: none;
   }
 }
+
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border, #2a2a2a);
+}
+.editor-toolbar button {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.editor-toolbar button:hover { background: var(--hover, rgba(255, 255, 255, 0.08)); }
+.editor-toolbar button.active { background: var(--accent-soft, rgba(120, 160, 255, 0.25)); }
+.toolbar-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--border, #2a2a2a); }
