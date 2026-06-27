@@ -1,3 +1,5 @@
+import type { AssetBlob } from './snapshot'
+
 export interface CommitPushResult {
   pushed: boolean
   /** True when the push was a non-fast-forward (remote advanced); the caller retries. */
@@ -18,4 +20,8 @@ export interface GitBridge {
   readFiles(dir: string): Promise<Record<string, string>>
   writeFiles(dir: string, files: Record<string, string>): Promise<void>
   commitPush(dir: string, message: string): Promise<CommitPushResult>
+  /** Binary asset files under assets/, as content-addressed blobs. */
+  readAssets(dir: string): Promise<AssetBlob[]>
+  /** Replace the assets/ set with `assets` (delete-absent), matching writeFiles. */
+  writeAssets(dir: string, assets: AssetBlob[]): Promise<void>
 }
