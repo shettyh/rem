@@ -156,11 +156,13 @@ export class DexieStorage implements Storage {
 
   async putAsset(bytes: Uint8Array, mime: string): Promise<Asset> {
     const hash = await hashBytes(bytes)
-    const existing = await this.db.assets.get(hash)
-    if (existing) return existing
-    const asset: Asset = { hash, mime, bytes, createdAt: Date.now() }
-    await this.db.assets.add(asset)
-    return asset
+    return this.db.transaction('rw', this.db.assets, async () => {
+      const existing = await this.db.assets.get(hash)
+      if (existing) return existing
+      const asset: Asset = { hash, mime, bytes, createdAt: Date.now() }
+      await this.db.assets.add(asset)
+      return asset
+    })
   }
 
   getAsset(hash: ID): Promise<Asset | undefined> {

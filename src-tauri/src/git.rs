@@ -95,6 +95,11 @@ fn collect_files(root: &Path, dir: &Path, out: &mut HashMap<String, String>) -> 
         if name == ".git" {
             continue;
         }
+        // assets/ holds binary files (PNG/JPEG/GIF) managed by git_read/write_assets;
+        // reading them with read_to_string would fail on non-UTF-8 bytes.
+        if name == "assets" && path.is_dir() {
+            continue;
+        }
         if path.is_dir() {
             collect_files(root, &path, out)?;
         } else {
@@ -488,6 +493,55 @@ mod tests {
         let read2 = tauri::async_runtime::block_on(git_read_assets(dir_str.clone())).unwrap();
         assert_eq!(read2.len(), 1);
         assert_eq!(read2[0].name, "aaaa.png");
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Contract #6: git_read_files must NOT read assets/ (binary files break UTF-8).
+    /// After writing a text file AND a binary asset, read_files returns Ok, contains
+    /// the text key, and contains NO assets/... key.
+    #[test]
+    fn test_read_files_skips_assets_dir() {
+        let dir = make_temp_dir();
+        let dir_str = dir.to_string_lossy().to_string();
+
+        // 1. Write a normal text file.
+        let mut files = HashMap::new();
+        files.insert("decks/a.json".to_string(), r#"{"id":"a"}"#.to_string());
+        tauri::async_runtime::block_on(git_write_files(dir_str.clone(), files)).unwrap();
+
+        // 2. Write a binary asset with non-UTF-8 bytes.
+        let bad_bytes = vec![0u8, 1, 254, 255, 128];
+        let assets = vec![AssetFile {
+            name: "img.png".to_string(),
+            data: STANDARD.encode(&bad_bytes),
+        }];
+        tauri::async_runtime::block_on(git_write_assets(dir_str.clone(), assets)).unwrap();
+
+        // 3. git_read_files must return Ok (not Err from trying to UTF-8 decode the PNG).
+        let result = tauri::async_runtime::block_on(git_read_files(dir_str.clone()));
+        assert!(result.is_ok(), "git_read_files failed: {:?}", result.err());
+        let map = result.unwrap();
+
+        // 4. Text file is present.
+        assert!(
+            map.contains_key("decks/a.json"),
+            "expected decks/a.json; keys: {:?}",
+            map.keys().collect::<Vec<_>>()
+        );
+
+        // 5. No assets/ key leaked through.
+        let asset_keys: Vec<_> = map.keys().filter(|k| k.starts_with("assets/")).collect();
+        assert!(
+            asset_keys.is_empty(),
+            "git_read_files should not include assets/ keys; found: {:?}",
+            asset_keys
+        );
+
+        // 6. git_read_assets still returns the asset correctly.
+        let assets_read = tauri::async_runtime::block_on(git_read_assets(dir_str.clone())).unwrap();
+        assert_eq!(assets_read.len(), 1);
+        assert_eq!(STANDARD.decode(&assets_read[0].data).unwrap(), bad_bytes);
 
         fs::remove_dir_all(&dir).unwrap();
     }
