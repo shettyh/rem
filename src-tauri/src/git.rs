@@ -3,7 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use serde::Serialize;
+use base64::{engine::general_purpose::STANDARD, Engine};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
 pub struct CommitPushResult {
@@ -48,12 +49,12 @@ fn ok_or_stderr(res: (String, String, bool)) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn git_is_cloned(dir: String) -> Result<bool, String> {
+pub fn git_is_cloned(dir: String) -> Result<bool, String> {
     Ok(Path::new(&dir).join(".git").exists())
 }
 
 #[tauri::command]
-pub async fn git_clone(remote_url: String, dir: String) -> Result<(), String> {
+pub fn git_clone(remote_url: String, dir: String) -> Result<(), String> {
     if let Some(parent) = Path::new(&dir).parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -71,7 +72,7 @@ pub async fn git_clone(remote_url: String, dir: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn git_fetch_reset(dir: String) -> Result<bool, String> {
+pub fn git_fetch_reset(dir: String) -> Result<bool, String> {
     ok_or_stderr(run_git(&["fetch", "origin"], &dir)?)?;
     let (_, _, has_main) = run_git(&["rev-parse", "--verify", "origin/main"], &dir)?;
     if !has_main {
@@ -110,7 +111,7 @@ fn collect_files(root: &Path, dir: &Path, out: &mut HashMap<String, String>) -> 
 }
 
 #[tauri::command]
-pub async fn git_read_files(dir: String) -> Result<HashMap<String, String>, String> {
+pub fn git_read_files(dir: String) -> Result<HashMap<String, String>, String> {
     let root = PathBuf::from(&dir);
     let mut out = HashMap::new();
     collect_files(&root, &root, &mut out)?;
@@ -118,7 +119,7 @@ pub async fn git_read_files(dir: String) -> Result<HashMap<String, String>, Stri
 }
 
 #[tauri::command]
-pub async fn git_write_files(dir: String, files: HashMap<String, String>) -> Result<(), String> {
+pub fn git_write_files(dir: String, files: HashMap<String, String>) -> Result<(), String> {
     let root = PathBuf::from(&dir);
     // Clear the managed set so deletions take effect, then write incoming files.
     let _ = fs::remove_dir_all(root.join("decks"));
@@ -135,7 +136,7 @@ pub async fn git_write_files(dir: String, files: HashMap<String, String>) -> Res
 }
 
 #[tauri::command]
-pub async fn git_commit_push(dir: String, message: String) -> Result<CommitPushResult, String> {
+pub fn git_commit_push(dir: String, message: String) -> Result<CommitPushResult, String> {
     ok_or_stderr(run_git(&["add", "-A"], &dir)?)?;
     // Commit only if something is staged. Identity passed inline so commits work
     // even without global git config.
@@ -173,6 +174,47 @@ pub async fn git_commit_push(dir: String, message: String) -> Result<CommitPushR
         });
     }
     Err(stderr)
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AssetFile {
+    name: String,
+    /// base64-encoded file bytes (transport only; on disk the bytes are raw).
+    data: String,
+}
+
+#[tauri::command]
+pub fn git_read_assets(dir: String) -> Result<Vec<AssetFile>, String> {
+    let assets_dir = Path::new(&dir).join("assets");
+    let mut out = Vec::new();
+    if !assets_dir.exists() {
+        return Ok(out);
+    }
+    for entry in fs::read_dir(&assets_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+        out.push(AssetFile { name, data: STANDARD.encode(&bytes) });
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn git_write_assets(dir: String, assets: Vec<AssetFile>) -> Result<(), String> {
+    let assets_dir = Path::new(&dir).join("assets");
+    let _ = fs::remove_dir_all(&assets_dir);
+    if !assets.is_empty() {
+        fs::create_dir_all(&assets_dir).map_err(|e| e.to_string())?;
+    }
+    for a in assets {
+        let bytes = STANDARD.decode(&a.data).map_err(|e| e.to_string())?;
+        fs::write(assets_dir.join(&a.name), bytes).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -420,5 +462,33 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_write_read_assets_binary_roundtrip_and_delete_absent() {
+        let dir = make_temp_dir();
+        let dir_str = dir.to_string_lossy().to_string();
+
+        // Non-UTF8 bytes must survive the round trip.
+        let bytes = vec![0u8, 1, 254, 255, 128];
+        let b64 = STANDARD.encode(&bytes);
+        let assets = vec![
+            AssetFile { name: "aaaa.png".into(), data: b64.clone() },
+            AssetFile { name: "bbbb.gif".into(), data: b64.clone() },
+        ];
+        git_write_assets(dir_str.clone(), assets).unwrap();
+
+        let read = git_read_assets(dir_str.clone()).unwrap();
+        assert_eq!(read.len(), 2);
+        let aaaa = read.iter().find(|a| a.name == "aaaa.png").unwrap();
+        assert_eq!(STANDARD.decode(&aaaa.data).unwrap(), bytes);
+
+        // Second write with only one asset deletes the other.
+        git_write_assets(dir_str.clone(), vec![AssetFile { name: "aaaa.png".into(), data: b64 }]).unwrap();
+        let read2 = git_read_assets(dir_str.clone()).unwrap();
+        assert_eq!(read2.len(), 1);
+        assert_eq!(read2[0].name, "aaaa.png");
+
+        fs::remove_dir_all(&dir).unwrap();
     }
 }
