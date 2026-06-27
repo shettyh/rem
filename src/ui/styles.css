@@ -79,6 +79,12 @@ html[data-tauri='yes'] .titlebar-spacer {
   gap: 8px;
   padding: 14px 20px 18px;
 }
+.brand-mark {
+  width: 26px;
+  height: 26px;
+  align-self: center;
+  display: block;
+}
 .brand-word {
   font-size: 26px;
   font-weight: 700;

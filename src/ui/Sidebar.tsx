@@ -25,6 +25,7 @@ export function Sidebar() {
       <div className="titlebar-spacer" data-tauri-drag-region />
 
       <div className="side-brand">
+        <img className="brand-mark" src="/favicon.png" alt="" />
         <span className="brand-word">rem</span>
         <span className="brand-dot" />
         <span className="brand-tag">recall</span>

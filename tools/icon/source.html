@@ -1,0 +1,85 @@
+<!doctype html>
+<!--
+  rem app icon — "Primary mark · Recall cards" from the Claude Design project
+  (rem-icon.dc.html). Rendered to a master PNG by render.mjs, which feeds
+  `tauri icon`. Geometry is the design's 420px primary tile scaled to 1024px
+  (factor 2.438095); the outer drop-shadow is intentionally dropped because app
+  icons must not bake in an external shadow.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      #tile {
+        position: relative;
+        width: 1024px;
+        height: 1024px;
+        border-radius: 25.5%;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(130% 130% at 70% 12%, #9e8bff 0%, #6e59f2 50%, #4733b8 100%);
+        box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.1);
+      }
+      #tile::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(160deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 42%);
+        pointer-events: none;
+      }
+      .card {
+        position: absolute;
+        width: 507px;
+        height: 629px;
+        border-radius: 88px;
+      }
+      .c1 {
+        background: rgba(255, 255, 255, 0.16);
+        transform: rotate(-13deg) translate(-73px, 34px);
+      }
+      .c2 {
+        background: rgba(255, 255, 255, 0.26);
+        transform: rotate(-5deg) translate(-27px, 15px);
+      }
+      .c3 {
+        position: relative;
+        background: #fbfaff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 49px 102px rgba(40, 28, 90, 0.35);
+      }
+      .r {
+        font-family: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+        font-size: 410px;
+        line-height: 1;
+        color: #5a47e8;
+        transform: translateY(20px);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="tile">
+      <span class="card c1"></span>
+      <span class="card c2"></span>
+      <span class="card c3"><span class="r">r</span></span>
+    </div>
+  </body>
+</html>
