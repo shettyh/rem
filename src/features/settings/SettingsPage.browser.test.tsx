@@ -30,9 +30,9 @@ test('importing a same-named deck warns, then replaces on confirm', async () => 
     {
       name: 'Spanish',
       createdAt: 1,
-      schedulerKind: 'sm2',
+      schedulerKind: 'fsrs',
       cards: [
-        { front: 'hola', back: 'hello', createdAt: 1, updatedAt: 1, scheduling: { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 1 } },
+        { front: 'hola', back: 'hello', createdAt: 1, updatedAt: 1, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 1 } },
       ],
     },
   ]

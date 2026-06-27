@@ -1,13 +1,12 @@
 import type { SchedulerKind } from '../models'
 import type { Scheduler } from './Scheduler'
-import { SM2Scheduler } from './sm2'
 import { FSRSScheduler } from './fsrs'
 
 export type { Scheduler } from './Scheduler'
-export { MS_PER_DAY } from './sm2'
+
+export const MS_PER_DAY = 86_400_000
 
 const SCHEDULERS: Record<SchedulerKind, Scheduler> = {
-  sm2: new SM2Scheduler(),
   fsrs: new FSRSScheduler(),
 }
 

@@ -3,7 +3,7 @@ import type { Storage } from '../../data/Storage'
 
 /** A card the user has never graded (first-time / brand new). */
 export function isNew(s: SchedulingState): boolean {
-  return s.kind === 'sm2' ? s.repetitions === 0 : s.reps === 0
+  return s.reps === 0
 }
 
 export interface DeckOverview {

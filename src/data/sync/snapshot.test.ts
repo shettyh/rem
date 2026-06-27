@@ -7,7 +7,7 @@ import {
 } from './snapshot'
 
 const sample: RepoSnapshot = {
-  decks: [{ id: 'd1', name: 'Spanish', createdAt: 1, schedulerKind: 'sm2' }],
+  decks: [{ id: 'd1', name: 'Spanish', createdAt: 1, schedulerKind: 'fsrs' }],
   cards: [
     {
       id: 'c1',
@@ -16,7 +16,7 @@ const sample: RepoSnapshot = {
       back: 'hello',
       createdAt: 2,
       updatedAt: 3,
-      scheduling: { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 4 },
+      scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 4 },
     },
   ],
   tombstones: [{ id: 'c9', kind: 'card', deletedAt: 5 }],

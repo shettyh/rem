@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import Dexie from 'dexie'
 import { RemDB } from '../../data/dexie/db'
 import { DexieStorage } from '../../data/dexie/DexieStorage'
-import { getScheduler, MS_PER_DAY } from '../../domain/scheduler'
+import { getScheduler } from '../../domain/scheduler'
 
 /**
  * Composes storage + scheduler exactly as ReviewPage does, guarding the
@@ -28,7 +28,8 @@ describe('review cycle', () => {
     await storage.updateCard(card.id, { scheduling: next })
 
     expect(await storage.countDue(deck.id, t0)).toBe(0)
-    expect(await storage.countDue(deck.id, t0 + MS_PER_DAY)).toBe(1)
+    expect(next.due).toBeGreaterThan(t0)
+    expect(await storage.countDue(deck.id, next.due)).toBe(1)
   })
 
   it('grades an FSRS card and pushes it out of today', async () => {

@@ -71,7 +71,7 @@ export function SettingsPage() {
     setPending(null)
     let parsed: DeckBackup[]
     try {
-      parsed = parseBackup(await file.text())
+      parsed = parseBackup(await file.text(), Date.now())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not read the file.')
       return

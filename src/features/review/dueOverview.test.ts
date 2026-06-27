@@ -3,9 +3,6 @@ import type { Card, Deck, ID, SchedulingState } from '../../domain/models'
 import type { Storage } from '../../data/Storage'
 import { isNew, loadDueOverview, shuffle } from './dueOverview'
 
-function sm2(repetitions: number): SchedulingState {
-  return { kind: 'sm2', repetitions, intervalDays: 1, easeFactor: 2.5, due: 0 }
-}
 function fsrs(reps: number): SchedulingState {
   return { kind: 'fsrs', stability: 1, difficulty: 5, reps, lapses: 0, state: 2, lastReview: null, due: 0 }
 }
@@ -27,8 +24,6 @@ function fakeStorage(decks: Deck[], cards: Card[], dueIds: Set<ID>): Storage {
 
 describe('isNew', () => {
   it('is true only for first-time cards', () => {
-    expect(isNew(sm2(0))).toBe(true)
-    expect(isNew(sm2(3))).toBe(false)
     expect(isNew(fsrs(0))).toBe(true)
     expect(isNew(fsrs(2))).toBe(false)
   })

@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { merge } from './merge'
 import type { RepoSnapshot, CardRecord, DeckRecord, AssetBlob } from './snapshot'
 
-const deck: DeckRecord = { id: 'd1', name: 'D', createdAt: 1, schedulerKind: 'sm2' }
+const deck: DeckRecord = { id: 'd1', name: 'D', createdAt: 1, schedulerKind: 'fsrs' }
 function card(id: string, updatedAt: number, front = 'f'): CardRecord {
   return {
     id, deckId: 'd1', front, back: 'b', createdAt: 1, updatedAt,
-    scheduling: { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 0 },
+    scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 0 },
   }
 }
 function snap(p: Partial<RepoSnapshot>): RepoSnapshot {
@@ -16,7 +16,7 @@ const H = 'a'.repeat(64)
 function imgCard(id: string, hash: string): CardRecord {
   return {
     id, deckId: 'd1', front: `![x](asset:${hash})`, back: 'b', createdAt: 1, updatedAt: 10,
-    scheduling: { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 0 },
+    scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 0 },
   }
 }
 const blob = (hash: string): AssetBlob => ({ hash, mime: 'image/png', bytes: new Uint8Array([1]) })

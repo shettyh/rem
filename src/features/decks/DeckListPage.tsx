@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
-import type { SchedulerKind } from '../../domain/models'
 import { PageHeader } from '../../ui/PageHeader'
 import { deckColor } from '../../ui/deckColor'
 import { loadDueOverview } from '../review/dueOverview'
@@ -25,7 +24,6 @@ export function DeckListPage() {
   const location = useLocation()
   const newDeckRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
-  const [kind, setKind] = useState<SchedulerKind>('fsrs')
 
   const overview = useLiveQuery(() => loadDueOverview(storage, Date.now()), [])
 
@@ -57,7 +55,7 @@ export function DeckListPage() {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) return
-    await storage.createDeck(trimmed, kind)
+    await storage.createDeck(trimmed)
     setName('')
   }
 
@@ -121,7 +119,7 @@ export function DeckListPage() {
                     <span className="deck-card-bar" style={{ background: deckColor(deck.id) }} />
                     <span className="deck-card-body">
                       <span className="deck-card-meta">
-                        <span className="algo-chip">{deck.schedulerKind === 'fsrs' ? 'FSRS' : 'SM-2'}</span>
+                        <span className="algo-chip">FSRS</span>
                         <span className="deck-card-total">{total}</span>
                       </span>
                       <span className="deck-card-name">{deck.name}</span>
@@ -145,15 +143,6 @@ export function DeckListPage() {
               onChange={(e) => setName(e.target.value)}
               aria-label="New deck name"
             />
-            <select
-              className="text-input sched-picker"
-              value={kind}
-              onChange={(e) => setKind(e.target.value as SchedulerKind)}
-              aria-label="Scheduler"
-            >
-              <option value="fsrs">FSRS (recommended)</option>
-              <option value="sm2">SM-2</option>
-            </select>
             <button className="btn btn-primary" type="submit" disabled={!name.trim()}>
               Add deck
             </button>

@@ -25,7 +25,7 @@ export function cardStatus(
   s: SchedulingState,
   now: number,
 ): { kind: 'new' | 'due' | 'scheduled'; label: string } {
-  const isNewCard = s.kind === 'sm2' ? s.repetitions === 0 : s.reps === 0
+  const isNewCard = s.reps === 0
   if (isNewCard) return { kind: 'new', label: 'new' }
   if (s.due <= now) return { kind: 'due', label: 'due' }
   const days = Math.max(1, Math.round((s.due - now) / MS_PER_DAY))
@@ -51,7 +51,7 @@ export function DeckDetailPage() {
     <>
       <span className="header-dot" style={{ background: deckColor(deck.id) }} />
       <span className="header-title-text">{deck.name}</span>
-      <span className="algo-chip">{deck.schedulerKind === 'fsrs' ? 'FSRS' : 'SM-2'}</span>
+      <span className="algo-chip">FSRS</span>
     </>
   )
 

@@ -31,7 +31,7 @@ describe('GitSyncService', () => {
 
   it('pulls a remote-only deck into the local store', async () => {
     const remote = serializeSnapshot({
-      decks: [{ id: 'd1', name: 'Remote', createdAt: 1, schedulerKind: 'sm2' }],
+      decks: [{ id: 'd1', name: 'Remote', createdAt: 1, schedulerKind: 'fsrs' }],
       cards: [],
       tombstones: [],
       assets: [],
@@ -46,7 +46,7 @@ describe('GitSyncService', () => {
     const deck = await storage.createDeck('S')
     const c = await storage.createCard(deck.id, 'q', 'a')
     const remote = serializeSnapshot({
-      decks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, schedulerKind: 'sm2' }],
+      decks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, schedulerKind: 'fsrs' }],
       cards: [],
       tombstones: [{ id: c.id, kind: 'card', deletedAt: Date.now() + 10000 }],
       assets: [],

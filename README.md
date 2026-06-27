@@ -1,7 +1,7 @@
 # rem
 
 A clean, local-first spaced-repetition flashcard **desktop app** — markdown cards (text + code),
-deck organisation, FSRS/SM-2 scheduling, and git-backed sync across machines. Think AnkiDroid,
+deck organisation, FSRS scheduling, and git-backed sync across machines. Think AnkiDroid,
 less clunky.
 
 > **Native only.** rem is a [Tauri](https://tauri.app) desktop app. It syncs by shelling out to
@@ -12,7 +12,7 @@ less clunky.
 
 React + TypeScript + Vite, packaged as a native app with **Tauri v2** (Rust). Local data in
 **Dexie** (IndexedDB); **TipTap** WYSIWYG-markdown editor; **react-markdown** for rendering;
-**ts-fsrs** / SM-2 for scheduling.
+**ts-fsrs** for scheduling.
 
 ## Run & build
 
@@ -31,8 +31,8 @@ npm run typecheck   # tsc --noEmit
 
 Dependencies point inward toward stable interfaces:
 
-- **`Scheduler`** (`src/domain/scheduler`) — the scheduling algorithm; FSRS or SM-2, chosen per
-  deck. Pure and unit-tested.
+- **`Scheduler`** (`src/domain/scheduler`) — the scheduling algorithm; FSRS today, behind an
+  interface so another algorithm stays a one-file addition. Pure and unit-tested.
 - **`Storage`** (`src/data/Storage.ts`) — the persistence port; Dexie (IndexedDB) today, with a
   git-sync backend behind the same seam.
 
@@ -54,5 +54,5 @@ seam. Configure the remote in **Settings → Sync**.
 
 ## Scheduling
 
-New decks default to **FSRS** (`ts-fsrs`); existing decks stay on **SM-2**. Both sit behind the
-`Scheduler` interface, so swapping or adding an algorithm is a one-file change.
+All cards are scheduled with **FSRS** (`ts-fsrs`). It sits behind the `Scheduler` interface, so
+swapping or adding an algorithm is a one-file change.

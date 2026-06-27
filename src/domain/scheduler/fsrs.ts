@@ -25,7 +25,6 @@ export class FSRSScheduler implements Scheduler {
   }
 
   next(state: SchedulingState, grade: Grade, now: number): SchedulingState {
-    if (state.kind !== 'fsrs') throw new Error('FSRSScheduler received non-FSRS state')
     const { card } = this.f.next(toCard(state), new Date(now), RATING[grade])
     return toState(card)
   }

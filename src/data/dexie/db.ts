@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type { Asset, Card, Deck, Tombstone } from '../../domain/models'
+import { getScheduler } from '../../domain/scheduler'
 
 /** IndexedDB schema. Indexed fields are listed; payloads are stored whole. */
 export class RemDB extends Dexie {
@@ -42,5 +43,25 @@ export class RemDB extends Dexie {
       tombstones: 'id, deletedAt',
       assets: 'hash',
     })
+    // v5: SM-2 support removed. Move every deck to FSRS and reset any non-FSRS
+    // card to a fresh FSRS state (due now), since SM-2 state can no longer be
+    // scheduled. Schema unchanged.
+    this.version(5)
+      .stores({
+        decks: 'id, createdAt',
+        cards: 'id, deckId, createdAt',
+        tombstones: 'id, deletedAt',
+        assets: 'hash',
+      })
+      .upgrade(async (tx) => {
+        const now = Date.now()
+        const fresh = getScheduler('fsrs').initial(now)
+        await tx.table('decks').toCollection().modify((d) => {
+          d.schedulerKind = 'fsrs'
+        })
+        await tx.table('cards').toCollection().modify((c) => {
+          if (c.scheduling?.kind !== 'fsrs') c.scheduling = { ...fresh }
+        })
+      })
   }
 }

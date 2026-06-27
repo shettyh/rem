@@ -12,7 +12,7 @@ import type { RemDB } from './db'
 export class DexieStorage implements Storage {
   constructor(readonly db: RemDB) {}
 
-  async createDeck(name: string, kind: SchedulerKind = 'sm2'): Promise<Deck> {
+  async createDeck(name: string, kind: SchedulerKind = 'fsrs'): Promise<Deck> {
     const deck: Deck = {
       id: crypto.randomUUID(),
       name: name.trim(),
@@ -42,7 +42,7 @@ export class DexieStorage implements Storage {
   async createCard(deckId: ID, front: string, back: string): Promise<Card> {
     const now = Date.now()
     const deck = await this.db.decks.get(deckId)
-    const kind = deck?.schedulerKind ?? 'sm2'
+    const kind = deck?.schedulerKind ?? 'fsrs'
     const card: Card = {
       id: crypto.randomUUID(),
       deckId,

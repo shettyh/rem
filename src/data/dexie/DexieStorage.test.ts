@@ -41,13 +41,13 @@ describe('decks', () => {
 })
 
 describe('cards', () => {
-  it('creates a card with initial scheduling (due now, ease 2.5)', async () => {
+  it('creates a card with initial FSRS scheduling (due now, unreviewed)', async () => {
     const deck = await storage.createDeck('Deck')
     const before = Date.now()
     const card = await storage.createCard(deck.id, 'front', 'back')
 
     expect(card.front).toBe('front')
-    expect(card.scheduling).toMatchObject({ kind: 'sm2', easeFactor: 2.5, repetitions: 0 })
+    expect(card.scheduling).toMatchObject({ kind: 'fsrs', reps: 0 })
     expect(card.scheduling.due).toBeGreaterThanOrEqual(before)
   })
 
@@ -87,7 +87,7 @@ describe('due queue', () => {
     const now = Date.now()
     // Push card A into the future so it is no longer due.
     await storage.updateCard(a.id, {
-      scheduling: { kind: 'sm2', repetitions: 1, intervalDays: 1, easeFactor: 2.5, due: now + MS_PER_DAY },
+      scheduling: { kind: 'fsrs', stability: 1, difficulty: 5, reps: 1, lapses: 0, state: 2, lastReview: now, due: now + MS_PER_DAY },
     })
 
     const due = await storage.dueCards(deck.id, now)
@@ -140,10 +140,10 @@ describe('sync storage', () => {
     const deck = await storage.createDeck('S')
     const stale = await storage.createCard(deck.id, 'old', 'old')
     await storage.applyMerge({
-      upsertDecks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, schedulerKind: 'sm2' }],
+      upsertDecks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, schedulerKind: 'fsrs' }],
       upsertCards: [{
         id: 'new', deckId: deck.id, front: 'new', back: 'new', createdAt: 1, updatedAt: 2,
-        scheduling: { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 0 },
+        scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 0 },
       }],
       deleteDeckIds: [],
       deleteCardIds: [stale.id],
@@ -163,9 +163,9 @@ describe('importDecks', () => {
       {
         name: 'Spanish',
         createdAt: 5,
-        schedulerKind: 'sm2',
+        schedulerKind: 'fsrs',
         cards: [
-          { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, scheduling: { kind: 'sm2', repetitions: 2, intervalDays: 4, easeFactor: 2.7, due: 8 } },
+          { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, lastReview: 7, due: 8 } },
         ],
       },
     ])
@@ -176,7 +176,7 @@ describe('importDecks', () => {
     const cards = await storage.listCards(decks[0].id)
     expect(cards).toHaveLength(1)
     expect(cards[0].front).toBe('hola')
-    expect(cards[0].scheduling).toEqual({ kind: 'sm2', repetitions: 2, intervalDays: 4, easeFactor: 2.7, due: 8 })
+    expect(cards[0].scheduling).toEqual({ kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, lastReview: 7, due: 8 })
     expect(cards[0].createdAt).toBe(6)
     expect(cards[0].updatedAt).toBe(7)
   })
@@ -186,8 +186,8 @@ describe('importDecks', () => {
     const oldCard = await storage.createCard(old.id, 'old-front', 'old-back')
 
     const result = await storage.importDecks([
-      { name: 'Spanish', createdAt: 5, schedulerKind: 'sm2', cards: [
-        { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, scheduling: { kind: 'sm2', repetitions: 0, intervalDays: 0, easeFactor: 2.5, due: 8 } },
+      { name: 'Spanish', createdAt: 5, schedulerKind: 'fsrs', cards: [
+        { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 8 } },
       ] },
     ])
 
@@ -204,7 +204,7 @@ describe('importDecks', () => {
     await storage.createDeck('Dup')
     await storage.createDeck('Dup')
 
-    await storage.importDecks([{ name: 'Dup', createdAt: 1, schedulerKind: 'sm2', cards: [] }])
+    await storage.importDecks([{ name: 'Dup', createdAt: 1, schedulerKind: 'fsrs', cards: [] }])
 
     const decks = await storage.listDecks()
     expect(decks.filter((d) => d.name === 'Dup')).toHaveLength(1)

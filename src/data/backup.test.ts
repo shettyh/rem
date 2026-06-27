@@ -8,8 +8,10 @@ import {
 } from './backup'
 import type { Storage } from './Storage'
 import type { Card, Deck } from '../domain/models'
+import { getScheduler } from '../domain/scheduler'
 
-const sched = { kind: 'sm2' as const, repetitions: 1, intervalDays: 3, easeFactor: 2.6, due: 999 }
+const NOW = 1_700_000_000_000
+const sched = { kind: 'fsrs' as const, stability: 5, difficulty: 5, reps: 1, lapses: 0, state: 2, lastReview: 1, due: 999 }
 
 function fakeStorage(decks: Deck[], cardsByDeck: Record<string, Card[]>): Storage {
   return {
@@ -18,7 +20,7 @@ function fakeStorage(decks: Deck[], cardsByDeck: Record<string, Card[]>): Storag
   } as unknown as Storage
 }
 
-const deckA: Deck = { id: 'a', name: 'Spanish', createdAt: 10, schedulerKind: 'sm2' }
+const deckA: Deck = { id: 'a', name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs' }
 const cardA: Card = {
   id: 'c1', deckId: 'a', front: 'hola', back: 'hello',
   createdAt: 11, updatedAt: 12, scheduling: sched,
@@ -32,7 +34,7 @@ describe('collectBackup', () => {
       {
         name: 'Spanish',
         createdAt: 10,
-        schedulerKind: 'sm2',
+        schedulerKind: 'fsrs',
         cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }],
       },
     ])
@@ -46,7 +48,7 @@ describe('collectBackup', () => {
 
 describe('serializeBackup', () => {
   it('emits the format/version/exportedAt envelope', () => {
-    const decks: DeckBackup[] = [{ name: 'Spanish', createdAt: 10, schedulerKind: 'sm2', cards: [] }]
+    const decks: DeckBackup[] = [{ name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', cards: [] }]
     const parsed = JSON.parse(serializeBackup(decks, 1234))
     expect(parsed.format).toBe('rem-backup')
     expect(parsed.version).toBe(1)
@@ -57,64 +59,76 @@ describe('serializeBackup', () => {
 
 describe('parseBackup', () => {
   const valid = serializeBackup(
-    [{ name: 'Spanish', createdAt: 10, schedulerKind: 'sm2', cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] }],
+    [{ name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] }],
     1234,
   )
 
-  it('round-trips valid input', () => {
-    expect(parseBackup(valid)).toEqual([
-      { name: 'Spanish', createdAt: 10, schedulerKind: 'sm2', cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] },
+  it('round-trips valid FSRS input', () => {
+    expect(parseBackup(valid, NOW)).toEqual([
+      { name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] },
     ])
   })
 
   it('rejects non-JSON', () => {
-    expect(() => parseBackup('not json')).toThrow(/valid JSON/i)
+    expect(() => parseBackup('not json', NOW)).toThrow(/valid JSON/i)
   })
 
   it('rejects a wrong format tag', () => {
-    expect(() => parseBackup(JSON.stringify({ format: 'other', version: 1, decks: [] }))).toThrow(/rem backup/i)
+    expect(() => parseBackup(JSON.stringify({ format: 'other', version: 1, decks: [] }), NOW)).toThrow(/rem backup/i)
   })
 
   it('rejects an unsupported version', () => {
-    expect(() => parseBackup(JSON.stringify({ format: 'rem-backup', version: 2, decks: [] }))).toThrow(/version/i)
+    expect(() => parseBackup(JSON.stringify({ format: 'rem-backup', version: 2, decks: [] }), NOW)).toThrow(/version/i)
   })
 
   it('rejects a malformed deck', () => {
-    expect(() => parseBackup(JSON.stringify({ format: 'rem-backup', version: 1, decks: [{ name: 5, createdAt: 1, cards: [] }] }))).toThrow(/malformed/i)
+    expect(() => parseBackup(JSON.stringify({ format: 'rem-backup', version: 1, decks: [{ name: 5, createdAt: 1, cards: [] }] }), NOW)).toThrow(/malformed/i)
   })
 
   it('rejects a malformed card', () => {
     const bad = { format: 'rem-backup', version: 1, decks: [{ name: 'x', createdAt: 1, cards: [{ front: 'a' }] }] }
-    expect(() => parseBackup(JSON.stringify(bad))).toThrow(/malformed/i)
+    expect(() => parseBackup(JSON.stringify(bad), NOW)).toThrow(/malformed/i)
   })
 
-  it('stamps kind sm2 onto legacy scheduling without a kind', () => {
+  it('resets legacy SM-2 scheduling (no kind) to a fresh FSRS card', () => {
     const legacy = JSON.stringify({
       format: 'rem-backup', version: 1, exportedAt: 1,
       decks: [{ name: 'X', createdAt: 1, cards: [
         { front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: { repetitions: 1, intervalDays: 3, easeFactor: 2.6, due: 999 } },
       ] }],
     })
-    expect(parseBackup(legacy)[0].cards[0].scheduling).toEqual({ kind: 'sm2', repetitions: 1, intervalDays: 3, easeFactor: 2.6, due: 999 })
+    expect(parseBackup(legacy, NOW)[0].cards[0].scheduling).toEqual(getScheduler('fsrs').initial(NOW))
   })
 
-  it('accepts FSRS scheduling', () => {
+  it('resets explicit SM-2 scheduling to a fresh FSRS card', () => {
+    const legacy = JSON.stringify({
+      format: 'rem-backup', version: 1, exportedAt: 1,
+      decks: [{ name: 'X', createdAt: 1, schedulerKind: 'sm2', cards: [
+        { front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: { kind: 'sm2', repetitions: 4, intervalDays: 30, easeFactor: 2.6, due: 50 } },
+      ] }],
+    })
+    const deck = parseBackup(legacy, NOW)[0]
+    expect(deck.schedulerKind).toBe('fsrs')
+    expect(deck.cards[0].scheduling).toEqual(getScheduler('fsrs').initial(NOW))
+  })
+
+  it('accepts FSRS scheduling unchanged', () => {
     const f = { kind: 'fsrs', stability: 5, difficulty: 5, reps: 1, lapses: 0, state: 2, lastReview: 1, due: 2 }
     const file = JSON.stringify({
       format: 'rem-backup', version: 1, exportedAt: 1,
       decks: [{ name: 'X', createdAt: 1, schedulerKind: 'fsrs', cards: [{ front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: f }] }],
     })
-    const parsed = parseBackup(file)[0]
+    const parsed = parseBackup(file, NOW)[0]
     expect(parsed.schedulerKind).toBe('fsrs')
     expect(parsed.cards[0].scheduling).toEqual(f)
   })
 
-  it('defaults a deck without schedulerKind to sm2', () => {
+  it('defaults a deck without schedulerKind to fsrs', () => {
     const legacy = JSON.stringify({
       format: 'rem-backup', version: 1, exportedAt: 1,
       decks: [{ name: 'X', createdAt: 1, cards: [] }],
     })
-    expect(parseBackup(legacy)[0].schedulerKind).toBe('sm2')
+    expect(parseBackup(legacy, NOW)[0].schedulerKind).toBe('fsrs')
   })
 })
 

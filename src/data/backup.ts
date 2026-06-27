@@ -1,4 +1,5 @@
 import type { ID, SchedulerKind, SchedulingState } from '../domain/models'
+import { getScheduler } from '../domain/scheduler'
 import type { Storage } from './Storage'
 
 export interface CardBackup {
@@ -53,7 +54,7 @@ export function serializeBackup(decks: DeckBackup[], exportedAt: number): string
   return JSON.stringify(file, null, 2)
 }
 
-export function parseBackup(text: string): DeckBackup[] {
+export function parseBackup(text: string, now: number): DeckBackup[] {
   let data: unknown
   try {
     data = JSON.parse(text)
@@ -69,7 +70,7 @@ export function parseBackup(text: string): DeckBackup[] {
   if (!Array.isArray(data.decks)) {
     throw new Error('Backup file is malformed.')
   }
-  return data.decks.map(parseDeck)
+  return data.decks.map((d) => parseDeck(d, now))
 }
 
 /** Classify incoming deck names against existing names (de-duplicated). */
@@ -94,7 +95,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null
 }
 
-function parseDeck(raw: unknown): DeckBackup {
+function parseDeck(raw: unknown, now: number): DeckBackup {
   if (
     !isObject(raw) ||
     typeof raw.name !== 'string' ||
@@ -106,19 +107,19 @@ function parseDeck(raw: unknown): DeckBackup {
   return {
     name: raw.name,
     createdAt: raw.createdAt,
-    schedulerKind: raw.schedulerKind === 'fsrs' ? 'fsrs' : 'sm2',
-    cards: raw.cards.map(parseCard),
+    schedulerKind: 'fsrs',
+    cards: raw.cards.map((c) => parseCard(c, now)),
   }
 }
 
-function parseCard(raw: unknown): CardBackup {
+function parseCard(raw: unknown, now: number): CardBackup {
   if (
     !isObject(raw) ||
     typeof raw.front !== 'string' ||
     typeof raw.back !== 'string' ||
     typeof raw.createdAt !== 'number' ||
     typeof raw.updatedAt !== 'number' ||
-    !isScheduling(raw.scheduling)
+    !isSchedulingPayload(raw.scheduling)
   ) {
     throw new Error('Backup file is malformed.')
   }
@@ -127,11 +128,14 @@ function parseCard(raw: unknown): CardBackup {
     back: raw.back,
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
-    scheduling: normalizeScheduling(raw.scheduling),
+    scheduling: normalizeScheduling(raw.scheduling, now),
   }
 }
 
-function isScheduling(v: unknown): v is SchedulingState {
+/** Whether `v` is a recognizable scheduling payload — FSRS, or a legacy SM-2
+ *  shape (kind 'sm2' or pre-discriminant). SM-2 payloads are accepted only so
+ *  old backups parse; they get reset to FSRS in {@link normalizeScheduling}. */
+function isSchedulingPayload(v: unknown): v is Record<string, unknown> {
   if (!isObject(v) || typeof v.due !== 'number') return false
   if (v.kind === 'fsrs') {
     return (
@@ -143,7 +147,7 @@ function isScheduling(v: unknown): v is SchedulingState {
       (v.lastReview === null || typeof v.lastReview === 'number')
     )
   }
-  // sm2 (kind 'sm2' or legacy/absent)
+  // legacy SM-2 (kind 'sm2' or absent)
   return (
     typeof v.repetitions === 'number' &&
     typeof v.intervalDays === 'number' &&
@@ -151,9 +155,9 @@ function isScheduling(v: unknown): v is SchedulingState {
   )
 }
 
-/** Stamp a `kind` onto legacy (pre-discriminant) scheduling state. `v` may be a
- *  legacy object with no `kind` — `isScheduling` admits those as the SM-2 shape. */
-function normalizeScheduling(v: SchedulingState): SchedulingState {
-  if (v.kind === 'fsrs') return v
-  return { ...v, kind: 'sm2' }
+/** FSRS state passes through; any legacy SM-2 state is reset to a fresh FSRS
+ *  card (due `now`), since SM-2 is no longer supported. */
+function normalizeScheduling(v: Record<string, unknown>, now: number): SchedulingState {
+  if (v.kind === 'fsrs') return v as unknown as SchedulingState
+  return getScheduler('fsrs').initial(now)
 }
