@@ -81,4 +81,27 @@ describe('GitSyncService', () => {
     expect(await storage.listDecks()).toEqual(decksAfterFirst)
     expect(await storage.listCards(deck.id)).toEqual(cardsAfterFirst)
   })
+
+  it('syncs an image asset from one machine to another', async () => {
+    const bridge = new FakeGitBridge(null)
+    // Machine A: a deck with a card embedding an asset.
+    const deck = await storage.createDeck('D', 'fsrs')
+    const asset = await storage.putAsset(new Uint8Array([3, 1, 4]), 'image/png')
+    await storage.createCard(deck.id, `![x](asset:${asset.hash})`, 'back')
+    await new GitSyncService(storage, bridge, cfg).sync()
+
+    // Machine B: a fresh store syncs from the same remote.
+    const DB_B = 'rem-sync-service-test-b'
+    await Dexie.delete(DB_B)
+    const dbB = new RemDB(DB_B)
+    const storageB = new DexieStorage(dbB)
+    try {
+      await new GitSyncService(storageB, bridge, cfg).sync()
+      const got = await storageB.getAsset(asset.hash)
+      expect(got?.bytes).toEqual(new Uint8Array([3, 1, 4]))
+    } finally {
+      dbB.close()
+      await Dexie.delete(DB_B)
+    }
+  })
 })

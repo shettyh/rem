@@ -31,12 +31,16 @@ export class GitSyncService {
     for (let attempt = 0; attempt < MAX_PUSH_ATTEMPTS; attempt++) {
       const { remoteExists } = await this.bridge.fetchReset(repoDir)
       const remote = remoteExists
-        ? deserializeSnapshot(await this.bridge.readFiles(repoDir))
+        ? {
+            ...deserializeSnapshot(await this.bridge.readFiles(repoDir)),
+            assets: await this.bridge.readAssets(repoDir),
+          }
         : EMPTY_SNAPSHOT
       const local = await this.storage.exportSnapshot()
       const { merged, dbOps } = merge(local, remote)
       await this.storage.applyMerge(dbOps)
       await this.bridge.writeFiles(repoDir, serializeSnapshot(merged))
+      await this.bridge.writeAssets(repoDir, merged.assets)
       const { pushed, rejected } = await this.bridge.commitPush(
         repoDir,
         `sync ${new Date().toISOString()}`,
