@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
 import type { SchedulingState } from '../../domain/models'
@@ -7,7 +6,6 @@ import { MS_PER_DAY } from '../../domain/scheduler'
 import { PageHeader } from '../../ui/PageHeader'
 import { deckColor } from '../../ui/deckColor'
 import { isNew } from '../review/dueOverview'
-import { CardEditorModal } from './CardEditorModal'
 
 /** First non-empty line of markdown, reduced to plain text for a one-line card preview. */
 export function cardPreview(md: string): string {
@@ -38,7 +36,7 @@ export function cardStatus(
 export function DeckDetailPage() {
   const { deckId } = useParams()
   const storage = useStorage()
-  const [editing, setEditing] = useState<{ cardId?: string } | null>(null)
+  const navigate = useNavigate()
 
   const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const cards = useLiveQuery(() => (deckId ? storage.listCards(deckId) : []), [deckId])
@@ -60,7 +58,7 @@ export function DeckDetailPage() {
   const actions =
     cards.length === 0 ? undefined : (
       <>
-        <button className="btn btn-ghost" onClick={() => setEditing({})}>
+        <button className="btn btn-ghost" onClick={() => navigate(`/decks/${deckId}/cards/new`)}>
           + Add card
         </button>
         {due && due > 0 ? (
@@ -82,7 +80,7 @@ export function DeckDetailPage() {
             <div className="ico">✏️</div>
             <h3>No cards yet</h3>
             <p>Add your first card — front, back, done.</p>
-            <button className="btn btn-primary cta" onClick={() => setEditing({})}>
+            <button className="btn btn-primary cta" onClick={() => navigate(`/decks/${deckId}/cards/new`)}>
               + Add your first card
             </button>
           </div>
@@ -110,7 +108,7 @@ export function DeckDetailPage() {
                   <button
                     key={card.id}
                     className="card-row"
-                    onClick={() => setEditing({ cardId: card.id })}
+                    onClick={() => navigate(`/decks/${deckId}/cards/${card.id}/edit`)}
                   >
                     <span className="card-front">
                       {cardPreview(card.front) || <span className="muted">Untitled card</span>}
@@ -125,9 +123,6 @@ export function DeckDetailPage() {
         )}
       </div>
 
-      {editing && (
-        <CardEditorModal deckId={deckId} cardId={editing.cardId} onClose={() => setEditing(null)} />
-      )}
     </>
   )
 }

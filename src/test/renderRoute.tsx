@@ -16,6 +16,8 @@ export function renderRoute(opts: {
   /** URL actually visited, e.g. '/decks/abc'. */
   entry: string
   element: ReactElement
+  /** Optional additional routes registered alongside the primary one. */
+  extraRoutes?: { path: string; element: ReactElement }[]
 }) {
   return render(
     <div data-testid="screen">
@@ -24,6 +26,9 @@ export function renderRoute(opts: {
           <Routes>
             <Route element={<Layout />}>
               <Route path={opts.path} element={opts.element} />
+              {opts.extraRoutes?.map((r) => (
+                <Route key={r.path} path={r.path} element={r.element} />
+              ))}
             </Route>
           </Routes>
         </MemoryRouter>
