@@ -10,17 +10,22 @@ export function RichMarkdownEditor({
   placeholder,
   ariaLabel,
   resolveAsset,
+  ingestImage,
 }: {
   value: string
   onChange: (markdown: string) => void
   placeholder?: string
   ariaLabel?: string
   resolveAsset?: (hash: string) => Promise<string | null>
+  ingestImage?: (file: File) => Promise<{ hash: string; mime: string }>
 }) {
   const onChangeRef = useRef(onChange)
   useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const insertImageRef = useRef<(file: File) => void>(() => {})
 
   const editor = useEditor({
     extensions: createEditorExtensions(placeholder, resolveAsset),
@@ -31,10 +36,35 @@ export function RichMarkdownEditor({
         class: 'rich-editor-content',
         ...(ariaLabel ? { 'aria-label': ariaLabel } : {}),
       },
+      handlePaste: (_view: unknown, event: ClipboardEvent) => {
+        const file = [...(event.clipboardData?.items ?? [])]
+          .find((i) => i.type.startsWith('image/'))?.getAsFile()
+        if (file) {
+          insertImageRef.current(file)
+          return true
+        }
+        return false
+      },
+      handleDrop: (_view: unknown, event: DragEvent) => {
+        const file = [...(event.dataTransfer?.files ?? [])].find((f) => f.type.startsWith('image/'))
+        if (file) {
+          event.preventDefault()
+          insertImageRef.current(file)
+          return true
+        }
+        return false
+      },
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onUpdate: ({ editor }) => onChangeRef.current((editor.storage as any).markdown.getMarkdown()),
   })
+
+  insertImageRef.current = (file: File) => {
+    if (!editor || !ingestImage || !file.type.startsWith('image/')) return
+    void ingestImage(file).then(({ hash }) => {
+      editor.chain().focus().setImage({ src: `asset:${hash}` }).run()
+    })
+  }
 
   // Re-sync when the external value changes (e.g. async card load on Edit).
   // Guard prevents cursor-jump / feedback loops while typing.
@@ -96,9 +126,20 @@ export function RichMarkdownEditor({
           <button type="button" aria-label="Link" onMouseDown={(e) => e.preventDefault()}
             className={editor.isActive('link') ? 'active' : ''} onClick={setLink}>link</button>
           <button type="button" aria-label="Image" onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {}}>img</button>
+            onClick={() => fileInputRef.current?.click()}>img</button>
         </div>
       )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) insertImageRef.current(file)
+          e.target.value = ''
+        }}
+      />
       <EditorContent editor={editor} />
     </div>
   )
