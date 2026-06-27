@@ -10,11 +10,13 @@ export function RichMarkdownEditor({
   onChange,
   placeholder,
   ariaLabel,
+  resolveAsset,
 }: {
   value: string
   onChange: (markdown: string) => void
   placeholder?: string
   ariaLabel?: string
+  resolveAsset?: (hash: string) => Promise<string | null>
 }) {
   const onChangeRef = useRef(onChange)
   useEffect(() => {
@@ -22,7 +24,7 @@ export function RichMarkdownEditor({
   }, [onChange])
 
   const editor = useEditor({
-    extensions: createEditorExtensions(placeholder),
+    extensions: createEditorExtensions(placeholder, resolveAsset),
     content: value,
     immediatelyRender: false,
     editorProps: {

@@ -31,3 +31,8 @@ describe('editor markdown round-trip', () => {
     expect(out).toContain('two')
   })
 })
+
+it('includes an image extension', () => {
+  const names = createEditorExtensions('', undefined).map((e) => e.name)
+  expect(names).toContain('image')
+})
