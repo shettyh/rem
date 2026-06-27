@@ -2,6 +2,7 @@ import { test, expect, afterEach } from 'vitest'
 import { page } from 'vitest/browser'
 import { DeckListPage } from '../features/decks/DeckListPage'
 import { DeckDetailPage } from '../features/cards/DeckDetailPage'
+import { CardEditorPage } from '../features/cards/CardEditorPage'
 import { ReviewPage } from '../features/review/ReviewPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
 import { freshStorage, MS_PER_DAY } from './seed'
@@ -84,7 +85,13 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
     run: async () => {
       const storage = freshStorage()
       const deck = await storage.createDeck('TypeScript')
-      await renderRoute({ storage, entry: `/decks/${deck.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
+      await renderRoute({
+        storage,
+        entry: `/decks/${deck.id}`,
+        path: '/decks/:deckId',
+        element: <DeckDetailPage />,
+        extraRoutes: [{ path: '/decks/:deckId/cards/new', element: <CardEditorPage /> }],
+      })
       await page.getByRole('button', { name: 'Add your first card', exact: false }).click()
       await expect.element(page.getByText('New card')).toBeVisible()
     },
@@ -95,7 +102,13 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       const storage = freshStorage()
       const deck = await storage.createDeck('TypeScript')
       await storage.createCard(deck.id, 'How to narrow `unknown`?', CODE_BACK)
-      await renderRoute({ storage, entry: `/decks/${deck.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
+      await renderRoute({
+        storage,
+        entry: `/decks/${deck.id}`,
+        path: '/decks/:deckId',
+        element: <DeckDetailPage />,
+        extraRoutes: [{ path: '/decks/:deckId/cards/:cardId/edit', element: <CardEditorPage /> }],
+      })
       await page.getByText('How to narrow').click()
       await expect.element(page.getByText('Edit card')).toBeVisible()
     },

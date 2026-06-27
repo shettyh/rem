@@ -1,11 +1,12 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Card, Deck, Tombstone } from '../../domain/models'
+import type { Asset, Card, Deck, Tombstone } from '../../domain/models'
 
 /** IndexedDB schema. Indexed fields are listed; payloads are stored whole. */
 export class RemDB extends Dexie {
   decks!: EntityTable<Deck, 'id'>
   cards!: EntityTable<Card, 'id'>
   tombstones!: EntityTable<Tombstone, 'id'>
+  assets!: EntityTable<Asset, 'hash'>
 
   constructor(name = 'rem') {
     super(name)
@@ -33,6 +34,13 @@ export class RemDB extends Dexie {
       decks: 'id, createdAt',
       cards: 'id, deckId, createdAt',
       tombstones: 'id, deletedAt',
+    })
+    // v4: add the assets table for embedded images. Additive — existing data untouched.
+    this.version(4).stores({
+      decks: 'id, createdAt',
+      cards: 'id, deckId, createdAt',
+      tombstones: 'id, deletedAt',
+      assets: 'hash',
     })
   }
 }

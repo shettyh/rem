@@ -1,4 +1,4 @@
-import type { Card, Deck, ID, SchedulerKind, SchedulingState } from '../domain/models'
+import type { Asset, Card, Deck, ID, SchedulerKind, SchedulingState } from '../domain/models'
 import type { DeckBackup } from './backup'
 import type { RepoSnapshot } from './sync/snapshot'
 import type { DbOps } from './sync/merge'
@@ -48,4 +48,9 @@ export interface Storage {
   exportSnapshot(): Promise<RepoSnapshot>
   /** Apply a merge result: upsert records, delete by id, persist tombstones. */
   applyMerge(ops: DbOps): Promise<void>
+
+  // Assets (images/GIFs embedded in card markdown as asset:<hash>)
+  putAsset(bytes: Uint8Array, mime: string): Promise<Asset>
+  getAsset(hash: ID): Promise<Asset | undefined>
+  sweepOrphanAssets(): Promise<void>
 }

@@ -1,4 +1,5 @@
-import type { CardRecord, DeckRecord, RepoSnapshot, Tombstone } from './snapshot'
+import type { AssetBlob, CardRecord, DeckRecord, RepoSnapshot, Tombstone } from './snapshot'
+import { assetRefs } from '../assetRefs'
 
 export interface DbOps {
   upsertDecks: DeckRecord[]
@@ -6,6 +7,8 @@ export interface DbOps {
   deleteDeckIds: string[]
   deleteCardIds: string[]
   tombstones: Tombstone[]
+  upsertAssets: AssetBlob[]
+  deleteAssetHashes: string[]
 }
 
 export interface MergeResult {
@@ -55,10 +58,20 @@ export function merge(local: RepoSnapshot, remote: RepoSnapshot): MergeResult {
     mergedCards.push(c)
   }
 
+  // Assets are immutable + content-addressed: union by hash, then keep only
+  // those referenced by a surviving card. No last-writer-wins needed.
+  const referencedHashes = new Set(
+    mergedCards.flatMap((c) => [...assetRefs(c.front), ...assetRefs(c.back)]),
+  )
+  const assetByHash = new Map<string, AssetBlob>()
+  for (const a of [...remote.assets, ...local.assets]) assetByHash.set(a.hash, a)
+  const mergedAssets = [...assetByHash.values()].filter((a) => referencedHashes.has(a.hash))
+
   const merged: RepoSnapshot = {
     decks: mergedDecks,
     cards: mergedCards,
     tombstones: [...tombstones.values()],
+    assets: mergedAssets,
   }
 
   const mergedDeckIds = new Set(mergedDecks.map((d) => d.id))
@@ -69,6 +82,8 @@ export function merge(local: RepoSnapshot, remote: RepoSnapshot): MergeResult {
     deleteDeckIds: local.decks.filter((d) => !mergedDeckIds.has(d.id)).map((d) => d.id),
     deleteCardIds: local.cards.filter((c) => !mergedCardIds.has(c.id)).map((c) => c.id),
     tombstones: merged.tombstones,
+    upsertAssets: mergedAssets,
+    deleteAssetHashes: local.assets.filter((a) => !referencedHashes.has(a.hash)).map((a) => a.hash),
   }
 
   return { merged, dbOps }

@@ -19,15 +19,22 @@ export interface CardRecord {
   scheduling: SchedulingState
 }
 
+export interface AssetBlob {
+  hash: string
+  mime: string
+  bytes: Uint8Array
+}
+
 export interface RepoSnapshot {
   decks: DeckRecord[]
   cards: CardRecord[]
   tombstones: Tombstone[]
+  assets: AssetBlob[]
 }
 
 export const SYNC_FORMAT = 'rem-sync'
 export const SYNC_VERSION = 1
-export const EMPTY_SNAPSHOT: RepoSnapshot = { decks: [], cards: [], tombstones: [] }
+export const EMPTY_SNAPSHOT: RepoSnapshot = { decks: [], cards: [], tombstones: [], assets: [] }
 
 interface DeckFile {
   deck: DeckRecord
@@ -72,5 +79,5 @@ export function deserializeSnapshot(files: Record<string, string>): RepoSnapshot
       for (const c of deckCards) cards.push(c)
     }
   }
-  return { decks, cards, tombstones }
+  return { decks, cards, tombstones, assets: [] }
 }

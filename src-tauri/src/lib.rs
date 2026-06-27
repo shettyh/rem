@@ -9,6 +9,8 @@ pub fn run() {
             git::git_fetch_reset,
             git::git_read_files,
             git::git_write_files,
+            git::git_read_assets,
+            git::git_write_assets,
             git::git_commit_push,
         ])
         .setup(|app| {

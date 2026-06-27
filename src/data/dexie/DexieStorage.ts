@@ -1,4 +1,6 @@
-import type { Card, Deck, ID, SchedulerKind } from '../../domain/models'
+import type { Asset, Card, Deck, ID, SchedulerKind } from '../../domain/models'
+import { hashBytes } from '../assetHash'
+import { assetRefs } from '../assetRefs'
 import { getScheduler } from '../../domain/scheduler'
 import type { CardPatch, ImportResult, Storage } from '../Storage'
 import { planImport, type DeckBackup } from '../backup'
@@ -8,7 +10,7 @@ import type { RemDB } from './db'
 
 /** IndexedDB-backed {@link Storage}, using Dexie. */
 export class DexieStorage implements Storage {
-  constructor(private readonly db: RemDB) {}
+  constructor(readonly db: RemDB) {}
 
   async createDeck(name: string, kind: SchedulerKind = 'sm2'): Promise<Deck> {
     const deck: Deck = {
@@ -118,21 +120,59 @@ export class DexieStorage implements Storage {
   }
 
   async exportSnapshot(): Promise<RepoSnapshot> {
-    const [decks, cards, tombstones] = await Promise.all([
+    const [decks, cards, tombstones, assets] = await Promise.all([
       this.db.decks.toArray(),
       this.db.cards.toArray(),
       this.db.tombstones.toArray(),
+      this.db.assets.toArray(),
     ])
-    return { decks, cards, tombstones }
+    return {
+      decks,
+      cards,
+      tombstones,
+      assets: assets.map(({ hash, mime, bytes }) => ({ hash, mime, bytes })),
+    }
   }
 
   async applyMerge(ops: DbOps): Promise<void> {
-    await this.db.transaction('rw', this.db.decks, this.db.cards, this.db.tombstones, async () => {
-      if (ops.deleteCardIds.length) await this.db.cards.bulkDelete(ops.deleteCardIds)
-      if (ops.deleteDeckIds.length) await this.db.decks.bulkDelete(ops.deleteDeckIds)
-      if (ops.upsertDecks.length) await this.db.decks.bulkPut(ops.upsertDecks)
-      if (ops.upsertCards.length) await this.db.cards.bulkPut(ops.upsertCards)
-      if (ops.tombstones.length) await this.db.tombstones.bulkPut(ops.tombstones)
+    await this.db.transaction(
+      'rw',
+      this.db.decks, this.db.cards, this.db.tombstones, this.db.assets,
+      async () => {
+        if (ops.deleteCardIds.length) await this.db.cards.bulkDelete(ops.deleteCardIds)
+        if (ops.deleteDeckIds.length) await this.db.decks.bulkDelete(ops.deleteDeckIds)
+        if (ops.deleteAssetHashes.length) await this.db.assets.bulkDelete(ops.deleteAssetHashes)
+        if (ops.upsertDecks.length) await this.db.decks.bulkPut(ops.upsertDecks)
+        if (ops.upsertCards.length) await this.db.cards.bulkPut(ops.upsertCards)
+        if (ops.upsertAssets.length) {
+          await this.db.assets.bulkPut(
+            ops.upsertAssets.map((a) => ({ ...a, createdAt: Date.now() })),
+          )
+        }
+        if (ops.tombstones.length) await this.db.tombstones.bulkPut(ops.tombstones)
+      },
+    )
+  }
+
+  async putAsset(bytes: Uint8Array, mime: string): Promise<Asset> {
+    const hash = await hashBytes(bytes)
+    return this.db.transaction('rw', this.db.assets, async () => {
+      const existing = await this.db.assets.get(hash)
+      if (existing) return existing
+      const asset: Asset = { hash, mime, bytes, createdAt: Date.now() }
+      await this.db.assets.add(asset)
+      return asset
     })
+  }
+
+  getAsset(hash: ID): Promise<Asset | undefined> {
+    return this.db.assets.get(hash)
+  }
+
+  async sweepOrphanAssets(): Promise<void> {
+    const [cards, assets] = await Promise.all([this.db.cards.toArray(), this.db.assets.toArray()])
+    const referenced = new Set(cards.flatMap((c) => [...assetRefs(c.front), ...assetRefs(c.back)]))
+    const orphans = assets.filter((a) => !referenced.has(a.hash)).map((a) => a.hash)
+    if (orphans.length) await this.db.assets.bulkDelete(orphans)
   }
 }

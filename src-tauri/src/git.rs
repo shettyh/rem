@@ -3,7 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use serde::Serialize;
+use base64::{engine::general_purpose::STANDARD, Engine};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize)]
 pub struct CommitPushResult {
@@ -94,6 +95,11 @@ fn collect_files(root: &Path, dir: &Path, out: &mut HashMap<String, String>) -> 
         if name == ".git" {
             continue;
         }
+        // assets/ holds binary files (PNG/JPEG/GIF) managed by git_read/write_assets;
+        // reading them with read_to_string would fail on non-UTF-8 bytes.
+        if name == "assets" && path.is_dir() {
+            continue;
+        }
         if path.is_dir() {
             collect_files(root, &path, out)?;
         } else {
@@ -175,6 +181,47 @@ pub async fn git_commit_push(dir: String, message: String) -> Result<CommitPushR
     Err(stderr)
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct AssetFile {
+    name: String,
+    /// base64-encoded file bytes (transport only; on disk the bytes are raw).
+    data: String,
+}
+
+#[tauri::command]
+pub async fn git_read_assets(dir: String) -> Result<Vec<AssetFile>, String> {
+    let assets_dir = Path::new(&dir).join("assets");
+    let mut out = Vec::new();
+    if !assets_dir.exists() {
+        return Ok(out);
+    }
+    for entry in fs::read_dir(&assets_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+        out.push(AssetFile { name, data: STANDARD.encode(&bytes) });
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn git_write_assets(dir: String, assets: Vec<AssetFile>) -> Result<(), String> {
+    let assets_dir = Path::new(&dir).join("assets");
+    let _ = fs::remove_dir_all(&assets_dir);
+    if !assets.is_empty() {
+        fs::create_dir_all(&assets_dir).map_err(|e| e.to_string())?;
+    }
+    for a in assets {
+        let bytes = STANDARD.decode(&a.data).map_err(|e| e.to_string())?;
+        fs::write(assets_dir.join(&a.name), bytes).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,9 +251,9 @@ mod tests {
         );
         files.insert("tombstones.json".to_string(), r#"[]"#.to_string());
 
-        git_write_files(dir_str.clone(), files).unwrap();
+        tauri::async_runtime::block_on(git_write_files(dir_str.clone(), files)).unwrap();
 
-        let result = git_read_files(dir_str).unwrap();
+        let result = tauri::async_runtime::block_on(git_read_files(dir_str)).unwrap();
 
         assert!(
             result.contains_key("rem.json"),
@@ -243,14 +290,14 @@ mod tests {
         let mut files1 = HashMap::new();
         files1.insert("decks/a.json".to_string(), r#"{"id":"a"}"#.to_string());
         files1.insert("decks/b.json".to_string(), r#"{"id":"b"}"#.to_string());
-        git_write_files(dir_str.clone(), files1).unwrap();
+        tauri::async_runtime::block_on(git_write_files(dir_str.clone(), files1)).unwrap();
 
         // Second write: only deck a, no deck b
         let mut files2 = HashMap::new();
         files2.insert("decks/a.json".to_string(), r#"{"id":"a"}"#.to_string());
-        git_write_files(dir_str.clone(), files2).unwrap();
+        tauri::async_runtime::block_on(git_write_files(dir_str.clone(), files2)).unwrap();
 
-        let result = git_read_files(dir_str).unwrap();
+        let result = tauri::async_runtime::block_on(git_read_files(dir_str)).unwrap();
 
         assert!(
             result.contains_key("decks/a.json"),
@@ -301,7 +348,7 @@ mod tests {
         fixture_git(&["clone", &origin_str, &clone1_str], &root_str);
 
         // 3. fetch_reset on an empty remote → Ok(false).
-        let result = git_fetch_reset(clone1_str.clone());
+        let result = tauri::async_runtime::block_on(git_fetch_reset(clone1_str.clone()));
         assert_eq!(
             result,
             Ok(false),
@@ -314,10 +361,10 @@ mod tests {
         files.insert("rem.json".to_string(), "{}".to_string());
         files.insert("decks/a.json".to_string(), "{}".to_string());
         files.insert("tombstones.json".to_string(), "[]".to_string());
-        git_write_files(clone1_str.clone(), files).unwrap();
+        tauri::async_runtime::block_on(git_write_files(clone1_str.clone(), files)).unwrap();
 
         // 5. First push creates origin/main.
-        let push_result = git_commit_push(clone1_str.clone(), "first".to_string()).unwrap();
+        let push_result = tauri::async_runtime::block_on(git_commit_push(clone1_str.clone(), "first".to_string())).unwrap();
         assert!(push_result.pushed, "expected pushed==true on first commit");
         assert!(
             !push_result.rejected,
@@ -325,7 +372,7 @@ mod tests {
         );
 
         // 6. fetch_reset now sees origin/main → Ok(true).
-        let result2 = git_fetch_reset(clone1_str.clone());
+        let result2 = tauri::async_runtime::block_on(git_fetch_reset(clone1_str.clone()));
         assert_eq!(
             result2,
             Ok(true),
@@ -334,7 +381,7 @@ mod tests {
         );
 
         // 7. git_read_files contains decks/a.json.
-        let files_read = git_read_files(clone1_str).unwrap();
+        let files_read = tauri::async_runtime::block_on(git_read_files(clone1_str)).unwrap();
         assert!(
             files_read.contains_key("decks/a.json"),
             "expected decks/a.json in read result; keys: {:?}",
@@ -367,15 +414,15 @@ mod tests {
         let mut seed_files = HashMap::new();
         seed_files.insert("rem.json".to_string(), "{}".to_string());
         seed_files.insert("tombstones.json".to_string(), "[]".to_string());
-        git_write_files(clone1_str.clone(), seed_files).unwrap();
-        let r = git_commit_push(clone1_str.clone(), "first".to_string()).unwrap();
+        tauri::async_runtime::block_on(git_write_files(clone1_str.clone(), seed_files)).unwrap();
+        let r = tauri::async_runtime::block_on(git_commit_push(clone1_str.clone(), "first".to_string())).unwrap();
         assert!(r.pushed, "seed push from clone1 should succeed");
 
         // 3. clone2 gets the first commit.
         fixture_git(&["clone", &origin_str, &clone2_str], &root_str);
 
         // 4. clone2 advances origin/main.
-        let result_fetch2 = git_fetch_reset(clone2_str.clone());
+        let result_fetch2 = tauri::async_runtime::block_on(git_fetch_reset(clone2_str.clone()));
         assert_eq!(
             result_fetch2,
             Ok(true),
@@ -385,8 +432,8 @@ mod tests {
         files2.insert("rem.json".to_string(), "{}".to_string());
         files2.insert("decks/b.json".to_string(), "{}".to_string());
         files2.insert("tombstones.json".to_string(), "[]".to_string());
-        git_write_files(clone2_str.clone(), files2).unwrap();
-        let r2 = git_commit_push(clone2_str.clone(), "from2".to_string()).unwrap();
+        tauri::async_runtime::block_on(git_write_files(clone2_str.clone(), files2)).unwrap();
+        let r2 = tauri::async_runtime::block_on(git_commit_push(clone2_str.clone(), "from2".to_string())).unwrap();
         assert!(r2.pushed, "clone2 push should be a fast-forward");
 
         // 5. clone1 is behind; its push must be rejected (non-fast-forward).
@@ -394,8 +441,8 @@ mod tests {
         files1.insert("rem.json".to_string(), "{}".to_string());
         files1.insert("decks/c.json".to_string(), "{}".to_string());
         files1.insert("tombstones.json".to_string(), "[]".to_string());
-        git_write_files(clone1_str.clone(), files1.clone()).unwrap();
-        let r_rejected = git_commit_push(clone1_str.clone(), "from1".to_string()).unwrap();
+        tauri::async_runtime::block_on(git_write_files(clone1_str.clone(), files1.clone())).unwrap();
+        let r_rejected = tauri::async_runtime::block_on(git_commit_push(clone1_str.clone(), "from1".to_string())).unwrap();
         assert!(
             !r_rejected.pushed && r_rejected.rejected,
             "expected pushed==false, rejected==true; got {:?}/{:?}",
@@ -404,14 +451,14 @@ mod tests {
         );
 
         // 6. Retry: fetch_reset resets clone1 to clone2's state, then push succeeds.
-        let result_retry_fetch = git_fetch_reset(clone1_str.clone());
+        let result_retry_fetch = tauri::async_runtime::block_on(git_fetch_reset(clone1_str.clone()));
         assert_eq!(
             result_retry_fetch,
             Ok(true),
             "retry fetch_reset should see origin/main"
         );
-        git_write_files(clone1_str.clone(), files1).unwrap();
-        let r_retry = git_commit_push(clone1_str.clone(), "from1-retry".to_string()).unwrap();
+        tauri::async_runtime::block_on(git_write_files(clone1_str.clone(), files1)).unwrap();
+        let r_retry = tauri::async_runtime::block_on(git_commit_push(clone1_str.clone(), "from1-retry".to_string())).unwrap();
         assert!(
             r_retry.pushed && !r_retry.rejected,
             "retry push should succeed; got pushed={} rejected={}",
@@ -420,5 +467,82 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_write_read_assets_binary_roundtrip_and_delete_absent() {
+        let dir = make_temp_dir();
+        let dir_str = dir.to_string_lossy().to_string();
+
+        // Non-UTF8 bytes must survive the round trip.
+        let bytes = vec![0u8, 1, 254, 255, 128];
+        let b64 = STANDARD.encode(&bytes);
+        let assets = vec![
+            AssetFile { name: "aaaa.png".into(), data: b64.clone() },
+            AssetFile { name: "bbbb.gif".into(), data: b64.clone() },
+        ];
+        tauri::async_runtime::block_on(git_write_assets(dir_str.clone(), assets)).unwrap();
+
+        let read = tauri::async_runtime::block_on(git_read_assets(dir_str.clone())).unwrap();
+        assert_eq!(read.len(), 2);
+        let aaaa = read.iter().find(|a| a.name == "aaaa.png").unwrap();
+        assert_eq!(STANDARD.decode(&aaaa.data).unwrap(), bytes);
+
+        // Second write with only one asset deletes the other.
+        tauri::async_runtime::block_on(git_write_assets(dir_str.clone(), vec![AssetFile { name: "aaaa.png".into(), data: b64 }])).unwrap();
+        let read2 = tauri::async_runtime::block_on(git_read_assets(dir_str.clone())).unwrap();
+        assert_eq!(read2.len(), 1);
+        assert_eq!(read2[0].name, "aaaa.png");
+
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Contract #6: git_read_files must NOT read assets/ (binary files break UTF-8).
+    /// After writing a text file AND a binary asset, read_files returns Ok, contains
+    /// the text key, and contains NO assets/... key.
+    #[test]
+    fn test_read_files_skips_assets_dir() {
+        let dir = make_temp_dir();
+        let dir_str = dir.to_string_lossy().to_string();
+
+        // 1. Write a normal text file.
+        let mut files = HashMap::new();
+        files.insert("decks/a.json".to_string(), r#"{"id":"a"}"#.to_string());
+        tauri::async_runtime::block_on(git_write_files(dir_str.clone(), files)).unwrap();
+
+        // 2. Write a binary asset with non-UTF-8 bytes.
+        let bad_bytes = vec![0u8, 1, 254, 255, 128];
+        let assets = vec![AssetFile {
+            name: "img.png".to_string(),
+            data: STANDARD.encode(&bad_bytes),
+        }];
+        tauri::async_runtime::block_on(git_write_assets(dir_str.clone(), assets)).unwrap();
+
+        // 3. git_read_files must return Ok (not Err from trying to UTF-8 decode the PNG).
+        let result = tauri::async_runtime::block_on(git_read_files(dir_str.clone()));
+        assert!(result.is_ok(), "git_read_files failed: {:?}", result.err());
+        let map = result.unwrap();
+
+        // 4. Text file is present.
+        assert!(
+            map.contains_key("decks/a.json"),
+            "expected decks/a.json; keys: {:?}",
+            map.keys().collect::<Vec<_>>()
+        );
+
+        // 5. No assets/ key leaked through.
+        let asset_keys: Vec<_> = map.keys().filter(|k| k.starts_with("assets/")).collect();
+        assert!(
+            asset_keys.is_empty(),
+            "git_read_files should not include assets/ keys; found: {:?}",
+            asset_keys
+        );
+
+        // 6. git_read_assets still returns the asset correctly.
+        let assets_read = tauri::async_runtime::block_on(git_read_assets(dir_str.clone())).unwrap();
+        assert_eq!(assets_read.len(), 1);
+        assert_eq!(STANDARD.decode(&assets_read[0].data).unwrap(), bad_bytes);
+
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

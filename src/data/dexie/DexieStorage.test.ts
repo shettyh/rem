@@ -148,6 +148,8 @@ describe('sync storage', () => {
       deleteDeckIds: [],
       deleteCardIds: [stale.id],
       tombstones: [{ id: stale.id, kind: 'card', deletedAt: 5 }],
+      upsertAssets: [],
+      deleteAssetHashes: [],
     })
     expect(await storage.getCard(stale.id)).toBeUndefined()
     expect(await storage.getCard('new')).toBeTruthy()
@@ -206,5 +208,59 @@ describe('importDecks', () => {
 
     const decks = await storage.listDecks()
     expect(decks.filter((d) => d.name === 'Dup')).toHaveLength(1)
+  })
+})
+
+describe('assets', () => {
+  it('stores an asset and reads it back by hash', async () => {
+    const asset = await storage.putAsset(new Uint8Array([1, 2, 3]), 'image/png')
+    expect(asset.hash).toHaveLength(64)
+    expect(asset.mime).toBe('image/png')
+    const got = await storage.getAsset(asset.hash)
+    expect(got?.bytes).toEqual(new Uint8Array([1, 2, 3]))
+  })
+
+  it('dedupes identical bytes to one record', async () => {
+    const a = await storage.putAsset(new Uint8Array([9, 9]), 'image/png')
+    const b = await storage.putAsset(new Uint8Array([9, 9]), 'image/png')
+    expect(b.hash).toBe(a.hash)
+    expect(await storage.db.assets.count()).toBe(1)
+  })
+
+  it('sweeps assets not referenced by any card', async () => {
+    const deck = await storage.createDeck('D')
+    const used = await storage.putAsset(new Uint8Array([1]), 'image/png')
+    const orphan = await storage.putAsset(new Uint8Array([2]), 'image/png')
+    await storage.createCard(deck.id, `![x](asset:${used.hash})`, 'back')
+
+    await storage.sweepOrphanAssets()
+
+    expect(await storage.getAsset(used.hash)).toBeDefined()
+    expect(await storage.getAsset(orphan.hash)).toBeUndefined()
+  })
+})
+
+describe('snapshot assets', () => {
+  it('exports stored assets in the snapshot', async () => {
+    const a = await storage.putAsset(new Uint8Array([7]), 'image/gif')
+    const snap = await storage.exportSnapshot()
+    expect(snap.assets.map((x) => x.hash)).toEqual([a.hash])
+    expect(snap.assets[0].mime).toBe('image/gif')
+  })
+
+  it('applyMerge upserts new assets and deletes by hash', async () => {
+    const keep = 'c'.repeat(64)
+    await storage.applyMerge({
+      upsertDecks: [], upsertCards: [], deleteDeckIds: [], deleteCardIds: [], tombstones: [],
+      upsertAssets: [{ hash: keep, mime: 'image/png', bytes: new Uint8Array([5]) }],
+      deleteAssetHashes: [],
+    })
+    expect((await storage.getAsset(keep))?.bytes).toEqual(new Uint8Array([5]))
+
+    await storage.applyMerge({
+      upsertDecks: [], upsertCards: [], deleteDeckIds: [], deleteCardIds: [], tombstones: [],
+      upsertAssets: [], deleteAssetHashes: [keep],
+    })
+    expect(await storage.getAsset(keep)).toBeUndefined()
   })
 })
