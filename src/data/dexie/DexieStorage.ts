@@ -159,21 +159,7 @@ export class DexieStorage implements Storage {
         if (ops.deleteCardIds.length) await this.db.cards.bulkDelete(ops.deleteCardIds)
         if (ops.deleteDeckIds.length) await this.db.decks.bulkDelete(ops.deleteDeckIds)
         if (ops.deleteAssetHashes.length) await this.db.assets.bulkDelete(ops.deleteAssetHashes)
-        if (ops.upsertDecks.length) {
-          const existing = await this.db.decks.bulkGet(ops.upsertDecks.map((d) => d.id))
-          const existingById = new Map(existing.filter(Boolean).map((d) => [d!.id, d!]))
-          await this.db.decks.bulkPut(
-            ops.upsertDecks.map((d) => {
-              const prev = existingById.get(d.id)
-              return {
-                ...d,
-                updatedAt: prev?.updatedAt ?? d.createdAt,
-                color: prev?.color ?? deckColor(d.id),
-                settings: prev?.settings ?? { ...DEFAULT_DECK_SETTINGS },
-              }
-            }),
-          )
-        }
+        if (ops.upsertDecks.length) await this.db.decks.bulkPut(ops.upsertDecks)
         if (ops.upsertCards.length) await this.db.cards.bulkPut(ops.upsertCards)
         if (ops.upsertAssets.length) {
           await this.db.assets.bulkPut(

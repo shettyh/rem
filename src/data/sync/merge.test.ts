@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { merge } from './merge'
 import type { RepoSnapshot, CardRecord, DeckRecord, AssetBlob } from './snapshot'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 
-const deck: DeckRecord = { id: 'd1', name: 'D', createdAt: 1, schedulerKind: 'fsrs' }
+const deck: DeckRecord = { id: 'd1', name: 'D', createdAt: 1, updatedAt: 1, color: '#7e6cff', schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }
 function card(id: string, updatedAt: number, front = 'f'): CardRecord {
   return {
     id, deckId: 'd1', front, back: 'b', createdAt: 1, updatedAt,
@@ -96,6 +97,14 @@ describe('merge', () => {
     const remote = snap({ decks: [deck], tombstones: [{ id: 'a', kind: 'card', deletedAt: 20 }] })
     const { merged } = merge(local, remote)
     expect(merged.cards.map((c) => c.id)).toEqual(['a'])
+  })
+
+  it('keeps the newer deck edit (deck LWW by updatedAt)', () => {
+    const oldDeck: DeckRecord = { ...deck, name: 'old', updatedAt: 10 }
+    const newDeck: DeckRecord = { ...deck, name: 'new', updatedAt: 20 }
+    const { merged } = merge(snap({ decks: [oldDeck] }), snap({ decks: [newDeck] }))
+    expect(merged.decks).toHaveLength(1)
+    expect(merged.decks[0].name).toBe('new')
   })
 })
 

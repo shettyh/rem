@@ -161,7 +161,7 @@ describe('sync storage', () => {
     const deck = await storage.createDeck('S')
     const stale = await storage.createCard(deck.id, 'old', 'old')
     await storage.applyMerge({
-      upsertDecks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, schedulerKind: 'fsrs' }],
+      upsertDecks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, updatedAt: deck.updatedAt, color: deck.color, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
       upsertCards: [{
         id: 'new', deckId: deck.id, front: 'new', back: 'new', createdAt: 1, updatedAt: 2,
         scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 0 },
@@ -279,6 +279,26 @@ describe('snapshot assets', () => {
     const snap = await storage.exportSnapshot()
     expect(snap.assets.map((x) => x.hash)).toEqual([a.hash])
     expect(snap.assets[0].mime).toBe('image/gif')
+  })
+
+  it('applyMerge applies a synced deck color/settings change', async () => {
+    const deck = await storage.createDeck('Spanish')
+    const incoming = {
+      id: deck.id,
+      name: 'Spanish',
+      createdAt: deck.createdAt,
+      updatedAt: deck.updatedAt + 1000,
+      color: '#e8638c',
+      schedulerKind: 'fsrs' as const,
+      settings: { ...DEFAULT_DECK_SETTINGS, newPerDay: 99 },
+    }
+    await storage.applyMerge({
+      upsertDecks: [incoming], upsertCards: [], deleteDeckIds: [], deleteCardIds: [],
+      tombstones: [], upsertAssets: [], deleteAssetHashes: [],
+    })
+    const after = await storage.getDeck(deck.id)
+    expect(after?.color).toBe('#e8638c')
+    expect(after?.settings.newPerDay).toBe(99)
   })
 
   it('applyMerge upserts new assets and deletes by hash', async () => {
