@@ -27,6 +27,45 @@ npm run typecheck   # tsc --noEmit
 `npm run dev` and the printed `http://localhost:5173` are **only the internal webview source** that
 `npm run app:dev` loads — not a browser app. Open the desktop window, not the URL.
 
+## Install
+
+**macOS / Linux** — one-liner (no Apple Developer warning; `curl` downloads skip
+macOS quarantine):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/shettyh/rem/main/install.sh | sh
+```
+
+macOS copies `rem.app` to `/Applications`; Linux installs the AppImage to
+`~/.local/bin/rem` (needs FUSE; on Debian/Ubuntu `sudo apt install libfuse2`).
+
+**Manual download** — grab a build from the
+[Releases page](https://github.com/shettyh/rem/releases). Because rem isn't
+notarized (no paid Apple Developer ID), a **browser-downloaded** DMG triggers a
+Gatekeeper warning. Either right-click the app → **Open** → **Open**, or clear
+quarantine after copying it to Applications:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/rem.app
+```
+
+**Windows** — download the `.msi`/`.exe` from the Releases page.
+
+## Cutting a release
+
+The [`release.yml`](.github/workflows/release.yml) workflow builds installers for
+macOS (Apple Silicon + Intel), Linux, and Windows on every `v*` tag.
+
+1. Bump the version to match in all three files: `package.json`,
+   `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`.
+2. Commit, then tag and push:
+   ```bash
+   git tag v0.1.1 && git push origin v0.1.1
+   ```
+3. The workflow opens a **draft** GitHub Release with the installers attached.
+4. **Publish the draft.** Required — the curl installer reads `releases/latest`,
+   which ignores drafts and prereleases, so it only finds a published release.
+
 ## Architecture
 
 Dependencies point inward toward stable interfaces:
