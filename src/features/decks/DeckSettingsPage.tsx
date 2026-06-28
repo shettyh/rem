@@ -7,6 +7,7 @@ import type { Deck, DeckSettings } from '../../domain/models'
 import { PageHeader } from '../../ui/PageHeader'
 import { Stepper } from '../../ui/Stepper'
 import { SegToggle } from '../../ui/SegToggle'
+import { Toggle } from '../../ui/Toggle'
 import { DECK_PALETTE, deckColor } from '../../ui/deckColor'
 
 /** Split a space-separated steps string into chip tokens. */
@@ -28,6 +29,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
   const [name, setName] = useState(deck.name)
   const [color, setColor] = useState(deck.color)
   const [settings, setSettings] = useState<DeckSettings>(deck.settings)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   function pickColor(c: string) {
     setColor(c)
@@ -238,6 +240,79 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
                 onChange={(v) => set('leechAction', v)}
                 options={[{ value: 'tag', label: 'TAG' }, { value: 'suspend', label: 'SUSPEND' }]}
               />
+            </div>
+          </div>
+
+          {/* CUSTOM STUDY (inert — behaviour is sub-project #4) */}
+          <div className="ds-label">Custom study</div>
+          <div className="ds-grid">
+            {[
+              { title: 'Study ahead', sub: 'Review cards due later.' },
+              { title: 'Increase new', sub: 'More new cards today.' },
+              { title: 'Review forgotten', sub: 'Re-see recent lapses.' },
+              { title: 'Preview new', sub: 'Peek at upcoming cards.' },
+            ].map((p) => (
+              <button key={p.title} type="button" className="ds-preset" disabled>
+                <span className="ds-preset-title">{p.title}</span>
+                <span className="ds-preset-sub">{p.sub}</span>
+              </button>
+            ))}
+          </div>
+          <div className="ds-custom-run">
+            <div className="ds-row-title">Custom study</div>
+            <Stepper value={10} onChange={() => {}} label="Custom study count" step={5} min={5} max={999} />
+            <button type="button" className="btn btn-primary" disabled>Start</button>
+          </div>
+
+          {/* BURYING & TIMER */}
+          <div className="ds-label">Burying &amp; timer</div>
+          <div className="ds-card">
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Bury related new cards</div>
+                <div className="ds-row-sub">Hold siblings until the next day.</div>
+              </div>
+              <Toggle checked={settings.buryRelated} onChange={(v) => set('buryRelated', v)} label="Bury related new cards" />
+            </div>
+            <div className="ds-rule" />
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Show answer timer</div>
+                <div className="ds-row-sub">Display time spent on each card.</div>
+              </div>
+              <Toggle checked={settings.showTimer} onChange={(v) => set('showTimer', v)} label="Show answer timer" />
+            </div>
+          </div>
+
+          {/* DANGER ZONE */}
+          <div className="ds-label is-danger">Danger zone</div>
+          <div className="ds-card is-danger">
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Delete this deck</div>
+                <div className="ds-row-sub">Permanently removes the deck and all its cards. This can't be undone.</div>
+              </div>
+              {confirmDelete ? (
+                <div className="row">
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    onClick={async () => {
+                      await storage.deleteDeck(deck.id)
+                      navigate('/')
+                    }}
+                  >
+                    Confirm delete
+                  </button>
+                  <button type="button" className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button type="button" className="btn btn-danger-outline" onClick={() => setConfirmDelete(true)}>
+                  Delete deck
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -1564,3 +1564,5 @@ input[type='file']::file-selector-button:hover {
 .ds-preset-sub { font-size: 12.5px; color: var(--muted); }
 .ds-custom-run { display: flex; align-items: center; gap: 18px; background: var(--surface); border: 1px solid var(--accent); border-radius: 13px; padding: 16px 18px; margin-bottom: 30px; }
 .ds-custom-run > .ds-row-title { flex: 1; }
+.btn-danger-outline { border: 1px solid var(--danger); background: transparent; color: var(--danger); }
+.btn-danger-outline:hover { background: color-mix(in oklch, var(--danger), transparent 88%); }

@@ -64,3 +64,35 @@ test('persists daily-limit, new-card, and lapse edits', async () => {
   await page.getByRole('button', { name: 'TAG' }).click()
   await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.leechAction).toBe('tag')
 })
+
+test('toggles bury/timer and keeps Custom study Start inert', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Spanish')
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId/options',
+    entry: `/decks/${deck.id}/options`,
+    element: <DeckSettingsPage />,
+  })
+
+  await page.getByRole('switch', { name: 'Show answer timer' }).click()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.showTimer).toBe(true)
+
+  await expect.element(page.getByRole('button', { name: 'Start' })).toBeDisabled()
+})
+
+test('deletes the deck after confirm and navigates away', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Spanish')
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId/options',
+    entry: `/decks/${deck.id}/options`,
+    element: <DeckSettingsPage />,
+    extraRoutes: [{ path: '/', element: <div>Home</div> }],
+  })
+
+  await page.getByRole('button', { name: 'Delete deck' }).click()
+  await page.getByRole('button', { name: 'Confirm delete' }).click()
+  await expect.poll(async () => await storage.getDeck(deck.id)).toBeUndefined()
+})
