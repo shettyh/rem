@@ -1,3 +1,4 @@
+mod fsrs_sched;
 mod git;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -12,6 +13,7 @@ pub fn run() {
             git::git_read_assets,
             git::git_write_assets,
             git::git_commit_push,
+            fsrs_sched::fsrs_next_states,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
