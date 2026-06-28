@@ -5,9 +5,11 @@ import {
   EMPTY_SNAPSHOT,
   type RepoSnapshot,
 } from './snapshot'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
+import { deckColor } from '../../ui/deckColor'
 
 const sample: RepoSnapshot = {
-  decks: [{ id: 'd1', name: 'Spanish', createdAt: 1, schedulerKind: 'fsrs' }],
+  decks: [{ id: 'd1', name: 'Spanish', createdAt: 1, updatedAt: 1, color: '#7e6cff', schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
   cards: [
     {
       id: 'c1',
@@ -38,5 +40,17 @@ describe('snapshot', () => {
   it('groups cards under their deck file', () => {
     const files = serializeSnapshot(sample)
     expect(files['decks/d1.json']).toContain('hola')
+  })
+
+  it('normalizes a deck file missing the v6 fields to defaults', () => {
+    const files = {
+      'rem.json': JSON.stringify({ format: 'rem-sync', version: 1 }),
+      'decks/d1.json': JSON.stringify({ deck: { id: 'd1', name: 'Old', createdAt: 7, schedulerKind: 'fsrs' }, cards: [] }),
+      'tombstones.json': '[]',
+    }
+    const snap = deserializeSnapshot(files)
+    expect(snap.decks[0].updatedAt).toBe(7)
+    expect(snap.decks[0].color).toBe(deckColor('d1'))
+    expect(snap.decks[0].settings).toEqual(DEFAULT_DECK_SETTINGS)
   })
 })

@@ -3,6 +3,7 @@ import Dexie from 'dexie'
 import { RemDB } from './db'
 import { DexieStorage } from './DexieStorage'
 import { MS_PER_DAY } from '../../domain/scheduler'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 
 const DB_NAME = 'rem-test'
 let db: RemDB
@@ -27,6 +28,26 @@ describe('decks', () => {
     const decks = await storage.listDecks()
     expect(decks).toHaveLength(1)
     expect(decks[0].name).toBe('Spanish')
+  })
+
+  it('seeds a new deck with defaults: updatedAt, color, default settings', async () => {
+    const before = Date.now()
+    const deck = await storage.createDeck('Spanish')
+    expect(deck.updatedAt).toBeGreaterThanOrEqual(before)
+    expect(deck.color).toBeTruthy()
+    expect(deck.settings).toEqual(DEFAULT_DECK_SETTINGS)
+  })
+
+  it('updateDeck patches fields and bumps updatedAt', async () => {
+    const deck = await storage.createDeck('Spanish')
+    const next = { ...DEFAULT_DECK_SETTINGS, newPerDay: 35 }
+    await storage.updateDeck(deck.id, { name: 'Español', color: '#2fa86b', settings: next })
+
+    const updated = await storage.getDeck(deck.id)
+    expect(updated?.name).toBe('Español')
+    expect(updated?.color).toBe('#2fa86b')
+    expect(updated?.settings.newPerDay).toBe(35)
+    expect(updated!.updatedAt).toBeGreaterThanOrEqual(deck.updatedAt)
   })
 
   it('deletes a deck and cascades its cards', async () => {
@@ -140,7 +161,7 @@ describe('sync storage', () => {
     const deck = await storage.createDeck('S')
     const stale = await storage.createCard(deck.id, 'old', 'old')
     await storage.applyMerge({
-      upsertDecks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, schedulerKind: 'fsrs' }],
+      upsertDecks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, updatedAt: deck.updatedAt, color: deck.color, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
       upsertCards: [{
         id: 'new', deckId: deck.id, front: 'new', back: 'new', createdAt: 1, updatedAt: 2,
         scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 0 },
@@ -164,6 +185,7 @@ describe('importDecks', () => {
         name: 'Spanish',
         createdAt: 5,
         schedulerKind: 'fsrs',
+        settings: DEFAULT_DECK_SETTINGS,
         cards: [
           { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, lastReview: 7, due: 8 } },
         ],
@@ -186,7 +208,7 @@ describe('importDecks', () => {
     const oldCard = await storage.createCard(old.id, 'old-front', 'old-back')
 
     const result = await storage.importDecks([
-      { name: 'Spanish', createdAt: 5, schedulerKind: 'fsrs', cards: [
+      { name: 'Spanish', createdAt: 5, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [
         { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 8 } },
       ] },
     ])
@@ -204,10 +226,21 @@ describe('importDecks', () => {
     await storage.createDeck('Dup')
     await storage.createDeck('Dup')
 
-    await storage.importDecks([{ name: 'Dup', createdAt: 1, schedulerKind: 'fsrs', cards: [] }])
+    await storage.importDecks([{ name: 'Dup', createdAt: 1, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [] }])
 
     const decks = await storage.listDecks()
     expect(decks.filter((d) => d.name === 'Dup')).toHaveLength(1)
+  })
+
+  it('imports decks with settings, a color, and a fresh updatedAt', async () => {
+    const before = Date.now()
+    await storage.importDecks([
+      { name: 'Imported', createdAt: 5, schedulerKind: 'fsrs', settings: { ...DEFAULT_DECK_SETTINGS, newPerDay: 7 }, cards: [] },
+    ])
+    const deck = (await storage.listDecks()).find((d) => d.name === 'Imported')
+    expect(deck?.settings.newPerDay).toBe(7)
+    expect(deck?.color).toBeTruthy()
+    expect(deck!.updatedAt).toBeGreaterThanOrEqual(before)
   })
 })
 
@@ -246,6 +279,26 @@ describe('snapshot assets', () => {
     const snap = await storage.exportSnapshot()
     expect(snap.assets.map((x) => x.hash)).toEqual([a.hash])
     expect(snap.assets[0].mime).toBe('image/gif')
+  })
+
+  it('applyMerge applies a synced deck color/settings change', async () => {
+    const deck = await storage.createDeck('Spanish')
+    const incoming = {
+      id: deck.id,
+      name: 'Spanish',
+      createdAt: deck.createdAt,
+      updatedAt: deck.updatedAt + 1000,
+      color: '#e8638c',
+      schedulerKind: 'fsrs' as const,
+      settings: { ...DEFAULT_DECK_SETTINGS, newPerDay: 99 },
+    }
+    await storage.applyMerge({
+      upsertDecks: [incoming], upsertCards: [], deleteDeckIds: [], deleteCardIds: [],
+      tombstones: [], upsertAssets: [], deleteAssetHashes: [],
+    })
+    const after = await storage.getDeck(deck.id)
+    expect(after?.color).toBe('#e8638c')
+    expect(after?.settings.newPerDay).toBe(99)
   })
 
   it('applyMerge upserts new assets and deletes by hash', async () => {

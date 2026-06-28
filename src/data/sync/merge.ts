@@ -31,11 +31,13 @@ function newestTombstones(a: Tombstone[], b: Tombstone[]): Map<string, Tombstone
 export function merge(local: RepoSnapshot, remote: RepoSnapshot): MergeResult {
   const tombstones = newestTombstones(local.tombstones, remote.tombstones)
 
-  // Decks: union by id (decks are immutable today). Drop if a deck tombstone
-  // is at/after the deck's creation (a re-created deck gets a fresh id, so the
-  // tombstone never shadows it).
+  // Decks: union by id, newest updatedAt wins (deck name/color/settings are
+  // editable). Drop if a deck tombstone is at/after the deck's creation.
   const deckById = new Map<string, DeckRecord>()
-  for (const d of [...remote.decks, ...local.decks]) deckById.set(d.id, d)
+  for (const d of [...remote.decks, ...local.decks]) {
+    const prev = deckById.get(d.id)
+    if (!prev || d.updatedAt > prev.updatedAt) deckById.set(d.id, d)
+  }
   const mergedDecks: DeckRecord[] = []
   for (const d of deckById.values()) {
     const t = tombstones.get(d.id)

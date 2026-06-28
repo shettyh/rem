@@ -5,6 +5,7 @@ import { DeckDetailPage } from '../features/cards/DeckDetailPage'
 import { CardEditorPage } from '../features/cards/CardEditorPage'
 import { ReviewPage } from '../features/review/ReviewPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
+import { DeckSettingsPage } from '../features/decks/DeckSettingsPage'
 
 export const router = createBrowserRouter([
   {
@@ -13,6 +14,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <DeckListPage /> },
       { path: 'decks/:deckId', element: <DeckDetailPage /> },
+      { path: 'decks/:deckId/options', element: <DeckSettingsPage /> },
       { path: 'decks/:deckId/cards/new', element: <CardEditorPage /> },
       { path: 'decks/:deckId/cards/:cardId/edit', element: <CardEditorPage /> },
       { path: 'decks/:deckId/study', element: <ReviewPage /> },

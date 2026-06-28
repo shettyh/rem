@@ -5,6 +5,7 @@ import { DexieStorage } from '../dexie/DexieStorage'
 import { FakeGitBridge } from './FakeGitBridge'
 import { GitSyncService } from './GitSyncService'
 import { serializeSnapshot } from './snapshot'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 
 const DB = 'rem-sync-service-test'
 let db: RemDB
@@ -31,7 +32,7 @@ describe('GitSyncService', () => {
 
   it('pulls a remote-only deck into the local store', async () => {
     const remote = serializeSnapshot({
-      decks: [{ id: 'd1', name: 'Remote', createdAt: 1, schedulerKind: 'fsrs' }],
+      decks: [{ id: 'd1', name: 'Remote', createdAt: 1, updatedAt: 1, color: '#7e6cff', schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
       cards: [],
       tombstones: [],
       assets: [],
@@ -46,7 +47,7 @@ describe('GitSyncService', () => {
     const deck = await storage.createDeck('S')
     const c = await storage.createCard(deck.id, 'q', 'a')
     const remote = serializeSnapshot({
-      decks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, schedulerKind: 'fsrs' }],
+      decks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, updatedAt: deck.createdAt, color: deck.color, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
       cards: [],
       tombstones: [{ id: c.id, kind: 'card', deletedAt: Date.now() + 10000 }],
       assets: [],

@@ -1,8 +1,10 @@
 import type { Asset, Card, Deck, ID, SchedulerKind } from '../../domain/models'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
+import { deckColor } from '../../ui/deckColor'
 import { hashBytes } from '../assetHash'
 import { assetRefs } from '../assetRefs'
 import { getScheduler } from '../../domain/scheduler'
-import type { CardPatch, ImportResult, Storage } from '../Storage'
+import type { CardPatch, DeckPatch, ImportResult, Storage } from '../Storage'
 import { planImport, type DeckBackup } from '../backup'
 import type { RepoSnapshot } from '../sync/snapshot'
 import type { DbOps } from '../sync/merge'
@@ -13,14 +15,23 @@ export class DexieStorage implements Storage {
   constructor(readonly db: RemDB) {}
 
   async createDeck(name: string, kind: SchedulerKind = 'fsrs'): Promise<Deck> {
+    const now = Date.now()
+    const id = crypto.randomUUID()
     const deck: Deck = {
-      id: crypto.randomUUID(),
+      id,
       name: name.trim(),
-      createdAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
+      color: deckColor(id),
       schedulerKind: kind,
+      settings: { ...DEFAULT_DECK_SETTINGS },
     }
     await this.db.decks.add(deck)
     return deck
+  }
+
+  async updateDeck(id: ID, patch: DeckPatch): Promise<void> {
+    await this.db.decks.update(id, { ...patch, updatedAt: Date.now() })
   }
 
   listDecks(): Promise<Deck[]> {
@@ -100,7 +111,15 @@ export class DexieStorage implements Storage {
 
       for (const d of decks) {
         const deckId = crypto.randomUUID()
-        await this.db.decks.add({ id: deckId, name: d.name, createdAt: d.createdAt, schedulerKind: d.schedulerKind })
+        await this.db.decks.add({
+          id: deckId,
+          name: d.name,
+          createdAt: d.createdAt,
+          updatedAt: Date.now(),
+          color: d.color ?? deckColor(deckId),
+          schedulerKind: d.schedulerKind,
+          settings: d.settings,
+        })
         for (const c of d.cards) {
           await this.db.cards.add({
             id: crypto.randomUUID(),

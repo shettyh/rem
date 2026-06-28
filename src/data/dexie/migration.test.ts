@@ -1,11 +1,34 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import Dexie from 'dexie'
 import { RemDB } from './db'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 
 const NAME = 'rem-migration-test'
 
 afterEach(async () => {
   await Dexie.delete(NAME)
+})
+
+describe('deck settings migration (v6)', () => {
+  it('backfills updatedAt, color and default settings on pre-v6 decks', async () => {
+    const v5 = new Dexie(NAME)
+    v5.version(5).stores({
+      decks: 'id, createdAt',
+      cards: 'id, deckId, createdAt',
+      tombstones: 'id, deletedAt',
+      assets: 'hash',
+    })
+    await v5.open()
+    await v5.table('decks').add({ id: 'd1', name: 'Old', createdAt: 1234, schedulerKind: 'fsrs' })
+    v5.close()
+
+    const db = new RemDB(NAME)
+    const deck = await db.decks.get('d1')
+    expect(deck?.updatedAt).toBe(1234)
+    expect(deck?.color).toBeTruthy()
+    expect(deck?.settings).toEqual(DEFAULT_DECK_SETTINGS)
+    db.close()
+  })
 })
 
 describe('SM-2 removal migration (v5)', () => {

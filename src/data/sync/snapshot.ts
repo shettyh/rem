@@ -1,4 +1,6 @@
-import type { SchedulerKind, SchedulingState, Tombstone } from '../../domain/models'
+import type { SchedulerKind, SchedulingState, Tombstone, DeckSettings } from '../../domain/models'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
+import { deckColor } from '../../ui/deckColor'
 
 export type { Tombstone }
 
@@ -6,7 +8,20 @@ export interface DeckRecord {
   id: string
   name: string
   createdAt: number
+  updatedAt: number
+  color: string
   schedulerKind: SchedulerKind
+  settings: DeckSettings
+}
+
+function normalizeDeck(d: DeckRecord): DeckRecord {
+  // Fields below may be absent in snapshots written before v6 (the JSON is cast, not validated), so ?? supplies backward-compatible defaults.
+  return {
+    ...d,
+    updatedAt: d.updatedAt ?? d.createdAt,
+    color: d.color ?? deckColor(d.id),
+    settings: d.settings ?? DEFAULT_DECK_SETTINGS,
+  }
 }
 
 export interface CardRecord {
@@ -75,7 +90,7 @@ export function deserializeSnapshot(files: Record<string, string>): RepoSnapshot
     }
     if (path.startsWith('decks/') && path.endsWith('.json')) {
       const { deck, cards: deckCards } = JSON.parse(content) as DeckFile
-      decks.push(deck)
+      decks.push(normalizeDeck(deck))
       for (const c of deckCards) cards.push(c)
     }
   }

@@ -1,4 +1,5 @@
-import type { ID, SchedulerKind, SchedulingState } from '../domain/models'
+import type { ID, SchedulerKind, SchedulingState, DeckSettings } from '../domain/models'
+import { DEFAULT_DECK_SETTINGS } from '../domain/models'
 import { getScheduler } from '../domain/scheduler'
 import type { Storage } from './Storage'
 
@@ -14,6 +15,8 @@ export interface DeckBackup {
   name: string
   createdAt: number
   schedulerKind: SchedulerKind
+  color?: string
+  settings: DeckSettings
   cards: CardBackup[]
 }
 
@@ -37,6 +40,8 @@ export async function collectBackup(storage: Storage, deckIds: ID[]): Promise<De
       name: deck.name,
       createdAt: deck.createdAt,
       schedulerKind: deck.schedulerKind,
+      color: deck.color,
+      settings: deck.settings,
       cards: cards.map((c) => ({
         front: c.front,
         back: c.back,
@@ -108,6 +113,8 @@ function parseDeck(raw: unknown, now: number): DeckBackup {
     name: raw.name,
     createdAt: raw.createdAt,
     schedulerKind: 'fsrs',
+    color: typeof raw.color === 'string' ? raw.color : undefined,
+    settings: { ...DEFAULT_DECK_SETTINGS, ...(isObject(raw.settings) ? raw.settings : {}) },
     cards: raw.cards.map((c) => parseCard(c, now)),
   }
 }

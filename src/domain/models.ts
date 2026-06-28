@@ -6,8 +6,49 @@ export interface Deck {
   id: ID
   name: string
   createdAt: number
-  /** Which scheduling algorithm this deck's cards use (fixed at creation). */
+  updatedAt: number
+  color: string
   schedulerKind: SchedulerKind
+  settings: DeckSettings
+}
+
+export type InsertionOrder = 'sequential' | 'random'
+export type LeechAction = 'tag' | 'suspend'
+
+/** Per-deck options. Persisted by sub-project #1; the review queue starts
+ *  honouring steps/caps/order/leech/burying in #3. */
+export interface DeckSettings {
+  newPerDay: number
+  maxReviews: number
+  learnSteps: string
+  graduatingInterval: number
+  easyInterval: number
+  insertionOrder: InsertionOrder
+  relearnSteps: string
+  minimumInterval: number
+  leechThreshold: number
+  leechAction: LeechAction
+  buryRelated: boolean
+  showTimer: boolean
+  desiredRetention: number
+  maximumInterval: number
+}
+
+export const DEFAULT_DECK_SETTINGS: DeckSettings = {
+  newPerDay: 20,
+  maxReviews: 200,
+  learnSteps: '1m 10m',
+  graduatingInterval: 1,
+  easyInterval: 4,
+  insertionOrder: 'sequential',
+  relearnSteps: '10m',
+  minimumInterval: 1,
+  leechThreshold: 8,
+  leechAction: 'suspend',
+  buryRelated: true,
+  showTimer: false,
+  desiredRetention: 0.9,
+  maximumInterval: 36500,
 }
 
 /** How well the user recalled a card during review. */

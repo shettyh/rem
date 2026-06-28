@@ -54,7 +54,7 @@ export function Sidebar() {
       <div className="side-decks">
         {(decks ?? []).map(({ deck, due }) => (
           <NavLink key={deck.id} to={`/decks/${deck.id}`} className={navClass}>
-            <span className="deck-dot" style={{ background: deckColor(deck.id) }} />
+            <span className="deck-dot" style={{ background: deck.color ?? deckColor(deck.id) }} />
             <span className="nav-grow">{deck.name}</span>
             {due > 0 && <span className="side-badge">{due}</span>}
           </NavLink>
