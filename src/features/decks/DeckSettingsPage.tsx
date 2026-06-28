@@ -56,7 +56,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
       <button className="back-link" aria-label="Back to deck" onClick={() => navigate(`/decks/${deck.id}`)}>
         ‹ {deck.name}
       </button>
-      <span className="header-dot" style={{ background: color || deckColor(deck.id) }} />
+      <span className="header-dot" style={{ background: color ?? deckColor(deck.id) }} />
       <span className="header-title-text">Deck options</span>
     </>
   )
@@ -75,7 +75,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
               className="ds-name-input"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onBlur={() => storage.updateDeck(deck.id, { name })}
+              onBlur={() => void storage.updateDeck(deck.id, { name })}
             />
             <div className="ds-rule" />
             <div className="ds-row">
