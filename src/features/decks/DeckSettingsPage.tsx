@@ -6,6 +6,7 @@ import type { Storage } from '../../data/Storage'
 import type { Deck, DeckSettings } from '../../domain/models'
 import { PageHeader } from '../../ui/PageHeader'
 import { Stepper } from '../../ui/Stepper'
+import { SegToggle } from '../../ui/SegToggle'
 import { DECK_PALETTE, deckColor } from '../../ui/deckColor'
 
 /** Split a space-separated steps string into chip tokens. */
@@ -39,6 +40,13 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
     const next = { ...settings, [key]: value } as DeckSettings
     setSettings(next)
     void storage.updateDeck(deck.id, { settings: next })
+  }
+  /** Update one setting locally only (text inputs persist on blur via commit). */
+  function setLocal<K extends keyof DeckSettings>(key: K, value: DeckSettings[K]) {
+    setSettings((s) => ({ ...s, [key]: value }) as DeckSettings)
+  }
+  function commit() {
+    void storage.updateDeck(deck.id, { settings })
   }
 
   const title = (
@@ -109,6 +117,126 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
                 min={0.7}
                 max={0.99}
                 format={(v) => `${Math.round(v * 100)}%`}
+              />
+            </div>
+          </div>
+
+          {/* DAILY LIMITS */}
+          <div className="ds-label">Daily limits</div>
+          <div className="ds-card">
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">New cards/day</div>
+                <div className="ds-row-sub">Cap on new cards introduced daily.</div>
+              </div>
+              <Stepper value={settings.newPerDay} onChange={(v) => set('newPerDay', v)} label="New cards/day" step={5} min={0} max={9999} />
+            </div>
+            <div className="ds-rule" />
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Maximum reviews/day</div>
+                <div className="ds-row-sub">Cap on due reviews shown each day.</div>
+              </div>
+              <Stepper value={settings.maxReviews} onChange={(v) => set('maxReviews', v)} label="Maximum reviews/day" step={10} min={0} max={9999} />
+            </div>
+          </div>
+
+          {/* NEW CARDS */}
+          <div className="ds-label">New cards</div>
+          <div className="ds-card">
+            <div className="ds-row">
+              <div className="ds-row-title">Learning steps</div>
+              <span className="ds-row-sub" style={{ fontFamily: 'var(--font-mono)' }}>e.g. 1m 10m 1d</span>
+            </div>
+            <div className="ds-row-sub" style={{ margin: '3px 0 12px' }}>Intervals a new card steps through before graduating. Space-separated.</div>
+            <input
+              className="ds-steps-input"
+              aria-label="Learning steps"
+              value={settings.learnSteps}
+              onChange={(e) => setLocal('learnSteps', e.target.value)}
+              onBlur={commit}
+            />
+            <div className="ds-chips">
+              {parseSteps(settings.learnSteps).map((s, i) => (
+                <span key={`${s}-${i}`} className="ds-chip">{s}</span>
+              ))}
+            </div>
+            <div className="ds-rule" />
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Graduating interval</div>
+                <div className="ds-row-sub">Days until next review after the last step.</div>
+              </div>
+              <Stepper value={settings.graduatingInterval} onChange={(v) => set('graduatingInterval', v)} label="Graduating interval" step={1} min={1} max={365} format={(v) => `${v}d`} />
+            </div>
+            <div className="ds-rule" />
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Easy interval</div>
+                <div className="ds-row-sub">Days when answering a new card "Easy".</div>
+              </div>
+              <Stepper value={settings.easyInterval} onChange={(v) => set('easyInterval', v)} label="Easy interval" step={1} min={1} max={365} format={(v) => `${v}d`} />
+            </div>
+            <div className="ds-rule" />
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Insertion order</div>
+                <div className="ds-row-sub">Order new cards enter the queue.</div>
+              </div>
+              <SegToggle
+                value={settings.insertionOrder}
+                onChange={(v) => set('insertionOrder', v)}
+                options={[{ value: 'sequential', label: 'SEQ' }, { value: 'random', label: 'RANDOM' }]}
+              />
+            </div>
+          </div>
+
+          {/* LAPSES */}
+          <div className="ds-label">Lapses</div>
+          <div className="ds-card">
+            <div className="ds-row">
+              <div className="ds-row-title">Relearning steps</div>
+              <span className="ds-row-sub" style={{ fontFamily: 'var(--font-mono)' }}>e.g. 10m</span>
+            </div>
+            <div className="ds-row-sub" style={{ margin: '3px 0 12px' }}>Steps a lapsed card relearns through. Space-separated.</div>
+            <input
+              className="ds-steps-input"
+              aria-label="Relearn steps"
+              value={settings.relearnSteps}
+              onChange={(e) => setLocal('relearnSteps', e.target.value)}
+              onBlur={commit}
+            />
+            <div className="ds-chips">
+              {parseSteps(settings.relearnSteps).map((s, i) => (
+                <span key={`${s}-${i}`} className="ds-chip is-lapse">{s}</span>
+              ))}
+            </div>
+            <div className="ds-rule" />
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Minimum interval</div>
+                <div className="ds-row-sub">Floor for intervals after a lapse.</div>
+              </div>
+              <Stepper value={settings.minimumInterval} onChange={(v) => set('minimumInterval', v)} label="Minimum interval" step={1} min={1} max={365} format={(v) => `${v}d`} />
+            </div>
+            <div className="ds-rule" />
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Leech threshold</div>
+                <div className="ds-row-sub">Lapses before a card is flagged a leech.</div>
+              </div>
+              <Stepper value={settings.leechThreshold} onChange={(v) => set('leechThreshold', v)} label="Leech threshold" step={1} min={1} max={99} />
+            </div>
+            <div className="ds-rule" />
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Leech action</div>
+                <div className="ds-row-sub">What happens when a leech is found.</div>
+              </div>
+              <SegToggle
+                value={settings.leechAction}
+                onChange={(v) => set('leechAction', v)}
+                options={[{ value: 'tag', label: 'TAG' }, { value: 'suspend', label: 'SUSPEND' }]}
               />
             </div>
           </div>

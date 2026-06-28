@@ -39,3 +39,28 @@ test('persists a color swatch and the desired-retention stepper', async () => {
   await page.getByLabelText('Increase Desired retention').click()
   await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.desiredRetention).toBe(0.91)
 })
+
+test('persists daily-limit, new-card, and lapse edits', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Spanish')
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId/options',
+    entry: `/decks/${deck.id}/options`,
+    element: <DeckSettingsPage />,
+  })
+
+  await page.getByLabelText('Increase New cards/day').click()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.newPerDay).toBe(25)
+
+  await page.getByRole('button', { name: 'RANDOM' }).click()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.insertionOrder).toBe('random')
+
+  const learn = page.getByLabelText('Learning steps')
+  await learn.fill('1m 10m 1h')
+  await learn.element().blur()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.learnSteps).toBe('1m 10m 1h')
+
+  await page.getByRole('button', { name: 'TAG' }).click()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.leechAction).toBe('tag')
+})
