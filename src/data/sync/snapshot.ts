@@ -15,6 +15,7 @@ export interface DeckRecord {
 }
 
 function normalizeDeck(d: DeckRecord): DeckRecord {
+  // Fields below may be absent in snapshots written before v6 (the JSON is cast, not validated), so ?? supplies backward-compatible defaults.
   return {
     ...d,
     updatedAt: d.updatedAt ?? d.createdAt,

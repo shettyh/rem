@@ -105,6 +105,10 @@ describe('merge', () => {
     const { merged } = merge(snap({ decks: [oldDeck] }), snap({ decks: [newDeck] }))
     expect(merged.decks).toHaveLength(1)
     expect(merged.decks[0].name).toBe('new')
+
+    const flipped = merge(snap({ decks: [newDeck] }), snap({ decks: [oldDeck] }))
+    expect(flipped.merged.decks).toHaveLength(1)
+    expect(flipped.merged.decks[0].name).toBe('new')
   })
 })
 

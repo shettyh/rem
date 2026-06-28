@@ -6,6 +6,7 @@ import {
   type RepoSnapshot,
 } from './snapshot'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
+import { deckColor } from '../../ui/deckColor'
 
 const sample: RepoSnapshot = {
   decks: [{ id: 'd1', name: 'Spanish', createdAt: 1, updatedAt: 1, color: '#7e6cff', schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
@@ -49,7 +50,7 @@ describe('snapshot', () => {
     }
     const snap = deserializeSnapshot(files)
     expect(snap.decks[0].updatedAt).toBe(7)
-    expect(snap.decks[0].color).toBeTruthy()
+    expect(snap.decks[0].color).toBe(deckColor('d1'))
     expect(snap.decks[0].settings).toEqual(DEFAULT_DECK_SETTINGS)
   })
 })
