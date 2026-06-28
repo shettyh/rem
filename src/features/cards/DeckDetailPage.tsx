@@ -49,27 +49,33 @@ export function DeckDetailPage() {
 
   const title = (
     <>
-      <span className="header-dot" style={{ background: deckColor(deck.id) }} />
+      <span className="header-dot" style={{ background: deck.color ?? deckColor(deck.id) }} />
       <span className="header-title-text">{deck.name}</span>
       <span className="algo-chip">FSRS</span>
     </>
   )
 
-  const actions =
-    cards.length === 0 ? undefined : (
-      <>
-        <button className="btn btn-ghost" onClick={() => navigate(`/decks/${deckId}/cards/new`)}>
-          + Add card
-        </button>
-        {due && due > 0 ? (
-          <Link to={`/decks/${deckId}/study`} className="btn btn-primary">
-            Study {due}
-          </Link>
-        ) : (
-          <span className="muted">All caught up today</span>
-        )}
-      </>
-    )
+  const actions = (
+    <>
+      <button className="btn btn-ghost" onClick={() => navigate(`/decks/${deckId}/options`)}>
+        Options
+      </button>
+      {cards.length > 0 && (
+        <>
+          <button className="btn btn-ghost" onClick={() => navigate(`/decks/${deckId}/cards/new`)}>
+            + Add card
+          </button>
+          {due && due > 0 ? (
+            <Link to={`/decks/${deckId}/study`} className="btn btn-primary">
+              Study {due}
+            </Link>
+          ) : (
+            <span className="muted">All caught up today</span>
+          )}
+        </>
+      )}
+    </>
+  )
 
   return (
     <>

@@ -1535,3 +1535,32 @@ input[type='file']::file-selector-button:hover {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* Deck options screen */
+.back-link { border: none; background: transparent; color: var(--muted); font: inherit; font-weight: 500; cursor: pointer; padding: 0; }
+.back-link:hover { color: var(--text); }
+.deck-settings { max-width: 680px; margin: 0 auto; }
+.ds-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin: 0 0 12px; }
+.ds-label.is-danger { color: var(--danger); }
+.ds-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 30px; }
+.ds-card.is-danger { border-color: color-mix(in oklch, var(--danger), transparent 70%); }
+.ds-field-label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.ds-name-input { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); font-family: var(--font-serif); font-size: 21px; }
+.ds-rule { height: 1px; background: var(--border); margin: 20px 0; }
+.ds-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.ds-row-title { font-size: 15px; font-weight: 500; }
+.ds-row-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.ds-swatches { display: flex; gap: 10px; }
+.ds-swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border-strong); cursor: pointer; padding: 0; }
+.ds-swatch.is-active { box-shadow: 0 0 0 2px var(--accent); }
+.ds-steps-input { width: 100%; padding: 11px 14px; border-radius: 10px; border: 1px solid var(--border-strong); background: var(--bg); color: var(--text); font-family: var(--font-mono); font-size: 14px; }
+.ds-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.ds-chip { font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 8px; background: var(--accent-soft); color: var(--accent-text); }
+.ds-chip.is-lapse { background: color-mix(in oklch, var(--hard), transparent 86%); color: var(--hard); }
+.ds-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 12px; }
+.ds-preset { text-align: left; cursor: pointer; background: var(--surface); border: 1px solid var(--border); border-radius: 13px; padding: 15px 16px; display: flex; flex-direction: column; gap: 4px; }
+.ds-preset.is-active { border-color: var(--accent); }
+.ds-preset-title { font-size: 14.5px; font-weight: 600; }
+.ds-preset-sub { font-size: 12.5px; color: var(--muted); }
+.ds-custom-run { display: flex; align-items: center; gap: 18px; background: var(--surface); border: 1px solid var(--accent); border-radius: 13px; padding: 16px 18px; margin-bottom: 30px; }
+.ds-custom-run > .ds-row-title { flex: 1; }

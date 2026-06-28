@@ -1,5 +1,5 @@
 /** Stable accent color per deck, hashed from its id so every surface agrees. */
-const DECK_PALETTE = ['#7e6cff', '#e8638c', '#2fa86b', '#e8922e', '#3ba0e8']
+export const DECK_PALETTE = ['#7e6cff', '#e8638c', '#2fa86b', '#e8922e', '#3ba0e8']
 
 export function deckColor(id: string): string {
   let h = 0
