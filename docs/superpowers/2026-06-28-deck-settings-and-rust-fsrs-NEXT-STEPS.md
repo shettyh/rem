@@ -3,8 +3,17 @@
 _Last updated: 2026-06-28_
 
 A resume doc for the multi-part effort kicked off from the `rem.dc.html` design and the
-"switch to Rust FSRS" idea. Sub-project **#2 is shipped**; this captures the decisions and the
-concrete next action for everything still pending so a future session can pick up cleanly.
+"switch to Rust FSRS" idea. Sub-projects **#1 and #2 are shipped**; this captures the decisions and
+the concrete next action for everything still pending so a future session can pick up cleanly.
+
+> **Update 2026-06-28:** Sub-project **#1 (Deck options screen + `DeckSettings`) is DONE** — merged to
+> `main` (`b4bf3b9`) and pushed. Spec: `docs/superpowers/specs/2026-06-28-deck-options-screen-design.md`;
+> plan: `docs/superpowers/plans/2026-06-28-deck-options-screen.md`. The `DeckSettings` schema,
+> `Storage.updateDeck`, the Dexie v6 migration, backup/snapshot round-trip, deck last-write-wins sync,
+> and the full Deck options UI all landed. **Recommended next step is now #3** (Anki-grade review queue),
+> which consumes #1's settings. Settings are persisted but **not yet enforced** — #3 threads them into
+> `fsrs_next_states` (the `DeckFsrsParams` hook in `src/domain/scheduler/tauriFsrs.ts`) and drives the
+> queue from learning/relearning steps, daily caps, insertion order, leech, and burying.
 
 ## The two original asks
 1. Implement the per-deck **"Deck options"** screen from the design comp `rem.dc.html`.
@@ -28,9 +37,9 @@ concrete next action for everything still pending so a future session can pick u
 
 | # | Sub-project | Status | Depends on |
 |---|---|---|---|
-| 1 | **Deck options screen + `DeckSettings` data model** | **NOT STARTED ← do next** | — |
+| 1 | **Deck options screen + `DeckSettings` data model** | ✅ **DONE — merged to `main` (`b4bf3b9`)** | — |
 | 2 | **Rust FSRS scheduling core** | ✅ **DONE — merged to `main` (`0fc5f8d`)** | 1 (for real params) |
-| 3 | **Anki-grade review queue** (learning/relearning steps, daily caps, insertion order, leech, burying) | NOT STARTED | 1, 2 |
+| 3 | **Anki-grade review queue** (learning/relearning steps, daily caps, insertion order, leech, burying) | **NOT STARTED ← do next** | 1, 2 |
 | 4 | **Custom study** (study-ahead / increase-new / review-forgotten / preview-new) | NOT STARTED | 3 |
 | 5 | **FSRS weight optimization** (train personalised weights from review logs) | NOT STARTED | 2, 3 |
 
