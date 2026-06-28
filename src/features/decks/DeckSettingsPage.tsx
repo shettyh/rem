@@ -195,7 +195,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
           <div className="ds-label">Lapses</div>
           <div className="ds-card">
             <div className="ds-row">
-              <div className="ds-row-title">Relearning steps</div>
+              <div className="ds-row-title">Relearn steps</div>
               <span className="ds-row-sub" style={{ fontFamily: 'var(--font-mono)' }}>e.g. 10m</span>
             </div>
             <div className="ds-row-sub" style={{ margin: '3px 0 12px' }}>Steps a lapsed card relearns through. Space-separated.</div>
