@@ -1498,6 +1498,21 @@ input[type='file']::file-selector-button:hover {
   padding: 8px 16px;
 }
 
+/* Deck-options primitives */
+.stepper { display: flex; align-items: center; gap: 2px; background: var(--surface-inset); border: 1px solid var(--border); border-radius: 11px; padding: 3px; }
+.stepper-btn { width: 30px; height: 30px; border: none; border-radius: 8px; background: transparent; color: var(--muted); font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.stepper-btn:hover { background: var(--surface); color: var(--text); }
+.stepper-val { min-width: 56px; text-align: center; font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
+
+.seg { display: flex; gap: 4px; background: var(--surface-inset); border: 1px solid var(--border); border-radius: 11px; padding: 3px; }
+.seg-btn { padding: 7px 14px; border-radius: 8px; border: none; cursor: pointer; font-family: var(--font-mono); font-size: 12px; font-weight: 700; background: transparent; color: var(--muted); }
+.seg-btn.is-active { background: var(--accent); color: var(--on-accent); }
+
+.toggle { width: 42px; height: 24px; border-radius: 999px; border: none; background: var(--border-strong); cursor: pointer; padding: 0; position: relative; flex: none; transition: background 0.2s; }
+.toggle.is-on { background: var(--accent); }
+.toggle-knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.2s; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
+.toggle.is-on .toggle-knob { transform: translateX(18px); }
+
 /* ─── Embedded images (editor + review) ────────────────────────────────── */
 .card-img {
   display: block;
