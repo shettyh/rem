@@ -159,5 +159,5 @@ function isSchedulingPayload(v: unknown): v is Record<string, unknown> {
  *  card (due `now`), since SM-2 is no longer supported. */
 function normalizeScheduling(v: Record<string, unknown>, now: number): SchedulingState {
   if (v.kind === 'fsrs') return v as unknown as SchedulingState
-  return getScheduler('fsrs').initial(now)
+  return getScheduler().initial(now)
 }

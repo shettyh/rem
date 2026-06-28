@@ -41,8 +41,6 @@ export class DexieStorage implements Storage {
 
   async createCard(deckId: ID, front: string, back: string): Promise<Card> {
     const now = Date.now()
-    const deck = await this.db.decks.get(deckId)
-    const kind = deck?.schedulerKind ?? 'fsrs'
     const card: Card = {
       id: crypto.randomUUID(),
       deckId,
@@ -50,7 +48,7 @@ export class DexieStorage implements Storage {
       back,
       createdAt: now,
       updatedAt: now,
-      scheduling: getScheduler(kind).initial(now),
+      scheduling: getScheduler().initial(now),
     }
     await this.db.cards.add(card)
     return card

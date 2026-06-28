@@ -3,13 +3,13 @@ import type { Grade, SchedulingState } from '../models'
 /**
  * A spaced-repetition scheduling algorithm.
  *
- * Implementations are pure: given the current state, a grade, and the current
- * time, they return the next state. This is the seam that lets us swap in
- * another algorithm later without touching the rest of the app.
+ * `initial` is pure and synchronous (a brand-new card needs no algorithm).
+ * `previewNextStates` returns all four grade outcomes at once — the real
+ * implementation crosses into Rust, so it is async.
  */
 export interface Scheduler {
   /** Scheduling state for a brand-new card (immediately due). */
   initial(now: number): SchedulingState
-  /** Compute the next scheduling state after grading a review. */
-  next(state: SchedulingState, grade: Grade, now: number): SchedulingState
+  /** All four grade outcomes for the next review. */
+  previewNextStates(state: SchedulingState, now: number): Promise<Record<Grade, SchedulingState>>
 }
