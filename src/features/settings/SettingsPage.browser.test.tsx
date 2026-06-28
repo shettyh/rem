@@ -4,6 +4,7 @@ import { SettingsPage } from './SettingsPage'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
 import { serializeBackup, type DeckBackup } from '../../data/backup'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 
 function renderSettings(storage: ReturnType<typeof freshStorage>) {
   return renderRoute({ storage, entry: '/settings', path: '/settings', element: <SettingsPage /> })
@@ -31,6 +32,7 @@ test('importing a same-named deck warns, then replaces on confirm', async () => 
       name: 'Spanish',
       createdAt: 1,
       schedulerKind: 'fsrs',
+      settings: DEFAULT_DECK_SETTINGS,
       cards: [
         { front: 'hola', back: 'hello', createdAt: 1, updatedAt: 1, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 1 } },
       ],

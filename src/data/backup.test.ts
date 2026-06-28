@@ -36,6 +36,8 @@ describe('collectBackup', () => {
         name: 'Spanish',
         createdAt: 10,
         schedulerKind: 'fsrs',
+        color: '#7e6cff',
+        settings: DEFAULT_DECK_SETTINGS,
         cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }],
       },
     ])
@@ -49,7 +51,7 @@ describe('collectBackup', () => {
 
 describe('serializeBackup', () => {
   it('emits the format/version/exportedAt envelope', () => {
-    const decks: DeckBackup[] = [{ name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', cards: [] }]
+    const decks: DeckBackup[] = [{ name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [] }]
     const parsed = JSON.parse(serializeBackup(decks, 1234))
     expect(parsed.format).toBe('rem-backup')
     expect(parsed.version).toBe(1)
@@ -60,13 +62,13 @@ describe('serializeBackup', () => {
 
 describe('parseBackup', () => {
   const valid = serializeBackup(
-    [{ name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] }],
+    [{ name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] }],
     1234,
   )
 
   it('round-trips valid FSRS input', () => {
     expect(parseBackup(valid, NOW)).toEqual([
-      { name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] },
+      { name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] },
     ])
   })
 
@@ -139,5 +141,30 @@ describe('planImport', () => {
       added: ['French'],
       replaced: ['Spanish'],
     })
+  })
+})
+
+describe('settings round-trip', () => {
+  it('preserves custom settings through serialize -> parse', () => {
+    const custom = { ...DEFAULT_DECK_SETTINGS, newPerDay: 50, leechAction: 'tag' as const }
+    const json = serializeBackup(
+      [{ name: 'D', createdAt: 1, schedulerKind: 'fsrs', color: '#2fa86b', settings: custom, cards: [] }],
+      NOW,
+    )
+    const parsed = parseBackup(json, NOW)
+    expect(parsed[0].settings).toEqual(custom)
+    expect(parsed[0].color).toBe('#2fa86b')
+  })
+
+  it('defaults settings to DEFAULT_DECK_SETTINGS for an old backup without them', () => {
+    const oldFile = JSON.stringify({
+      format: 'rem-backup',
+      version: 1,
+      exportedAt: NOW,
+      decks: [{ name: 'Legacy', createdAt: 1, cards: [] }],
+    })
+    const parsed = parseBackup(oldFile, NOW)
+    expect(parsed[0].settings).toEqual(DEFAULT_DECK_SETTINGS)
+    expect(parsed[0].color).toBeUndefined()
   })
 })

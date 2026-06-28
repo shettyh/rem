@@ -111,7 +111,15 @@ export class DexieStorage implements Storage {
 
       for (const d of decks) {
         const deckId = crypto.randomUUID()
-        await this.db.decks.add({ id: deckId, name: d.name, createdAt: d.createdAt, updatedAt: d.createdAt, color: deckColor(deckId), schedulerKind: d.schedulerKind, settings: { ...DEFAULT_DECK_SETTINGS } })
+        await this.db.decks.add({
+          id: deckId,
+          name: d.name,
+          createdAt: d.createdAt,
+          updatedAt: Date.now(),
+          color: d.color ?? deckColor(deckId),
+          schedulerKind: d.schedulerKind,
+          settings: d.settings,
+        })
         for (const c of d.cards) {
           await this.db.cards.add({
             id: crypto.randomUUID(),

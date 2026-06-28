@@ -185,6 +185,7 @@ describe('importDecks', () => {
         name: 'Spanish',
         createdAt: 5,
         schedulerKind: 'fsrs',
+        settings: DEFAULT_DECK_SETTINGS,
         cards: [
           { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, lastReview: 7, due: 8 } },
         ],
@@ -207,7 +208,7 @@ describe('importDecks', () => {
     const oldCard = await storage.createCard(old.id, 'old-front', 'old-back')
 
     const result = await storage.importDecks([
-      { name: 'Spanish', createdAt: 5, schedulerKind: 'fsrs', cards: [
+      { name: 'Spanish', createdAt: 5, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [
         { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 8 } },
       ] },
     ])
@@ -225,10 +226,21 @@ describe('importDecks', () => {
     await storage.createDeck('Dup')
     await storage.createDeck('Dup')
 
-    await storage.importDecks([{ name: 'Dup', createdAt: 1, schedulerKind: 'fsrs', cards: [] }])
+    await storage.importDecks([{ name: 'Dup', createdAt: 1, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [] }])
 
     const decks = await storage.listDecks()
     expect(decks.filter((d) => d.name === 'Dup')).toHaveLength(1)
+  })
+
+  it('imports decks with settings, a color, and a fresh updatedAt', async () => {
+    const before = Date.now()
+    await storage.importDecks([
+      { name: 'Imported', createdAt: 5, schedulerKind: 'fsrs', settings: { ...DEFAULT_DECK_SETTINGS, newPerDay: 7 }, cards: [] },
+    ])
+    const deck = (await storage.listDecks()).find((d) => d.name === 'Imported')
+    expect(deck?.settings.newPerDay).toBe(7)
+    expect(deck?.color).toBeTruthy()
+    expect(deck!.updatedAt).toBeGreaterThanOrEqual(before)
   })
 })
 
