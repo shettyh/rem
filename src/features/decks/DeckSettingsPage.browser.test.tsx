@@ -95,4 +95,5 @@ test('deletes the deck after confirm and navigates away', async () => {
   await page.getByRole('button', { name: 'Delete deck' }).click()
   await page.getByRole('button', { name: 'Confirm delete' }).click()
   await expect.poll(async () => await storage.getDeck(deck.id)).toBeUndefined()
+  await expect.element(page.getByText('Home')).toBeInTheDocument()
 })
