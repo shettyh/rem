@@ -18,6 +18,7 @@ export function ReviewPage() {
   const [revealed, setRevealed] = useState(false)
   const [nexts, setNexts] = useState<Record<Grade, SchedulingState> | null>(null)
   const [revealedAt, setRevealedAt] = useState(0)
+  const [schedError, setSchedError] = useState(false)
 
   const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const deckName = deckId ? (deck?.name ?? '') : 'All decks'
@@ -39,16 +40,28 @@ export function ReviewPage() {
 
   const current = queue && index < queue.length ? queue[index] : null
 
+  const fetchNexts = useCallback(
+    (scheduling: Card['scheduling'], now: number) => {
+      setSchedError(false)
+      setNexts(null)
+      void getScheduler()
+        .previewNextStates(scheduling, now)
+        .then(setNexts)
+        .catch((err: unknown) => {
+          console.error('previewNextStates failed', err)
+          setSchedError(true)
+        })
+    },
+    [],
+  )
+
   const reveal = useCallback(() => {
-    if (!current) return
+    if (!current || revealed) return
     const now = Date.now()
     setRevealed(true)
     setRevealedAt(now)
-    setNexts(null)
-    void getScheduler()
-      .previewNextStates(current.scheduling, now)
-      .then(setNexts)
-  }, [current])
+    fetchNexts(current.scheduling, now)
+  }, [current, revealed, fetchNexts])
 
   const grade = useCallback(
     async (g: Grade) => {
@@ -57,6 +70,7 @@ export function ReviewPage() {
       setIndex((i) => i + 1)
       setRevealed(false)
       setNexts(null)
+      setSchedError(false)
     },
     [current, nexts, storage],
   )
@@ -160,6 +174,17 @@ export function ReviewPage() {
               </div>
             </div>
             {nexts && <GradeButtons nexts={nexts} now={revealedAt} onGrade={grade} />}
+            {schedError && !nexts && (
+              <div className="empty-state">
+                <p>Couldn&#39;t schedule this card.</p>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => fetchNexts(current.scheduling, revealedAt)}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
