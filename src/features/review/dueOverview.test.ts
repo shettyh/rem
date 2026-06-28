@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Card, Deck, ID, SchedulingState } from '../../domain/models'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 import type { Storage } from '../../data/Storage'
 import { isNew, loadDueOverview, shuffle } from './dueOverview'
 
@@ -10,7 +11,7 @@ function card(id: ID, deckId: ID, scheduling: SchedulingState): Card {
   return { id, deckId, front: id, back: id, createdAt: 0, updatedAt: 0, scheduling }
 }
 function deck(id: ID): Deck {
-  return { id, name: id, createdAt: 0, schedulerKind: 'fsrs' }
+  return { id, name: id, createdAt: 0, updatedAt: 0, color: '#7e6cff', schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }
 }
 
 /** Minimal in-memory Storage exposing only what loadDueOverview reads. */

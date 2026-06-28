@@ -3,6 +3,7 @@ import Dexie from 'dexie'
 import { RemDB } from './db'
 import { DexieStorage } from './DexieStorage'
 import { MS_PER_DAY } from '../../domain/scheduler'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 
 const DB_NAME = 'rem-test'
 let db: RemDB
@@ -27,6 +28,26 @@ describe('decks', () => {
     const decks = await storage.listDecks()
     expect(decks).toHaveLength(1)
     expect(decks[0].name).toBe('Spanish')
+  })
+
+  it('seeds a new deck with defaults: updatedAt, color, default settings', async () => {
+    const before = Date.now()
+    const deck = await storage.createDeck('Spanish')
+    expect(deck.updatedAt).toBeGreaterThanOrEqual(before)
+    expect(deck.color).toBeTruthy()
+    expect(deck.settings).toEqual(DEFAULT_DECK_SETTINGS)
+  })
+
+  it('updateDeck patches fields and bumps updatedAt', async () => {
+    const deck = await storage.createDeck('Spanish')
+    const next = { ...DEFAULT_DECK_SETTINGS, newPerDay: 35 }
+    await storage.updateDeck(deck.id, { name: 'Español', color: '#2fa86b', settings: next })
+
+    const updated = await storage.getDeck(deck.id)
+    expect(updated?.name).toBe('Español')
+    expect(updated?.color).toBe('#2fa86b')
+    expect(updated?.settings.newPerDay).toBe(35)
+    expect(updated!.updatedAt).toBeGreaterThanOrEqual(deck.updatedAt)
   })
 
   it('deletes a deck and cascades its cards', async () => {

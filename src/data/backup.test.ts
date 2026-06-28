@@ -8,6 +8,7 @@ import {
 } from './backup'
 import type { Storage } from './Storage'
 import type { Card, Deck } from '../domain/models'
+import { DEFAULT_DECK_SETTINGS } from '../domain/models'
 import { getScheduler } from '../domain/scheduler'
 
 const NOW = 1_700_000_000_000
@@ -20,7 +21,7 @@ function fakeStorage(decks: Deck[], cardsByDeck: Record<string, Card[]>): Storag
   } as unknown as Storage
 }
 
-const deckA: Deck = { id: 'a', name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs' }
+const deckA: Deck = { id: 'a', name: 'Spanish', createdAt: 10, updatedAt: 10, color: '#7e6cff', schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }
 const cardA: Card = {
   id: 'c1', deckId: 'a', front: 'hola', back: 'hello',
   createdAt: 11, updatedAt: 12, scheduling: sched,

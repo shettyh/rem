@@ -1,6 +1,8 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type { Asset, Card, Deck, Tombstone } from '../../domain/models'
 import { getScheduler } from '../../domain/scheduler'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
+import { deckColor } from '../../ui/deckColor'
 
 /** IndexedDB schema. Indexed fields are listed; payloads are stored whole. */
 export class RemDB extends Dexie {
@@ -61,6 +63,22 @@ export class RemDB extends Dexie {
         })
         await tx.table('cards').toCollection().modify((c) => {
           if (c.scheduling?.kind !== 'fsrs') c.scheduling = { ...fresh }
+        })
+      })
+    // v6: per-deck settings. Backfill updatedAt (= createdAt), a stable color,
+    // and default settings on decks created before the Deck options screen.
+    this.version(6)
+      .stores({
+        decks: 'id, createdAt',
+        cards: 'id, deckId, createdAt',
+        tombstones: 'id, deletedAt',
+        assets: 'hash',
+      })
+      .upgrade(async (tx) => {
+        await tx.table('decks').toCollection().modify((d) => {
+          if (d.updatedAt === undefined) d.updatedAt = d.createdAt
+          if (!d.color) d.color = deckColor(d.id)
+          if (!d.settings) d.settings = { ...DEFAULT_DECK_SETTINGS }
         })
       })
   }

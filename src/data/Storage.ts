@@ -1,4 +1,4 @@
-import type { Asset, Card, Deck, ID, SchedulerKind, SchedulingState } from '../domain/models'
+import type { Asset, Card, Deck, DeckSettings, ID, SchedulerKind, SchedulingState } from '../domain/models'
 import type { DeckBackup } from './backup'
 import type { RepoSnapshot } from './sync/snapshot'
 import type { DbOps } from './sync/merge'
@@ -16,6 +16,12 @@ export interface CardPatch {
   scheduling?: SchedulingState
 }
 
+export interface DeckPatch {
+  name?: string
+  color?: string
+  settings?: DeckSettings
+}
+
 /**
  * Persistence port for decks and cards.
  *
@@ -28,6 +34,7 @@ export interface Storage {
   listDecks(): Promise<Deck[]>
   getDeck(id: ID): Promise<Deck | undefined>
   deleteDeck(id: ID): Promise<void>
+  updateDeck(id: ID, patch: DeckPatch): Promise<void>
 
   createCard(deckId: ID, front: string, back: string): Promise<Card>
   getCard(id: ID): Promise<Card | undefined>

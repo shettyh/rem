@@ -1,8 +1,10 @@
 import type { Asset, Card, Deck, ID, SchedulerKind } from '../../domain/models'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
+import { deckColor } from '../../ui/deckColor'
 import { hashBytes } from '../assetHash'
 import { assetRefs } from '../assetRefs'
 import { getScheduler } from '../../domain/scheduler'
-import type { CardPatch, ImportResult, Storage } from '../Storage'
+import type { CardPatch, DeckPatch, ImportResult, Storage } from '../Storage'
 import { planImport, type DeckBackup } from '../backup'
 import type { RepoSnapshot } from '../sync/snapshot'
 import type { DbOps } from '../sync/merge'
@@ -13,14 +15,23 @@ export class DexieStorage implements Storage {
   constructor(readonly db: RemDB) {}
 
   async createDeck(name: string, kind: SchedulerKind = 'fsrs'): Promise<Deck> {
+    const now = Date.now()
+    const id = crypto.randomUUID()
     const deck: Deck = {
-      id: crypto.randomUUID(),
+      id,
       name: name.trim(),
-      createdAt: Date.now(),
+      createdAt: now,
+      updatedAt: now,
+      color: deckColor(id),
       schedulerKind: kind,
+      settings: { ...DEFAULT_DECK_SETTINGS },
     }
     await this.db.decks.add(deck)
     return deck
+  }
+
+  async updateDeck(id: ID, patch: DeckPatch): Promise<void> {
+    await this.db.decks.update(id, { ...patch, updatedAt: Date.now() })
   }
 
   listDecks(): Promise<Deck[]> {
@@ -100,7 +111,7 @@ export class DexieStorage implements Storage {
 
       for (const d of decks) {
         const deckId = crypto.randomUUID()
-        await this.db.decks.add({ id: deckId, name: d.name, createdAt: d.createdAt, schedulerKind: d.schedulerKind })
+        await this.db.decks.add({ id: deckId, name: d.name, createdAt: d.createdAt, updatedAt: d.createdAt, color: deckColor(deckId), schedulerKind: d.schedulerKind, settings: { ...DEFAULT_DECK_SETTINGS } })
         for (const c of d.cards) {
           await this.db.cards.add({
             id: crypto.randomUUID(),
@@ -140,7 +151,21 @@ export class DexieStorage implements Storage {
         if (ops.deleteCardIds.length) await this.db.cards.bulkDelete(ops.deleteCardIds)
         if (ops.deleteDeckIds.length) await this.db.decks.bulkDelete(ops.deleteDeckIds)
         if (ops.deleteAssetHashes.length) await this.db.assets.bulkDelete(ops.deleteAssetHashes)
-        if (ops.upsertDecks.length) await this.db.decks.bulkPut(ops.upsertDecks)
+        if (ops.upsertDecks.length) {
+          const existing = await this.db.decks.bulkGet(ops.upsertDecks.map((d) => d.id))
+          const existingById = new Map(existing.filter(Boolean).map((d) => [d!.id, d!]))
+          await this.db.decks.bulkPut(
+            ops.upsertDecks.map((d) => {
+              const prev = existingById.get(d.id)
+              return {
+                ...d,
+                updatedAt: prev?.updatedAt ?? d.createdAt,
+                color: prev?.color ?? deckColor(d.id),
+                settings: prev?.settings ?? { ...DEFAULT_DECK_SETTINGS },
+              }
+            }),
+          )
+        }
         if (ops.upsertCards.length) await this.db.cards.bulkPut(ops.upsertCards)
         if (ops.upsertAssets.length) {
           await this.db.assets.bulkPut(
