@@ -6,7 +6,7 @@ import { getScheduler } from '../../domain/scheduler'
 
 /**
  * Composes storage + scheduler exactly as ReviewPage does, guarding the
- * end-to-end loop the UI depends on.
+ * end-to-end loop the UI depends on. Uses the fake scheduler (non-Tauri).
  */
 describe('review cycle', () => {
   const DB = 'rem-review-test'
@@ -24,23 +24,11 @@ describe('review cycle', () => {
     const t0 = Date.now()
     expect(await storage.countDue(deck.id, t0)).toBe(1)
 
-    const next = getScheduler(card.scheduling.kind).next(card.scheduling, 'good', t0)
-    await storage.updateCard(card.id, { scheduling: next })
+    const nexts = await getScheduler().previewNextStates(card.scheduling, t0)
+    await storage.updateCard(card.id, { scheduling: nexts.good })
 
     expect(await storage.countDue(deck.id, t0)).toBe(0)
-    expect(next.due).toBeGreaterThan(t0)
-    expect(await storage.countDue(deck.id, next.due)).toBe(1)
-  })
-
-  it('grades an FSRS card and pushes it out of today', async () => {
-    const deck = await storage.createDeck('FSRS deck', 'fsrs')
-    const card = await storage.createCard(deck.id, 'q', 'a')
-    const t0 = Date.now()
-    expect(await storage.countDue(deck.id, t0)).toBe(1)
-
-    const next = getScheduler(card.scheduling.kind).next(card.scheduling, 'good', t0)
-    await storage.updateCard(card.id, { scheduling: next })
-
-    expect(await storage.countDue(deck.id, t0)).toBe(0)
+    expect(nexts.good.due).toBeGreaterThan(t0)
+    expect(await storage.countDue(deck.id, nexts.good.due)).toBe(1)
   })
 })

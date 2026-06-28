@@ -28,7 +28,7 @@ export interface FSRSState {
   reps: number
   /** Number of failed reviews. */
   lapses: number
-  /** ts-fsrs State enum: 0 New / 1 Learning / 2 Review / 3 Relearning. */
+  /** FSRS state: 0 New / 1 Learning / 2 Review / 3 Relearning. */
   state: number
   /** Last review time (epoch ms), or null if never reviewed. */
   lastReview: number | null

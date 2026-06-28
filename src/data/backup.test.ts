@@ -97,7 +97,7 @@ describe('parseBackup', () => {
         { front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: { repetitions: 1, intervalDays: 3, easeFactor: 2.6, due: 999 } },
       ] }],
     })
-    expect(parseBackup(legacy, NOW)[0].cards[0].scheduling).toEqual(getScheduler('fsrs').initial(NOW))
+    expect(parseBackup(legacy, NOW)[0].cards[0].scheduling).toEqual(getScheduler().initial(NOW))
   })
 
   it('resets explicit SM-2 scheduling to a fresh FSRS card', () => {
@@ -109,7 +109,7 @@ describe('parseBackup', () => {
     })
     const deck = parseBackup(legacy, NOW)[0]
     expect(deck.schedulerKind).toBe('fsrs')
-    expect(deck.cards[0].scheduling).toEqual(getScheduler('fsrs').initial(NOW))
+    expect(deck.cards[0].scheduling).toEqual(getScheduler().initial(NOW))
   })
 
   it('accepts FSRS scheduling unchanged', () => {

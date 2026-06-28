@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import type { Card, Grade } from '../../domain/models'
+import type { Card, Grade, SchedulingState } from '../../domain/models'
 import { getScheduler } from '../../domain/scheduler'
 import { useStorage } from '../../data/StorageContext'
 import { PageHeader } from '../../ui/PageHeader'
@@ -16,6 +16,9 @@ export function ReviewPage() {
   const [queue, setQueue] = useState<Card[] | null>(null)
   const [index, setIndex] = useState(0)
   const [revealed, setRevealed] = useState(false)
+  const [nexts, setNexts] = useState<Record<Grade, SchedulingState> | null>(null)
+  const [revealedAt, setRevealedAt] = useState(0)
+  const [schedError, setSchedError] = useState(false)
 
   const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const deckName = deckId ? (deck?.name ?? '') : 'All decks'
@@ -37,15 +40,39 @@ export function ReviewPage() {
 
   const current = queue && index < queue.length ? queue[index] : null
 
+  const fetchNexts = useCallback(
+    (scheduling: Card['scheduling'], now: number) => {
+      setSchedError(false)
+      setNexts(null)
+      void getScheduler()
+        .previewNextStates(scheduling, now)
+        .then(setNexts)
+        .catch((err: unknown) => {
+          console.error('previewNextStates failed', err)
+          setSchedError(true)
+        })
+    },
+    [],
+  )
+
+  const reveal = useCallback(() => {
+    if (!current || revealed) return
+    const now = Date.now()
+    setRevealed(true)
+    setRevealedAt(now)
+    fetchNexts(current.scheduling, now)
+  }, [current, revealed, fetchNexts])
+
   const grade = useCallback(
     async (g: Grade) => {
-      if (!current) return
-      const next = getScheduler(current.scheduling.kind).next(current.scheduling, g, Date.now())
-      await storage.updateCard(current.id, { scheduling: next })
+      if (!current || !nexts) return
+      await storage.updateCard(current.id, { scheduling: nexts[g] })
       setIndex((i) => i + 1)
       setRevealed(false)
+      setNexts(null)
+      setSchedError(false)
     },
-    [current, storage],
+    [current, nexts, storage],
   )
 
   useEffect(() => {
@@ -54,7 +81,7 @@ export function ReviewPage() {
       if (!revealed) {
         if (e.code === 'Space' || e.key === 'Enter') {
           e.preventDefault()
-          setRevealed(true)
+          reveal()
         }
         return
       }
@@ -67,7 +94,7 @@ export function ReviewPage() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [current, revealed, grade])
+  }, [current, revealed, reveal, grade])
 
   if (queue === null) return null
 
@@ -130,7 +157,7 @@ export function ReviewPage() {
                 <MarkdownView source={current.front} />
               </div>
             </div>
-            <button className="review-show" onClick={() => setRevealed(true)}>
+            <button className="review-show" onClick={reveal}>
               Show answer <span className="kbd">space</span>
             </button>
           </div>
@@ -146,7 +173,18 @@ export function ReviewPage() {
                 <MarkdownView source={current.back} />
               </div>
             </div>
-            <GradeButtons scheduling={current.scheduling} now={Date.now()} onGrade={grade} />
+            {nexts && <GradeButtons nexts={nexts} now={revealedAt} onGrade={grade} />}
+            {schedError && !nexts && (
+              <div className="empty-state">
+                <p>Couldn&#39;t schedule this card.</p>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => fetchNexts(current.scheduling, revealedAt)}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

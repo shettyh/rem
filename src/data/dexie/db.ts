@@ -55,7 +55,7 @@ export class RemDB extends Dexie {
       })
       .upgrade(async (tx) => {
         const now = Date.now()
-        const fresh = getScheduler('fsrs').initial(now)
+        const fresh = getScheduler().initial(now)
         await tx.table('decks').toCollection().modify((d) => {
           d.schedulerKind = 'fsrs'
         })
