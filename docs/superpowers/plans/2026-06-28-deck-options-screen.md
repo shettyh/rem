@@ -466,11 +466,14 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/data/sync/snapshot.ts`
 - Modify: `src/data/sync/merge.ts`
-- Test: `src/data/sync/snapshot.test.ts`, `src/data/sync/merge.test.ts`
+- Modify: `src/data/dexie/DexieStorage.ts` (revert the Task 1 `applyMerge` bridge)
+- Test: `src/data/sync/snapshot.test.ts`, `src/data/sync/merge.test.ts`, `src/data/dexie/DexieStorage.test.ts`
 
 **Interfaces:**
 - Consumes: `DeckSettings`, `DEFAULT_DECK_SETTINGS` (Task 1).
 - Produces: `DeckRecord` gains `updatedAt: number`, `color: string`, `settings: DeckSettings`; `merge` deck rule = newest `updatedAt` wins.
+
+**Background (read first):** Task 1 made `Deck` fields required while `DeckRecord` (this task) still lacked them, so Task 1 added a bridge to `DexieStorage.applyMerge`: it `bulkGet`s each existing deck and **forces the local** `updatedAt/color/settings` onto the incoming record (`prev?.updatedAt ?? d.createdAt`, etc.). That was correct only as a stopgap. Once this task adds the fields to `DeckRecord` and `merge` produces the LWW-winning full record, that bridge becomes a **bug** — it would discard a synced rename/recolor/settings change. Step 8 reverts it.
 
 - [ ] **Step 1: Failing snapshot test.** In `src/data/sync/snapshot.test.ts`, update the `sample` deck literal to include the new fields and add a normalize test. Replace the `decks:` line of `sample`:
 
@@ -590,15 +593,55 @@ Expected: FAIL — current union keeps local (`old`) instead of newest (`new`).
   }
 ```
 
-- [ ] **Step 8: Run merge + full unit suite — expect PASS.**
+- [ ] **Step 8: Revert the Task 1 `applyMerge` bridge (now that `DeckRecord` is complete).** Write a failing test first, then revert.
 
-Run: `npx vitest run src/data/sync/merge.test.ts && npm run typecheck && npx vitest run --project unit`
+In `src/data/dexie/DexieStorage.test.ts`, add (the file already imports `DEFAULT_DECK_SETTINGS` from Task 1):
+
+```ts
+  it('applyMerge applies a synced deck color/settings change', async () => {
+    const deck = await storage.createDeck('Spanish')
+    const incoming = {
+      id: deck.id,
+      name: 'Spanish',
+      createdAt: deck.createdAt,
+      updatedAt: deck.updatedAt + 1000,
+      color: '#e8638c',
+      schedulerKind: 'fsrs' as const,
+      settings: { ...DEFAULT_DECK_SETTINGS, newPerDay: 99 },
+    }
+    await storage.applyMerge({
+      upsertDecks: [incoming], upsertCards: [], deleteDeckIds: [], deleteCardIds: [],
+      tombstones: [], upsertAssets: [], deleteAssetHashes: [],
+    })
+    const after = await storage.getDeck(deck.id)
+    expect(after?.color).toBe('#e8638c')
+    expect(after?.settings.newPerDay).toBe(99)
+  })
+```
+
+Run: `npx vitest run src/data/dexie/DexieStorage.test.ts`
+Expected: FAIL — the Task 1 bridge forces the local color/settings, so `color` stays the seeded value and `newPerDay` stays 20.
+
+Now revert the deck branch of `applyMerge` in `src/data/dexie/DexieStorage.ts` to the plain upsert (the merged `DeckRecord` is authoritative now). Replace the entire `if (ops.upsertDecks.length) { ... }` block — the one that does `bulkGet`/`existingById`/the field-preserving `map` — with:
+
+```ts
+        if (ops.upsertDecks.length) await this.db.decks.bulkPut(ops.upsertDecks)
+```
+
+`deckColor` and `DEFAULT_DECK_SETTINGS` remain imported in this file (still used by `createDeck`), so no import changes — confirm with the typecheck below.
+
+Run: `npx vitest run src/data/dexie/DexieStorage.test.ts`
 Expected: PASS.
 
-- [ ] **Step 9: Commit.**
+- [ ] **Step 9: Run merge + full unit suite — expect PASS.**
+
+Run: `npx vitest run src/data/sync/merge.test.ts && npm run typecheck && npx vitest run --project unit`
+Expected: PASS. In particular `src/data/sync/GitSyncService.test.ts` must stay green: with `DeckRecord` now field-complete, the export→serialize→deserialize→merge→applyMerge round-trip preserves every deck field, so the sync is naturally idempotent without the Task 1 bridge. If GitSyncService fails here, STOP and report — do not re-add the bridge.
+
+- [ ] **Step 10: Commit.**
 
 ```bash
-git add src/data/sync/snapshot.ts src/data/sync/snapshot.test.ts src/data/sync/merge.ts src/data/sync/merge.test.ts
+git add src/data/sync/snapshot.ts src/data/sync/snapshot.test.ts src/data/sync/merge.ts src/data/sync/merge.test.ts src/data/dexie/DexieStorage.ts src/data/dexie/DexieStorage.test.ts
 git commit -m "feat(sync): deck color/settings in snapshot + deck last-write-wins merge
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
