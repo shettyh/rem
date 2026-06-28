@@ -53,12 +53,15 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # --- Code signing is disabled. To enable, add these as repo secrets ---
-          # macOS notarization:
+          # --- Code signing is intentionally OFF (no Apple Developer ID). ---
+          # macOS ships ad-hoc signed; the curl installer avoids Gatekeeper
+          # quarantine, and the README documents the workaround for manual
+          # DMG downloads. To enable real Developer ID signing + notarization
+          # later, add these repo secrets and they are picked up automatically:
           #   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
           #   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
-          # Windows code signing:
-          #   TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          # NOTE: TAURI_SIGNING_PRIVATE_KEY is for the Tauri auto-updater, not
+          # Windows Authenticode — no updater is configured, so it is unused.
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'rem v__VERSION__'
