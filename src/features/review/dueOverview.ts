@@ -1,9 +1,9 @@
 import type { Card, Deck, SchedulingState } from '../../domain/models'
 import type { Storage } from '../../data/Storage'
 
-/** A card the user has never graded (first-time / brand new). */
+/** A card the user has never studied (still in the New state). */
 export function isNew(s: SchedulingState): boolean {
-  return s.reps === 0
+  return s.state === 0
 }
 
 export interface DeckOverview {

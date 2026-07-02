@@ -1,23 +1,24 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import type { Card, DeckSettings, Grade, SchedulingState } from '../../domain/models'
-import { getScheduler } from '../../domain/scheduler'
-import { settingsToParams } from '../../domain/scheduler/reviewScheduler'
+import type { DeckSettings, FSRSState, Grade } from '../../domain/models'
+import { nextStates } from '../../domain/scheduler/reviewScheduler'
 import { useStorage } from '../../data/StorageContext'
 import { PageHeader } from '../../ui/PageHeader'
 import { MarkdownView } from '../cards/MarkdownView'
 import { GradeButtons } from './GradeButtons'
 import { loadDueOverview, shuffle } from './dueOverview'
+import { ReviewSession, buildSessionCards, type SessionCard } from './session'
 
 export function ReviewPage() {
   const { deckId } = useParams()
   const storage = useStorage()
 
-  const [queue, setQueue] = useState<Card[] | null>(null)
-  const [index, setIndex] = useState(0)
+  const sessionRef = useRef<ReviewSession | null>(null)
+  const [current, setCurrent] = useState<SessionCard | null>(null)
+  const [ready, setReady] = useState(false)
   const [revealed, setRevealed] = useState(false)
-  const [nexts, setNexts] = useState<Record<Grade, SchedulingState> | null>(null)
+  const [nexts, setNexts] = useState<Record<Grade, FSRSState> | null>(null)
   const [revealedAt, setRevealedAt] = useState(0)
   const [schedError, setSchedError] = useState(false)
 
@@ -25,58 +26,59 @@ export function ReviewPage() {
   const deckName = deckId ? (deck?.name ?? '') : 'All decks'
   const backTo = deckId ? `/decks/${deckId}` : '/'
 
-  const decks = useLiveQuery(() => storage.listDecks(), [])
-  const settingsById = new Map<string, DeckSettings>((decks ?? []).map((d) => [d.id, d.settings]))
-
   useEffect(() => {
     let active = true
     const now = Date.now()
-    const load = deckId
-      ? storage.dueCards(deckId, now)
-      : loadDueOverview(storage, now).then((ov) => shuffle(ov.queue))
-    load.then((cards) => {
-      if (active) setQueue(cards)
+    async function build(): Promise<SessionCard[]> {
+      if (deckId) {
+        const d = await storage.getDeck(deckId)
+        if (!d) return []
+        const due = await storage.dueCards(deckId, now)
+        const cards = due.map((card) => ({ card, settings: d.settings }))
+        return buildSessionCards(cards, d.settings.insertionOrder)
+      }
+      const ov = await loadDueOverview(storage, now)
+      const settingsById = new Map<string, DeckSettings>(ov.decks.map((o) => [o.deck.id, o.deck.settings]))
+      return shuffle(ov.queue).map((card) => ({ card, settings: settingsById.get(card.deckId)! }))
+    }
+    void build().then((cards) => {
+      if (!active) return
+      const session = new ReviewSession(cards)
+      sessionRef.current = session
+      setCurrent(session.next(Date.now()))
+      setReady(true)
     })
     return () => {
       active = false
     }
   }, [deckId, storage])
 
-  const current = queue && index < queue.length ? queue[index] : null
-
-  const fetchNexts = useCallback(
-    (scheduling: Card['scheduling'], deckIdOfCard: string, now: number) => {
-      setSchedError(false)
-      setNexts(null)
-      const settings = settingsById.get(deckIdOfCard)
-      if (!settings) {
+  const fetchNexts = useCallback((sc: SessionCard, now: number) => {
+    setSchedError(false)
+    setNexts(null)
+    void nextStates(sc.card.scheduling, sc.settings, now)
+      .then(setNexts)
+      .catch((err: unknown) => {
+        console.error('nextStates failed', err)
         setSchedError(true)
-        return
-      }
-      void getScheduler()
-        .previewNextStates(scheduling, settingsToParams(settings), now)
-        .then(setNexts)
-        .catch((err: unknown) => {
-          console.error('previewNextStates failed', err)
-          setSchedError(true)
-        })
-    },
-    [settingsById],
-  )
+      })
+  }, [])
 
   const reveal = useCallback(() => {
     if (!current || revealed) return
     const now = Date.now()
     setRevealed(true)
     setRevealedAt(now)
-    fetchNexts(current.scheduling, current.deckId, now)
+    fetchNexts(current, now)
   }, [current, revealed, fetchNexts])
 
   const grade = useCallback(
     async (g: Grade) => {
-      if (!current || !nexts) return
-      await storage.updateCard(current.id, { scheduling: nexts[g] })
-      setIndex((i) => i + 1)
+      const session = sessionRef.current
+      if (!current || !nexts || !session) return
+      await storage.updateCard(current.card.id, { scheduling: nexts[g] })
+      session.grade(Date.now(), nexts[g])
+      setCurrent(session.next(Date.now()))
       setRevealed(false)
       setNexts(null)
       setSchedError(false)
@@ -105,31 +107,31 @@ export function ReviewPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [current, revealed, reveal, grade])
 
-  if (queue === null) return null
-
-  if (queue.length === 0) {
-    return (
-      <div className="page-body">
-        <div className="empty-state">
-          <div className="ico">🌙</div>
-          <h3>Nothing due</h3>
-          <p>{deckId ? 'Nothing due in this deck right now.' : 'Nothing due across your decks right now.'}</p>
-          <Link to={backTo} className="btn btn-ghost cta">
-            {deckId ? 'Back to deck' : 'Back to Today'}
-          </Link>
-        </div>
-      </div>
-    )
-  }
+  if (!ready) return null
 
   if (current === null) {
+    const reviewed = sessionRef.current?.reviewed ?? 0
+    if (reviewed === 0) {
+      return (
+        <div className="page-body">
+          <div className="empty-state">
+            <div className="ico">🌙</div>
+            <h3>Nothing due</h3>
+            <p>{deckId ? 'Nothing due in this deck right now.' : 'Nothing due across your decks right now.'}</p>
+            <Link to={backTo} className="btn btn-ghost cta">
+              {deckId ? 'Back to deck' : 'Back to Today'}
+            </Link>
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="page-body">
         <div className="empty-state">
           <div className="ico">🎉</div>
           <h3>Review complete</h3>
           <p>
-            {queue.length} card{queue.length === 1 ? '' : 's'} done. Nice work.
+            {reviewed} card{reviewed === 1 ? '' : 's'} done. Nice work.
           </p>
           <Link to={backTo} className="btn btn-primary cta">
             {deckId ? 'Back to deck' : 'Back to Today'}
@@ -139,10 +141,12 @@ export function ReviewPage() {
     )
   }
 
+  const reviewed = sessionRef.current?.reviewed ?? 0
+  const total = reviewed + (sessionRef.current?.remaining ?? 0)
   const title = (
     <>
       <span className="review-pos">
-        {index + 1} / {queue.length}
+        {reviewed + 1} / {total}
       </span>
       <span className="review-deck">{deckName}</span>
     </>
@@ -163,7 +167,7 @@ export function ReviewPage() {
           <div className="review-stage">
             <div className="review-card">
               <div className="review-q">
-                <MarkdownView source={current.front} />
+                <MarkdownView source={current.card.front} />
               </div>
             </div>
             <button className="review-show" onClick={reveal}>
@@ -174,22 +178,19 @@ export function ReviewPage() {
           <div className="review-stage reveal-enter">
             <div className="review-card revealed">
               <div className="review-q">
-                <MarkdownView source={current.front} />
+                <MarkdownView source={current.card.front} />
               </div>
               <hr className="review-rule" />
               <p className="answer-label">Answer</p>
               <div className="review-a">
-                <MarkdownView source={current.back} />
+                <MarkdownView source={current.card.back} />
               </div>
             </div>
             {nexts && <GradeButtons nexts={nexts} now={revealedAt} onGrade={grade} />}
             {schedError && !nexts && (
               <div className="empty-state">
                 <p>Couldn&#39;t schedule this card.</p>
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => fetchNexts(current.scheduling, current.deckId, revealedAt)}
-                >
+                <button className="btn btn-ghost" onClick={() => fetchNexts(current, revealedAt)}>
                   Retry
                 </button>
               </div>
