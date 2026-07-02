@@ -9,11 +9,7 @@ import { Stepper } from '../../ui/Stepper'
 import { SegToggle } from '../../ui/SegToggle'
 import { Toggle } from '../../ui/Toggle'
 import { DECK_PALETTE, deckColor } from '../../ui/deckColor'
-
-/** Split a space-separated steps string into chip tokens. */
-export function parseSteps(raw: string): string[] {
-  return raw.split(/\s+/).filter(Boolean)
-}
+import { parseSteps } from '../../domain/scheduler/steps'
 
 export function DeckSettingsPage() {
   const { deckId } = useParams()
