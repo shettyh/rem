@@ -37,9 +37,10 @@ export async function nextStates(
   if (scheduling.state === 0 || scheduling.state === 1) {
     const L = parseStepsMs(settings.learnSteps)
     if (L.length === 0) return fsrs as Record<Grade, FSRSState>
+    const li = Math.min(i, L.length - 1)
     return {
       again: stepTo(scheduling, 1, 0, L[0], now),
-      hard: stepTo(scheduling, 1, i, L[Math.min(i, L.length - 1)], now),
+      hard: stepTo(scheduling, 1, li, L[li], now),
       good: i + 1 < L.length ? stepTo(scheduling, 1, i + 1, L[i + 1], now) : (fsrs.good as FSRSState),
       easy: fsrs.easy as FSRSState,
     }
@@ -56,9 +57,10 @@ export async function nextStates(
         easy: clampDays(fsrs.easy as FSRSState, now, min, max),
       }
     }
+    const ri = Math.min(i, R.length - 1)
     return {
       again: stepTo(scheduling, 3, 0, R[0], now),
-      hard: stepTo(scheduling, 3, i, R[Math.min(i, R.length - 1)], now),
+      hard: stepTo(scheduling, 3, ri, R[ri], now),
       good: i + 1 < R.length ? stepTo(scheduling, 3, i + 1, R[i + 1], now) : clampDays(fsrs.good as FSRSState, now, min, max),
       easy: clampDays(fsrs.easy as FSRSState, now, min, max),
     }

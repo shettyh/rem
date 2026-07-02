@@ -53,10 +53,13 @@ describe('nextStates — review lapse + relearning', () => {
     const ns = await nextStates(review, S, now)
     expect(ns.again).toMatchObject({ state: 3, step: 0, due: now + 600_000, lapses: 1 })
   })
-  it('good/easy stay in review (FSRS long-term)', async () => {
+  it('good/easy stay in review (FSRS long-term), unclamped', async () => {
     const now = 5_000_000
-    const ns = await nextStates(review, S, now)
+    const ns = await nextStates(review, { ...S, minimumInterval: 5 }, now)
     expect(ns.good).toMatchObject({ state: 2, step: 0 })
+    expect(ns.easy).toMatchObject({ state: 2, step: 0 })
+    expect(ns.good.due).toBe(now + 3 * DAY) // fake good = +3d, NOT clamped up to minimumInterval 5
+    expect(ns.easy.due).toBe(now + 7 * DAY) // fake easy = +7d, unaffected by minimumInterval
   })
   it('relearning good on the last step graduates, clamped to minimumInterval', async () => {
     const now = 5_000_000
@@ -70,5 +73,21 @@ describe('nextStates — review lapse + relearning', () => {
     const relearn: FSRSState = { ...review, state: 3, step: 0 }
     const ns = await nextStates(relearn, { ...S, minimumInterval: 5 }, now)
     expect(ns.good.due).toBe(now + 5 * DAY) // fake good = +3d, clamped up to 5d
+  })
+  it('relearning card with empty relearnSteps: every outcome is a clamped FSRS state', async () => {
+    const now = 5_000_000
+    const relearn: FSRSState = { ...review, state: 3, step: 0 }
+    const ns = await nextStates(relearn, { ...S, relearnSteps: '', minimumInterval: 3 }, now)
+    expect(ns.again.due).toBe(now + 3 * DAY) // fake again = +0d, clamped up to min 3
+    expect(ns.good.due).toBe(now + 3 * DAY)
+    expect(ns.easy.due).toBe(now + 7 * DAY)
+    expect(ns.again.state).toBe(2)
+  })
+  it('review card with empty relearnSteps: again stays in review as clamped FSRS again', async () => {
+    const now = 5_000_000
+    const ns = await nextStates(review, { ...S, relearnSteps: '' }, now)
+    expect(ns.again.state).toBe(2)
+    expect(ns.again.due).toBe(now + 3 * DAY) // fake again = +0d, clamped up to min 3
+    expect(ns.again.lapses).toBe(1)
   })
 })
