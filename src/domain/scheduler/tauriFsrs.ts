@@ -34,7 +34,7 @@ interface NextStatesDto {
 }
 
 function toState(dto: FsrsStateDto): FSRSState {
-  return { kind: 'fsrs', ...dto }
+  return { kind: 'fsrs', step: 0, ...dto }
 }
 
 /** Pure DTO → domain mapping (unit-tested without Tauri). */
@@ -44,7 +44,7 @@ export function mapNextStates(dto: NextStatesDto): Record<Grade, SchedulingState
 
 export class TauriFsrsScheduler implements Scheduler {
   initial(now: number): SchedulingState {
-    return { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: now }
+    return { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: now }
   }
 
   async previewNextStates(state: SchedulingState, now: number): Promise<Record<Grade, SchedulingState>> {

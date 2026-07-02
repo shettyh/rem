@@ -18,7 +18,7 @@ const sample: RepoSnapshot = {
       back: 'hello',
       createdAt: 2,
       updatedAt: 3,
-      scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 4 },
+      scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 4 },
     },
   ],
   tombstones: [{ id: 'c9', kind: 'card', deletedAt: 5 }],

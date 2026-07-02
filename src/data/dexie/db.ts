@@ -81,5 +81,19 @@ export class RemDB extends Dexie {
           if (!d.settings) d.settings = { ...DEFAULT_DECK_SETTINGS }
         })
       })
+    // v7: learning/relearning steps. Backfill step: 0 on cards scheduled before
+    // the step machine existed. Schema unchanged.
+    this.version(7)
+      .stores({
+        decks: 'id, createdAt',
+        cards: 'id, deckId, createdAt',
+        tombstones: 'id, deletedAt',
+        assets: 'hash',
+      })
+      .upgrade(async (tx) => {
+        await tx.table('cards').toCollection().modify((c) => {
+          if (c.scheduling && c.scheduling.step === undefined) c.scheduling.step = 0
+        })
+      })
   }
 }

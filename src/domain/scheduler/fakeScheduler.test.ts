@@ -8,7 +8,7 @@ const s = new FakeScheduler()
 describe('FakeScheduler.initial', () => {
   it('makes a new card due now, unreviewed, kind fsrs', () => {
     const c = s.initial(now)
-    expect(c).toEqual({ kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: now })
+    expect(c).toEqual({ kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: now })
   })
 })
 

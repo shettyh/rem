@@ -67,6 +67,8 @@ export interface FSRSState {
   lapses: number
   /** FSRS state: 0 New / 1 Learning / 2 Review / 3 Relearning. */
   state: number
+  /** Index into the deck's learn/relearn steps; 0 when state ∈ {0 New, 2 Review}. */
+  step: number
   /** Last review time (epoch ms), or null if never reviewed. */
   lastReview: number | null
   /** When the card is next due (epoch ms). */

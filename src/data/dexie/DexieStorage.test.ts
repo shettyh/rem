@@ -108,7 +108,7 @@ describe('due queue', () => {
     const now = Date.now()
     // Push card A into the future so it is no longer due.
     await storage.updateCard(a.id, {
-      scheduling: { kind: 'fsrs', stability: 1, difficulty: 5, reps: 1, lapses: 0, state: 2, lastReview: now, due: now + MS_PER_DAY },
+      scheduling: { kind: 'fsrs', stability: 1, difficulty: 5, reps: 1, lapses: 0, state: 2, step: 0, lastReview: now, due: now + MS_PER_DAY },
     })
 
     const due = await storage.dueCards(deck.id, now)
@@ -164,7 +164,7 @@ describe('sync storage', () => {
       upsertDecks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, updatedAt: deck.updatedAt, color: deck.color, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
       upsertCards: [{
         id: 'new', deckId: deck.id, front: 'new', back: 'new', createdAt: 1, updatedAt: 2,
-        scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 0 },
+        scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 0 },
       }],
       deleteDeckIds: [],
       deleteCardIds: [stale.id],
@@ -187,7 +187,7 @@ describe('importDecks', () => {
         schedulerKind: 'fsrs',
         settings: DEFAULT_DECK_SETTINGS,
         cards: [
-          { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, lastReview: 7, due: 8 } },
+          { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, step: 0, lastReview: 7, due: 8 } },
         ],
       },
     ])
@@ -198,7 +198,7 @@ describe('importDecks', () => {
     const cards = await storage.listCards(decks[0].id)
     expect(cards).toHaveLength(1)
     expect(cards[0].front).toBe('hola')
-    expect(cards[0].scheduling).toEqual({ kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, lastReview: 7, due: 8 })
+    expect(cards[0].scheduling).toEqual({ kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, step: 0, lastReview: 7, due: 8 })
     expect(cards[0].createdAt).toBe(6)
     expect(cards[0].updatedAt).toBe(7)
   })
@@ -209,7 +209,7 @@ describe('importDecks', () => {
 
     const result = await storage.importDecks([
       { name: 'Spanish', createdAt: 5, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [
-        { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 8 } },
+        { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 8 } },
       ] },
     ])
 

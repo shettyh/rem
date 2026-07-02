@@ -12,7 +12,7 @@ import { DEFAULT_DECK_SETTINGS } from '../domain/models'
 import { getScheduler } from '../domain/scheduler'
 
 const NOW = 1_700_000_000_000
-const sched = { kind: 'fsrs' as const, stability: 5, difficulty: 5, reps: 1, lapses: 0, state: 2, lastReview: 1, due: 999 }
+const sched = { kind: 'fsrs' as const, stability: 5, difficulty: 5, reps: 1, lapses: 0, state: 2, step: 0, lastReview: 1, due: 999 }
 
 function fakeStorage(decks: Deck[], cardsByDeck: Record<string, Card[]>): Storage {
   return {
@@ -116,7 +116,7 @@ describe('parseBackup', () => {
   })
 
   it('accepts FSRS scheduling unchanged', () => {
-    const f = { kind: 'fsrs', stability: 5, difficulty: 5, reps: 1, lapses: 0, state: 2, lastReview: 1, due: 2 }
+    const f = { kind: 'fsrs', stability: 5, difficulty: 5, reps: 1, lapses: 0, state: 2, step: 0, lastReview: 1, due: 2 }
     const file = JSON.stringify({
       format: 'rem-backup', version: 1, exportedAt: 1,
       decks: [{ name: 'X', createdAt: 1, schedulerKind: 'fsrs', cards: [{ front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: f }] }],
