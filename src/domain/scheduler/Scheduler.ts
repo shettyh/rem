@@ -1,5 +1,11 @@
 import type { Grade, SchedulingState } from '../models'
 
+export interface DeckFsrsParams {
+  desiredRetention: number
+  maximumInterval: number
+  weights: number[] | null
+}
+
 /**
  * A spaced-repetition scheduling algorithm.
  *
@@ -11,5 +17,9 @@ export interface Scheduler {
   /** Scheduling state for a brand-new card (immediately due). */
   initial(now: number): SchedulingState
   /** All four grade outcomes for the next review. */
-  previewNextStates(state: SchedulingState, now: number): Promise<Record<Grade, SchedulingState>>
+  previewNextStates(
+    state: SchedulingState,
+    params: DeckFsrsParams,
+    now: number,
+  ): Promise<Record<Grade, SchedulingState>>
 }

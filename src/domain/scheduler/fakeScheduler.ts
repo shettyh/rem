@@ -1,5 +1,5 @@
 import type { Grade, FSRSState, SchedulingState } from '../models'
-import type { Scheduler } from './Scheduler'
+import type { DeckFsrsParams, Scheduler } from './Scheduler'
 
 const MS_PER_DAY = 86_400_000
 const OFFSET_DAYS: Record<Grade, number> = { again: 0, hard: 1, good: 3, easy: 7 }
@@ -15,7 +15,11 @@ export class FakeScheduler implements Scheduler {
     return emptyCard(now)
   }
 
-  async previewNextStates(state: SchedulingState, now: number): Promise<Record<Grade, SchedulingState>> {
+  async previewNextStates(
+    state: SchedulingState,
+    _params: DeckFsrsParams,
+    now: number,
+  ): Promise<Record<Grade, SchedulingState>> {
     if (state.kind !== 'fsrs') throw new Error('expected fsrs state')
     const make = (g: Grade): FSRSState => ({
       kind: 'fsrs',

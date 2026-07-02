@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import type { Card, Grade, SchedulingState } from '../../domain/models'
+import type { Card, DeckSettings, Grade, SchedulingState } from '../../domain/models'
 import { getScheduler } from '../../domain/scheduler'
+import { settingsToParams } from '../../domain/scheduler/reviewScheduler'
 import { useStorage } from '../../data/StorageContext'
 import { PageHeader } from '../../ui/PageHeader'
 import { MarkdownView } from '../cards/MarkdownView'
@@ -24,6 +25,9 @@ export function ReviewPage() {
   const deckName = deckId ? (deck?.name ?? '') : 'All decks'
   const backTo = deckId ? `/decks/${deckId}` : '/'
 
+  const decks = useLiveQuery(() => storage.listDecks(), [])
+  const settingsById = new Map<string, DeckSettings>((decks ?? []).map((d) => [d.id, d.settings]))
+
   useEffect(() => {
     let active = true
     const now = Date.now()
@@ -41,18 +45,23 @@ export function ReviewPage() {
   const current = queue && index < queue.length ? queue[index] : null
 
   const fetchNexts = useCallback(
-    (scheduling: Card['scheduling'], now: number) => {
+    (scheduling: Card['scheduling'], deckIdOfCard: string, now: number) => {
       setSchedError(false)
       setNexts(null)
+      const settings = settingsById.get(deckIdOfCard)
+      if (!settings) {
+        setSchedError(true)
+        return
+      }
       void getScheduler()
-        .previewNextStates(scheduling, now)
+        .previewNextStates(scheduling, settingsToParams(settings), now)
         .then(setNexts)
         .catch((err: unknown) => {
           console.error('previewNextStates failed', err)
           setSchedError(true)
         })
     },
-    [],
+    [settingsById],
   )
 
   const reveal = useCallback(() => {
@@ -60,7 +69,7 @@ export function ReviewPage() {
     const now = Date.now()
     setRevealed(true)
     setRevealedAt(now)
-    fetchNexts(current.scheduling, now)
+    fetchNexts(current.scheduling, current.deckId, now)
   }, [current, revealed, fetchNexts])
 
   const grade = useCallback(
@@ -179,7 +188,7 @@ export function ReviewPage() {
                 <p>Couldn&#39;t schedule this card.</p>
                 <button
                   className="btn btn-ghost"
-                  onClick={() => fetchNexts(current.scheduling, revealedAt)}
+                  onClick={() => fetchNexts(current.scheduling, current.deckId, revealedAt)}
                 >
                   Retry
                 </button>
