@@ -162,22 +162,6 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
             <div className="ds-rule" />
             <div className="ds-row">
               <div>
-                <div className="ds-row-title">Graduating interval</div>
-                <div className="ds-row-sub">Days until next review after the last step.</div>
-              </div>
-              <Stepper value={settings.graduatingInterval} onChange={(v) => set('graduatingInterval', v)} label="Graduating interval" step={1} min={1} max={365} format={(v) => `${v}d`} />
-            </div>
-            <div className="ds-rule" />
-            <div className="ds-row">
-              <div>
-                <div className="ds-row-title">Easy interval</div>
-                <div className="ds-row-sub">Days when answering a new card "Easy".</div>
-              </div>
-              <Stepper value={settings.easyInterval} onChange={(v) => set('easyInterval', v)} label="Easy interval" step={1} min={1} max={365} format={(v) => `${v}d`} />
-            </div>
-            <div className="ds-rule" />
-            <div className="ds-row">
-              <div>
                 <div className="ds-row-title">Insertion order</div>
                 <div className="ds-row-sub">Order new cards enter the queue.</div>
               </div>
