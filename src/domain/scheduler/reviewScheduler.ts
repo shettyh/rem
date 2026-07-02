@@ -29,7 +29,7 @@ export async function nextStates(
   now: number,
 ): Promise<Record<Grade, FSRSState>> {
   const fsrs = await getScheduler().previewNextStates(scheduling, settingsToParams(settings), now)
-  const i = scheduling.step
+  const i = scheduling.step ?? 0
   const min = settings.minimumInterval
   const max = settings.maximumInterval
 

@@ -44,6 +44,15 @@ describe('nextStates — learning', () => {
     const ns = await nextStates(newCard(now), { ...S, learnSteps: '' }, now)
     expect(ns.good).toMatchObject({ state: 2, step: 0, reps: 1 })
   })
+  it('new card with runtime-undefined step (pre-#3a ingestion) does not go NaN or skip learning steps', async () => {
+    const now = 1_000_000
+    const card = {
+      kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: now,
+    } as unknown as FSRSState
+    const ns = await nextStates(card, S, now)
+    expect(ns.again.due).toBe(now + 60_000)
+    expect(ns.good.due).toBe(now + 600_000)
+  })
 })
 
 describe('nextStates — review lapse + relearning', () => {
