@@ -1,6 +1,17 @@
 # Per-deck settings + Rust FSRS — continuation / next steps
 
-_Last updated: 2026-06-28_
+_Last updated: 2026-07-04_
+
+> **Update 2026-07-04:** Sub-project **#3 was sliced into #3a / #3b / #3c** (spec:
+> `docs/superpowers/specs/2026-07-02-anki-review-queue-steps-design.md`). **#3a — learning/
+> relearning steps + real per-deck FSRS params + insertion order — is DONE**, merged to `main`
+> (PR #1, merge `8289d7d`; 213 tests + cargo green). It threaded the `DeckFsrsParams` hook,
+> added `FSRSState.step` (Dexie v7), a TS step machine (`reviewScheduler.ts`), and a dynamic
+> session queue (`session.ts`). **Still open in #3:** **#3b** daily caps (`newPerDay`/`maxReviews`,
+> needs review-log/daily-counter infra — also unblocks #5) and **#3c** leech + burying (needs a
+> card `suspended` flag / note model). A small **#3a follow-up** (completion-copy "N reviews done",
+> double-grade in-flight guard, reviewScheduler cast/DRY cleanups) is on branch
+> `fix/review-followup-cleanups`. **Recommended next real slice = #3b.**
 
 A resume doc for the multi-part effort kicked off from the `rem.dc.html` design and the
 "switch to Rust FSRS" idea. Sub-projects **#1 and #2 are shipped**; this captures the decisions and
@@ -39,7 +50,9 @@ the concrete next action for everything still pending so a future session can pi
 |---|---|---|---|
 | 1 | **Deck options screen + `DeckSettings` data model** | ✅ **DONE — merged to `main` (`b4bf3b9`)** | — |
 | 2 | **Rust FSRS scheduling core** | ✅ **DONE — merged to `main` (`0fc5f8d`)** | 1 (for real params) |
-| 3 | **Anki-grade review queue** (learning/relearning steps, daily caps, insertion order, leech, burying) | **NOT STARTED ← do next** | 1, 2 |
+| 3a | **Review-queue steps** (learning/relearning steps, real per-deck params, insertion order) | ✅ **DONE — merged to `main` (`8289d7d`, PR #1)** | 1, 2 |
+| 3b | **Daily caps** (`newPerDay`/`maxReviews` + review-log/daily-counter infra) | **NOT STARTED ← do next** | 3a |
+| 3c | **Leech + burying** (needs card `suspended` flag / note model) | NOT STARTED | 3a |
 | 4 | **Custom study** (study-ahead / increase-new / review-forgotten / preview-new) | NOT STARTED | 3 |
 | 5 | **FSRS weight optimization** (train personalised weights from review logs) | NOT STARTED | 2, 3 |
 
