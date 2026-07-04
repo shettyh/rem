@@ -165,6 +165,8 @@ function isSchedulingPayload(v: unknown): v is Record<string, unknown> {
 /** FSRS state passes through; any legacy SM-2 state is reset to a fresh FSRS
  *  card (due `now`), since SM-2 is no longer supported. */
 function normalizeScheduling(v: Record<string, unknown>, now: number): SchedulingState {
-  if (v.kind === 'fsrs') return v as unknown as SchedulingState
+  // step may be absent in backups written before #3a (JSON is cast, not validated);
+  // spread order means an existing v.step wins, a missing one defaults to 0.
+  if (v.kind === 'fsrs') return { step: 0, ...v } as unknown as SchedulingState
   return getScheduler().initial(now)
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseSteps } from './DeckSettingsPage'
+import { parseSteps } from '../../domain/scheduler/steps'
 
 describe('parseSteps', () => {
   it('splits a space-separated steps string into tokens', () => {

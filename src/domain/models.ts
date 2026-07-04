@@ -21,8 +21,6 @@ export interface DeckSettings {
   newPerDay: number
   maxReviews: number
   learnSteps: string
-  graduatingInterval: number
-  easyInterval: number
   insertionOrder: InsertionOrder
   relearnSteps: string
   minimumInterval: number
@@ -38,8 +36,6 @@ export const DEFAULT_DECK_SETTINGS: DeckSettings = {
   newPerDay: 20,
   maxReviews: 200,
   learnSteps: '1m 10m',
-  graduatingInterval: 1,
-  easyInterval: 4,
   insertionOrder: 'sequential',
   relearnSteps: '10m',
   minimumInterval: 1,
@@ -71,6 +67,8 @@ export interface FSRSState {
   lapses: number
   /** FSRS state: 0 New / 1 Learning / 2 Review / 3 Relearning. */
   state: number
+  /** Index into the deck's learn/relearn steps; 0 when state ∈ {0 New, 2 Review}. */
+  step: number
   /** Last review time (epoch ms), or null if never reviewed. */
   lastReview: number | null
   /** When the card is next due (epoch ms). */

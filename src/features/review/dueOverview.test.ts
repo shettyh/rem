@@ -5,7 +5,7 @@ import type { Storage } from '../../data/Storage'
 import { isNew, loadDueOverview, shuffle } from './dueOverview'
 
 function fsrs(reps: number): SchedulingState {
-  return { kind: 'fsrs', stability: 1, difficulty: 5, reps, lapses: 0, state: 2, lastReview: null, due: 0 }
+  return { kind: 'fsrs', stability: 1, difficulty: 5, reps, lapses: 0, state: reps === 0 ? 0 : 2, step: 0, lastReview: null, due: 0 }
 }
 function card(id: ID, deckId: ID, scheduling: SchedulingState): Card {
   return { id, deckId, front: id, back: id, createdAt: 0, updatedAt: 0, scheduling }

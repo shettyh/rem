@@ -24,6 +24,15 @@ function normalizeDeck(d: DeckRecord): DeckRecord {
   }
 }
 
+function normalizeCard(c: CardRecord): CardRecord {
+  // step may be absent in snapshots written before #3a (JSON is cast, not validated).
+  const s = c.scheduling
+  if (s.kind === 'fsrs' && s.step === undefined) {
+    return { ...c, scheduling: { ...s, step: 0 } }
+  }
+  return c
+}
+
 export interface CardRecord {
   id: string
   deckId: string
@@ -91,7 +100,7 @@ export function deserializeSnapshot(files: Record<string, string>): RepoSnapshot
     if (path.startsWith('decks/') && path.endsWith('.json')) {
       const { deck, cards: deckCards } = JSON.parse(content) as DeckFile
       decks.push(normalizeDeck(deck))
-      for (const c of deckCards) cards.push(c)
+      for (const c of deckCards) cards.push(normalizeCard(c))
     }
   }
   return { decks, cards, tombstones, assets: [] }

@@ -152,6 +152,9 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       const deck = await storage.createDeck('TypeScript')
       await storage.createCard(deck.id, 'Only card', 'Done')
       await renderRoute({ storage, entry: `/decks/${deck.id}/study`, path: '/decks/:deckId/study', element: <ReviewPage /> })
+      // Default learnSteps ('1m 10m') means a new card needs both learning steps graded before it graduates.
+      await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+      await page.getByRole('button', { name: 'Good', exact: false }).click()
       await page.getByRole('button', { name: 'Show answer', exact: false }).click()
       await page.getByRole('button', { name: 'Good', exact: false }).click()
       await expect.element(page.getByText('Review complete', { exact: false })).toBeVisible()

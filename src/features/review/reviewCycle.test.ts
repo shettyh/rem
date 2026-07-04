@@ -3,6 +3,8 @@ import Dexie from 'dexie'
 import { RemDB } from '../../data/dexie/db'
 import { DexieStorage } from '../../data/dexie/DexieStorage'
 import { getScheduler } from '../../domain/scheduler'
+import { settingsToParams } from '../../domain/scheduler/reviewScheduler'
+import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 
 /**
  * Composes storage + scheduler exactly as ReviewPage does, guarding the
@@ -24,7 +26,7 @@ describe('review cycle', () => {
     const t0 = Date.now()
     expect(await storage.countDue(deck.id, t0)).toBe(1)
 
-    const nexts = await getScheduler().previewNextStates(card.scheduling, t0)
+    const nexts = await getScheduler().previewNextStates(card.scheduling, settingsToParams(DEFAULT_DECK_SETTINGS), t0)
     await storage.updateCard(card.id, { scheduling: nexts.good })
 
     expect(await storage.countDue(deck.id, t0)).toBe(0)

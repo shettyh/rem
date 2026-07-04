@@ -18,7 +18,7 @@ const sample: RepoSnapshot = {
       back: 'hello',
       createdAt: 2,
       updatedAt: 3,
-      scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 4 },
+      scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 4 },
     },
   ],
   tombstones: [{ id: 'c9', kind: 'card', deletedAt: 5 }],
@@ -52,5 +52,28 @@ describe('snapshot', () => {
     expect(snap.decks[0].updatedAt).toBe(7)
     expect(snap.decks[0].color).toBe(deckColor('d1'))
     expect(snap.decks[0].settings).toEqual(DEFAULT_DECK_SETTINGS)
+  })
+
+  it('normalizes a card scheduling missing step (pre-#3a snapshot) to step 0', () => {
+    const files = {
+      'rem.json': JSON.stringify({ format: 'rem-sync', version: 1 }),
+      'decks/d1.json': JSON.stringify({
+        deck: sample.decks[0],
+        cards: [
+          {
+            id: 'c1',
+            deckId: 'd1',
+            front: 'hola',
+            back: 'hello',
+            createdAt: 2,
+            updatedAt: 3,
+            scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 4 },
+          },
+        ],
+      }),
+      'tombstones.json': '[]',
+    }
+    const snap = deserializeSnapshot(files)
+    expect(snap.cards[0].scheduling).toMatchObject({ step: 0 })
   })
 })

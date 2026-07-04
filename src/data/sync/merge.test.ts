@@ -7,7 +7,7 @@ const deck: DeckRecord = { id: 'd1', name: 'D', createdAt: 1, updatedAt: 1, colo
 function card(id: string, updatedAt: number, front = 'f'): CardRecord {
   return {
     id, deckId: 'd1', front, back: 'b', createdAt: 1, updatedAt,
-    scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 0 },
+    scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 0 },
   }
 }
 function snap(p: Partial<RepoSnapshot>): RepoSnapshot {
@@ -17,7 +17,7 @@ const H = 'a'.repeat(64)
 function imgCard(id: string, hash: string): CardRecord {
   return {
     id, deckId: 'd1', front: `![x](asset:${hash})`, back: 'b', createdAt: 1, updatedAt: 10,
-    scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, lastReview: null, due: 0 },
+    scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 0 },
   }
 }
 const blob = (hash: string): AssetBlob => ({ hash, mime: 'image/png', bytes: new Uint8Array([1]) })

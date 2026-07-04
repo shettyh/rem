@@ -6,7 +6,7 @@ describe('mapNextStates', () => {
     const branch = { stability: 3.2, difficulty: 5.1, reps: 2, lapses: 1, state: 2, lastReview: 100, due: 200 }
     const dto = { again: branch, hard: branch, good: branch, easy: branch }
     const out = mapNextStates(dto)
-    expect(out.good).toEqual({ kind: 'fsrs', ...branch })
+    expect(out.good).toEqual({ kind: 'fsrs', step: 0, ...branch })
     expect(out.again.kind).toBe('fsrs')
   })
 })
