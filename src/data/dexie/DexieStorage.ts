@@ -43,8 +43,9 @@ export class DexieStorage implements Storage {
   }
 
   async deleteDeck(id: ID): Promise<void> {
-    await this.db.transaction('rw', this.db.decks, this.db.cards, this.db.tombstones, async () => {
+    await this.db.transaction('rw', this.db.decks, this.db.cards, this.db.tombstones, this.db.dailyStats, async () => {
       await this.db.cards.where('deckId').equals(id).delete()
+      await this.db.dailyStats.where('deckId').equals(id).delete()
       await this.db.decks.delete(id)
       await this.db.tombstones.put({ id, kind: 'deck', deletedAt: Date.now() })
     })
@@ -94,6 +95,20 @@ export class DexieStorage implements Storage {
   async countDue(deckId: ID, now: number): Promise<number> {
     const cards = await this.dueCards(deckId, now)
     return cards.length
+  }
+
+  async getDailyStat(deckId: ID, day: string): Promise<{ newIntroduced: number; reviewsDone: number }> {
+    const row = await this.db.dailyStats.get(`${deckId}:${day}`)
+    return { newIntroduced: row?.newIntroduced ?? 0, reviewsDone: row?.reviewsDone ?? 0 }
+  }
+
+  async bumpDailyStat(deckId: ID, day: string, field: 'newIntroduced' | 'reviewsDone'): Promise<void> {
+    const id = `${deckId}:${day}`
+    await this.db.transaction('rw', this.db.dailyStats, async () => {
+      const row = await this.db.dailyStats.get(id)
+      const base = row ?? { id, deckId, day, newIntroduced: 0, reviewsDone: 0 }
+      await this.db.dailyStats.put({ ...base, [field]: base[field] + 1 })
+    })
   }
 
   async importDecks(decks: DeckBackup[]): Promise<ImportResult> {

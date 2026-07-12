@@ -317,3 +317,28 @@ describe('snapshot assets', () => {
     expect(await storage.getAsset(keep)).toBeUndefined()
   })
 })
+
+describe('daily stats', () => {
+  it('returns zeros when no row exists', async () => {
+    expect(await storage.getDailyStat('d1', '2026-07-12')).toEqual({ newIntroduced: 0, reviewsDone: 0 })
+  })
+
+  it('bumps and accumulates counters per (deck, day)', async () => {
+    await storage.bumpDailyStat('d1', '2026-07-12', 'newIntroduced')
+    await storage.bumpDailyStat('d1', '2026-07-12', 'newIntroduced')
+    await storage.bumpDailyStat('d1', '2026-07-12', 'reviewsDone')
+    expect(await storage.getDailyStat('d1', '2026-07-12')).toEqual({ newIntroduced: 2, reviewsDone: 1 })
+  })
+
+  it('keeps different days separate', async () => {
+    await storage.bumpDailyStat('d1', '2026-07-12', 'reviewsDone')
+    expect(await storage.getDailyStat('d1', '2026-07-13')).toEqual({ newIntroduced: 0, reviewsDone: 0 })
+  })
+
+  it('deleteDeck removes the deck stats', async () => {
+    const deck = await storage.createDeck('S')
+    await storage.bumpDailyStat(deck.id, '2026-07-12', 'newIntroduced')
+    await storage.deleteDeck(deck.id)
+    expect(await storage.getDailyStat(deck.id, '2026-07-12')).toEqual({ newIntroduced: 0, reviewsDone: 0 })
+  })
+})
