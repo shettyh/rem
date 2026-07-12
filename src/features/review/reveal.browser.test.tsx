@@ -72,6 +72,33 @@ test('retry after scheduling failure resolves grade buttons', async () => {
   await expect.element(page.getByText("Couldn't schedule this card.")).not.toBeInTheDocument()
 })
 
+test('grading twice before the first persist resolves applies only one grade', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('TypeScript')
+  await storage.createCard(deck.id, 'Q?', 'A — the answer.')
+  const spy = vi.spyOn(storage, 'updateCard')
+
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  const good = page.getByRole('button', { name: 'Good', exact: false })
+  await expect.element(good).toBeVisible()
+
+  // Two synchronous clicks land in the same tick, before the first grade's async
+  // persist resolves and re-renders. Only the first should take effect.
+  const el = good.element() as HTMLElement
+  el.click()
+  el.click()
+
+  await vi.waitFor(() => expect(spy).toHaveBeenCalled())
+  expect(spy).toHaveBeenCalledTimes(1)
+})
+
 test('a long answer renders after reveal', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Long')

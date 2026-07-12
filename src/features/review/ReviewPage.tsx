@@ -15,6 +15,7 @@ export function ReviewPage() {
   const storage = useStorage()
 
   const sessionRef = useRef<ReviewSession | null>(null)
+  const gradingRef = useRef(false)
   const [current, setCurrent] = useState<SessionCard | null>(null)
   const [ready, setReady] = useState(false)
   const [revealed, setRevealed] = useState(false)
@@ -75,13 +76,18 @@ export function ReviewPage() {
   const grade = useCallback(
     async (g: Grade) => {
       const session = sessionRef.current
-      if (!current || !nexts || !session) return
-      await storage.updateCard(current.card.id, { scheduling: nexts[g] })
-      session.grade(Date.now(), nexts[g])
-      setCurrent(session.next(Date.now()))
-      setRevealed(false)
-      setNexts(null)
-      setSchedError(false)
+      if (!current || !nexts || !session || gradingRef.current) return
+      gradingRef.current = true
+      try {
+        await storage.updateCard(current.card.id, { scheduling: nexts[g] })
+        session.grade(Date.now(), nexts[g])
+        setCurrent(session.next(Date.now()))
+        setRevealed(false)
+        setNexts(null)
+        setSchedError(false)
+      } finally {
+        gradingRef.current = false
+      }
     },
     [current, nexts, storage],
   )
@@ -131,7 +137,7 @@ export function ReviewPage() {
           <div className="ico">🎉</div>
           <h3>Review complete</h3>
           <p>
-            {reviewed} card{reviewed === 1 ? '' : 's'} done. Nice work.
+            {reviewed} review{reviewed === 1 ? '' : 's'} done. Nice work.
           </p>
           <Link to={backTo} className="btn btn-primary cta">
             {deckId ? 'Back to deck' : 'Back to Today'}
