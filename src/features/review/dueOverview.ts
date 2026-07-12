@@ -1,5 +1,7 @@
 import type { Card, Deck, SchedulingState } from '../../domain/models'
 import type { Storage } from '../../data/Storage'
+import { localDay } from './day'
+import { buildSessionCards } from './session'
 
 /** A card the user has never studied (still in the New state). */
 export function isNew(s: SchedulingState): boolean {
@@ -10,7 +12,7 @@ export interface DeckOverview {
   deck: Deck
   /** Cards due at or before `now`. */
   due: number
-  /** First-time cards in the deck (regardless of due date). */
+  /** First-time cards among the due/capped set. */
   newCount: number
   /** Total cards in the deck. */
   total: number
@@ -31,21 +33,33 @@ export interface DueOverview {
  */
 export async function loadDueOverview(storage: Storage, now: number): Promise<DueOverview> {
   const allDecks = await storage.listDecks()
+  const day = localDay(now)
   const decks: DeckOverview[] = []
   const queue: Card[] = []
 
   for (const deck of allDecks) {
-    const [cards, dueList] = await Promise.all([
+    const [cards, dueList, stat] = await Promise.all([
       storage.listCards(deck.id),
       storage.dueCards(deck.id, now),
+      storage.getDailyStat(deck.id, day),
     ])
+    const caps = {
+      newSlots: deck.settings.newPerDay - stat.newIntroduced,
+      reviewSlots: deck.settings.maxReviews - stat.reviewsDone,
+    }
+    const capped = buildSessionCards(
+      dueList.map((card) => ({ card, settings: deck.settings })),
+      deck.settings.insertionOrder,
+      caps,
+    ).map((c) => c.card)
+
     decks.push({
       deck,
-      due: dueList.length,
-      newCount: cards.filter((c) => isNew(c.scheduling)).length,
+      due: capped.length,
+      newCount: capped.filter((c) => isNew(c.scheduling)).length,
       total: cards.length,
     })
-    queue.push(...dueList)
+    queue.push(...capped)
   }
 
   const totalDue = queue.length

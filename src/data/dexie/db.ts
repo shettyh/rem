@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Asset, Card, Deck, Tombstone } from '../../domain/models'
+import type { Asset, Card, DailyStat, Deck, Tombstone } from '../../domain/models'
 import { getScheduler } from '../../domain/scheduler'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 import { deckColor } from '../../ui/deckColor'
@@ -10,6 +10,7 @@ export class RemDB extends Dexie {
   cards!: EntityTable<Card, 'id'>
   tombstones!: EntityTable<Tombstone, 'id'>
   assets!: EntityTable<Asset, 'hash'>
+  dailyStats!: EntityTable<DailyStat, 'id'>
 
   constructor(name = 'rem') {
     super(name)
@@ -95,5 +96,13 @@ export class RemDB extends Dexie {
           if (c.scheduling && c.scheduling.step === undefined) c.scheduling.step = 0
         })
       })
+    // v8: add the dailyStats table for daily caps (#3b). Additive — existing data untouched.
+    this.version(8).stores({
+      decks: 'id, createdAt',
+      cards: 'id, deckId, createdAt',
+      tombstones: 'id, deletedAt',
+      assets: 'hash',
+      dailyStats: 'id, deckId, day',
+    })
   }
 }

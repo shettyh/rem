@@ -129,3 +129,27 @@ describe('SM-2 removal migration (v5)', () => {
     db.close()
   })
 })
+
+describe('daily-caps migration (v8)', () => {
+  it('adds an empty dailyStats table and leaves existing data intact', async () => {
+    const v7 = new Dexie(NAME)
+    v7.version(7).stores({
+      decks: 'id, createdAt',
+      cards: 'id, deckId, createdAt',
+      tombstones: 'id, deletedAt',
+      assets: 'hash',
+    })
+    await v7.open()
+    await v7.table('cards').add({
+      id: 'c1', deckId: 'd1', front: 'q', back: 'a', createdAt: 1, updatedAt: 1,
+      scheduling: { kind: 'fsrs', stability: 5, difficulty: 5, reps: 3, lapses: 1, state: 2, step: 0, lastReview: 100, due: 200 },
+    })
+    v7.close()
+
+    const db = new RemDB(NAME)
+    const card = await db.cards.get('c1')
+    expect(card?.front).toBe('q')
+    expect(await db.dailyStats.count()).toBe(0)
+    db.close()
+  })
+})

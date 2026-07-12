@@ -9,6 +9,7 @@ import { MarkdownView } from '../cards/MarkdownView'
 import { GradeButtons } from './GradeButtons'
 import { loadDueOverview, shuffle } from './dueOverview'
 import { ReviewSession, buildSessionCards, type SessionCard } from './session'
+import { localDay } from './day'
 
 export function ReviewPage() {
   const { deckId } = useParams()
@@ -35,8 +36,13 @@ export function ReviewPage() {
         const d = await storage.getDeck(deckId)
         if (!d) return []
         const due = await storage.dueCards(deckId, now)
+        const stat = await storage.getDailyStat(deckId, localDay(now))
+        const caps = {
+          newSlots: d.settings.newPerDay - stat.newIntroduced,
+          reviewSlots: d.settings.maxReviews - stat.reviewsDone,
+        }
         const cards = due.map((card) => ({ card, settings: d.settings }))
-        return buildSessionCards(cards, d.settings.insertionOrder)
+        return buildSessionCards(cards, d.settings.insertionOrder, caps)
       }
       const ov = await loadDueOverview(storage, now)
       const settingsById = new Map<string, DeckSettings>(ov.decks.map((o) => [o.deck.id, o.deck.settings]))
@@ -79,7 +85,11 @@ export function ReviewPage() {
       if (!current || !nexts || !session || gradingRef.current) return
       gradingRef.current = true
       try {
+        const preState = current.card.scheduling.state
         await storage.updateCard(current.card.id, { scheduling: nexts[g] })
+        const day = localDay(Date.now())
+        if (preState === 0) await storage.bumpDailyStat(current.card.deckId, day, 'newIntroduced')
+        else if (preState === 2) await storage.bumpDailyStat(current.card.deckId, day, 'reviewsDone')
         session.grade(Date.now(), nexts[g])
         setCurrent(session.next(Date.now()))
         setRevealed(false)
