@@ -47,6 +47,11 @@ export interface Storage {
   /** How many cards in a deck are due at or before `now`. */
   countDue(deckId: ID, now: number): Promise<number>
 
+  /** Today's cap counters for a deck; zeros when the day has no row yet. */
+  getDailyStat(deckId: ID, day: string): Promise<{ newIntroduced: number; reviewsDone: number }>
+  /** Increment one of a deck's daily counters by 1 (upsert). */
+  bumpDailyStat(deckId: ID, day: string, field: 'newIntroduced' | 'reviewsDone'): Promise<void>
+
   /** Insert decks+cards; any existing deck whose name matches an incoming deck
    *  is removed first (replace-by-name). IDs are regenerated. */
   importDecks(decks: DeckBackup[]): Promise<ImportResult>
