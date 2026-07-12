@@ -33,6 +33,37 @@ describe('buildSessionCards', () => {
   })
 })
 
+describe('buildSessionCards caps', () => {
+  it('caps new cards to newSlots by insertion order', () => {
+    const cards = [card('n1', 10, sched(0, 0)), card('n2', 20, sched(0, 0)), card('n3', 30, sched(0, 0))]
+    const out = buildSessionCards(cards, 'sequential', { newSlots: 2, reviewSlots: Infinity }).map((c) => c.card.id)
+    expect(out).toEqual(['n1', 'n2'])
+  })
+
+  it('caps review cards to reviewSlots, keeping earliest due', () => {
+    const cards = [card('r1', 1, sched(2, 100)), card('r2', 2, sched(2, 200)), card('r3', 3, sched(2, 300))]
+    const out = buildSessionCards(cards, 'sequential', { newSlots: Infinity, reviewSlots: 2 }).map((c) => c.card.id)
+    expect(out).toEqual(['r1', 'r2'])
+  })
+
+  it('never caps in-progress learning/relearning cards', () => {
+    const cards = [card('l1', 1, sched(1, 0)), card('rl1', 2, sched(3, 0)), card('n1', 3, sched(0, 0))]
+    const out = buildSessionCards(cards, 'sequential', { newSlots: 0, reviewSlots: 0 }).map((c) => c.card.id).sort()
+    expect(out).toEqual(['l1', 'rl1'])
+  })
+
+  it('treats negative slots as zero', () => {
+    const cards = [card('n1', 1, sched(0, 0)), card('r1', 2, sched(2, 0))]
+    expect(buildSessionCards(cards, 'sequential', { newSlots: -3, reviewSlots: -1 })).toEqual([])
+  })
+
+  it('defaults to uncapped when caps omitted', () => {
+    const cards = [card('n1', 1, sched(0, 0)), card('n2', 2, sched(0, 0)), card('r1', 3, sched(2, 0))]
+    const out = buildSessionCards(cards, 'sequential').map((c) => c.card.id)
+    expect(out).toEqual(['r1', 'n1', 'n2'])
+  })
+})
+
 describe('ReviewSession', () => {
   it('serves due cards in order and counts reviewed/remaining', () => {
     const now = 1000

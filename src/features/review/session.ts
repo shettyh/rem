@@ -9,16 +9,43 @@ export interface SessionCard {
   settings: DeckSettings
 }
 
-/** Initial single-deck order: due reviews first (by due), then new cards in
- *  the deck's insertion order. */
-export function buildSessionCards(cards: SessionCard[], order: InsertionOrder): SessionCard[] {
+export interface Caps {
+  newSlots: number
+  reviewSlots: number
+}
+
+/** Initial single-deck order: in-progress + due reviews first (by due), then new
+ *  cards in insertion order. `caps` bounds how many New (state 0) and Review
+ *  (state 2) cards enter; learning/relearning (state 1/3) are never capped. */
+export function buildSessionCards(
+  cards: SessionCard[],
+  order: InsertionOrder,
+  caps: Caps = { newSlots: Infinity, reviewSlots: Infinity },
+): SessionCard[] {
+  const newSlots = Math.max(0, caps.newSlots)
+  const reviewSlots = Math.max(0, caps.reviewSlots)
+
   const news = cards.filter((c) => c.card.scheduling.state === 0)
-  const rest = cards.filter((c) => c.card.scheduling.state !== 0)
-  const orderedNew =
+  const reviews = cards.filter((c) => c.card.scheduling.state === 2)
+  const inProgress = cards.filter(
+    (c) => c.card.scheduling.state === 1 || c.card.scheduling.state === 3,
+  )
+
+  const orderedNew = (
     order === 'random'
       ? shuffle(news)
       : news.slice().sort((a, b) => a.card.createdAt - b.card.createdAt)
-  const orderedRest = rest.slice().sort((a, b) => a.card.scheduling.due - b.card.scheduling.due)
+  ).slice(0, newSlots)
+
+  const keptReview = reviews
+    .slice()
+    .sort((a, b) => a.card.scheduling.due - b.card.scheduling.due)
+    .slice(0, reviewSlots)
+
+  const orderedRest = [...inProgress, ...keptReview].sort(
+    (a, b) => a.card.scheduling.due - b.card.scheduling.due,
+  )
+
   return [...orderedRest, ...orderedNew]
 }
 
