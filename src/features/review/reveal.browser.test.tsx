@@ -147,3 +147,53 @@ test('enforces newPerDay: only the day\'s new allowance enters the session', asy
     expect(stat.newIntroduced).toBe(1)
   })
 })
+
+test('grading a Review-state card bumps reviewsDone, not newIntroduced', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Reviews')
+  const c = await storage.createCard(deck.id, 'Q?', 'A.')
+  await storage.updateCard(c.id, {
+    scheduling: { kind: 'fsrs', stability: 10, difficulty: 5, reps: 3, lapses: 0, state: 2, step: 0, lastReview: null, due: 0 },
+  })
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await page.getByRole('button', { name: 'Good', exact: false }).click()
+
+  await vi.waitFor(async () => {
+    const stat = await storage.getDailyStat(deck.id, localDay(Date.now()))
+    expect(stat.reviewsDone).toBe(1)
+  })
+  const stat = await storage.getDailyStat(deck.id, localDay(Date.now()))
+  expect(stat.newIntroduced).toBe(0)
+})
+
+test('grading a learning-step card persists but bumps no counter', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Learning')
+  const c = await storage.createCard(deck.id, 'Q?', 'A.')
+  await storage.updateCard(c.id, {
+    scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 1, step: 0, lastReview: null, due: 0 },
+  })
+  // Spy AFTER the state-setup update so only the grade's persist is counted.
+  const updateSpy = vi.spyOn(storage, 'updateCard')
+  const bumpSpy = vi.spyOn(storage, 'bumpDailyStat')
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await page.getByRole('button', { name: 'Good', exact: false }).click()
+
+  // The grade persisted the card (updateCard fired) but bumped no daily counter.
+  await vi.waitFor(() => expect(updateSpy).toHaveBeenCalled())
+  expect(bumpSpy).not.toHaveBeenCalled()
+})
