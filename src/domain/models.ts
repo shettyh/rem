@@ -100,6 +100,15 @@ export interface Asset {
   createdAt: number
 }
 
+/** Per-deck, per-day cap counters (#3b). Local-only — not synced or backed up. */
+export interface DailyStat {
+  id: string          // `${deckId}:${day}`
+  deckId: ID
+  day: string         // local calendar date, YYYY-MM-DD
+  newIntroduced: number
+  reviewsDone: number
+}
+
 /** Records that a deck or card was deleted, so the deletion propagates on sync. */
 export interface Tombstone {
   id: ID
