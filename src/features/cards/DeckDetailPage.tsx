@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
@@ -6,6 +7,7 @@ import { MS_PER_DAY } from '../../domain/scheduler'
 import { PageHeader } from '../../ui/PageHeader'
 import { deckColor } from '../../ui/deckColor'
 import { isNew } from '../review/dueOverview'
+import { userTags } from './cardTags'
 
 /** First non-empty line of markdown, reduced to plain text for a one-line card preview. */
 export function cardPreview(md: string): string {
@@ -40,6 +42,7 @@ export function DeckDetailPage() {
   const { deckId } = useParams()
   const storage = useStorage()
   const navigate = useNavigate()
+  const [tagFilter, setTagFilter] = useState('')
 
   const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const cards = useLiveQuery(() => (deckId ? storage.listCards(deckId) : []), [deckId])
@@ -49,6 +52,11 @@ export function DeckDetailPage() {
 
   const now = Date.now()
   const newCount = cards.filter((c) => isNew(c.scheduling)).length
+  const tagOptions = [...new Set(cards.flatMap((card) => userTags(card.tags)))]
+    .sort((a, b) => a.localeCompare(b))
+  const visibleCards = tagFilter
+    ? cards.filter((card) => card.tags.includes(tagFilter))
+    : cards
 
   const title = (
     <>
@@ -110,9 +118,28 @@ export function DeckDetailPage() {
               </div>
             </div>
 
+            {tagOptions.length > 0 && (
+              <div className="card-list-tools">
+                <label className="field-label" htmlFor="tag-filter">Filter by tag</label>
+                <select
+                  id="tag-filter"
+                  className="card-tag-filter"
+                  value={tagFilter}
+                  onChange={(event) => setTagFilter(event.target.value)}
+                >
+                  <option value="">All tags</option>
+                  {tagOptions.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
+                </select>
+                <span className="card-filter-count">
+                  {visibleCards.length} of {cards.length} cards
+                </span>
+              </div>
+            )}
+
             <div className="card-list">
-              {cards.map((card) => {
+              {visibleCards.map((card) => {
                 const status = cardStatus(card, now)
+                const tags = userTags(card.tags)
                 return (
                   <button
                     key={card.id}
@@ -123,6 +150,11 @@ export function DeckDetailPage() {
                       {cardPreview(card.front) || <span className="muted">Untitled card</span>}
                     </span>
                     <span className="card-back">{cardPreview(card.back)}</span>
+                    {tags.length > 0 && (
+                      <span className="card-user-tags" aria-label={`Tags: ${tags.join(', ')}`}>
+                        {tags.map((tag) => <span key={tag} className="card-user-tag">{tag}</span>)}
+                      </span>
+                    )}
                     <span className={`status-tag status-${status.kind}`}>{status.label}</span>
                   </button>
                 )

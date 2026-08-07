@@ -90,7 +90,7 @@ export interface Card {
   back: string
   createdAt: number
   updatedAt: number
-  /** Durable labels. `leech` is the only system tag today. */
+  /** Durable user labels plus system-owned metadata such as `leech`. */
   tags: string[]
   /** Suspended cards stay stored/editable but do not enter due queues. */
   suspended: boolean

@@ -44,8 +44,8 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
     run: async () => {
       const storage = freshStorage()
       const deck = await storage.createDeck('TypeScript')
-      await storage.createCard(deck.id, 'What is the `never` type?', 'The empty type.')
-      await storage.createCard(deck.id, 'What does `satisfies` do?', 'Checks without widening.')
+      await storage.createCard(deck.id, 'What is the `never` type?', 'The empty type.', ['types'])
+      await storage.createCard(deck.id, 'What does `satisfies` do?', 'Checks without widening.', ['syntax'])
       await renderRoute({ storage, entry: `/decks/${deck.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
       await expect.element(page.getByText('Study', { exact: false })).toBeVisible()
     },
@@ -119,7 +119,7 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
     run: async () => {
       const storage = freshStorage()
       const deck = await storage.createDeck('TypeScript')
-      await storage.createCard(deck.id, 'How to narrow `unknown`?', CODE_BACK)
+      await storage.createCard(deck.id, 'How to narrow `unknown`?', CODE_BACK, ['types', 'guards'])
       await renderRoute({
         storage,
         entry: `/decks/${deck.id}`,

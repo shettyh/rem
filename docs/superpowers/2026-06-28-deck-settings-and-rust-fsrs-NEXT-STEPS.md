@@ -2,6 +2,12 @@
 
 _Last updated: 2026-08-07_
 
+> **Update 2026-08-07 (Card tags):** Daily reminders were deferred at the user's request. User-defined
+> comma-separated card tags are implemented on `feat/card-tags`: create/edit persistence, automatic
+> preservation of the system-owned `leech` tag, deck-list tag chips, and per-tag filtering. Full
+> verification is green: 292 TypeScript/browser tests, build, and 15 Rust tests. **Recommended next
+> product slice = CLI card creation.**
+>
 > **Update 2026-08-07 (Stats):** The review-log-backed Stats screen is implemented on
 > `feat/stats-screen`: global/deck filtering, 7/30/90-day activity, recall, streak, active days,
 > grade distribution, and deck breakdown. Automated verification is green: 288 TypeScript/browser

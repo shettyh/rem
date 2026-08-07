@@ -49,7 +49,7 @@ export interface Storage {
   deleteDeck(id: ID): Promise<void>
   updateDeck(id: ID, patch: DeckPatch): Promise<void>
 
-  createCard(deckId: ID, front: string, back: string): Promise<Card>
+  createCard(deckId: ID, front: string, back: string, tags?: string[]): Promise<Card>
   getCard(id: ID): Promise<Card | undefined>
   listCards(deckId: ID): Promise<Card[]>
   updateCard(id: ID, patch: CardPatch): Promise<void>
