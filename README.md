@@ -1,8 +1,8 @@
 # rem
 
 A clean, local-first spaced-repetition flashcard **desktop app** — markdown cards (text + code),
-deck organisation, FSRS scheduling, and git-backed sync across machines. Think AnkiDroid,
-less clunky.
+deck organisation, FSRS scheduling, review statistics, and git-backed sync across machines. Think
+AnkiDroid, less clunky.
 
 > **Native only.** rem is a [Tauri](https://tauri.app) desktop app. It syncs by shelling out to
 > your system `git`, which a browser can't do, so the web build is unsupported — opening the dev
