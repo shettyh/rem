@@ -15,8 +15,8 @@ export interface Deck {
 export type InsertionOrder = 'sequential' | 'random'
 export type LeechAction = 'tag' | 'suspend'
 
-/** Per-deck options. Persisted by sub-project #1; the review queue starts
- *  honouring steps/caps/order/leech/burying in #3. */
+/** Per-deck options. The review queue honours steps, caps, order, and leeches;
+ *  burying awaits a real note/template/sibling model. */
 export interface DeckSettings {
   newPerDay: number
   maxReviews: number

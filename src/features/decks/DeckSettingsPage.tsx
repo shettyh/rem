@@ -250,7 +250,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
             <div className="ds-row">
               <div>
                 <div className="ds-row-title">Bury related new cards</div>
-                <div className="ds-row-sub">Hold siblings until the next day.</div>
+                <div className="ds-row-sub">Saved for future sibling-card support; not enforced yet.</div>
               </div>
               <Toggle checked={settings.buryRelated} onChange={(v) => set('buryRelated', v)} label="Bury related new cards" />
             </div>
