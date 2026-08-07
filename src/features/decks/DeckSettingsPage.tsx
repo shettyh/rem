@@ -10,6 +10,11 @@ import { SegToggle } from '../../ui/SegToggle'
 import { Toggle } from '../../ui/Toggle'
 import { DECK_PALETTE, deckColor } from '../../ui/deckColor'
 import { parseSteps } from '../../domain/scheduler/steps'
+import {
+  CUSTOM_STUDY_PRESETS,
+  customStudyPreset,
+  type CustomStudyMode,
+} from '../review/customStudy'
 
 export function DeckSettingsPage() {
   const { deckId } = useParams()
@@ -26,6 +31,15 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
   const [color, setColor] = useState(deck.color)
   const [settings, setSettings] = useState<DeckSettings>(deck.settings)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [customMode, setCustomMode] = useState<CustomStudyMode | null>(null)
+  const [customAmount, setCustomAmount] = useState(1)
+
+  const customPreset = customMode ? customStudyPreset(customMode) : null
+  function selectCustomMode(mode: CustomStudyMode) {
+    const preset = customStudyPreset(mode)
+    setCustomMode(mode)
+    setCustomAmount(preset.defaultAmount)
+  }
 
   function pickColor(c: string) {
     setColor(c)
@@ -223,25 +237,43 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
             </div>
           </div>
 
-          {/* CUSTOM STUDY (inert — behaviour is sub-project #4) */}
+          {/* CUSTOM STUDY */}
           <div className="ds-label">Custom study</div>
           <div className="ds-grid">
-            {[
-              { title: 'Study ahead', sub: 'Review cards due later.' },
-              { title: 'Increase new', sub: 'More new cards today.' },
-              { title: 'Review forgotten', sub: 'Re-see recent lapses.' },
-              { title: 'Preview new', sub: 'Peek at upcoming cards.' },
-            ].map((p) => (
-              <button key={p.title} type="button" className="ds-preset" disabled>
-                <span className="ds-preset-title">{p.title}</span>
-                <span className="ds-preset-sub">{p.sub}</span>
+            {CUSTOM_STUDY_PRESETS.map((preset) => (
+              <button
+                key={preset.mode}
+                type="button"
+                className={preset.mode === customMode ? 'ds-preset is-active' : 'ds-preset'}
+                aria-pressed={preset.mode === customMode}
+                onClick={() => selectCustomMode(preset.mode)}
+              >
+                <span className="ds-preset-title">{preset.title}</span>
+                <span className="ds-preset-sub">{preset.description}</span>
               </button>
             ))}
           </div>
           <div className="ds-custom-run">
-            <div className="ds-row-title">Custom study</div>
-            <Stepper value={10} onChange={() => {}} label="Custom study count" step={5} min={5} max={999} />
-            <button type="button" className="btn btn-primary" disabled>Start</button>
+            <div className="ds-row-title">{customPreset?.title ?? 'Select a preset'}</div>
+            {customPreset && (
+              <Stepper
+                value={customAmount}
+                onChange={setCustomAmount}
+                label={`${customPreset.title} ${customPreset.unit}`}
+                step={customPreset.step}
+                min={1}
+                max={999}
+                format={(value) => `${value} ${customPreset.unit === 'days' ? `day${value === 1 ? '' : 's'}` : `card${value === 1 ? '' : 's'}`}`}
+              />
+            )}
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!customMode}
+              onClick={() => navigate(`/decks/${deck.id}/study?custom=${customMode}&amount=${customAmount}`)}
+            >
+              Start
+            </button>
           </div>
 
           {/* BURYING & TIMER */}

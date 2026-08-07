@@ -155,6 +155,32 @@ describe('leech metadata migration (v9)', () => {
   })
 })
 
+describe('custom-study metadata migration (v10)', () => {
+  it('backfills lastAgainAt without changing existing card metadata', async () => {
+    const v9 = new Dexie(NAME)
+    v9.version(9).stores({
+      decks: 'id, createdAt',
+      cards: 'id, deckId, createdAt',
+      tombstones: 'id, deletedAt',
+      assets: 'hash',
+      dailyStats: 'id, deckId, day',
+    })
+    await v9.open()
+    await v9.table('cards').add({
+      id: 'c1', deckId: 'd1', front: 'q', back: 'a', createdAt: 1, updatedAt: 1,
+      tags: ['leech'], suspended: false,
+      scheduling: { kind: 'fsrs', stability: 5, difficulty: 5, reps: 3, lapses: 2, state: 2, step: 0, lastReview: 100, due: 200 },
+    })
+    v9.close()
+
+    const db = new RemDB(NAME)
+    const card = await db.cards.get('c1')
+    expect(card).toMatchObject({ tags: ['leech'], suspended: false, lastAgainAt: null })
+    expect(card?.scheduling.lapses).toBe(2)
+    db.close()
+  })
+})
+
 describe('daily-caps migration (v8)', () => {
   it('adds an empty dailyStats table and leaves existing data intact', async () => {
     const v7 = new Dexie(NAME)

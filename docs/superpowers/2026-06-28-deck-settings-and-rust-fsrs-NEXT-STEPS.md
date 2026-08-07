@@ -2,11 +2,16 @@
 
 _Last updated: 2026-08-07_
 
-> **Update 2026-08-07 (#3c):** Leech handling is implemented on `feat/leech-handling`:
-> durable `leech` tags/suspension, per-deck threshold actions, due-queue exclusion, and editor
-> recovery. Related-card burying is explicitly deferred because rem has no note/template/sibling
-> model; guessing relationships would not be Anki-faithful. **Recommended next actionable slice
-> after integration = #4 Custom study**, unless the note/template model is prioritized first.
+> **Update 2026-08-07 (#4):** Custom study is implemented on `feat/custom-study`: temporary
+> study-ahead, additional-new, forgotten-card, and non-rescheduling new-card preview sessions;
+> `lastAgainAt` provides exact forgotten-card selection. Automated verification is green:
+> 262 TypeScript/browser tests, build, and 11 Rust tests. **Recommended next actionable slice after
+> integration = #5 FSRS weight optimization.**
+>
+> **Update 2026-08-07 (#3c):** Leech handling is DONE, merged to `main` (PR #6, merge
+> `0b71233`). It added durable `leech` tags/suspension, per-deck threshold actions, due-queue
+> exclusion, and editor recovery. Related-card burying remains deferred until rem has a real
+> note/template/sibling model.
 >
 > **Update 2026-08-07 (#3b):** Daily caps are DONE, merged to `main` (PR #3, merge
 > `6f8e58c`). They added Dexie v8 daily counters, per-deck queue/Today caps, and grade accounting.
@@ -61,10 +66,10 @@ the concrete next action for everything still pending so a future session can pi
 | 2 | **Rust FSRS scheduling core** | ✅ **DONE — merged to `main` (`0fc5f8d`)** | 1 (for real params) |
 | 3a | **Review-queue steps** (learning/relearning steps, real per-deck params, insertion order) | ✅ **DONE — merged to `main` (`8289d7d`, PR #1)** | 1, 2 |
 | 3b | **Daily caps** (`newPerDay`/`maxReviews` + daily-counter infra) | ✅ **DONE — merged to `main` (`6f8e58c`, PR #3)** | 3a |
-| 3c.1 | **Leech handling** (tag/suspend + recovery) | ✅ **IMPLEMENTED — awaiting merge from `feat/leech-handling`** | 3a |
+| 3c.1 | **Leech handling** (tag/suspend + recovery) | ✅ **DONE — merged to `main` (`0b71233`, PR #6)** | 3a |
 | 3c.2 | **Related-card burying** | **DEFERRED — requires note/template/sibling model** | note model |
-| 4 | **Custom study** (study-ahead / increase-new / review-forgotten / preview-new) | **NOT STARTED ← do next** | 3 |
-| 5 | **FSRS weight optimization** (train personalised weights from review logs) | NOT STARTED | 2, 3 |
+| 4 | **Custom study** (study-ahead / increase-new / review-forgotten / preview-new) | ✅ **IMPLEMENTED — awaiting merge from `feat/custom-study`** | 3 |
+| 5 | **FSRS weight optimization** (train personalised weights from review logs) | **NOT STARTED ← do next** | 2, 3 |
 
 Each sub-project is its own cycle: **brainstorming → writing-plans → subagent-driven-development →
 finishing-a-development-branch.** Specs go in `docs/superpowers/specs/`, plans in

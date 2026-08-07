@@ -8,7 +8,7 @@ function fsrs(reps: number): SchedulingState {
   return { kind: 'fsrs', stability: 1, difficulty: 5, reps, lapses: 0, state: reps === 0 ? 0 : 2, step: 0, lastReview: null, due: 0 }
 }
 function card(id: ID, deckId: ID, scheduling: SchedulingState): Card {
-  return { id, deckId, front: id, back: id, createdAt: 0, updatedAt: 0, tags: [], suspended: false, scheduling }
+  return { id, deckId, front: id, back: id, createdAt: 0, updatedAt: 0, tags: [], suspended: false, lastAgainAt: null, scheduling }
 }
 function deck(id: ID): Deck {
   return { id, name: id, createdAt: 0, updatedAt: 0, color: '#7e6cff', schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }

@@ -7,6 +7,8 @@ export const LEARN_AHEAD_MS = 20 * 60_000
 export interface SessionCard {
   card: Card
   settings: DeckSettings
+  /** Custom-study cards may enter once before their scheduling due date. */
+  forceDue?: boolean
 }
 
 export interface Caps {
@@ -69,8 +71,8 @@ export class ReviewSession {
   }
 
   next(now: number): SessionCard | null {
-    // First card already due, in queue order.
-    let pick = this.queue.findIndex((c) => c.card.scheduling.due <= now)
+    // First card already due (or selected by custom study), in queue order.
+    let pick = this.queue.findIndex((c) => c.forceDue || c.card.scheduling.due <= now)
     if (pick < 0) {
       // Nothing due — learn-ahead: the earliest-due card, if within the window.
       if (this.queue.length === 0) {
@@ -95,12 +97,18 @@ export class ReviewSession {
   grade(now: number, next: FSRSState, options: { requeue?: boolean } = {}): void {
     const cur = this.current
     if (!cur) return
-    this._reviewed += 1
-    this.current = null
+    this.complete()
     const stillStepping = options.requeue !== false &&
       (next.state === 1 || next.state === 3) && next.due - now <= LEARN_AHEAD_MS
     if (stillStepping) {
-      this.queue.push({ ...cur, card: { ...cur.card, scheduling: next } })
+      this.queue.push({ ...cur, forceDue: false, card: { ...cur.card, scheduling: next } })
     }
+  }
+
+  /** Finish the current card without scheduling it (used by preview mode). */
+  complete(): void {
+    if (!this.current) return
+    this._reviewed += 1
+    this.current = null
   }
 }

@@ -20,6 +20,7 @@ const sample: RepoSnapshot = {
       updatedAt: 3,
       tags: ['leech'],
       suspended: true,
+      lastAgainAt: 2,
       scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 4 },
     },
   ],
@@ -77,6 +78,6 @@ describe('snapshot', () => {
     }
     const snap = deserializeSnapshot(files)
     expect(snap.cards[0].scheduling).toMatchObject({ step: 0 })
-    expect(snap.cards[0]).toMatchObject({ tags: [], suspended: false })
+    expect(snap.cards[0]).toMatchObject({ tags: [], suspended: false, lastAgainAt: null })
   })
 })

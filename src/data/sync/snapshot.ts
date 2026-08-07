@@ -32,6 +32,7 @@ function normalizeCard(c: CardRecord): CardRecord {
     ...c,
     tags: Array.isArray(c.tags) && c.tags.every((tag) => typeof tag === 'string') ? c.tags : [],
     suspended: c.suspended === true,
+    lastAgainAt: typeof c.lastAgainAt === 'number' ? c.lastAgainAt : null,
     scheduling,
   }
 }
@@ -45,6 +46,7 @@ export interface CardRecord {
   updatedAt: number
   tags: string[]
   suspended: boolean
+  lastAgainAt: number | null
   scheduling: SchedulingState
 }
 

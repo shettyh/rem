@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import type { DeckSettings, FSRSState, Grade, LeechAction } from '../../domain/models'
 import { nextStates } from '../../domain/scheduler/reviewScheduler'
 import { useStorage } from '../../data/StorageContext'
+import type { CardPatch } from '../../data/Storage'
 import { PageHeader } from '../../ui/PageHeader'
 import { MarkdownView } from '../cards/MarkdownView'
 import { GradeButtons } from './GradeButtons'
@@ -11,10 +12,20 @@ import { loadDueOverview, shuffle } from './dueOverview'
 import { ReviewSession, buildSessionCards, type SessionCard } from './session'
 import { localDay } from './day'
 import { leechEffect } from './leech'
+import {
+  customStudyPreset,
+  parseCustomStudyRequest,
+  selectCustomStudyCards,
+} from './customStudy'
 
 export function ReviewPage() {
   const { deckId } = useParams()
   const storage = useStorage()
+  const [searchParams] = useSearchParams()
+  const customRequest = deckId ? parseCustomStudyRequest(searchParams) : null
+  const customMode = customRequest?.mode ?? null
+  const customAmount = customRequest?.amount ?? null
+  const isPreview = customMode === 'preview-new'
 
   const sessionRef = useRef<ReviewSession | null>(null)
   const gradingRef = useRef(false)
@@ -28,7 +39,9 @@ export function ReviewPage() {
 
   const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const deckName = deckId ? (deck?.name ?? '') : 'All decks'
-  const backTo = deckId ? `/decks/${deckId}` : '/'
+  const customTitle = customMode ? customStudyPreset(customMode).title : null
+  const backTo = customMode && deckId ? `/decks/${deckId}/options` : deckId ? `/decks/${deckId}` : '/'
+  const backLabel = customMode ? 'Back to options' : deckId ? 'Back to deck' : 'Back to Today'
 
   useEffect(() => {
     let active = true
@@ -37,10 +50,18 @@ export function ReviewPage() {
       if (deckId) {
         const d = await storage.getDeck(deckId)
         if (!d) return []
-        const due = await storage.dueCards(deckId, now)
         const stat = await storage.getDailyStat(deckId, localDay(now))
+        const newSlots = d.settings.newPerDay - stat.newIntroduced
+        if (customMode && customAmount !== null) {
+          const cards = await storage.listCards(deckId)
+          return selectCustomStudyCards(cards, { mode: customMode, amount: customAmount }, now, {
+            insertionOrder: d.settings.insertionOrder,
+            normalNewSlots: newSlots,
+          }).map((card) => ({ card, settings: d.settings, forceDue: true }))
+        }
+        const due = await storage.dueCards(deckId, now)
         const caps = {
-          newSlots: d.settings.newPerDay - stat.newIntroduced,
+          newSlots,
           reviewSlots: d.settings.maxReviews - stat.reviewsDone,
         }
         const cards = due.map((card) => ({ card, settings: d.settings }))
@@ -60,7 +81,7 @@ export function ReviewPage() {
     return () => {
       active = false
     }
-  }, [deckId, storage])
+  }, [deckId, storage, customMode, customAmount])
 
   const fetchNexts = useCallback((sc: SessionCard, now: number) => {
     setSchedError(false)
@@ -78,8 +99,16 @@ export function ReviewPage() {
     const now = Date.now()
     setRevealed(true)
     setRevealedAt(now)
-    fetchNexts(current, now)
-  }, [current, revealed, fetchNexts])
+    if (!isPreview) fetchNexts(current, now)
+  }, [current, revealed, isPreview, fetchNexts])
+
+  const advancePreview = useCallback(() => {
+    const session = sessionRef.current
+    if (!isPreview || !session) return
+    session.complete()
+    setCurrent(session.next(Date.now()))
+    setRevealed(false)
+  }, [isPreview])
 
   const grade = useCallback(
     async (g: Grade) => {
@@ -87,16 +116,21 @@ export function ReviewPage() {
       if (!current || !nexts || !session || gradingRef.current) return
       gradingRef.current = true
       try {
+        const gradedAt = Date.now()
         const preState = current.card.scheduling.state
         const next = nexts[g]
         const effect = leechEffect(current.card, current.settings, g, next)
-        await storage.updateCard(current.card.id, effect
-          ? { scheduling: next, tags: effect.tags, suspended: effect.suspended }
-          : { scheduling: next })
-        const day = localDay(Date.now())
+        const patch: CardPatch = { scheduling: next }
+        if (effect) {
+          patch.tags = effect.tags
+          patch.suspended = effect.suspended
+        }
+        if (g === 'again') patch.lastAgainAt = gradedAt
+        await storage.updateCard(current.card.id, patch)
+        const day = localDay(gradedAt)
         if (preState === 0) await storage.bumpDailyStat(current.card.deckId, day, 'newIntroduced')
         else if (preState === 2) await storage.bumpDailyStat(current.card.deckId, day, 'reviewsDone')
-        session.grade(Date.now(), next, { requeue: effect?.suspended !== true })
+        session.grade(gradedAt, next, { requeue: effect?.suspended !== true })
         setCurrent(session.next(Date.now()))
         setRevealed(false)
         setNexts(null)
@@ -119,6 +153,11 @@ export function ReviewPage() {
         }
         return
       }
+      if (isPreview && (e.code === 'Space' || e.key === 'Enter')) {
+        e.preventDefault()
+        advancePreview()
+        return
+      }
       const byKey: Record<string, Grade> = { '1': 'again', '2': 'hard', '3': 'good', '4': 'easy' }
       const g = byKey[e.key]
       if (g) {
@@ -128,7 +167,7 @@ export function ReviewPage() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [current, revealed, reveal, grade])
+  }, [current, revealed, isPreview, reveal, advancePreview, grade])
 
   if (!ready) return null
 
@@ -145,11 +184,15 @@ export function ReviewPage() {
         <div className="page-body">
           <div className="empty-state">
             <div className="ico">🌙</div>
-            <h3>Nothing due</h3>
-            <p>{deckId ? 'Nothing due in this deck right now.' : 'Nothing due across your decks right now.'}</p>
-            <Link to={backTo} className="btn btn-ghost cta">
-              {deckId ? 'Back to deck' : 'Back to Today'}
-            </Link>
+            <h3>{customMode ? 'No matching cards' : 'Nothing due'}</h3>
+            <p>
+              {customMode
+                ? `No cards match ${customTitle?.toLowerCase()} right now.`
+                : deckId
+                  ? 'Nothing due in this deck right now.'
+                  : 'Nothing due across your decks right now.'}
+            </p>
+            <Link to={backTo} className="btn btn-ghost cta">{backLabel}</Link>
           </div>
         </div>
       )
@@ -158,14 +201,14 @@ export function ReviewPage() {
       <div className="page-body">
         <div className="empty-state">
           <div className="ico">🎉</div>
-          <h3>Review complete</h3>
+          <h3>{isPreview ? 'Preview complete' : 'Review complete'}</h3>
           <p>
-            {reviewed} review{reviewed === 1 ? '' : 's'} done. Nice work.
+            {isPreview
+              ? `${reviewed} card${reviewed === 1 ? '' : 's'} previewed.`
+              : `${reviewed} review${reviewed === 1 ? '' : 's'} done. Nice work.`}
           </p>
           {leechMessage && <p role="status">{leechMessage}</p>}
-          <Link to={backTo} className="btn btn-primary cta">
-            {deckId ? 'Back to deck' : 'Back to Today'}
-          </Link>
+          <Link to={backTo} className="btn btn-primary cta">{backLabel}</Link>
         </div>
       </div>
     )
@@ -178,7 +221,7 @@ export function ReviewPage() {
       <span className="review-pos">
         {reviewed + 1} / {total}
       </span>
-      <span className="review-deck">{deckName}</span>
+      <span className="review-deck">{customTitle ? `${deckName} · ${customTitle}` : deckName}</span>
     </>
   )
 
@@ -217,8 +260,14 @@ export function ReviewPage() {
                 <MarkdownView source={current.card.back} />
               </div>
             </div>
-            {nexts && <GradeButtons nexts={nexts} now={revealedAt} onGrade={grade} />}
-            {schedError && !nexts && (
+            {isPreview ? (
+              <button className="review-show" onClick={advancePreview}>
+                Next card <span className="kbd">space</span>
+              </button>
+            ) : nexts ? (
+              <GradeButtons nexts={nexts} now={revealedAt} onGrade={grade} />
+            ) : null}
+            {!isPreview && schedError && !nexts && (
               <div className="empty-state">
                 <p>Couldn&#39;t schedule this card.</p>
                 <button className="btn btn-ghost" onClick={() => fetchNexts(current, revealedAt)}>

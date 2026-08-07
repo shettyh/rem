@@ -119,5 +119,19 @@ export class RemDB extends Dexie {
           if (c.suspended === undefined) c.suspended = false
         })
       })
+    // v10: exact custom-study forgotten-card selection. Schema unchanged.
+    this.version(10)
+      .stores({
+        decks: 'id, createdAt',
+        cards: 'id, deckId, createdAt',
+        tombstones: 'id, deletedAt',
+        assets: 'hash',
+        dailyStats: 'id, deckId, day',
+      })
+      .upgrade(async (tx) => {
+        await tx.table('cards').toCollection().modify((c) => {
+          if (c.lastAgainAt === undefined) c.lastAgainAt = null
+        })
+      })
   }
 }

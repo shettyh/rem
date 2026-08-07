@@ -15,6 +15,7 @@ export interface CardPatch {
   back?: string
   tags?: string[]
   suspended?: boolean
+  lastAgainAt?: number | null
   scheduling?: SchedulingState
 }
 
