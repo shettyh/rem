@@ -9,7 +9,10 @@ import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 import { deckColor } from '../../ui/deckColor'
 
 const sample: RepoSnapshot = {
-  decks: [{ id: 'd1', name: 'Spanish', createdAt: 1, updatedAt: 1, color: '#7e6cff', schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
+  decks: [{
+    id: 'd1', name: 'Spanish', createdAt: 1, updatedAt: 1, color: '#7e6cff', schedulerKind: 'fsrs',
+    settings: { ...DEFAULT_DECK_SETTINGS, fsrsWeights: [0.2, 1.3] },
+  }],
   cards: [
     {
       id: 'c1',
@@ -24,6 +27,7 @@ const sample: RepoSnapshot = {
       scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 4 },
     },
   ],
+  reviewLogs: [{ id: 'r1', deckId: 'd1', cardId: 'c1', reviewedAt: 4, grade: 'good' }],
   tombstones: [{ id: 'c9', kind: 'card', deletedAt: 5 }],
   assets: [],
 }
@@ -79,5 +83,19 @@ describe('snapshot', () => {
     const snap = deserializeSnapshot(files)
     expect(snap.cards[0].scheduling).toMatchObject({ step: 0 })
     expect(snap.cards[0]).toMatchObject({ tags: [], suspended: false, lastAgainAt: null })
+    expect(snap.reviewLogs).toEqual([])
+  })
+
+  it('normalizes missing personalized weights in an old deck settings payload', () => {
+    const { fsrsWeights: _missing, ...oldSettings } = DEFAULT_DECK_SETTINGS
+    const files = {
+      'rem.json': JSON.stringify({ format: 'rem-sync', version: 1 }),
+      'decks/d1.json': JSON.stringify({
+        deck: { ...sample.decks[0], settings: oldSettings },
+        cards: [],
+      }),
+      'tombstones.json': '[]',
+    }
+    expect(deserializeSnapshot(files).decks[0].settings.fsrsWeights).toBeNull()
   })
 })

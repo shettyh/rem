@@ -102,6 +102,63 @@ describe('cards', () => {
   })
 })
 
+describe('review commits', () => {
+  it('atomically updates scheduling, bumps the daily counter, and appends an FSRS log', async () => {
+    const deck = await storage.createDeck('History')
+    const card = await storage.createCard(deck.id, 'q', 'a')
+    const reviewedAt = Date.now()
+    const scheduling = { ...card.scheduling, reps: 1, state: 2, lastReview: reviewedAt, due: reviewedAt + MS_PER_DAY }
+
+    const log = await storage.commitReview({
+      cardId: card.id,
+      deckId: deck.id,
+      patch: { scheduling },
+      reviewedAt,
+      fsrsGrade: 'good',
+      daily: { day: '2026-08-07', field: 'newIntroduced' },
+    })
+
+    expect(await storage.getCard(card.id)).toMatchObject({ scheduling })
+    expect(await storage.getDailyStat(deck.id, '2026-08-07')).toEqual({ newIntroduced: 1, reviewsDone: 0 })
+    expect(log).toMatchObject({ deckId: deck.id, cardId: card.id, reviewedAt, grade: 'good' })
+    expect(await storage.listReviewLogs(deck.id)).toEqual([log])
+  })
+
+  it('commits a fixed step without writing an optimizer log', async () => {
+    const deck = await storage.createDeck('Steps')
+    const card = await storage.createCard(deck.id, 'q', 'a')
+    const scheduling = { ...card.scheduling, state: 1, step: 1, due: Date.now() + 60_000 }
+
+    expect(await storage.commitReview({
+      cardId: card.id,
+      deckId: deck.id,
+      patch: { scheduling },
+      reviewedAt: Date.now(),
+    })).toBeNull()
+    expect(await storage.listReviewLogs(deck.id)).toEqual([])
+  })
+
+  it('orders logs chronologically and removes them with their card', async () => {
+    const deck = await storage.createDeck('History')
+    const card = await storage.createCard(deck.id, 'q', 'a')
+    for (const [reviewedAt, fsrsGrade] of [[20, 'good'], [10, 'again']] as const) {
+      await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt, fsrsGrade })
+    }
+    expect((await storage.listReviewLogs(deck.id)).map((log) => log.reviewedAt)).toEqual([10, 20])
+
+    await storage.deleteCard(card.id)
+    expect(await storage.listReviewLogs(deck.id)).toEqual([])
+  })
+
+  it('removes logs when their deck is deleted', async () => {
+    const deck = await storage.createDeck('History')
+    const card = await storage.createCard(deck.id, 'q', 'a')
+    await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: 10, fsrsGrade: 'good' })
+    await storage.deleteDeck(deck.id)
+    expect(await storage.listReviewLogs(deck.id)).toEqual([])
+  })
+})
+
 describe('due queue', () => {
   it('returns only cards due at or before now, soonest first', async () => {
     const deck = await storage.createDeck('Deck')
@@ -180,6 +237,8 @@ describe('sync storage', () => {
         tags: [], suspended: false, lastAgainAt: null,
         scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 0 },
       }],
+      upsertReviewLogs: [],
+      deleteReviewLogIds: [],
       deleteDeckIds: [],
       deleteCardIds: [stale.id],
       tombstones: [{ id: stale.id, kind: 'card', deletedAt: 5 }],
@@ -201,7 +260,12 @@ describe('importDecks', () => {
         schedulerKind: 'fsrs',
         settings: DEFAULT_DECK_SETTINGS,
         cards: [
-          { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, tags: ['leech'], suspended: true, lastAgainAt: 6, scheduling: { kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, step: 0, lastReview: 7, due: 8 } },
+          {
+            front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, tags: ['leech'], suspended: true,
+            lastAgainAt: 6,
+            scheduling: { kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, step: 0, lastReview: 7, due: 8 },
+            reviews: [{ reviewedAt: 7, grade: 'good' }],
+          },
         ],
       },
     ])
@@ -216,6 +280,9 @@ describe('importDecks', () => {
     expect(cards[0].createdAt).toBe(6)
     expect(cards[0].updatedAt).toBe(7)
     expect(cards[0]).toMatchObject({ tags: ['leech'], suspended: true, lastAgainAt: 6 })
+    expect(await storage.listReviewLogs(decks[0].id)).toEqual([
+      expect.objectContaining({ cardId: cards[0].id, deckId: decks[0].id, reviewedAt: 7, grade: 'good' }),
+    ])
   })
 
   it('replaces a same-named deck, dropping its old cards', async () => {
@@ -224,7 +291,7 @@ describe('importDecks', () => {
 
     const result = await storage.importDecks([
       { name: 'Spanish', createdAt: 5, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [
-        { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, tags: [], suspended: false, lastAgainAt: null, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 8 } },
+        { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, tags: [], suspended: false, lastAgainAt: null, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 8 }, reviews: [] },
       ] },
     ])
 
@@ -308,8 +375,8 @@ describe('snapshot assets', () => {
       settings: { ...DEFAULT_DECK_SETTINGS, newPerDay: 99 },
     }
     await storage.applyMerge({
-      upsertDecks: [incoming], upsertCards: [], deleteDeckIds: [], deleteCardIds: [],
-      tombstones: [], upsertAssets: [], deleteAssetHashes: [],
+      upsertDecks: [incoming], upsertCards: [], upsertReviewLogs: [], deleteReviewLogIds: [],
+      deleteDeckIds: [], deleteCardIds: [], tombstones: [], upsertAssets: [], deleteAssetHashes: [],
     })
     const after = await storage.getDeck(deck.id)
     expect(after?.color).toBe('#e8638c')
@@ -319,14 +386,16 @@ describe('snapshot assets', () => {
   it('applyMerge upserts new assets and deletes by hash', async () => {
     const keep = 'c'.repeat(64)
     await storage.applyMerge({
-      upsertDecks: [], upsertCards: [], deleteDeckIds: [], deleteCardIds: [], tombstones: [],
+      upsertDecks: [], upsertCards: [], upsertReviewLogs: [], deleteReviewLogIds: [],
+      deleteDeckIds: [], deleteCardIds: [], tombstones: [],
       upsertAssets: [{ hash: keep, mime: 'image/png', bytes: new Uint8Array([5]) }],
       deleteAssetHashes: [],
     })
     expect((await storage.getAsset(keep))?.bytes).toEqual(new Uint8Array([5]))
 
     await storage.applyMerge({
-      upsertDecks: [], upsertCards: [], deleteDeckIds: [], deleteCardIds: [], tombstones: [],
+      upsertDecks: [], upsertCards: [], upsertReviewLogs: [], deleteReviewLogIds: [],
+      deleteDeckIds: [], deleteCardIds: [], tombstones: [],
       upsertAssets: [], deleteAssetHashes: [keep],
     })
     expect(await storage.getAsset(keep)).toBeUndefined()
@@ -334,25 +403,45 @@ describe('snapshot assets', () => {
 })
 
 describe('daily stats', () => {
+  async function count(
+    deckId: string,
+    cardId: string,
+    day: string,
+    field: 'newIntroduced' | 'reviewsDone',
+  ) {
+    await storage.commitReview({
+      cardId,
+      deckId,
+      patch: {},
+      reviewedAt: Date.now(),
+      daily: { day, field },
+    })
+  }
+
   it('returns zeros when no row exists', async () => {
     expect(await storage.getDailyStat('d1', '2026-07-12')).toEqual({ newIntroduced: 0, reviewsDone: 0 })
   })
 
   it('bumps and accumulates counters per (deck, day)', async () => {
-    await storage.bumpDailyStat('d1', '2026-07-12', 'newIntroduced')
-    await storage.bumpDailyStat('d1', '2026-07-12', 'newIntroduced')
-    await storage.bumpDailyStat('d1', '2026-07-12', 'reviewsDone')
-    expect(await storage.getDailyStat('d1', '2026-07-12')).toEqual({ newIntroduced: 2, reviewsDone: 1 })
+    const deck = await storage.createDeck('S')
+    const card = await storage.createCard(deck.id, 'q', 'a')
+    await count(deck.id, card.id, '2026-07-12', 'newIntroduced')
+    await count(deck.id, card.id, '2026-07-12', 'newIntroduced')
+    await count(deck.id, card.id, '2026-07-12', 'reviewsDone')
+    expect(await storage.getDailyStat(deck.id, '2026-07-12')).toEqual({ newIntroduced: 2, reviewsDone: 1 })
   })
 
   it('keeps different days separate', async () => {
-    await storage.bumpDailyStat('d1', '2026-07-12', 'reviewsDone')
-    expect(await storage.getDailyStat('d1', '2026-07-13')).toEqual({ newIntroduced: 0, reviewsDone: 0 })
+    const deck = await storage.createDeck('S')
+    const card = await storage.createCard(deck.id, 'q', 'a')
+    await count(deck.id, card.id, '2026-07-12', 'reviewsDone')
+    expect(await storage.getDailyStat(deck.id, '2026-07-13')).toEqual({ newIntroduced: 0, reviewsDone: 0 })
   })
 
   it('deleteDeck removes the deck stats', async () => {
     const deck = await storage.createDeck('S')
-    await storage.bumpDailyStat(deck.id, '2026-07-12', 'newIntroduced')
+    const card = await storage.createCard(deck.id, 'q', 'a')
+    await count(deck.id, card.id, '2026-07-12', 'newIntroduced')
     await storage.deleteDeck(deck.id)
     expect(await storage.getDailyStat(deck.id, '2026-07-12')).toEqual({ newIntroduced: 0, reviewsDone: 0 })
   })

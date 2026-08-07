@@ -1,10 +1,10 @@
-import type { Asset, Card, Deck, ID, SchedulerKind } from '../../domain/models'
+import type { Asset, Card, Deck, ID, ReviewLog, SchedulerKind } from '../../domain/models'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 import { deckColor } from '../../ui/deckColor'
 import { hashBytes } from '../assetHash'
 import { assetRefs } from '../assetRefs'
 import { getScheduler } from '../../domain/scheduler'
-import type { CardPatch, DeckPatch, ImportResult, Storage } from '../Storage'
+import type { CardPatch, DeckPatch, ImportResult, ReviewCommit, Storage } from '../Storage'
 import { planImport, type DeckBackup } from '../backup'
 import type { RepoSnapshot } from '../sync/snapshot'
 import type { DbOps } from '../sync/merge'
@@ -43,12 +43,17 @@ export class DexieStorage implements Storage {
   }
 
   async deleteDeck(id: ID): Promise<void> {
-    await this.db.transaction('rw', this.db.decks, this.db.cards, this.db.tombstones, this.db.dailyStats, async () => {
-      await this.db.cards.where('deckId').equals(id).delete()
-      await this.db.dailyStats.where('deckId').equals(id).delete()
-      await this.db.decks.delete(id)
-      await this.db.tombstones.put({ id, kind: 'deck', deletedAt: Date.now() })
-    })
+    await this.db.transaction(
+      'rw',
+      this.db.decks, this.db.cards, this.db.tombstones, this.db.dailyStats, this.db.reviewLogs,
+      async () => {
+        await this.db.cards.where('deckId').equals(id).delete()
+        await this.db.dailyStats.where('deckId').equals(id).delete()
+        await this.db.reviewLogs.where('deckId').equals(id).delete()
+        await this.db.decks.delete(id)
+        await this.db.tombstones.put({ id, kind: 'deck', deletedAt: Date.now() })
+      },
+    )
   }
 
   async createCard(deckId: ID, front: string, back: string): Promise<Card> {
@@ -81,8 +86,42 @@ export class DexieStorage implements Storage {
     await this.db.cards.update(id, { ...patch, updatedAt: Date.now() })
   }
 
+  async commitReview(commit: ReviewCommit): Promise<ReviewLog | null> {
+    return this.db.transaction('rw', this.db.cards, this.db.dailyStats, this.db.reviewLogs, async () => {
+      await this.db.cards.update(commit.cardId, { ...commit.patch, updatedAt: commit.reviewedAt })
+      if (commit.daily) {
+        const id = `${commit.deckId}:${commit.daily.day}`
+        const row = await this.db.dailyStats.get(id)
+        const base = row ?? {
+          id,
+          deckId: commit.deckId,
+          day: commit.daily.day,
+          newIntroduced: 0,
+          reviewsDone: 0,
+        }
+        const field = commit.daily.field
+        await this.db.dailyStats.put({ ...base, [field]: base[field] + 1 })
+      }
+      if (!commit.fsrsGrade) return null
+      const log: ReviewLog = {
+        id: crypto.randomUUID(),
+        deckId: commit.deckId,
+        cardId: commit.cardId,
+        reviewedAt: commit.reviewedAt,
+        grade: commit.fsrsGrade,
+      }
+      await this.db.reviewLogs.add(log)
+      return log
+    })
+  }
+
+  listReviewLogs(deckId: ID): Promise<ReviewLog[]> {
+    return this.db.reviewLogs.where('deckId').equals(deckId).sortBy('reviewedAt')
+  }
+
   async deleteCard(id: ID): Promise<void> {
-    await this.db.transaction('rw', this.db.cards, this.db.tombstones, async () => {
+    await this.db.transaction('rw', this.db.cards, this.db.tombstones, this.db.reviewLogs, async () => {
+      await this.db.reviewLogs.where('cardId').equals(id).delete()
       await this.db.cards.delete(id)
       await this.db.tombstones.put({ id, kind: 'card', deletedAt: Date.now() })
     })
@@ -105,18 +144,9 @@ export class DexieStorage implements Storage {
     return { newIntroduced: row?.newIntroduced ?? 0, reviewsDone: row?.reviewsDone ?? 0 }
   }
 
-  async bumpDailyStat(deckId: ID, day: string, field: 'newIntroduced' | 'reviewsDone'): Promise<void> {
-    const id = `${deckId}:${day}`
-    await this.db.transaction('rw', this.db.dailyStats, async () => {
-      const row = await this.db.dailyStats.get(id)
-      const base = row ?? { id, deckId, day, newIntroduced: 0, reviewsDone: 0 }
-      await this.db.dailyStats.put({ ...base, [field]: base[field] + 1 })
-    })
-  }
-
   async importDecks(decks: DeckBackup[]): Promise<ImportResult> {
     const incomingNames = decks.map((d) => d.name)
-    return this.db.transaction('rw', this.db.decks, this.db.cards, async () => {
+    return this.db.transaction('rw', this.db.decks, this.db.cards, this.db.reviewLogs, async () => {
       const existing = await this.db.decks.toArray()
       const result = planImport(incomingNames, existing.map((d) => d.name))
 
@@ -124,6 +154,7 @@ export class DexieStorage implements Storage {
       const deckIdsToDelete = existing.filter((d) => toReplace.has(d.name)).map((d) => d.id)
       for (const id of deckIdsToDelete) {
         await this.db.cards.where('deckId').equals(id).delete()
+        await this.db.reviewLogs.where('deckId').equals(id).delete()
         await this.db.decks.delete(id)
       }
 
@@ -139,8 +170,9 @@ export class DexieStorage implements Storage {
           settings: d.settings,
         })
         for (const c of d.cards) {
+          const cardId = crypto.randomUUID()
           await this.db.cards.add({
-            id: crypto.randomUUID(),
+            id: cardId,
             deckId,
             front: c.front,
             back: c.back,
@@ -151,6 +183,15 @@ export class DexieStorage implements Storage {
             lastAgainAt: c.lastAgainAt,
             scheduling: c.scheduling,
           })
+          for (const review of c.reviews) {
+            await this.db.reviewLogs.add({
+              id: crypto.randomUUID(),
+              deckId,
+              cardId,
+              reviewedAt: review.reviewedAt,
+              grade: review.grade,
+            })
+          }
         }
       }
       return result
@@ -158,15 +199,17 @@ export class DexieStorage implements Storage {
   }
 
   async exportSnapshot(): Promise<RepoSnapshot> {
-    const [decks, cards, tombstones, assets] = await Promise.all([
+    const [decks, cards, reviewLogs, tombstones, assets] = await Promise.all([
       this.db.decks.toArray(),
       this.db.cards.toArray(),
+      this.db.reviewLogs.toArray(),
       this.db.tombstones.toArray(),
       this.db.assets.toArray(),
     ])
     return {
       decks,
       cards,
+      reviewLogs,
       tombstones,
       assets: assets.map(({ hash, mime, bytes }) => ({ hash, mime, bytes })),
     }
@@ -175,13 +218,15 @@ export class DexieStorage implements Storage {
   async applyMerge(ops: DbOps): Promise<void> {
     await this.db.transaction(
       'rw',
-      this.db.decks, this.db.cards, this.db.tombstones, this.db.assets,
+      this.db.decks, this.db.cards, this.db.reviewLogs, this.db.tombstones, this.db.assets,
       async () => {
+        if (ops.deleteReviewLogIds.length) await this.db.reviewLogs.bulkDelete(ops.deleteReviewLogIds)
         if (ops.deleteCardIds.length) await this.db.cards.bulkDelete(ops.deleteCardIds)
         if (ops.deleteDeckIds.length) await this.db.decks.bulkDelete(ops.deleteDeckIds)
         if (ops.deleteAssetHashes.length) await this.db.assets.bulkDelete(ops.deleteAssetHashes)
         if (ops.upsertDecks.length) await this.db.decks.bulkPut(ops.upsertDecks)
         if (ops.upsertCards.length) await this.db.cards.bulkPut(ops.upsertCards)
+        if (ops.upsertReviewLogs.length) await this.db.reviewLogs.bulkPut(ops.upsertReviewLogs)
         if (ops.upsertAssets.length) {
           await this.db.assets.bulkPut(
             ops.upsertAssets.map((a) => ({ ...a, createdAt: Date.now() })),

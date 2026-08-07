@@ -1,9 +1,13 @@
-import { test, expect } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { useLocation } from 'react-router-dom'
 import { DeckSettingsPage } from './DeckSettingsPage'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
+import { MS_PER_DAY } from '../../domain/scheduler'
+import { DEFAULT_FSRS_WEIGHTS, getFsrsOptimizer } from '../../domain/scheduler/optimizer'
+
+afterEach(() => vi.restoreAllMocks())
 
 test('renders the General section and persists a rename on blur', async () => {
   const storage = freshStorage()
@@ -17,6 +21,9 @@ test('renders the General section and persists a rename on blur', async () => {
   })
 
   await expect.element(page.getByText('Deck options')).toBeVisible()
+  await expect.element(page.getByText('Default parameters')).toBeVisible()
+  await expect.element(page.getByText('0 recorded FSRS reviews')).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Optimize' })).toBeDisabled()
   const name = page.getByLabelText('Deck name')
   await name.fill('Español')
   await name.element().blur()
@@ -95,6 +102,72 @@ test('toggles timer and starts the selected custom-study preset', async () => {
   await page.getByLabelText('Increase Study ahead days').click()
   await start.click()
   await expect.element(page.getByText(`/decks/${deck.id}/study?custom=study-ahead&amount=2`)).toBeVisible()
+})
+
+test('optimizes and resets per-deck FSRS parameters from delayed review history', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Spanish')
+  const card = await storage.createCard(deck.id, 'q', 'a')
+  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: 0, fsrsGrade: 'good' })
+  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: MS_PER_DAY, fsrsGrade: 'again' })
+
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId/options',
+    entry: `/decks/${deck.id}/options`,
+    element: <DeckSettingsPage />,
+  })
+
+  await expect.element(page.getByText('2 recorded FSRS reviews')).toBeVisible()
+  await page.getByRole('button', { name: 'Optimize' }).click()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.fsrsWeights).toEqual([...DEFAULT_FSRS_WEIGHTS])
+  await expect.element(page.getByText('Optimized parameters')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Reset' }).click()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.fsrsWeights).toBeNull()
+  await expect.element(page.getByText('Default parameters')).toBeVisible()
+})
+
+test('guards the optimizer action while training is in flight', async () => {
+  let finish!: (weights: number[]) => void
+  vi.spyOn(getFsrsOptimizer(), 'optimize').mockReturnValueOnce(new Promise((resolve) => {
+    finish = resolve
+  }))
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Spanish')
+  const card = await storage.createCard(deck.id, 'q', 'a')
+  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: 0, fsrsGrade: 'good' })
+  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: MS_PER_DAY, fsrsGrade: 'good' })
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId/options',
+    entry: `/decks/${deck.id}/options`,
+    element: <DeckSettingsPage />,
+  })
+
+  await page.getByRole('button', { name: 'Optimize' }).click()
+  await expect.element(page.getByRole('button', { name: 'Optimizing…' })).toBeDisabled()
+  finish([...DEFAULT_FSRS_WEIGHTS])
+  await expect.element(page.getByText('Optimized parameters')).toBeVisible()
+})
+
+test('shows a recoverable optimizer error', async () => {
+  vi.spyOn(getFsrsOptimizer(), 'optimize').mockRejectedValueOnce(new Error('boom'))
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Spanish')
+  const card = await storage.createCard(deck.id, 'q', 'a')
+  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: 0, fsrsGrade: 'good' })
+  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: MS_PER_DAY, fsrsGrade: 'good' })
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId/options',
+    entry: `/decks/${deck.id}/options`,
+    element: <DeckSettingsPage />,
+  })
+
+  await page.getByRole('button', { name: 'Optimize' }).click()
+  await expect.element(page.getByRole('alert')).toHaveTextContent("Couldn't optimize parameters")
+  await expect.element(page.getByRole('button', { name: 'Optimize' })).toBeEnabled()
 })
 
 test('deletes the deck after confirm and navigates away', async () => {

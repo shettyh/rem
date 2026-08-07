@@ -7,17 +7,22 @@ import {
   type DeckBackup,
 } from './backup'
 import type { Storage } from './Storage'
-import type { Card, Deck } from '../domain/models'
+import type { Card, Deck, ReviewLog } from '../domain/models'
 import { DEFAULT_DECK_SETTINGS } from '../domain/models'
 import { getScheduler } from '../domain/scheduler'
 
 const NOW = 1_700_000_000_000
 const sched = { kind: 'fsrs' as const, stability: 5, difficulty: 5, reps: 1, lapses: 0, state: 2, step: 0, lastReview: 1, due: 999 }
 
-function fakeStorage(decks: Deck[], cardsByDeck: Record<string, Card[]>): Storage {
+function fakeStorage(
+  decks: Deck[],
+  cardsByDeck: Record<string, Card[]>,
+  logsByDeck: Record<string, ReviewLog[]> = {},
+): Storage {
   return {
     listDecks: async () => decks,
     listCards: async (id: string) => cardsByDeck[id] ?? [],
+    listReviewLogs: async (id: string) => logsByDeck[id] ?? [],
   } as unknown as Storage
 }
 
@@ -29,7 +34,9 @@ const cardA: Card = {
 
 describe('collectBackup', () => {
   it('collects selected decks with their cards, dropping ids', async () => {
-    const storage = fakeStorage([deckA], { a: [cardA] })
+    const storage = fakeStorage([deckA], { a: [cardA] }, {
+      a: [{ id: 'r1', deckId: 'a', cardId: 'c1', reviewedAt: 13, grade: 'good' }],
+    })
     const out = await collectBackup(storage, ['a'])
     expect(out).toEqual([
       {
@@ -38,7 +45,10 @@ describe('collectBackup', () => {
         schedulerKind: 'fsrs',
         color: '#7e6cff',
         settings: DEFAULT_DECK_SETTINGS,
-        cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, tags: [], suspended: false, lastAgainAt: 9, scheduling: sched }],
+        cards: [{
+          front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, tags: [], suspended: false,
+          lastAgainAt: 9, scheduling: sched, reviews: [{ reviewedAt: 13, grade: 'good' }],
+        }],
       },
     ])
   })
@@ -62,20 +72,37 @@ describe('serializeBackup', () => {
 
 describe('parseBackup', () => {
   const valid = serializeBackup(
-    [{ name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, tags: [], suspended: false, lastAgainAt: 9, scheduling: sched }] }],
+    [{ name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, tags: [], suspended: false, lastAgainAt: 9, scheduling: sched, reviews: [] }] }],
     1234,
   )
 
   it('round-trips valid FSRS input', () => {
     expect(parseBackup(valid, NOW)).toEqual([
-      { name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, tags: [], suspended: false, lastAgainAt: 9, scheduling: sched }] },
+      { name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, tags: [], suspended: false, lastAgainAt: 9, scheduling: sched, reviews: [] }] },
+    ])
+  })
+
+  it('round-trips review history nested under its card', () => {
+    const json = serializeBackup(
+      [{ name: 'D', createdAt: 1, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [
+        {
+          front: 'q', back: 'a', createdAt: 2, updatedAt: 3, tags: [], suspended: false,
+          lastAgainAt: null, scheduling: sched,
+          reviews: [{ reviewedAt: 4, grade: 'again' }, { reviewedAt: 5, grade: 'good' }],
+        },
+      ] }],
+      NOW,
+    )
+    expect(parseBackup(json, NOW)[0].cards[0].reviews).toEqual([
+      { reviewedAt: 4, grade: 'again' },
+      { reviewedAt: 5, grade: 'good' },
     ])
   })
 
   it('round-trips leech tags and suspension', () => {
     const json = serializeBackup(
       [{ name: 'D', createdAt: 1, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [
-        { front: 'q', back: 'a', createdAt: 2, updatedAt: 3, tags: ['leech'], suspended: true, lastAgainAt: 2, scheduling: sched },
+        { front: 'q', back: 'a', createdAt: 2, updatedAt: 3, tags: ['leech'], suspended: true, lastAgainAt: 2, scheduling: sched, reviews: [] },
       ] }],
       NOW,
     )
@@ -85,7 +112,7 @@ describe('parseBackup', () => {
   it('defaults lastAgainAt for a backup written before custom study', () => {
     const old = JSON.parse(valid)
     delete old.decks[0].cards[0].lastAgainAt
-    expect(parseBackup(JSON.stringify(old), NOW)[0].cards[0].lastAgainAt).toBeNull()
+    expect(parseBackup(JSON.stringify(old), NOW)[0].cards[0]).toMatchObject({ lastAgainAt: null, reviews: [] })
   })
 
   it('rejects non-JSON', () => {
@@ -172,7 +199,12 @@ describe('planImport', () => {
 
 describe('settings round-trip', () => {
   it('preserves custom settings through serialize -> parse', () => {
-    const custom = { ...DEFAULT_DECK_SETTINGS, newPerDay: 50, leechAction: 'tag' as const }
+    const custom = {
+      ...DEFAULT_DECK_SETTINGS,
+      newPerDay: 50,
+      leechAction: 'tag' as const,
+      fsrsWeights: [0.2, 1.3],
+    }
     const json = serializeBackup(
       [{ name: 'D', createdAt: 1, schedulerKind: 'fsrs', color: '#2fa86b', settings: custom, cards: [] }],
       NOW,

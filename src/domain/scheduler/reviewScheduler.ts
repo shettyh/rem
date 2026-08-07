@@ -3,9 +3,13 @@ import type { DeckFsrsParams } from './Scheduler'
 import { getScheduler, MS_PER_DAY } from './index'
 import { parseStepsMs } from './steps'
 
-/** Per-deck FSRS params from the deck's settings. Weights stay null until #5. */
+/** Per-deck FSRS params from the deck's settings. */
 export function settingsToParams(s: DeckSettings): DeckFsrsParams {
-  return { desiredRetention: s.desiredRetention, maximumInterval: s.maximumInterval, weights: null }
+  return {
+    desiredRetention: s.desiredRetention,
+    maximumInterval: s.maximumInterval,
+    weights: s.fsrsWeights,
+  }
 }
 
 /** A pure learning/relearning step transition: keep memory, move state/step/due. */

@@ -4,9 +4,10 @@ import { settingsToParams, nextStates } from './reviewScheduler'
 import type { FSRSState } from '../models'
 
 describe('settingsToParams', () => {
-  it('maps deck settings to FSRS params with null weights', () => {
-    const s = { ...DEFAULT_DECK_SETTINGS, desiredRetention: 0.85, maximumInterval: 1000 }
-    expect(settingsToParams(s)).toEqual({ desiredRetention: 0.85, maximumInterval: 1000, weights: null })
+  it('maps retention, interval, and personalized weights to FSRS params', () => {
+    const weights = [0.2, 1.3]
+    const s = { ...DEFAULT_DECK_SETTINGS, desiredRetention: 0.85, maximumInterval: 1000, fsrsWeights: weights }
+    expect(settingsToParams(s)).toEqual({ desiredRetention: 0.85, maximumInterval: 1000, weights })
   })
 })
 

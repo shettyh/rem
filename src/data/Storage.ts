@@ -1,4 +1,4 @@
-import type { Asset, Card, Deck, DeckSettings, ID, SchedulerKind, SchedulingState } from '../domain/models'
+import type { Asset, Card, Deck, DeckSettings, Grade, ID, ReviewLog, SchedulerKind, SchedulingState } from '../domain/models'
 import type { DeckBackup } from './backup'
 import type { RepoSnapshot } from './sync/snapshot'
 import type { DbOps } from './sync/merge'
@@ -25,6 +25,16 @@ export interface DeckPatch {
   settings?: DeckSettings
 }
 
+/** One atomic persisted review outcome. `fsrsGrade` is omitted for fixed steps. */
+export interface ReviewCommit {
+  cardId: ID
+  deckId: ID
+  patch: CardPatch
+  reviewedAt: number
+  fsrsGrade?: Grade
+  daily?: { day: string; field: 'newIntroduced' | 'reviewsDone' }
+}
+
 /**
  * Persistence port for decks and cards.
  *
@@ -45,6 +55,10 @@ export interface Storage {
   updateCard(id: ID, patch: CardPatch): Promise<void>
   deleteCard(id: ID): Promise<void>
 
+  /** Atomically persist card/counter changes and an optional FSRS training event. */
+  commitReview(commit: ReviewCommit): Promise<ReviewLog | null>
+  listReviewLogs(deckId: ID): Promise<ReviewLog[]>
+
   /** Cards in a deck due at or before `now`, soonest-due first. */
   dueCards(deckId: ID, now: number): Promise<Card[]>
   /** How many cards in a deck are due at or before `now`. */
@@ -52,8 +66,6 @@ export interface Storage {
 
   /** Today's cap counters for a deck; zeros when the day has no row yet. */
   getDailyStat(deckId: ID, day: string): Promise<{ newIntroduced: number; reviewsDone: number }>
-  /** Increment one of a deck's daily counters by 1 (upsert). */
-  bumpDailyStat(deckId: ID, day: string, field: 'newIntroduced' | 'reviewsDone'): Promise<void>
 
   /** Insert decks+cards; any existing deck whose name matches an incoming deck
    *  is removed first (replace-by-name). IDs are regenerated. */

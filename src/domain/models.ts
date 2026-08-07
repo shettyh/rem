@@ -30,6 +30,8 @@ export interface DeckSettings {
   showTimer: boolean
   desiredRetention: number
   maximumInterval: number
+  /** Personalized FSRS-6 parameters; null uses the built-in defaults. */
+  fsrsWeights: number[] | null
 }
 
 export const DEFAULT_DECK_SETTINGS: DeckSettings = {
@@ -45,6 +47,7 @@ export const DEFAULT_DECK_SETTINGS: DeckSettings = {
   showTimer: false,
   desiredRetention: 0.9,
   maximumInterval: 36500,
+  fsrsWeights: null,
 }
 
 /** How well the user recalled a card during review. */
@@ -113,6 +116,15 @@ export interface DailyStat {
   day: string         // local calendar date, YYYY-MM-DD
   newIntroduced: number
   reviewsDone: number
+}
+
+/** One immutable grade that updated FSRS memory, used for parameter training. */
+export interface ReviewLog {
+  id: ID
+  deckId: ID
+  cardId: ID
+  reviewedAt: number
+  grade: Grade
 }
 
 /** Records that a deck or card was deleted, so the deletion propagates on sync. */

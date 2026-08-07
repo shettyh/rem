@@ -1,4 +1,6 @@
-use fsrs::{ItemState, MemoryState, FSRS};
+use fsrs::{
+    compute_parameters, ComputeParametersInput, FSRSItem, FSRSReview, ItemState, MemoryState, FSRS,
+};
 use serde::{Deserialize, Serialize};
 
 const MS_PER_DAY: i64 = 86_400_000;
@@ -30,6 +32,87 @@ pub struct NextStatesDto {
     pub hard: FsrsStateDto,
     pub good: FsrsStateDto,
     pub easy: FsrsStateDto,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FsrsReviewDto {
+    pub reviewed_at: i64,
+    pub rating: u32,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct FsrsReviewHistoryDto {
+    pub reviews: Vec<FsrsReviewDto>,
+}
+
+fn training_items(
+    histories: Vec<FsrsReviewHistoryDto>,
+) -> Result<(Vec<FSRSItem>, Vec<i64>), String> {
+    let mut items = Vec::new();
+    let mut card_ids = Vec::new();
+    for (card_id, mut history) in histories.into_iter().enumerate() {
+        if history
+            .reviews
+            .iter()
+            .any(|review| !(1..=4).contains(&review.rating))
+        {
+            return Err("review rating must be between 1 and 4".into());
+        }
+        history.reviews.sort_by_key(|review| review.reviewed_at);
+        let mut accumulated = Vec::new();
+        let mut previous = history
+            .reviews
+            .first()
+            .map(|review| review.reviewed_at)
+            .unwrap_or(0);
+        for (index, review) in history.reviews.into_iter().enumerate() {
+            let delta_t = if index == 0 {
+                0
+            } else {
+                ((review.reviewed_at - previous).max(0) / MS_PER_DAY) as u32
+            };
+            previous = review.reviewed_at;
+            accumulated.push(FSRSReview {
+                rating: review.rating,
+                delta_t,
+            });
+            if accumulated.iter().any(|review| review.delta_t > 0) {
+                items.push(FSRSItem {
+                    reviews: accumulated.clone(),
+                });
+                card_ids.push(card_id as i64);
+            }
+        }
+    }
+    Ok((items, card_ids))
+}
+
+fn optimize_histories(
+    histories: Vec<FsrsReviewHistoryDto>,
+    num_relearning_steps: usize,
+) -> Result<Vec<f32>, String> {
+    let (train_set, card_ids) = training_items(histories)?;
+    compute_parameters(ComputeParametersInput {
+        train_set,
+        card_ids: Some(card_ids),
+        enable_short_term: false,
+        num_relearning_steps: Some(num_relearning_steps),
+        ..Default::default()
+    })
+    .map_err(|error| format!("{error:?}"))
+}
+
+#[tauri::command]
+pub async fn fsrs_optimize(
+    histories: Vec<FsrsReviewHistoryDto>,
+    num_relearning_steps: usize,
+) -> Result<Vec<f32>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        optimize_histories(histories, num_relearning_steps)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// Build the next stored state for one grade from fsrs-rs output.
@@ -162,5 +245,73 @@ mod tests {
         let ns = fsrs_next_states(new_card(NOW), NOW, params()).unwrap();
         let days = (ns.good.due - NOW) / MS_PER_DAY;
         assert_eq!(ns.good.due, NOW + days * MS_PER_DAY);
+    }
+
+    fn review(reviewed_at: i64, rating: u32) -> FsrsReviewDto {
+        FsrsReviewDto {
+            reviewed_at,
+            rating,
+        }
+    }
+
+    #[test]
+    fn optimizer_builds_chronological_prefixes_and_aligned_card_ids() {
+        let histories = vec![
+            FsrsReviewHistoryDto {
+                reviews: vec![
+                    review(NOW + 3 * MS_PER_DAY, 3),
+                    review(NOW, 4),
+                    review(NOW + 2 * MS_PER_DAY, 1),
+                ],
+            },
+            FsrsReviewHistoryDto {
+                reviews: vec![review(NOW, 2), review(NOW + MS_PER_DAY, 3)],
+            },
+        ];
+        let (items, card_ids) = training_items(histories).unwrap();
+
+        assert_eq!(card_ids, vec![0, 0, 1]);
+        assert_eq!(
+            items[0].reviews,
+            vec![
+                FSRSReview {
+                    rating: 4,
+                    delta_t: 0,
+                },
+                FSRSReview {
+                    rating: 1,
+                    delta_t: 2,
+                },
+            ]
+        );
+        assert_eq!(items[1].reviews.last().unwrap().delta_t, 1);
+        assert_eq!(items[2].reviews.last().unwrap().rating, 3);
+    }
+
+    #[test]
+    fn optimizer_drops_same_day_only_histories() {
+        let histories = vec![FsrsReviewHistoryDto {
+            reviews: vec![review(NOW, 3), review(NOW + 60_000, 1)],
+        }];
+        let (items, card_ids) = training_items(histories).unwrap();
+        assert!(items.is_empty());
+        assert!(card_ids.is_empty());
+    }
+
+    #[test]
+    fn optimizer_rejects_an_invalid_rating_even_without_a_delayed_review() {
+        let histories = vec![FsrsReviewHistoryDto {
+            reviews: vec![review(NOW, 5)],
+        }];
+        assert!(training_items(histories).is_err());
+    }
+
+    #[test]
+    fn optimizer_uses_the_crate_small_data_fallback() {
+        let histories = vec![FsrsReviewHistoryDto {
+            reviews: vec![review(NOW, 3), review(NOW + MS_PER_DAY, 3)],
+        }];
+        let weights = optimize_histories(histories, 1).unwrap();
+        assert_eq!(weights, fsrs::DEFAULT_PARAMETERS);
     }
 }

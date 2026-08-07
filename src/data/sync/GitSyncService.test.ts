@@ -34,6 +34,7 @@ describe('GitSyncService', () => {
     const remote = serializeSnapshot({
       decks: [{ id: 'd1', name: 'Remote', createdAt: 1, updatedAt: 1, color: '#7e6cff', schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
       cards: [],
+      reviewLogs: [],
       tombstones: [],
       assets: [],
     })
@@ -49,6 +50,7 @@ describe('GitSyncService', () => {
     const remote = serializeSnapshot({
       decks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, updatedAt: deck.createdAt, color: deck.color, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
       cards: [],
+      reviewLogs: [],
       tombstones: [{ id: c.id, kind: 'card', deletedAt: Date.now() + 10000 }],
       assets: [],
     })
