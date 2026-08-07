@@ -1,5 +1,6 @@
 import { test, expect, vi, afterEach } from 'vitest'
 import { page } from 'vitest/browser'
+import { Link } from 'react-router-dom'
 import { ReviewPage } from './ReviewPage'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
@@ -134,18 +135,28 @@ test('enforces newPerDay: only the day\'s new allowance enters the session', asy
     entry: `/decks/${deck.id}/study`,
     path: '/decks/:deckId/study',
     element: <ReviewPage />,
+    extraRoutes: [{
+      path: '/decks/:deckId',
+      element: <Link to={`/decks/${deck.id}/study`}>Reopen study</Link>,
+    }],
   })
 
   // Two new cards are due, but only one enters: position reads "1 / 1", not "1 / 2".
   await expect.element(page.getByText('1 / 1', { exact: false })).toBeVisible()
 
-  // Grading it out of New bumps newIntroduced.
+  // Grading it out of New bumps newIntroduced and exhausts this session.
   await page.getByRole('button', { name: 'Show answer', exact: false }).click()
   await page.getByRole('button', { name: 'Good', exact: false }).click()
   await vi.waitFor(async () => {
     const stat = await storage.getDailyStat(deck.id, localDay(Date.now()))
     expect(stat.newIntroduced).toBe(1)
   })
+  await expect.element(page.getByText('Review complete')).toBeVisible()
+
+  // Reopening on the same day does not grant allowance for the second new card.
+  await page.getByRole('link', { name: 'Back to deck' }).click()
+  await page.getByRole('link', { name: 'Reopen study' }).click()
+  await expect.element(page.getByRole('heading', { name: 'Nothing due' })).toBeVisible()
 })
 
 test('grading a Review-state card bumps reviewsDone, not newIntroduced', async () => {

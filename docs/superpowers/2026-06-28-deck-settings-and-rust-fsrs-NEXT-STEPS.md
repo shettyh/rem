@@ -1,7 +1,13 @@
 # Per-deck settings + Rust FSRS — continuation / next steps
 
-_Last updated: 2026-07-04_
+_Last updated: 2026-08-07_
 
+> **Update 2026-08-07:** Sub-project **#3b — daily caps — is DONE**, merged to `main`
+> (PR #3, merge `6f8e58c`). It added Dexie v8 daily counters, per-deck queue/Today caps, and
+> grade accounting. Automated verification is green: 230 TypeScript/browser tests, typecheck,
+> and 11 Rust tests. **Recommended next real slice = #3c** (leech + burying), beginning with its
+> card/note-model design decisions.
+>
 > **Update 2026-07-04:** Sub-project **#3 was sliced into #3a / #3b / #3c** (spec:
 > `docs/superpowers/specs/2026-07-02-anki-review-queue-steps-design.md`). **#3a — learning/
 > relearning steps + real per-deck FSRS params + insertion order — is DONE**, merged to `main`
@@ -51,8 +57,8 @@ the concrete next action for everything still pending so a future session can pi
 | 1 | **Deck options screen + `DeckSettings` data model** | ✅ **DONE — merged to `main` (`b4bf3b9`)** | — |
 | 2 | **Rust FSRS scheduling core** | ✅ **DONE — merged to `main` (`0fc5f8d`)** | 1 (for real params) |
 | 3a | **Review-queue steps** (learning/relearning steps, real per-deck params, insertion order) | ✅ **DONE — merged to `main` (`8289d7d`, PR #1)** | 1, 2 |
-| 3b | **Daily caps** (`newPerDay`/`maxReviews` + review-log/daily-counter infra) | **NOT STARTED ← do next** | 3a |
-| 3c | **Leech + burying** (needs card `suspended` flag / note model) | NOT STARTED | 3a |
+| 3b | **Daily caps** (`newPerDay`/`maxReviews` + daily-counter infra) | ✅ **DONE — merged to `main` (`6f8e58c`, PR #3)** | 3a |
+| 3c | **Leech + burying** (needs card `suspended` flag / note model) | **NOT STARTED ← do next** | 3a |
 | 4 | **Custom study** (study-ahead / increase-new / review-forgotten / preview-new) | NOT STARTED | 3 |
 | 5 | **FSRS weight optimization** (train personalised weights from review logs) | NOT STARTED | 2, 3 |
 
@@ -79,7 +85,7 @@ plan: `docs/superpowers/plans/2026-06-28-rust-fsrs-scheduling-core.md`.
   caps, leech, or burying (that's #3). No review-log capture yet (#3 must add it; #5 needs it). Weights
   are always defaults (#5 trains them).
 
-## Recommended next step — Sub-project #1
+## Historical implementation notes — Sub-project #1
 Build the **Deck options screen + `DeckSettings` model**. It's the literal `rem.dc.html` deliverable
 and it pins the settings schema every later phase consumes. Start with the **brainstorming** skill.
 
