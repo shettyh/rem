@@ -184,6 +184,67 @@ test('grading a Review-state card bumps reviewsDone, not newIntroduced', async (
   expect(stat.newIntroduced).toBe(0)
 })
 
+test('suspend leech action removes the lapsed card from this and later sessions', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Leeches')
+  await storage.updateDeck(deck.id, {
+    settings: { ...DEFAULT_DECK_SETTINGS, leechThreshold: 1, leechAction: 'suspend', relearnSteps: '1m' },
+  })
+  const card = await storage.createCard(deck.id, 'Hard question', 'Answer')
+  await storage.updateCard(card.id, {
+    scheduling: { kind: 'fsrs', stability: 10, difficulty: 8, reps: 3, lapses: 0, state: 2, step: 0, lastReview: 1, due: 0 },
+  })
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+    extraRoutes: [{
+      path: '/decks/:deckId',
+      element: <Link to={`/decks/${deck.id}/study`}>Reopen study</Link>,
+    }],
+  })
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await page.getByRole('button', { name: 'Again', exact: false }).click()
+
+  await expect.element(page.getByRole('status')).toHaveTextContent('Leech suspended')
+  await expect.element(page.getByText('Review complete')).toBeVisible()
+  await vi.waitFor(async () => {
+    expect(await storage.getCard(card.id)).toMatchObject({ tags: ['leech'], suspended: true })
+    expect(await storage.getDailyStat(deck.id, localDay(Date.now()))).toMatchObject({ reviewsDone: 1 })
+  })
+
+  await page.getByRole('link', { name: 'Back to deck' }).click()
+  await page.getByRole('link', { name: 'Reopen study' }).click()
+  await expect.element(page.getByRole('heading', { name: 'Nothing due' })).toBeVisible()
+})
+
+test('tag leech action keeps the card active for relearning', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Tagged leeches')
+  await storage.updateDeck(deck.id, {
+    settings: { ...DEFAULT_DECK_SETTINGS, leechThreshold: 1, leechAction: 'tag', relearnSteps: '1m' },
+  })
+  const card = await storage.createCard(deck.id, 'Hard question', 'Answer')
+  await storage.updateCard(card.id, {
+    scheduling: { kind: 'fsrs', stability: 10, difficulty: 8, reps: 3, lapses: 0, state: 2, step: 0, lastReview: 1, due: 0 },
+  })
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await page.getByRole('button', { name: 'Again', exact: false }).click()
+
+  await expect.element(page.getByRole('status')).toHaveTextContent('Leech tagged')
+  await expect.element(page.getByRole('button', { name: 'Show answer', exact: false })).toBeVisible()
+  expect(await storage.getCard(card.id)).toMatchObject({ tags: ['leech'], suspended: false })
+})
+
 test('grading a learning-step card persists but bumps no counter', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Learning')

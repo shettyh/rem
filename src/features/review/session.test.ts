@@ -8,7 +8,7 @@ function sched(state: number, due: number): FSRSState {
   return { kind: 'fsrs', stability: 0, difficulty: 0, reps: state === 0 ? 0 : 1, lapses: 0, state, step: 0, lastReview: null, due }
 }
 function card(id: string, createdAt: number, s: FSRSState): SessionCard {
-  return { card: { id, deckId: 'd', front: id, back: id, createdAt, updatedAt: createdAt, scheduling: s } as Card, settings: S }
+  return { card: { id, deckId: 'd', front: id, back: id, createdAt, updatedAt: createdAt, tags: [], suspended: false, scheduling: s } as Card, settings: S }
 }
 
 describe('buildSessionCards', () => {
@@ -97,6 +97,16 @@ describe('ReviewSession', () => {
     const later = now + 600_000 + 1
     expect(s.next(later)!.card.id).toBe('a') // now genuinely due, not just learn-ahead
     expect(s.reviewed).toBe(2)
+  })
+
+  it('does not requeue a short step when the grade outcome disables requeue', () => {
+    const now = 1000
+    const s = new ReviewSession([card('a', 1, sched(2, 0))])
+    expect(s.next(now)!.card.id).toBe('a')
+    s.grade(now, sched(3, now + 60_000), { requeue: false })
+    expect(s.next(now)).toBeNull()
+    expect(s.remaining).toBe(0)
+    expect(s.reviewed).toBe(1)
   })
 
   it('learn-ahead: does not serve a step card beyond the window', () => {
