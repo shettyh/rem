@@ -24,7 +24,7 @@ function fakeStorage(decks: Deck[], cardsByDeck: Record<string, Card[]>): Storag
 const deckA: Deck = { id: 'a', name: 'Spanish', createdAt: 10, updatedAt: 10, color: '#7e6cff', schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }
 const cardA: Card = {
   id: 'c1', deckId: 'a', front: 'hola', back: 'hello',
-  createdAt: 11, updatedAt: 12, scheduling: sched,
+  createdAt: 11, updatedAt: 12, tags: [], suspended: false, scheduling: sched,
 }
 
 describe('collectBackup', () => {
@@ -38,7 +38,7 @@ describe('collectBackup', () => {
         schedulerKind: 'fsrs',
         color: '#7e6cff',
         settings: DEFAULT_DECK_SETTINGS,
-        cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }],
+        cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, tags: [], suspended: false, scheduling: sched }],
       },
     ])
   })
@@ -62,14 +62,24 @@ describe('serializeBackup', () => {
 
 describe('parseBackup', () => {
   const valid = serializeBackup(
-    [{ name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] }],
+    [{ name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, tags: [], suspended: false, scheduling: sched }] }],
     1234,
   )
 
   it('round-trips valid FSRS input', () => {
     expect(parseBackup(valid, NOW)).toEqual([
-      { name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, scheduling: sched }] },
+      { name: 'Spanish', createdAt: 10, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [{ front: 'hola', back: 'hello', createdAt: 11, updatedAt: 12, tags: [], suspended: false, scheduling: sched }] },
     ])
+  })
+
+  it('round-trips leech tags and suspension', () => {
+    const json = serializeBackup(
+      [{ name: 'D', createdAt: 1, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [
+        { front: 'q', back: 'a', createdAt: 2, updatedAt: 3, tags: ['leech'], suspended: true, scheduling: sched },
+      ] }],
+      NOW,
+    )
+    expect(parseBackup(json, NOW)[0].cards[0]).toMatchObject({ tags: ['leech'], suspended: true })
   })
 
   it('rejects non-JSON', () => {

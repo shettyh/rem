@@ -13,6 +13,8 @@ export interface ImportResult {
 export interface CardPatch {
   front?: string
   back?: string
+  tags?: string[]
+  suspended?: boolean
   scheduling?: SchedulingState
 }
 
