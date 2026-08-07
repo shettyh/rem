@@ -104,5 +104,20 @@ export class RemDB extends Dexie {
       assets: 'hash',
       dailyStats: 'id, deckId, day',
     })
+    // v9: durable leech tags + suspension. Schema unchanged; backfill card payloads.
+    this.version(9)
+      .stores({
+        decks: 'id, createdAt',
+        cards: 'id, deckId, createdAt',
+        tombstones: 'id, deletedAt',
+        assets: 'hash',
+        dailyStats: 'id, deckId, day',
+      })
+      .upgrade(async (tx) => {
+        await tx.table('cards').toCollection().modify((c) => {
+          if (!Array.isArray(c.tags)) c.tags = []
+          if (c.suspended === undefined) c.suspended = false
+        })
+      })
   }
 }

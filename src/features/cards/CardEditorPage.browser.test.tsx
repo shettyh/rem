@@ -17,6 +17,7 @@ function renderAt(storage: DexieStorage, path: string) {
   const router = createMemoryRouter(
     [
       { path: '/decks/:deckId/cards/new', element: <CardEditorPage /> },
+      { path: '/decks/:deckId/cards/:cardId/edit', element: <CardEditorPage /> },
       { path: '/decks/:deckId', element: <div>deck page</div> },
     ],
     { initialEntries: [path] },
@@ -41,5 +42,24 @@ describe('CardEditorPage', () => {
 
     await expect.poll(async () => (await storage.listCards(deck.id)).length).toBe(1)
     await expect.element(screen.getByText('deck page')).toBeInTheDocument()
+  })
+
+  it('shows a suspended leech and restores it without removing the tag', async () => {
+    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const deck = await storage.createDeck('D')
+    const card = await storage.createCard(deck.id, 'Hard question', 'Answer')
+    await storage.updateCard(card.id, { tags: ['leech'], suspended: true })
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/${card.id}/edit`)
+
+    await expect.element(screen.getByText('leech', { exact: true })).toBeVisible()
+    await expect.element(screen.getByRole('button', { name: 'Unsuspend card' })).toBeVisible()
+    expect(await storage.countDue(deck.id, Date.now() + 1000)).toBe(0)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Unsuspend card' }))
+
+    await expect.poll(async () => (await storage.getCard(card.id))?.suspended).toBe(false)
+    expect((await storage.getCard(card.id))?.tags).toEqual(['leech'])
+    expect(await storage.countDue(deck.id, Date.now() + 1000)).toBe(1)
+    await expect.element(screen.getByText('Active')).toBeVisible()
   })
 })

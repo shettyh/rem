@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import type { DeckSettings, FSRSState, Grade } from '../../domain/models'
+import type { DeckSettings, FSRSState, Grade, LeechAction } from '../../domain/models'
 import { nextStates } from '../../domain/scheduler/reviewScheduler'
 import { useStorage } from '../../data/StorageContext'
 import { PageHeader } from '../../ui/PageHeader'
@@ -10,6 +10,7 @@ import { GradeButtons } from './GradeButtons'
 import { loadDueOverview, shuffle } from './dueOverview'
 import { ReviewSession, buildSessionCards, type SessionCard } from './session'
 import { localDay } from './day'
+import { leechEffect } from './leech'
 
 export function ReviewPage() {
   const { deckId } = useParams()
@@ -23,6 +24,7 @@ export function ReviewPage() {
   const [nexts, setNexts] = useState<Record<Grade, FSRSState> | null>(null)
   const [revealedAt, setRevealedAt] = useState(0)
   const [schedError, setSchedError] = useState(false)
+  const [leechNotice, setLeechNotice] = useState<LeechAction | null>(null)
 
   const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const deckName = deckId ? (deck?.name ?? '') : 'All decks'
@@ -86,15 +88,20 @@ export function ReviewPage() {
       gradingRef.current = true
       try {
         const preState = current.card.scheduling.state
-        await storage.updateCard(current.card.id, { scheduling: nexts[g] })
+        const next = nexts[g]
+        const effect = leechEffect(current.card, current.settings, g, next)
+        await storage.updateCard(current.card.id, effect
+          ? { scheduling: next, tags: effect.tags, suspended: effect.suspended }
+          : { scheduling: next })
         const day = localDay(Date.now())
         if (preState === 0) await storage.bumpDailyStat(current.card.deckId, day, 'newIntroduced')
         else if (preState === 2) await storage.bumpDailyStat(current.card.deckId, day, 'reviewsDone')
-        session.grade(Date.now(), nexts[g])
+        session.grade(Date.now(), next, { requeue: effect?.suspended !== true })
         setCurrent(session.next(Date.now()))
         setRevealed(false)
         setNexts(null)
         setSchedError(false)
+        setLeechNotice(effect?.action ?? null)
       } finally {
         gradingRef.current = false
       }
@@ -125,6 +132,12 @@ export function ReviewPage() {
 
   if (!ready) return null
 
+  const leechMessage = leechNotice === 'suspend'
+    ? 'Leech suspended. Edit the card to restore it.'
+    : leechNotice === 'tag'
+      ? 'Leech tagged.'
+      : null
+
   if (current === null) {
     const reviewed = sessionRef.current?.reviewed ?? 0
     if (reviewed === 0) {
@@ -149,6 +162,7 @@ export function ReviewPage() {
           <p>
             {reviewed} review{reviewed === 1 ? '' : 's'} done. Nice work.
           </p>
+          {leechMessage && <p role="status">{leechMessage}</p>}
           <Link to={backTo} className="btn btn-primary cta">
             {deckId ? 'Back to deck' : 'Back to Today'}
           </Link>
@@ -179,6 +193,7 @@ export function ReviewPage() {
         }
       />
       <div className="review">
+        {leechMessage && <p className="review-notice" role="status">{leechMessage}</p>}
         {!revealed ? (
           <div className="review-stage">
             <div className="review-card">

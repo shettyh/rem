@@ -25,12 +25,15 @@ function normalizeDeck(d: DeckRecord): DeckRecord {
 }
 
 function normalizeCard(c: CardRecord): CardRecord {
-  // step may be absent in snapshots written before #3a (JSON is cast, not validated).
+  // Fields may be absent in snapshots written before their migrations because JSON is cast, not validated.
   const s = c.scheduling
-  if (s.kind === 'fsrs' && s.step === undefined) {
-    return { ...c, scheduling: { ...s, step: 0 } }
+  const scheduling = s.kind === 'fsrs' && s.step === undefined ? { ...s, step: 0 } : s
+  return {
+    ...c,
+    tags: Array.isArray(c.tags) && c.tags.every((tag) => typeof tag === 'string') ? c.tags : [],
+    suspended: c.suspended === true,
+    scheduling,
   }
-  return c
 }
 
 export interface CardRecord {
@@ -40,6 +43,8 @@ export interface CardRecord {
   back: string
   createdAt: number
   updatedAt: number
+  tags: string[]
+  suspended: boolean
   scheduling: SchedulingState
 }
 

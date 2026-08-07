@@ -19,6 +19,8 @@ export function CardEditorPage() {
   const [deck, setDeck] = useState<Deck>()
   const [front, setFront] = useState('')
   const [back, setBack] = useState('')
+  const [tags, setTags] = useState<string[]>([])
+  const [suspended, setSuspended] = useState(false)
   // The field the shared toolbar should act on — defaults to Front, follows focus.
   const [active, setActive] = useState<EditorHandle | null>(null)
   const frontHandle = useRef<EditorHandle | null>(null)
@@ -40,6 +42,8 @@ export function CardEditorPage() {
       if (active && card) {
         setFront(card.front)
         setBack(card.back)
+        setTags(card.tags)
+        setSuspended(card.suspended)
       }
     })
     return () => {
@@ -80,6 +84,12 @@ export function CardEditorPage() {
     await storage.deleteCard(cardId)
     await storage.sweepOrphanAssets()
     back2deck()
+  }
+
+  async function unsuspend() {
+    if (!cardId) return
+    await storage.updateCard(cardId, { suspended: false })
+    setSuspended(false)
   }
 
   // ⌘⏎ / Ctrl+⏎ saves, Esc cancels — from anywhere on the screen.
@@ -165,6 +175,20 @@ export function CardEditorPage() {
 
         <div className="editor-foot">
           <span className="editor-hint">⌘⏎ to save · esc to cancel · what you type is the card</span>
+          {editing && tags.length > 0 && (
+            <div className="editor-card-state">
+              <div className="editor-tags" aria-label="Card tags">
+                {tags.map((tag) => <span key={tag} className="status-tag status-leech">{tag}</span>)}
+              </div>
+              {suspended ? (
+                <button className="btn btn-ghost" onClick={() => void unsuspend()}>
+                  Unsuspend card
+                </button>
+              ) : (
+                <span className="muted">Active</span>
+              )}
+            </div>
+          )}
           {editing && (
             <button className="btn btn-ghost btn-danger" onClick={remove}>
               Delete card

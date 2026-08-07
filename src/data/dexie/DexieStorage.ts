@@ -60,6 +60,8 @@ export class DexieStorage implements Storage {
       back,
       createdAt: now,
       updatedAt: now,
+      tags: [],
+      suspended: false,
       scheduling: getScheduler().initial(now),
     }
     await this.db.cards.add(card)
@@ -88,7 +90,7 @@ export class DexieStorage implements Storage {
   async dueCards(deckId: ID, now: number): Promise<Card[]> {
     const cards = await this.db.cards.where('deckId').equals(deckId).toArray()
     return cards
-      .filter((c) => c.scheduling.due <= now)
+      .filter((c) => !c.suspended && c.scheduling.due <= now)
       .sort((a, b) => a.scheduling.due - b.scheduling.due)
   }
 
@@ -143,6 +145,8 @@ export class DexieStorage implements Storage {
             back: c.back,
             createdAt: c.createdAt,
             updatedAt: c.updatedAt,
+            tags: c.tags,
+            suspended: c.suspended,
             scheduling: c.scheduling,
           })
         }

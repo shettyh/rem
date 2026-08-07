@@ -68,6 +68,8 @@ describe('cards', () => {
     const card = await storage.createCard(deck.id, 'front', 'back')
 
     expect(card.front).toBe('front')
+    expect(card.tags).toEqual([])
+    expect(card.suspended).toBe(false)
     expect(card.scheduling).toMatchObject({ kind: 'fsrs', reps: 0 })
     expect(card.scheduling.due).toBeGreaterThanOrEqual(before)
   })
@@ -114,6 +116,16 @@ describe('due queue', () => {
     const due = await storage.dueCards(deck.id, now)
     expect(due.map((c) => c.id)).toEqual([b.id])
     expect(await storage.countDue(deck.id, now)).toBe(1)
+  })
+
+  it('keeps suspended cards editable but excludes them from the due queue', async () => {
+    const deck = await storage.createDeck('Deck')
+    const card = await storage.createCard(deck.id, 'q', 'a')
+    await storage.updateCard(card.id, { tags: ['leech'], suspended: true })
+
+    expect(await storage.getCard(card.id)).toMatchObject({ tags: ['leech'], suspended: true })
+    expect(await storage.dueCards(deck.id, Date.now() + 1000)).toEqual([])
+    expect(await storage.countDue(deck.id, Date.now() + 1000)).toBe(0)
   })
 
   it('scopes the due queue to a single deck', async () => {
@@ -164,6 +176,7 @@ describe('sync storage', () => {
       upsertDecks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, updatedAt: deck.updatedAt, color: deck.color, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
       upsertCards: [{
         id: 'new', deckId: deck.id, front: 'new', back: 'new', createdAt: 1, updatedAt: 2,
+        tags: [], suspended: false,
         scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 0 },
       }],
       deleteDeckIds: [],
@@ -187,7 +200,7 @@ describe('importDecks', () => {
         schedulerKind: 'fsrs',
         settings: DEFAULT_DECK_SETTINGS,
         cards: [
-          { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, step: 0, lastReview: 7, due: 8 } },
+          { front: 'hola', back: 'hello', createdAt: 6, updatedAt: 7, tags: ['leech'], suspended: true, scheduling: { kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, step: 0, lastReview: 7, due: 8 } },
         ],
       },
     ])
@@ -201,6 +214,7 @@ describe('importDecks', () => {
     expect(cards[0].scheduling).toEqual({ kind: 'fsrs', stability: 4, difficulty: 5, reps: 2, lapses: 0, state: 2, step: 0, lastReview: 7, due: 8 })
     expect(cards[0].createdAt).toBe(6)
     expect(cards[0].updatedAt).toBe(7)
+    expect(cards[0]).toMatchObject({ tags: ['leech'], suspended: true })
   })
 
   it('replaces a same-named deck, dropping its old cards', async () => {
@@ -209,7 +223,7 @@ describe('importDecks', () => {
 
     const result = await storage.importDecks([
       { name: 'Spanish', createdAt: 5, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS, cards: [
-        { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 8 } },
+        { front: 'new', back: 'new', createdAt: 6, updatedAt: 7, tags: [], suspended: false, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 8 } },
       ] },
     ])
 

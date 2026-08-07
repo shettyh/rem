@@ -92,12 +92,13 @@ export class ReviewSession {
     return chosen
   }
 
-  grade(now: number, next: FSRSState): void {
+  grade(now: number, next: FSRSState, options: { requeue?: boolean } = {}): void {
     const cur = this.current
     if (!cur) return
     this._reviewed += 1
     this.current = null
-    const stillStepping = (next.state === 1 || next.state === 3) && next.due - now <= LEARN_AHEAD_MS
+    const stillStepping = options.requeue !== false &&
+      (next.state === 1 || next.state === 3) && next.due - now <= LEARN_AHEAD_MS
     if (stillStepping) {
       this.queue.push({ ...cur, card: { ...cur.card, scheduling: next } })
     }
