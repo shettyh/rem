@@ -91,6 +91,8 @@ export interface Card {
   tags: string[]
   /** Suspended cards stay stored/editable but do not enter due queues. */
   suspended: boolean
+  /** Most recent Again grade, used by custom-study forgotten-card selection. */
+  lastAgainAt: number | null
   scheduling: SchedulingState
 }
 

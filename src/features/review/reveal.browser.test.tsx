@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { ReviewPage } from './ReviewPage'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
-import { getScheduler } from '../../domain/scheduler'
+import { getScheduler, MS_PER_DAY } from '../../domain/scheduler'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 import { localDay } from './day'
 
@@ -182,6 +182,81 @@ test('grading a Review-state card bumps reviewsDone, not newIntroduced', async (
   })
   const stat = await storage.getDailyStat(deck.id, localDay(Date.now()))
   expect(stat.newIntroduced).toBe(0)
+})
+
+test('an Again grade records when the card was forgotten', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Forgotten')
+  const card = await storage.createCard(deck.id, 'Q?', 'A.')
+  await storage.updateCard(card.id, {
+    scheduling: { kind: 'fsrs', stability: 10, difficulty: 5, reps: 3, lapses: 0, state: 2, step: 0, lastReview: 1, due: 0 },
+  })
+  const before = Date.now()
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await page.getByRole('button', { name: 'Again', exact: false }).click()
+
+  await vi.waitFor(async () => {
+    expect((await storage.getCard(card.id))?.lastAgainAt).toBeGreaterThanOrEqual(before)
+  })
+})
+
+test('custom study can grade a future review card', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Ahead')
+  const card = await storage.createCard(deck.id, 'Future question', 'Future answer')
+  const originalDue = Date.now() + MS_PER_DAY
+  await storage.updateCard(card.id, {
+    scheduling: { kind: 'fsrs', stability: 10, difficulty: 5, reps: 3, lapses: 0, state: 2, step: 0, lastReview: 1, due: originalDue },
+  })
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study?custom=study-ahead&amount=1`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await expect.element(page.getByText('Future question')).toBeVisible()
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await page.getByRole('button', { name: 'Good', exact: false }).click()
+
+  await vi.waitFor(async () => {
+    expect((await storage.getCard(card.id))?.scheduling.due).not.toBe(originalDue)
+  })
+  await expect.element(page.getByText('Review complete')).toBeVisible()
+  await expect.element(page.getByRole('link', { name: 'Back to options' })).toBeVisible()
+})
+
+test('preview new reveals cards without scheduling or persistence', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Preview')
+  const card = await storage.createCard(deck.id, 'Preview question', 'Preview answer')
+  const update = vi.spyOn(storage, 'updateCard')
+  const schedule = vi.spyOn(getScheduler(), 'previewNextStates')
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study?custom=preview-new&amount=1`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await expect.element(page.getByText('Preview answer')).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Next card' })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Good', exact: false })).not.toBeInTheDocument()
+  await page.getByRole('button', { name: 'Next card' }).click()
+
+  await expect.element(page.getByText('Preview complete')).toBeVisible()
+  expect(update).not.toHaveBeenCalled()
+  expect(schedule).not.toHaveBeenCalled()
+  expect((await storage.getCard(card.id))?.scheduling.state).toBe(0)
+  expect(await storage.getDailyStat(deck.id, localDay(Date.now()))).toEqual({ newIntroduced: 0, reviewsDone: 0 })
 })
 
 test('suspend leech action removes the lapsed card from this and later sessions', async () => {

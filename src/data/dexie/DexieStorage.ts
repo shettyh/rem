@@ -62,6 +62,7 @@ export class DexieStorage implements Storage {
       updatedAt: now,
       tags: [],
       suspended: false,
+      lastAgainAt: null,
       scheduling: getScheduler().initial(now),
     }
     await this.db.cards.add(card)
@@ -147,6 +148,7 @@ export class DexieStorage implements Storage {
             updatedAt: c.updatedAt,
             tags: c.tags,
             suspended: c.suspended,
+            lastAgainAt: c.lastAgainAt,
             scheduling: c.scheduling,
           })
         }

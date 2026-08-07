@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest'
 import { page } from 'vitest/browser'
+import { useLocation } from 'react-router-dom'
 import { DeckSettingsPage } from './DeckSettingsPage'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
@@ -65,20 +66,35 @@ test('persists daily-limit, new-card, and lapse edits', async () => {
   await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.leechAction).toBe('tag')
 })
 
-test('toggles bury/timer and keeps Custom study Start inert', async () => {
+test('toggles timer and starts the selected custom-study preset', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Spanish')
+  function LocationProbe() {
+    const location = useLocation()
+    return <div>{location.pathname}{location.search}</div>
+  }
   await renderRoute({
     storage,
     path: '/decks/:deckId/options',
     entry: `/decks/${deck.id}/options`,
     element: <DeckSettingsPage />,
+    extraRoutes: [{ path: '/decks/:deckId/study', element: <LocationProbe /> }],
   })
 
   await page.getByRole('switch', { name: 'Show answer timer' }).click()
   await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.showTimer).toBe(true)
 
-  await expect.element(page.getByRole('button', { name: 'Start' })).toBeDisabled()
+  const start = page.getByRole('button', { name: 'Start' })
+  await expect.element(start).toBeDisabled()
+  const studyAhead = page.getByRole('button', { name: /^Study ahead Review cards due later/ })
+  await studyAhead.click()
+  await expect.element(studyAhead).toHaveAttribute('aria-pressed', 'true')
+  await expect.element(start).toBeEnabled()
+  await expect.element(page.getByText('1 day')).toBeVisible()
+
+  await page.getByLabelText('Increase Study ahead days').click()
+  await start.click()
+  await expect.element(page.getByText(`/decks/${deck.id}/study?custom=study-ahead&amount=2`)).toBeVisible()
 })
 
 test('deletes the deck after confirm and navigates away', async () => {

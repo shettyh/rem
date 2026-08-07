@@ -10,6 +10,7 @@ export interface CardBackup {
   updatedAt: number
   tags: string[]
   suspended: boolean
+  lastAgainAt: number | null
   scheduling: SchedulingState
 }
 
@@ -51,6 +52,7 @@ export async function collectBackup(storage: Storage, deckIds: ID[]): Promise<De
         updatedAt: c.updatedAt,
         tags: c.tags,
         suspended: c.suspended,
+        lastAgainAt: c.lastAgainAt,
         scheduling: c.scheduling,
       })),
     })
@@ -141,6 +143,7 @@ function parseCard(raw: unknown, now: number): CardBackup {
     updatedAt: raw.updatedAt,
     tags: Array.isArray(raw.tags) && raw.tags.every((tag) => typeof tag === 'string') ? raw.tags : [],
     suspended: raw.suspended === true,
+    lastAgainAt: typeof raw.lastAgainAt === 'number' ? raw.lastAgainAt : null,
     scheduling: normalizeScheduling(raw.scheduling, now),
   }
 }

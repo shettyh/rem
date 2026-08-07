@@ -13,7 +13,7 @@ function scheduling(lapses: number, state = 2): FSRSState {
 function card(lapses: number, tags: string[] = [], suspended = false): Card {
   return {
     id: 'c1', deckId: 'd1', front: 'q', back: 'a', createdAt: 1, updatedAt: 1,
-    tags, suspended, scheduling: scheduling(lapses),
+    tags, suspended, lastAgainAt: null, scheduling: scheduling(lapses),
   }
 }
 

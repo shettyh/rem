@@ -8,7 +8,7 @@ function sched(state: number, due: number): FSRSState {
   return { kind: 'fsrs', stability: 0, difficulty: 0, reps: state === 0 ? 0 : 1, lapses: 0, state, step: 0, lastReview: null, due }
 }
 function card(id: string, createdAt: number, s: FSRSState): SessionCard {
-  return { card: { id, deckId: 'd', front: id, back: id, createdAt, updatedAt: createdAt, tags: [], suspended: false, scheduling: s } as Card, settings: S }
+  return { card: { id, deckId: 'd', front: id, back: id, createdAt, updatedAt: createdAt, tags: [], suspended: false, lastAgainAt: null, scheduling: s } as Card, settings: S }
 }
 
 describe('buildSessionCards', () => {
@@ -107,6 +107,24 @@ describe('ReviewSession', () => {
     expect(s.next(now)).toBeNull()
     expect(s.remaining).toBe(0)
     expect(s.reviewed).toBe(1)
+  })
+
+  it('serves a custom-study card forced into the initial queue before it is due', () => {
+    const now = 1000
+    const forced = { ...card('a', 1, sched(2, now + 30 * 86_400_000)), forceDue: true }
+    expect(new ReviewSession([forced]).next(now)?.card.id).toBe('a')
+  })
+
+  it('completes a preview card without changing or requeueing it', () => {
+    const now = 1000
+    const original = card('a', 1, sched(0, now))
+    const s = new ReviewSession([original])
+    expect(s.next(now)).toBe(original)
+    s.complete()
+    expect(s.reviewed).toBe(1)
+    expect(s.remaining).toBe(0)
+    expect(s.next(now)).toBeNull()
+    expect(original.card.scheduling.state).toBe(0)
   })
 
   it('learn-ahead: does not serve a step card beyond the window', () => {
