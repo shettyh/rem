@@ -203,7 +203,10 @@ pub async fn git_read_assets(dir: String) -> Result<Vec<AssetFile>, String> {
         }
         let name = entry.file_name().to_string_lossy().to_string();
         let bytes = fs::read(&path).map_err(|e| e.to_string())?;
-        out.push(AssetFile { name, data: STANDARD.encode(&bytes) });
+        out.push(AssetFile {
+            name,
+            data: STANDARD.encode(&bytes),
+        });
     }
     Ok(out)
 }
@@ -364,7 +367,11 @@ mod tests {
         tauri::async_runtime::block_on(git_write_files(clone1_str.clone(), files)).unwrap();
 
         // 5. First push creates origin/main.
-        let push_result = tauri::async_runtime::block_on(git_commit_push(clone1_str.clone(), "first".to_string())).unwrap();
+        let push_result = tauri::async_runtime::block_on(git_commit_push(
+            clone1_str.clone(),
+            "first".to_string(),
+        ))
+        .unwrap();
         assert!(push_result.pushed, "expected pushed==true on first commit");
         assert!(
             !push_result.rejected,
@@ -415,7 +422,11 @@ mod tests {
         seed_files.insert("rem.json".to_string(), "{}".to_string());
         seed_files.insert("tombstones.json".to_string(), "[]".to_string());
         tauri::async_runtime::block_on(git_write_files(clone1_str.clone(), seed_files)).unwrap();
-        let r = tauri::async_runtime::block_on(git_commit_push(clone1_str.clone(), "first".to_string())).unwrap();
+        let r = tauri::async_runtime::block_on(git_commit_push(
+            clone1_str.clone(),
+            "first".to_string(),
+        ))
+        .unwrap();
         assert!(r.pushed, "seed push from clone1 should succeed");
 
         // 3. clone2 gets the first commit.
@@ -433,7 +444,11 @@ mod tests {
         files2.insert("decks/b.json".to_string(), "{}".to_string());
         files2.insert("tombstones.json".to_string(), "[]".to_string());
         tauri::async_runtime::block_on(git_write_files(clone2_str.clone(), files2)).unwrap();
-        let r2 = tauri::async_runtime::block_on(git_commit_push(clone2_str.clone(), "from2".to_string())).unwrap();
+        let r2 = tauri::async_runtime::block_on(git_commit_push(
+            clone2_str.clone(),
+            "from2".to_string(),
+        ))
+        .unwrap();
         assert!(r2.pushed, "clone2 push should be a fast-forward");
 
         // 5. clone1 is behind; its push must be rejected (non-fast-forward).
@@ -441,8 +456,13 @@ mod tests {
         files1.insert("rem.json".to_string(), "{}".to_string());
         files1.insert("decks/c.json".to_string(), "{}".to_string());
         files1.insert("tombstones.json".to_string(), "[]".to_string());
-        tauri::async_runtime::block_on(git_write_files(clone1_str.clone(), files1.clone())).unwrap();
-        let r_rejected = tauri::async_runtime::block_on(git_commit_push(clone1_str.clone(), "from1".to_string())).unwrap();
+        tauri::async_runtime::block_on(git_write_files(clone1_str.clone(), files1.clone()))
+            .unwrap();
+        let r_rejected = tauri::async_runtime::block_on(git_commit_push(
+            clone1_str.clone(),
+            "from1".to_string(),
+        ))
+        .unwrap();
         assert!(
             !r_rejected.pushed && r_rejected.rejected,
             "expected pushed==false, rejected==true; got {:?}/{:?}",
@@ -451,14 +471,19 @@ mod tests {
         );
 
         // 6. Retry: fetch_reset resets clone1 to clone2's state, then push succeeds.
-        let result_retry_fetch = tauri::async_runtime::block_on(git_fetch_reset(clone1_str.clone()));
+        let result_retry_fetch =
+            tauri::async_runtime::block_on(git_fetch_reset(clone1_str.clone()));
         assert_eq!(
             result_retry_fetch,
             Ok(true),
             "retry fetch_reset should see origin/main"
         );
         tauri::async_runtime::block_on(git_write_files(clone1_str.clone(), files1)).unwrap();
-        let r_retry = tauri::async_runtime::block_on(git_commit_push(clone1_str.clone(), "from1-retry".to_string())).unwrap();
+        let r_retry = tauri::async_runtime::block_on(git_commit_push(
+            clone1_str.clone(),
+            "from1-retry".to_string(),
+        ))
+        .unwrap();
         assert!(
             r_retry.pushed && !r_retry.rejected,
             "retry push should succeed; got pushed={} rejected={}",
@@ -478,8 +503,14 @@ mod tests {
         let bytes = vec![0u8, 1, 254, 255, 128];
         let b64 = STANDARD.encode(&bytes);
         let assets = vec![
-            AssetFile { name: "aaaa.png".into(), data: b64.clone() },
-            AssetFile { name: "bbbb.gif".into(), data: b64.clone() },
+            AssetFile {
+                name: "aaaa.png".into(),
+                data: b64.clone(),
+            },
+            AssetFile {
+                name: "bbbb.gif".into(),
+                data: b64.clone(),
+            },
         ];
         tauri::async_runtime::block_on(git_write_assets(dir_str.clone(), assets)).unwrap();
 
@@ -489,7 +520,14 @@ mod tests {
         assert_eq!(STANDARD.decode(&aaaa.data).unwrap(), bytes);
 
         // Second write with only one asset deletes the other.
-        tauri::async_runtime::block_on(git_write_assets(dir_str.clone(), vec![AssetFile { name: "aaaa.png".into(), data: b64 }])).unwrap();
+        tauri::async_runtime::block_on(git_write_assets(
+            dir_str.clone(),
+            vec![AssetFile {
+                name: "aaaa.png".into(),
+                data: b64,
+            }],
+        ))
+        .unwrap();
         let read2 = tauri::async_runtime::block_on(git_read_assets(dir_str.clone())).unwrap();
         assert_eq!(read2.len(), 1);
         assert_eq!(read2[0].name, "aaaa.png");

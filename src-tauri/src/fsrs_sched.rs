@@ -33,7 +33,13 @@ pub struct NextStatesDto {
 }
 
 /// Build the next stored state for one grade from fsrs-rs output.
-fn transition(prev: &FsrsStateDto, item: &ItemState, is_again: bool, now: i64, max_interval: u32) -> FsrsStateDto {
+fn transition(
+    prev: &FsrsStateDto,
+    item: &ItemState,
+    is_again: bool,
+    now: i64,
+    max_interval: u32,
+) -> FsrsStateDto {
     let interval_days = (item.interval.round() as i64).clamp(1, max_interval as i64);
     let lapsed = is_again && prev.state == 2;
     FsrsStateDto {
@@ -48,9 +54,15 @@ fn transition(prev: &FsrsStateDto, item: &ItemState, is_again: bool, now: i64, m
 }
 
 #[tauri::command]
-pub fn fsrs_next_states(state: FsrsStateDto, now: i64, params: DeckFsrsParams) -> Result<NextStatesDto, String> {
+pub fn fsrs_next_states(
+    state: FsrsStateDto,
+    now: i64,
+    params: DeckFsrsParams,
+) -> Result<NextStatesDto, String> {
     // None weights -> FSRS-6 defaults. next_states requires real params, so pass them explicitly.
-    let weights = params.weights.unwrap_or_else(|| fsrs::DEFAULT_PARAMETERS.to_vec());
+    let weights = params
+        .weights
+        .unwrap_or_else(|| fsrs::DEFAULT_PARAMETERS.to_vec());
     let fsrs = FSRS::new(&weights).map_err(|e| e.to_string())?;
 
     let days_elapsed = match state.last_review {
@@ -60,7 +72,10 @@ pub fn fsrs_next_states(state: FsrsStateDto, now: i64, params: DeckFsrsParams) -
     let current = if state.reps == 0 {
         None
     } else {
-        Some(MemoryState { stability: state.stability, difficulty: state.difficulty })
+        Some(MemoryState {
+            stability: state.stability,
+            difficulty: state.difficulty,
+        })
     };
 
     let ns = fsrs
@@ -83,10 +98,22 @@ mod tests {
     const NOW: i64 = 1_700_000_000_000;
 
     fn params() -> DeckFsrsParams {
-        DeckFsrsParams { desired_retention: 0.9, maximum_interval: 36500, weights: None }
+        DeckFsrsParams {
+            desired_retention: 0.9,
+            maximum_interval: 36500,
+            weights: None,
+        }
     }
     fn new_card(now: i64) -> FsrsStateDto {
-        FsrsStateDto { stability: 0.0, difficulty: 0.0, reps: 0, lapses: 0, state: 0, last_review: None, due: now }
+        FsrsStateDto {
+            stability: 0.0,
+            difficulty: 0.0,
+            reps: 0,
+            lapses: 0,
+            state: 0,
+            last_review: None,
+            due: now,
+        }
     }
 
     #[test]
@@ -119,7 +146,11 @@ mod tests {
 
     #[test]
     fn maximum_interval_clamps_due() {
-        let p = DeckFsrsParams { desired_retention: 0.9, maximum_interval: 5, weights: None };
+        let p = DeckFsrsParams {
+            desired_retention: 0.9,
+            maximum_interval: 5,
+            weights: None,
+        };
         let ns = fsrs_next_states(new_card(NOW), NOW, p).unwrap();
         for s in [&ns.again, &ns.hard, &ns.good, &ns.easy] {
             assert!(s.due <= NOW + 5 * MS_PER_DAY);
