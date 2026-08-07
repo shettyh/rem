@@ -38,9 +38,11 @@ describe('CardEditorPage', () => {
     const front = screen.container.querySelector('[aria-label="Front"]') as HTMLElement
     front.focus()
     await userEvent.type(front, 'Capital of France')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Tags', exact: true }), 'geography, capitals')
     await userEvent.click(screen.getByText('Save card'))
 
     await expect.poll(async () => (await storage.listCards(deck.id)).length).toBe(1)
+    expect((await storage.listCards(deck.id))[0].tags).toEqual(['geography', 'capitals'])
     await expect.element(screen.getByText('deck page')).toBeInTheDocument()
   })
 
@@ -61,5 +63,14 @@ describe('CardEditorPage', () => {
     expect((await storage.getCard(card.id))?.tags).toEqual(['leech'])
     expect(await storage.countDue(deck.id, Date.now() + 1000)).toBe(1)
     await expect.element(screen.getByText('Active')).toBeVisible()
+
+    await userEvent.fill(screen.getByRole('textbox', { name: 'Tags', exact: true }), 'hard, grammar')
+    await userEvent.click(screen.getByText('Save card'))
+
+    await expect.poll(async () => (await storage.getCard(card.id))?.tags).toEqual([
+      'leech',
+      'hard',
+      'grammar',
+    ])
   })
 })

@@ -8,6 +8,7 @@ import { deckColor } from '../../ui/deckColor'
 import { RichMarkdownEditor, type EditorHandle } from './RichMarkdownEditor'
 import { EditorToolbar } from './EditorToolbar'
 import { loadAssetUrl } from './assetUrl'
+import { isSystemTag, mergeUserTags, userTags } from './cardTags'
 
 /** Full-screen create/edit card screen. Route params: deckId, optional cardId. */
 export function CardEditorPage() {
@@ -20,6 +21,7 @@ export function CardEditorPage() {
   const [front, setFront] = useState('')
   const [back, setBack] = useState('')
   const [tags, setTags] = useState<string[]>([])
+  const [tagInput, setTagInput] = useState('')
   const [suspended, setSuspended] = useState(false)
   // The field the shared toolbar should act on — defaults to Front, follows focus.
   const [active, setActive] = useState<EditorHandle | null>(null)
@@ -43,6 +45,7 @@ export function CardEditorPage() {
         setFront(card.front)
         setBack(card.back)
         setTags(card.tags)
+        setTagInput(userTags(card.tags).join(', '))
         setSuspended(card.suspended)
       }
     })
@@ -72,12 +75,13 @@ export function CardEditorPage() {
 
   const save = useCallback(async () => {
     if (!front.trim() || !deckId) return
-    if (editing && cardId) await storage.updateCard(cardId, { front, back })
-    else await storage.createCard(deckId, front, back)
+    const nextTags = mergeUserTags(tags, tagInput)
+    if (editing && cardId) await storage.updateCard(cardId, { front, back, tags: nextTags })
+    else await storage.createCard(deckId, front, back, nextTags)
     await storage.sweepOrphanAssets()
     back2deck()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [front, back, deckId, cardId, editing, storage])
+  }, [front, back, tags, tagInput, deckId, cardId, editing, storage])
 
   async function remove() {
     if (!cardId) return
@@ -107,6 +111,8 @@ export function CardEditorPage() {
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [save])
+
+  const systemTags = tags.filter(isSystemTag)
 
   const title = (
     <>
@@ -173,13 +179,30 @@ export function CardEditorPage() {
           />
         </div>
 
+        <div className="editor-tag-field">
+          <div className="field-rule">
+            <label className="field-rule-label" htmlFor="card-tags">Tags</label>
+            <span className="field-rule-line" />
+          </div>
+          <input
+            id="card-tags"
+            className="text-input"
+            value={tagInput}
+            onChange={(event) => setTagInput(event.target.value)}
+            placeholder="grammar, chapter 1"
+          />
+          <p className="editor-tag-hint">Comma-separated. The leech tag is managed automatically.</p>
+        </div>
+
         <div className="editor-foot">
           <span className="editor-hint">⌘⏎ to save · esc to cancel · what you type is the card</span>
-          {editing && tags.length > 0 && (
+          {editing && (systemTags.length > 0 || suspended) && (
             <div className="editor-card-state">
-              <div className="editor-tags" aria-label="Card tags">
-                {tags.map((tag) => <span key={tag} className="status-tag status-leech">{tag}</span>)}
-              </div>
+              {systemTags.length > 0 && (
+                <div className="editor-tags" aria-label="System tags">
+                  {systemTags.map((tag) => <span key={tag} className="status-tag status-leech">{tag}</span>)}
+                </div>
+              )}
               {suspended ? (
                 <button className="btn btn-ghost" onClick={() => void unsuspend()}>
                   Unsuspend card

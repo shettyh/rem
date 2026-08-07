@@ -859,6 +859,31 @@ select.text-input {
   text-transform: uppercase;
 }
 
+.card-list-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.card-list-tools .field-label {
+  margin: 0;
+}
+.card-tag-filter {
+  min-width: 150px;
+  padding: 8px 30px 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.card-filter-count {
+  margin-left: auto;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
 .card-list {
   display: flex;
   flex-direction: column;
@@ -898,6 +923,22 @@ select.text-input {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 240px;
+}
+.card-user-tags {
+  display: flex;
+  gap: 5px;
+  max-width: 220px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.card-user-tag {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface-inset);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
 }
 .status-tag {
   flex-shrink: 0;
@@ -1501,6 +1542,17 @@ input[type='file']::file-selector-button:hover {
   font-size: 24px;
   line-height: 1.35;
   min-height: 150px;
+}
+.editor-tag-field {
+  margin-top: 30px;
+}
+.editor-tag-field .text-input {
+  width: 100%;
+}
+.editor-tag-hint {
+  margin: 7px 0 0;
+  color: var(--faint);
+  font-size: 12px;
 }
 
 .editor-foot {
