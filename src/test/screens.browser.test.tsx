@@ -5,6 +5,7 @@ import { DeckDetailPage } from '../features/cards/DeckDetailPage'
 import { CardEditorPage } from '../features/cards/CardEditorPage'
 import { ReviewPage } from '../features/review/ReviewPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
+import { StatsPage } from '../features/stats/StatsPage'
 import { freshStorage, MS_PER_DAY } from './seed'
 import { renderRoute } from './renderRoute'
 import { shoot } from './screenshot'
@@ -78,6 +79,23 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       await renderRoute({ storage, entry: '/settings', path: '/settings', element: <SettingsPage /> })
       await expect.element(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
       await expect.element(page.getByLabelText('Settings')).toBeVisible() // header gear link
+    },
+  },
+  {
+    name: 'stats',
+    run: async () => {
+      const storage = freshStorage()
+      const typescript = await storage.createDeck('TypeScript')
+      const spanish = await storage.createDeck('Spanish vocabulary')
+      const tsCard = await storage.createCard(typescript.id, 'q', 'a')
+      const esCard = await storage.createCard(spanish.id, 'q', 'a')
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      await storage.commitReview({ cardId: tsCard.id, deckId: typescript.id, patch: {}, reviewedAt: yesterday.getTime(), fsrsGrade: 'again' })
+      await storage.commitReview({ cardId: tsCard.id, deckId: typescript.id, patch: {}, reviewedAt: Date.now() - 1000, fsrsGrade: 'good' })
+      await storage.commitReview({ cardId: esCard.id, deckId: spanish.id, patch: {}, reviewedAt: Date.now(), fsrsGrade: 'easy' })
+      await renderRoute({ storage, entry: '/stats', path: '/stats', element: <StatsPage /> })
+      await expect.element(page.getByLabelText('FSRS reviews')).toHaveTextContent('3')
     },
   },
   {

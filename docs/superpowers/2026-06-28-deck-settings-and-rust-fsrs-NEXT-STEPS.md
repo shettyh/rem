@@ -2,12 +2,16 @@
 
 _Last updated: 2026-08-07_
 
-> **Update 2026-08-07 (#5):** Per-deck FSRS weight optimization is implemented on
-> `feat/fsrs-optimization`: atomic FSRS-effective review logs, Dexie v11, full backup/git-sync
-> history, native fsrs-rs training, persisted per-deck weights, and Optimize/Reset UI. Automated
-> verification is green: 278 TypeScript/browser tests, build, and 15 Rust tests. This completes the
-> five-part per-deck-settings/Rust-FSRS effort. **Recommended next product slice = Stats screen,**
-> which can now build on the durable review log.
+> **Update 2026-08-07 (Stats):** The review-log-backed Stats screen is implemented on
+> `feat/stats-screen`: global/deck filtering, 7/30/90-day activity, recall, streak, active days,
+> grade distribution, and deck breakdown. Automated verification is green: 288 TypeScript/browser
+> tests, build, and 15 Rust tests. **Recommended next product slice = daily reminders / native
+> notifications.**
+>
+> **Update 2026-08-07 (#5):** Per-deck FSRS weight optimization is DONE, merged to `main`
+> (PR #8, merge `11af8e1`). It added atomic FSRS-effective review logs, Dexie v11, full backup/
+> git-sync history, native fsrs-rs training, persisted per-deck weights, and Optimize/Reset UI.
+> This completed the five-part per-deck-settings/Rust-FSRS effort.
 >
 > **Update 2026-08-07 (#4):** Custom study is DONE, merged to `main` (PR #7, merge
 > `021b8f1`). It added temporary study-ahead, additional-new, forgotten-card, and

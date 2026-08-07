@@ -36,6 +36,10 @@ export function Sidebar() {
           <span className="nav-dot" />
           <span className="nav-grow">Today</span>
         </NavLink>
+        <NavLink to="/stats" className={navClass}>
+          <span className="nav-dot nav-dot-stats" />
+          <span className="nav-grow">Stats</span>
+        </NavLink>
       </nav>
 
       <div className="side-section">
