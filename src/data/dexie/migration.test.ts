@@ -155,6 +155,31 @@ describe('leech metadata migration (v9)', () => {
   })
 })
 
+describe('review-history migration (v11)', () => {
+  it('adds reviewLogs and backfills null FSRS weights', async () => {
+    const v10 = new Dexie(NAME)
+    v10.version(10).stores({
+      decks: 'id, createdAt',
+      cards: 'id, deckId, createdAt',
+      tombstones: 'id, deletedAt',
+      assets: 'hash',
+      dailyStats: 'id, deckId, day',
+    })
+    await v10.open()
+    const { fsrsWeights: _oldMissingField, ...oldSettings } = DEFAULT_DECK_SETTINGS
+    await v10.table('decks').add({
+      id: 'd1', name: 'Old', createdAt: 1, updatedAt: 1, color: '#7e6cff', schedulerKind: 'fsrs',
+      settings: oldSettings,
+    })
+    v10.close()
+
+    const db = new RemDB(NAME)
+    expect((await db.decks.get('d1'))?.settings.fsrsWeights).toBeNull()
+    expect(await db.reviewLogs.count()).toBe(0)
+    db.close()
+  })
+})
+
 describe('custom-study metadata migration (v10)', () => {
   it('backfills lastAgainAt without changing existing card metadata', async () => {
     const v9 = new Dexie(NAME)

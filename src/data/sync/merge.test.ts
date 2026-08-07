@@ -12,7 +12,7 @@ function card(id: string, updatedAt: number, front = 'f'): CardRecord {
   }
 }
 function snap(p: Partial<RepoSnapshot>): RepoSnapshot {
-  return { decks: [], cards: [], tombstones: [], assets: [], ...p }
+  return { decks: [], cards: [], reviewLogs: [], tombstones: [], assets: [], ...p }
 }
 const H = 'a'.repeat(64)
 function imgCard(id: string, hash: string): CardRecord {
@@ -99,6 +99,26 @@ describe('merge', () => {
     const remote = snap({ decks: [deck], tombstones: [{ id: 'a', kind: 'card', deletedAt: 20 }] })
     const { merged } = merge(local, remote)
     expect(merged.cards.map((c) => c.id)).toEqual(['a'])
+  })
+
+  it('unions review logs and includes them in db upserts', () => {
+    const review = { id: 'r1', deckId: 'd1', cardId: 'a', reviewedAt: 10, grade: 'good' as const }
+    const local = snap({ decks: [deck], cards: [card('a', 10)], reviewLogs: [review] })
+    const remote = snap({ decks: [deck], cards: [card('a', 10)], reviewLogs: [
+      { id: 'r2', deckId: 'd1', cardId: 'a', reviewedAt: 20, grade: 'again' },
+    ] })
+    const { merged, dbOps } = merge(local, remote)
+    expect(merged.reviewLogs.map((log) => log.id).sort()).toEqual(['r1', 'r2'])
+    expect(dbOps.upsertReviewLogs.map((log) => log.id).sort()).toEqual(['r1', 'r2'])
+  })
+
+  it('drops review logs whose card was deleted', () => {
+    const review = { id: 'r1', deckId: 'd1', cardId: 'a', reviewedAt: 10, grade: 'good' as const }
+    const local = snap({ decks: [deck], cards: [card('a', 10)], reviewLogs: [review] })
+    const remote = snap({ decks: [deck], tombstones: [{ id: 'a', kind: 'card', deletedAt: 20 }] })
+    const { merged, dbOps } = merge(local, remote)
+    expect(merged.reviewLogs).toEqual([])
+    expect(dbOps.deleteReviewLogIds).toEqual(['r1'])
   })
 
   it('keeps the newer deck edit (deck LWW by updatedAt)', () => {

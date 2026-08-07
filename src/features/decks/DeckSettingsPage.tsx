@@ -9,7 +9,12 @@ import { Stepper } from '../../ui/Stepper'
 import { SegToggle } from '../../ui/SegToggle'
 import { Toggle } from '../../ui/Toggle'
 import { DECK_PALETTE, deckColor } from '../../ui/deckColor'
-import { parseSteps } from '../../domain/scheduler/steps'
+import { parseSteps, parseStepsMs } from '../../domain/scheduler/steps'
+import {
+  buildReviewHistories,
+  getFsrsOptimizer,
+  hasDelayedReview,
+} from '../../domain/scheduler/optimizer'
 import {
   CUSTOM_STUDY_PRESETS,
   customStudyPreset,
@@ -33,6 +38,11 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [customMode, setCustomMode] = useState<CustomStudyMode | null>(null)
   const [customAmount, setCustomAmount] = useState(1)
+  const [optimizing, setOptimizing] = useState(false)
+  const [optimizerError, setOptimizerError] = useState(false)
+  const reviewLogs = useLiveQuery(() => storage.listReviewLogs(deck.id), [deck.id, storage]) ?? []
+  const reviewHistories = buildReviewHistories(reviewLogs)
+  const canOptimize = hasDelayedReview(reviewHistories)
 
   const customPreset = customMode ? customStudyPreset(customMode) : null
   function selectCustomMode(mode: CustomStudyMode) {
@@ -59,6 +69,31 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
   }
   function commit() {
     void storage.updateDeck(deck.id, { settings })
+  }
+  async function optimizeParameters() {
+    if (!canOptimize || optimizing) return
+    setOptimizing(true)
+    setOptimizerError(false)
+    try {
+      const weights = await getFsrsOptimizer().optimize(
+        reviewHistories,
+        parseStepsMs(settings.relearnSteps).length,
+      )
+      const next = { ...settings, fsrsWeights: weights }
+      setSettings(next)
+      await storage.updateDeck(deck.id, { settings: next })
+    } catch (error) {
+      console.error('FSRS optimization failed', error)
+      setOptimizerError(true)
+    } finally {
+      setOptimizing(false)
+    }
+  }
+  async function resetParameters() {
+    const next = { ...settings, fsrsWeights: null }
+    setSettings(next)
+    setOptimizerError(false)
+    await storage.updateDeck(deck.id, { settings: next })
   }
 
   const title = (
@@ -130,6 +165,37 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
                 max={0.99}
                 format={(v) => `${Math.round(v * 100)}%`}
               />
+            </div>
+            <div className="ds-rule" />
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">FSRS parameters</div>
+                <div className="ds-row-sub">
+                  {settings.fsrsWeights ? 'Optimized parameters' : 'Default parameters'}
+                </div>
+                <div className="ds-row-sub">
+                  {reviewLogs.length} recorded FSRS review{reviewLogs.length === 1 ? '' : 's'}
+                </div>
+                {!canOptimize && (
+                  <div className="ds-row-sub">Optimize after reviewing a card on a later day.</div>
+                )}
+                {optimizerError && <div className="ds-row-sub ds-error" role="alert">Couldn&#39;t optimize parameters. Try again.</div>}
+              </div>
+              <div className="row">
+                {settings.fsrsWeights && (
+                  <button type="button" className="btn btn-ghost" disabled={optimizing} onClick={() => void resetParameters()}>
+                    Reset
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!canOptimize || optimizing}
+                  onClick={() => void optimizeParameters()}
+                >
+                  {optimizing ? 'Optimizing…' : 'Optimize'}
+                </button>
+              </div>
             </div>
           </div>
 

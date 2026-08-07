@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Asset, Card, DailyStat, Deck, Tombstone } from '../../domain/models'
+import type { Asset, Card, DailyStat, Deck, ReviewLog, Tombstone } from '../../domain/models'
 import { getScheduler } from '../../domain/scheduler'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 import { deckColor } from '../../ui/deckColor'
@@ -11,6 +11,7 @@ export class RemDB extends Dexie {
   tombstones!: EntityTable<Tombstone, 'id'>
   assets!: EntityTable<Asset, 'hash'>
   dailyStats!: EntityTable<DailyStat, 'id'>
+  reviewLogs!: EntityTable<ReviewLog, 'id'>
 
   constructor(name = 'rem') {
     super(name)
@@ -131,6 +132,21 @@ export class RemDB extends Dexie {
       .upgrade(async (tx) => {
         await tx.table('cards').toCollection().modify((c) => {
           if (c.lastAgainAt === undefined) c.lastAgainAt = null
+        })
+      })
+    // v11: immutable FSRS review history and per-deck personalized weights.
+    this.version(11)
+      .stores({
+        decks: 'id, createdAt',
+        cards: 'id, deckId, createdAt',
+        tombstones: 'id, deletedAt',
+        assets: 'hash',
+        dailyStats: 'id, deckId, day',
+        reviewLogs: 'id, deckId, cardId, reviewedAt',
+      })
+      .upgrade(async (tx) => {
+        await tx.table('decks').toCollection().modify((d) => {
+          if (d.settings && d.settings.fsrsWeights === undefined) d.settings.fsrsWeights = null
         })
       })
   }

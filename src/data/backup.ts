@@ -1,7 +1,12 @@
-import type { ID, SchedulerKind, SchedulingState, DeckSettings } from '../domain/models'
+import type { DeckSettings, Grade, ID, SchedulerKind, SchedulingState } from '../domain/models'
 import { DEFAULT_DECK_SETTINGS } from '../domain/models'
 import { getScheduler } from '../domain/scheduler'
 import type { Storage } from './Storage'
+
+export interface ReviewBackup {
+  reviewedAt: number
+  grade: Grade
+}
 
 export interface CardBackup {
   front: string
@@ -12,6 +17,7 @@ export interface CardBackup {
   suspended: boolean
   lastAgainAt: number | null
   scheduling: SchedulingState
+  reviews: ReviewBackup[]
 }
 
 export interface DeckBackup {
@@ -38,7 +44,16 @@ export async function collectBackup(storage: Storage, deckIds: ID[]): Promise<De
   for (const id of deckIds) {
     const deck = byId.get(id)
     if (!deck) continue
-    const cards = await storage.listCards(id)
+    const [cards, logs] = await Promise.all([
+      storage.listCards(id),
+      storage.listReviewLogs(id),
+    ])
+    const reviewsByCard = new Map<ID, ReviewBackup[]>()
+    for (const log of logs) {
+      const reviews = reviewsByCard.get(log.cardId) ?? []
+      reviews.push({ reviewedAt: log.reviewedAt, grade: log.grade })
+      reviewsByCard.set(log.cardId, reviews)
+    }
     out.push({
       name: deck.name,
       createdAt: deck.createdAt,
@@ -54,6 +69,7 @@ export async function collectBackup(storage: Storage, deckIds: ID[]): Promise<De
         suspended: c.suspended,
         lastAgainAt: c.lastAgainAt,
         scheduling: c.scheduling,
+        reviews: reviewsByCard.get(c.id) ?? [],
       })),
     })
   }
@@ -145,7 +161,27 @@ function parseCard(raw: unknown, now: number): CardBackup {
     suspended: raw.suspended === true,
     lastAgainAt: typeof raw.lastAgainAt === 'number' ? raw.lastAgainAt : null,
     scheduling: normalizeScheduling(raw.scheduling, now),
+    reviews: parseReviews(raw.reviews),
   }
+}
+
+function parseReviews(raw: unknown): ReviewBackup[] {
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) throw new Error('Backup file is malformed.')
+  return raw.map((review) => {
+    if (
+      !isObject(review) ||
+      typeof review.reviewedAt !== 'number' ||
+      !isGrade(review.grade)
+    ) {
+      throw new Error('Backup file is malformed.')
+    }
+    return { reviewedAt: review.reviewedAt, grade: review.grade }
+  })
+}
+
+function isGrade(value: unknown): value is Grade {
+  return value === 'again' || value === 'hard' || value === 'good' || value === 'easy'
 }
 
 /** Whether `v` is a recognizable scheduling payload — FSRS, or a legacy SM-2

@@ -34,7 +34,7 @@ test('importing a same-named deck warns, then replaces on confirm', async () => 
       schedulerKind: 'fsrs',
       settings: DEFAULT_DECK_SETTINGS,
       cards: [
-        { front: 'hola', back: 'hello', createdAt: 1, updatedAt: 1, tags: [], suspended: false, lastAgainAt: null, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 1 } },
+        { front: 'hola', back: 'hello', createdAt: 1, updatedAt: 1, tags: [], suspended: false, lastAgainAt: null, scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 1 }, reviews: [] },
       ],
     },
   ]

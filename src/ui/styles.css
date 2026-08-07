@@ -1586,6 +1586,7 @@ input[type='file']::file-selector-button:hover {
 .ds-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .ds-row-title { font-size: 15px; font-weight: 500; }
 .ds-row-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.ds-row-sub.ds-error { color: var(--danger); }
 .ds-swatches { display: flex; gap: 10px; }
 .ds-swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border-strong); cursor: pointer; padding: 0; }
 .ds-swatch.is-active { box-shadow: 0 0 0 2px var(--accent); }

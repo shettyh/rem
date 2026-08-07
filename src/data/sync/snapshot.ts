@@ -1,4 +1,4 @@
-import type { SchedulerKind, SchedulingState, Tombstone, DeckSettings } from '../../domain/models'
+import type { DeckSettings, Grade, SchedulerKind, SchedulingState, Tombstone } from '../../domain/models'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 import { deckColor } from '../../ui/deckColor'
 
@@ -20,7 +20,7 @@ function normalizeDeck(d: DeckRecord): DeckRecord {
     ...d,
     updatedAt: d.updatedAt ?? d.createdAt,
     color: d.color ?? deckColor(d.id),
-    settings: d.settings ?? DEFAULT_DECK_SETTINGS,
+    settings: { ...DEFAULT_DECK_SETTINGS, ...(d.settings ?? {}) },
   }
 }
 
@@ -50,6 +50,14 @@ export interface CardRecord {
   scheduling: SchedulingState
 }
 
+export interface ReviewLogRecord {
+  id: string
+  deckId: string
+  cardId: string
+  reviewedAt: number
+  grade: Grade
+}
+
 export interface AssetBlob {
   hash: string
   mime: string
@@ -59,17 +67,19 @@ export interface AssetBlob {
 export interface RepoSnapshot {
   decks: DeckRecord[]
   cards: CardRecord[]
+  reviewLogs: ReviewLogRecord[]
   tombstones: Tombstone[]
   assets: AssetBlob[]
 }
 
 export const SYNC_FORMAT = 'rem-sync'
 export const SYNC_VERSION = 1
-export const EMPTY_SNAPSHOT: RepoSnapshot = { decks: [], cards: [], tombstones: [], assets: [] }
+export const EMPTY_SNAPSHOT: RepoSnapshot = { decks: [], cards: [], reviewLogs: [], tombstones: [], assets: [] }
 
 interface DeckFile {
   deck: DeckRecord
   cards: CardRecord[]
+  reviewLogs?: ReviewLogRecord[]
 }
 
 /** Serialize a snapshot to the file-per-deck layout: rem.json manifest,
@@ -84,8 +94,18 @@ export function serializeSnapshot(snap: RepoSnapshot): Record<string, string> {
     arr.push(c)
     cardsByDeck.set(c.deckId, arr)
   }
+  const reviewsByDeck = new Map<string, ReviewLogRecord[]>()
+  for (const review of snap.reviewLogs) {
+    const arr = reviewsByDeck.get(review.deckId) ?? []
+    arr.push(review)
+    reviewsByDeck.set(review.deckId, arr)
+  }
   for (const deck of snap.decks) {
-    const payload: DeckFile = { deck, cards: cardsByDeck.get(deck.id) ?? [] }
+    const payload: DeckFile = {
+      deck,
+      cards: cardsByDeck.get(deck.id) ?? [],
+      reviewLogs: reviewsByDeck.get(deck.id) ?? [],
+    }
     files[`decks/${deck.id}.json`] = JSON.stringify(payload, null, 2)
   }
   files['tombstones.json'] = JSON.stringify(snap.tombstones, null, 2)
@@ -97,6 +117,7 @@ export function serializeSnapshot(snap: RepoSnapshot): Record<string, string> {
 export function deserializeSnapshot(files: Record<string, string>): RepoSnapshot {
   const decks: DeckRecord[] = []
   const cards: CardRecord[] = []
+  const reviewLogs: ReviewLogRecord[] = []
   let tombstones: Tombstone[] = []
   for (const [path, content] of Object.entries(files)) {
     if (path === 'rem.json') continue
@@ -105,10 +126,11 @@ export function deserializeSnapshot(files: Record<string, string>): RepoSnapshot
       continue
     }
     if (path.startsWith('decks/') && path.endsWith('.json')) {
-      const { deck, cards: deckCards } = JSON.parse(content) as DeckFile
+      const { deck, cards: deckCards, reviewLogs: deckReviews = [] } = JSON.parse(content) as DeckFile
       decks.push(normalizeDeck(deck))
       for (const c of deckCards) cards.push(normalizeCard(c))
+      reviewLogs.push(...deckReviews)
     }
   }
-  return { decks, cards, tombstones, assets: [] }
+  return { decks, cards, reviewLogs, tombstones, assets: [] }
 }

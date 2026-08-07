@@ -93,5 +93,7 @@ seam. Configure the remote in **Settings → Sync**.
 
 ## Scheduling
 
-All cards are scheduled with **FSRS** (`ts-fsrs`). It sits behind the `Scheduler` interface, so
-swapping or adding an algorithm is a one-file change.
+All cards are scheduled with **FSRS** (`fsrs-rs` in Rust). It sits behind the `Scheduler` interface,
+so swapping or adding an algorithm remains isolated. FSRS-effective grades are recorded locally and
+synced with the deck; **Deck options → FSRS parameters** can optimize or reset per-deck weights once
+a card has been reviewed on a later day.

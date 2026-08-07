@@ -1,9 +1,11 @@
-import type { AssetBlob, CardRecord, DeckRecord, RepoSnapshot, Tombstone } from './snapshot'
+import type { AssetBlob, CardRecord, DeckRecord, RepoSnapshot, ReviewLogRecord, Tombstone } from './snapshot'
 import { assetRefs } from '../assetRefs'
 
 export interface DbOps {
   upsertDecks: DeckRecord[]
   upsertCards: CardRecord[]
+  upsertReviewLogs: ReviewLogRecord[]
+  deleteReviewLogIds: string[]
   deleteDeckIds: string[]
   deleteCardIds: string[]
   tombstones: Tombstone[]
@@ -59,6 +61,18 @@ export function merge(local: RepoSnapshot, remote: RepoSnapshot): MergeResult {
     if (t && t.kind === 'card' && t.deletedAt > c.updatedAt) continue
     mergedCards.push(c)
   }
+  const liveCards = new Map(mergedCards.map((card) => [card.id, card]))
+
+  // Review logs are immutable and union by UUID. A removed card removes its
+  // history without separate log tombstones.
+  const reviewById = new Map<string, ReviewLogRecord>()
+  for (const review of [...remote.reviewLogs, ...local.reviewLogs]) {
+    if (!reviewById.has(review.id)) reviewById.set(review.id, review)
+  }
+  const mergedReviewLogs = [...reviewById.values()].filter((review) => {
+    const card = liveCards.get(review.cardId)
+    return card?.deckId === review.deckId
+  })
 
   // Assets are immutable + content-addressed: union by hash, then keep only
   // those referenced by a surviving card. No last-writer-wins needed.
@@ -72,15 +86,21 @@ export function merge(local: RepoSnapshot, remote: RepoSnapshot): MergeResult {
   const merged: RepoSnapshot = {
     decks: mergedDecks,
     cards: mergedCards,
+    reviewLogs: mergedReviewLogs,
     tombstones: [...tombstones.values()],
     assets: mergedAssets,
   }
 
   const mergedDeckIds = new Set(mergedDecks.map((d) => d.id))
   const mergedCardIds = new Set(mergedCards.map((c) => c.id))
+  const mergedReviewLogIds = new Set(mergedReviewLogs.map((review) => review.id))
   const dbOps: DbOps = {
     upsertDecks: mergedDecks,
     upsertCards: mergedCards,
+    upsertReviewLogs: mergedReviewLogs,
+    deleteReviewLogIds: local.reviewLogs
+      .filter((review) => !mergedReviewLogIds.has(review.id))
+      .map((review) => review.id),
     deleteDeckIds: local.decks.filter((d) => !mergedDeckIds.has(d.id)).map((d) => d.id),
     deleteCardIds: local.cards.filter((c) => !mergedCardIds.has(c.id)).map((c) => c.id),
     tombstones: merged.tombstones,

@@ -79,7 +79,7 @@ test('grading twice before the first persist resolves applies only one grade', a
   const storage = freshStorage()
   const deck = await storage.createDeck('TypeScript')
   await storage.createCard(deck.id, 'Q?', 'A — the answer.')
-  const spy = vi.spyOn(storage, 'updateCard')
+  const spy = vi.spyOn(storage, 'commitReview')
 
   await renderRoute({
     storage,
@@ -182,6 +182,9 @@ test('grading a Review-state card bumps reviewsDone, not newIntroduced', async (
   })
   const stat = await storage.getDailyStat(deck.id, localDay(Date.now()))
   expect(stat.newIntroduced).toBe(0)
+  expect(await storage.listReviewLogs(deck.id)).toEqual([
+    expect.objectContaining({ cardId: c.id, deckId: deck.id, grade: 'good' }),
+  ])
 })
 
 test('an Again grade records when the card was forgotten', async () => {
@@ -238,6 +241,7 @@ test('preview new reveals cards without scheduling or persistence', async () => 
   const deck = await storage.createDeck('Preview')
   const card = await storage.createCard(deck.id, 'Preview question', 'Preview answer')
   const update = vi.spyOn(storage, 'updateCard')
+  const commit = vi.spyOn(storage, 'commitReview')
   const schedule = vi.spyOn(getScheduler(), 'previewNextStates')
   await renderRoute({
     storage,
@@ -254,6 +258,7 @@ test('preview new reveals cards without scheduling or persistence', async () => 
 
   await expect.element(page.getByText('Preview complete')).toBeVisible()
   expect(update).not.toHaveBeenCalled()
+  expect(commit).not.toHaveBeenCalled()
   expect(schedule).not.toHaveBeenCalled()
   expect((await storage.getCard(card.id))?.scheduling.state).toBe(0)
   expect(await storage.getDailyStat(deck.id, localDay(Date.now()))).toEqual({ newIntroduced: 0, reviewsDone: 0 })
@@ -328,8 +333,7 @@ test('grading a learning-step card persists but bumps no counter', async () => {
     scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 1, step: 0, lastReview: null, due: 0 },
   })
   // Spy AFTER the state-setup update so only the grade's persist is counted.
-  const updateSpy = vi.spyOn(storage, 'updateCard')
-  const bumpSpy = vi.spyOn(storage, 'bumpDailyStat')
+  const commitSpy = vi.spyOn(storage, 'commitReview')
   await renderRoute({
     storage,
     entry: `/decks/${deck.id}/study`,
@@ -340,7 +344,12 @@ test('grading a learning-step card persists but bumps no counter', async () => {
   await page.getByRole('button', { name: 'Show answer', exact: false }).click()
   await page.getByRole('button', { name: 'Good', exact: false }).click()
 
-  // The grade persisted the card (updateCard fired) but bumped no daily counter.
-  await vi.waitFor(() => expect(updateSpy).toHaveBeenCalled())
-  expect(bumpSpy).not.toHaveBeenCalled()
+  // The fixed-step grade persists, but carries no optimizer event or daily counter.
+  await vi.waitFor(() => expect(commitSpy).toHaveBeenCalled())
+  expect(commitSpy).toHaveBeenCalledWith(expect.objectContaining({
+    cardId: c.id,
+    fsrsGrade: undefined,
+    daily: undefined,
+  }))
+  expect(await storage.listReviewLogs(deck.id)).toEqual([])
 })

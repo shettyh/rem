@@ -14,6 +14,7 @@ pub fn run() {
             git::git_write_assets,
             git::git_commit_push,
             fsrs_sched::fsrs_next_states,
+            fsrs_sched::fsrs_optimize,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

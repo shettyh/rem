@@ -126,10 +126,19 @@ export function ReviewPage() {
           patch.suspended = effect.suspended
         }
         if (g === 'again') patch.lastAgainAt = gradedAt
-        await storage.updateCard(current.card.id, patch)
-        const day = localDay(gradedAt)
-        if (preState === 0) await storage.bumpDailyStat(current.card.deckId, day, 'newIntroduced')
-        else if (preState === 2) await storage.bumpDailyStat(current.card.deckId, day, 'reviewsDone')
+        const daily = preState === 0
+          ? { day: localDay(gradedAt), field: 'newIntroduced' as const }
+          : preState === 2
+            ? { day: localDay(gradedAt), field: 'reviewsDone' as const }
+            : undefined
+        await storage.commitReview({
+          cardId: current.card.id,
+          deckId: current.card.deckId,
+          patch,
+          reviewedAt: gradedAt,
+          fsrsGrade: next.reps > current.card.scheduling.reps ? g : undefined,
+          daily,
+        })
         session.grade(gradedAt, next, { requeue: effect?.suspended !== true })
         setCurrent(session.next(Date.now()))
         setRevealed(false)
