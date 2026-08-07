@@ -1,7 +1,7 @@
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
-import type { SchedulingState } from '../../domain/models'
+import type { Card } from '../../domain/models'
 import { MS_PER_DAY } from '../../domain/scheduler'
 import { PageHeader } from '../../ui/PageHeader'
 import { deckColor } from '../../ui/deckColor'
@@ -20,11 +20,14 @@ export function cardPreview(md: string): string {
     .trim()
 }
 
-/** A card's review status, derived from existing scheduling state. */
+/** A card's management status; suspension/leech metadata takes priority over scheduling. */
 export function cardStatus(
-  s: SchedulingState,
+  card: Pick<Card, 'scheduling' | 'tags' | 'suspended'>,
   now: number,
-): { kind: 'new' | 'due' | 'scheduled'; label: string } {
+): { kind: 'new' | 'due' | 'scheduled' | 'leech' | 'suspended'; label: string } {
+  if (card.suspended) return { kind: 'suspended', label: 'suspended' }
+  if (card.tags.includes('leech')) return { kind: 'leech', label: 'leech' }
+  const s = card.scheduling
   const isNewCard = s.reps === 0
   if (isNewCard) return { kind: 'new', label: 'new' }
   if (s.due <= now) return { kind: 'due', label: 'due' }
@@ -109,7 +112,7 @@ export function DeckDetailPage() {
 
             <div className="card-list">
               {cards.map((card) => {
-                const status = cardStatus(card.scheduling, now)
+                const status = cardStatus(card, now)
                 return (
                   <button
                     key={card.id}
