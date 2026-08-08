@@ -10,12 +10,18 @@ function renderSettings(storage: ReturnType<typeof freshStorage>) {
   return renderRoute({ storage, entry: '/settings', path: '/settings', element: <SettingsPage /> })
 }
 
-test('export button enables only when a deck is selected', async () => {
+test('presents local storage first and keeps per-deck export behind choose decks', async () => {
   const storage = freshStorage()
   await storage.createDeck('TypeScript')
   await storage.createDeck('Spanish')
   renderSettings(storage)
 
+  await expect.element(page.getByRole('heading', { name: 'Data & storage' })).toBeVisible()
+  await expect.element(page.getByText('Active')).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Export all' })).toBeEnabled()
+  await expect.element(page.getByLabelText('Select all decks')).not.toBeInTheDocument()
+
+  await page.getByRole('button', { name: 'Choose decks' }).click()
   const exportBtn = page.getByRole('button', { name: 'Export selected' })
   await expect.element(exportBtn).toBeDisabled()
   await page.getByLabelText('Select all decks').click()

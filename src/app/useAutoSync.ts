@@ -4,13 +4,15 @@ import { appDataDir, join } from '@tauri-apps/api/path'
 import type { Storage } from '../data/Storage'
 import { GitSyncService } from '../data/sync/GitSyncService'
 import { TauriGitBridge } from '../data/sync/TauriGitBridge'
-
-const REMOTE_KEY = 'rem.sync.remoteUrl'
-const LAST_SYNC_KEY = 'rem.sync.lastSyncAt'
+import {
+  LAST_SYNC_KEY,
+  REMOTE_KEY,
+  isAutoSyncEnabled,
+} from '../data/sync/preferences'
 
 async function runSync(storage: Storage): Promise<void> {
   const remoteUrl = (localStorage.getItem(REMOTE_KEY) ?? '').trim()
-  if (!remoteUrl) return
+  if (!remoteUrl || !isAutoSyncEnabled()) return
   const repoDir = await join(await appDataDir(), 'repo')
   await new GitSyncService(storage, new TauriGitBridge(), { remoteUrl, repoDir }).sync()
   localStorage.setItem(LAST_SYNC_KEY, String(Date.now()))
