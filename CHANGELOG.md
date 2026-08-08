@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 (2026-08-08)
+
+## What's Changed
+* feat(ui): show app version in settings by @shettyh in https://github.com/shettyh/rem/pull/71
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.6.4...v0.7.0
+
 ## 0.6.4 (2026-08-08)
 
 ## What's Changed
