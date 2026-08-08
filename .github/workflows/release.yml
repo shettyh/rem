@@ -24,7 +24,7 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - id: release
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
 
       # Pull requests opened with GITHUB_TOKEN do not emit another pull_request
       # event. Dispatch CI explicitly so the release PR still gets checked
