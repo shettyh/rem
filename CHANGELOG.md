@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.3 (2026-08-08)
+
+## What's Changed
+* build(deps): bump actions/setup-node from 4 to 7 by @dependabot[bot] in https://github.com/shettyh/rem/pull/40
+* build(deps): bump actions/checkout from 4 to 7 by @dependabot[bot] in https://github.com/shettyh/rem/pull/53
+* build(deps): bump tauri-apps/tauri-action from 0 to 1 by @dependabot[bot] in https://github.com/shettyh/rem/pull/55
+* build(deps): coordinate coupled dependency updates by @shettyh in https://github.com/shettyh/rem/pull/64
+* build(deps-dev): bump typescript from 6.0.3 to 7.0.2 by @dependabot[bot] in https://github.com/shettyh/rem/pull/69
+* build(deps-dev): bump @types/react from 19.2.17 to 19.2.18 by @dependabot[bot] in https://github.com/shettyh/rem/pull/68
+* build(deps-dev): bump @testing-library/jest-dom from 6.9.1 to 7.0.0 by @dependabot[bot] in https://github.com/shettyh/rem/pull/66
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.6.2...v0.6.3
+
 ## 0.6.2 (2026-08-08)
 
 ## What's Changed
