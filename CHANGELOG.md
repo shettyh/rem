@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.1 (2026-08-08)
+
+## What's Changed
+* docs: align README project description by @shettyh in https://github.com/shettyh/rem/pull/36
+* fix(deps): remediate known vulnerabilities by @shettyh in https://github.com/shettyh/rem/pull/38
+* ci(security): automate vulnerability scanning by @shettyh in https://github.com/shettyh/rem/pull/39
+* fix(security): harden Tauri sync boundaries by @shettyh in https://github.com/shettyh/rem/pull/61
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.6.0...v0.6.1
+
 ## 0.6.0 (2026-08-08)
 
 ## What's Changed
