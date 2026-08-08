@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.4 (2026-08-08)
+
+## What's Changed
+* build(deps-dev): bump @testing-library/user-event from 14.6.1 to 14.6.3 by @dependabot[bot] in https://github.com/shettyh/rem/pull/65
+* build(deps-dev): bump jsdom from 29.1.1 to 30.0.1 by @dependabot[bot] in https://github.com/shettyh/rem/pull/67
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.6.3...v0.6.4
+
 ## 0.6.3 (2026-08-08)
 
 ## What's Changed
