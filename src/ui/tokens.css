@@ -1,26 +1,26 @@
 /* Design tokens — the single source of truth for colors, spacing, type, motion.
-   Editorial palette from the rem.dc.html mockup: purple accent, warm-light +
-   warm-dark themes. Light values on :root; dark overrides under [data-theme='dark']. */
+   Neutral application chrome with purple reserved for primary actions and focus.
+   Light values on :root; dark overrides under [data-theme='dark']. */
 :root {
   /* color roles */
-  --bg: #faf9f6;            /* content area */
-  --bg-inset: #f4f2ed;      /* subtle inset / hover wash */
-  --sidebar: #f1efea;       /* sidebar */
+  --bg: #ffffff;            /* content area */
+  --bg-inset: #f5f4f2;      /* subtle inset / hover wash */
+  --sidebar: #fafaf9;       /* sidebar */
   --surface: #ffffff;
-  --surface-inset: #f4f2ed;
-  --border: #e7e4dd;
-  --border-strong: #d9d5cd;
-  --text: #1a1822;
-  --muted: #65606c;         /* secondary text */
-  --faint: #6f6a76;         /* tertiary: Space Mono micro-labels, counts */
-  --accent: #5a47e8;        /* purple — solid fills */
+  --surface-inset: #f1f0ee;
+  --border: #eceae7;
+  --border-strong: #d9d6d2;
+  --text: #1c1917;
+  --muted: #6f6965;         /* secondary text */
+  --faint: #6f6965;         /* tertiary labels and counts */
+  --accent: #5a47e8;        /* purple — primary actions and focus only */
   --accent-hover: #4a39d6;
-  --accent-soft: #eeebff;   /* tinted chip / selected-row background */
-  --accent-text: #5a47e8;   /* accent as TEXT (chips, inline code, due count) */
+  --accent-soft: #f1f0ee;   /* neutral selected / chip background */
+  --accent-text: #1c1917;
   --on-accent: #ffffff;
   --code-bg: #1e1e22;       /* code stays dark in both themes (github-dark) */
   --code-fg: #eceaf6;
-  --selection: #eeebff;     /* sidebar/list selected row */
+  --selection: #f1f0ee;     /* sidebar/list selected row */
 
   /* grade + semantic roles */
   --again: #dc2a2f;
@@ -36,19 +36,19 @@
   /* type scale */
   --text-xs: 12px; --text-sm: 13px; --text-base: 14px;
   --text-lg: 17px; --text-xl: 21px; --text-2xl: 26px;
-  --font-sans: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
   --font-mono: 'Space Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
 
   /* shell metrics */
   --sidebar-w: 264px;
   --titlebar-h: 38px;       /* drag strip / traffic-light inset on macOS */
-  --page-header-h: 52px;    /* routed-screen toolbar */
+  --page-header-h: 48px;    /* routed-screen toolbar */
 
   /* radii / shadow / motion */
-  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px; --radius-xl: 20px;
+  --radius-sm: 5px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 12px;
   --radius: var(--radius-md);
-  --shadow-sm: 0 1px 3px rgba(20, 18, 30, 0.08);
+  --shadow-sm: none;
   --shadow-md: 0 24px 60px rgba(20, 18, 30, 0.18);
   --shadow: var(--shadow-sm);
   --reveal-ms: 180ms;
@@ -57,29 +57,29 @@
 }
 
 [data-theme='dark'] {
-  --bg: #0f0e13;
-  --bg-inset: #232231;
-  --sidebar: #15141b;
-  --surface: #1b1a23;
-  --surface-inset: #232231;
-  --border: #2a2836;
-  --border-strong: #3a3848;
-  --text: #f4f3f8;
-  --muted: #9d99a8;
-  --faint: #8e899a;
-  --accent: #7e6cff;
-  --accent-hover: #8f80ff;
-  --accent-soft: #241f3d;
-  --accent-text: #7e6cff;
+  --bg: #161413;
+  --bg-inset: #201e1c;
+  --sidebar: #0e0c0b;
+  --surface: #1b1918;
+  --surface-inset: #24211f;
+  --border: #2b2825;
+  --border-strong: #3c3835;
+  --text: #fafaf9;
+  --muted: #b0aaa5;
+  --faint: #a8a29e;
+  --accent: #8174ff;
+  --accent-hover: #9288ff;
+  --accent-soft: #24211f;
+  --accent-text: #fafaf9;
   --on-accent: #ffffff;
-  --code-bg: #28282e;
+  --code-bg: #0e0c0b;
   --code-fg: #eceaf6;
-  --selection: #241f3d;
+  --selection: #24211f;
   --again: #e5484d;
   --hard: #e8922e;
   --good: #2fa86b;
   --danger: #e5484d;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-sm: none;
   --shadow-md: 0 24px 60px rgba(0, 0, 0, 0.5);
 
   color-scheme: dark;
