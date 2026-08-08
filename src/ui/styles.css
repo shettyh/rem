@@ -45,6 +45,7 @@ body {
 }
 
 .content {
+  min-width: 0;
   background: var(--bg);
   height: 100vh;
   overflow-y: auto;
@@ -57,12 +58,23 @@ body {
   }
 }
 
-/* Tauri desktop: reserve a top strip for the overlaid macOS traffic lights. */
-html[data-tauri='yes'] .titlebar-spacer {
+/* macOS/Tauri: reserve the overlay titlebar and align focused-review chrome
+   with the traffic lights. Other platforms use their native titlebar. */
+html[data-tauri='yes'][data-platform='mac'] .titlebar-spacer {
   height: var(--titlebar-h);
 }
-html[data-tauri='yes'] .app.is-reviewing .page-header {
+html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing {
+  --page-header-h: var(--titlebar-h);
+}
+html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header {
   padding-left: 92px;
+}
+html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn {
+  padding: 6px 14px;
+  border-radius: 9px;
+  font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 /* ─── Sidebar ──────────────────────────────────────────────────────────── */
@@ -304,7 +316,7 @@ html[data-tauri='yes'] .app.is-reviewing .page-header {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  height: 52px;
+  height: var(--page-header-h);
   padding: 0 40px;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
@@ -1049,7 +1061,7 @@ select.text-input {
 /* ─── Review ───────────────────────────────────────────────────────────── */
 .review-progress {
   position: sticky;
-  top: 52px;
+  top: var(--page-header-h);
   z-index: 9;
   height: 3px;
   background: var(--surface-inset);
@@ -1069,7 +1081,7 @@ select.text-input {
   padding: clamp(32px, 7vh, 60px) 40px 48px;
 }
 .review-terminal {
-  min-height: calc(100vh - 52px);
+  min-height: calc(100vh - var(--page-header-h));
   display: grid;
   place-items: center;
   padding: 40px;
@@ -1457,7 +1469,7 @@ input[type='file']::file-selector-button:hover {
 /* Sticky formatting toolbar, pinned just under the page header. */
 .md-toolbar-bar {
   position: sticky;
-  top: 52px;
+  top: var(--page-header-h);
   z-index: 5;
   padding: 18px 0 14px;
   background: var(--bg);
@@ -1796,6 +1808,25 @@ input[type='file']::file-selector-button:hover {
   .stats-kpis { grid-template-columns: repeat(2, 1fr); }
   .stats-detail-grid { grid-template-columns: 1fr; }
   .stats-chart { height: 140px; gap: 2px; }
+
+  /* Keep every screen comfortable at the app's minimum supported width. */
+  .page-header { gap: 8px; padding-inline: 18px; }
+  .page-header h1,
+  .page-header-actions { gap: 8px; }
+  .page-header .btn { padding-inline: 14px; white-space: nowrap; }
+  .page-body { padding: 28px 18px; }
+  .today { padding: 40px 18px 56px; }
+  .today-greet { font-size: 54px; }
+  .settings-body { padding: 36px 18px 60px; }
+  .card-editor { padding-inline: 18px; padding-bottom: 64px; }
+  .review { padding: 28px 18px 40px; }
+  .review-terminal { padding-inline: 18px; }
+  .deck-stats { gap: 8px; }
+  .deck-stat { padding: 16px; }
+  .card-row { gap: 10px; padding: 16px; }
+  .card-back { max-width: 140px; }
+  .card-user-tags { max-width: 110px; }
+  .ds-row { flex-wrap: wrap; }
 }
 
 /* ─── Keyboard focus ───────────────────────────────────────────────────── */

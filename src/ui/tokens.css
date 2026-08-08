@@ -43,6 +43,7 @@
   /* shell metrics */
   --sidebar-w: 264px;
   --titlebar-h: 38px;       /* drag strip / traffic-light inset on macOS */
+  --page-header-h: 52px;    /* routed-screen toolbar */
 
   /* radii / shadow / motion */
   --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px; --radius-xl: 20px;
