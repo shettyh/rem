@@ -116,7 +116,7 @@ export function DeckListPage() {
               <div className="deck-grid">
                 {decks.map(({ deck, due, newCount, total }) => (
                   <Link key={deck.id} to={`/decks/${deck.id}`} className="deck-card">
-                    <span className="deck-card-bar" style={{ background: deckColor(deck.id) }} />
+                    <span className="deck-card-bar" style={{ background: deck.color ?? deckColor(deck.id) }} />
                     <span className="deck-card-body">
                       <span className="deck-card-meta">
                         <span className="algo-chip">FSRS</span>

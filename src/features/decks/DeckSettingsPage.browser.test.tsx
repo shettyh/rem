@@ -73,7 +73,7 @@ test('persists daily-limit, new-card, and lapse edits', async () => {
   await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.leechAction).toBe('tag')
 })
 
-test('toggles timer and starts the selected custom-study preset', async () => {
+test('starts the selected custom-study preset', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Spanish')
   function LocationProbe() {
@@ -88,8 +88,8 @@ test('toggles timer and starts the selected custom-study preset', async () => {
     extraRoutes: [{ path: '/decks/:deckId/study', element: <LocationProbe /> }],
   })
 
-  await page.getByRole('switch', { name: 'Show answer timer' }).click()
-  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.showTimer).toBe(true)
+  await expect.element(page.getByText('Bury related new cards')).not.toBeInTheDocument()
+  await expect.element(page.getByText('Show answer timer')).not.toBeInTheDocument()
 
   const start = page.getByRole('button', { name: 'Start' })
   await expect.element(start).toBeDisabled()
