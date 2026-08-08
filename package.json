@@ -20,7 +20,7 @@
     "@tiptap/extension-image": "^3.27.1",
     "@tiptap/extensions": "^3.27.1",
     "@tiptap/pm": "^3.27.1",
-    "@tiptap/react": "^3.27.1",
+    "@tiptap/react": "^3.29.2",
     "@tiptap/starter-kit": "^3.27.1",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
