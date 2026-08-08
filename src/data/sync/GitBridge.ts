@@ -11,18 +11,17 @@ export interface FetchResetResult {
   remoteExists: boolean
 }
 
-/** Dumb git transport. Implementations: {@link ./TauriGitBridge} (real) and
- *  {@link ./FakeGitBridge} (tests). All paths are absolute working-copy dirs. */
+/** Git transport confined by each adapter to its own working copy. */
 export interface GitBridge {
-  isCloned(dir: string): Promise<boolean>
-  clone(remoteUrl: string, dir: string): Promise<void>
-  setRemoteUrl(remoteUrl: string, dir: string): Promise<void>
-  fetchReset(dir: string): Promise<FetchResetResult>
-  readFiles(dir: string): Promise<Record<string, string>>
-  writeFiles(dir: string, files: Record<string, string>): Promise<void>
-  commitPush(dir: string, message: string): Promise<CommitPushResult>
+  isCloned(): Promise<boolean>
+  clone(remoteUrl: string): Promise<void>
+  setRemoteUrl(remoteUrl: string): Promise<void>
+  fetchReset(): Promise<FetchResetResult>
+  readFiles(): Promise<Record<string, string>>
+  writeFiles(files: Record<string, string>): Promise<void>
+  commitPush(message: string): Promise<CommitPushResult>
   /** Binary asset files under assets/, as content-addressed blobs. */
-  readAssets(dir: string): Promise<AssetBlob[]>
+  readAssets(): Promise<AssetBlob[]>
   /** Replace the assets/ set with `assets` (delete-absent), matching writeFiles. */
-  writeAssets(dir: string, assets: AssetBlob[]): Promise<void>
+  writeAssets(assets: AssetBlob[]): Promise<void>
 }

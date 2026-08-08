@@ -1,6 +1,8 @@
 mod fsrs_sched;
 mod git;
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -18,6 +20,8 @@ pub fn run() {
             fsrs_sched::fsrs_optimize,
         ])
         .setup(|app| {
+            let repo_dir = app.path().app_data_dir()?.join("repo");
+            app.manage(git::GitRepo::new(repo_dir));
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -29,4 +33,21 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn packaged_webview_has_a_restrictive_csp() {
+        let config: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let csp = config["app"]["security"]["csp"].as_object().unwrap();
+
+        assert_eq!(csp["default-src"], "'self'");
+        assert_eq!(csp["connect-src"], "'self' ipc: http://ipc.localhost");
+        assert_eq!(csp["img-src"], "'self' blob: data:");
+        assert_eq!(csp["object-src"], "'none'");
+        assert_eq!(csp["base-uri"], "'none'");
+        assert!(!csp["script-src"].as_str().unwrap().contains("unsafe"));
+    }
 }

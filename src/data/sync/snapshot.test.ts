@@ -49,6 +49,26 @@ describe('snapshot', () => {
     expect(files['decks/d1.json']).toContain('hola')
   })
 
+  it('rejects a deck ID that does not match its safe filename', () => {
+    const files = {
+      'decks/safe.json': JSON.stringify({
+        deck: { ...sample.decks[0], id: '../../outside' },
+        cards: [],
+      }),
+    }
+
+    expect(() => deserializeSnapshot(files)).toThrow('Invalid deck ID in decks/safe.json.')
+  })
+
+  it('rejects malformed card IDs from a synced deck', () => {
+    const files = serializeSnapshot(sample)
+    const payload = JSON.parse(files['decks/d1.json'])
+    payload.cards[0].id = '../../outside'
+    files['decks/d1.json'] = JSON.stringify(payload)
+
+    expect(() => deserializeSnapshot(files)).toThrow('Invalid card in decks/d1.json.')
+  })
+
   it('normalizes a deck file missing the v6 fields to defaults', () => {
     const files = {
       'rem.json': JSON.stringify({ format: 'rem-sync', version: 1 }),

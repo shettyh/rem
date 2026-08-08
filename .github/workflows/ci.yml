@@ -12,7 +12,6 @@ concurrency:
 
 permissions:
   contents: read
-  checks: write
 
 jobs:
   web:
@@ -50,12 +49,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Audit dependencies
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          working-directory: src-tauri
-
       - name: Install Tauri system dependencies
         run: |
           sudo apt-get update
@@ -68,6 +61,12 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Audit dependencies
+        run: cargo audit
 
       - name: Format check
         run: cargo fmt --all --check

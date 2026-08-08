@@ -18,7 +18,7 @@ beforeEach(async () => {
 })
 afterEach(() => db.close())
 
-const cfg = { remoteUrl: 'url', repoDir: 'dir' }
+const cfg = { remoteUrl: 'url' }
 
 describe('GitSyncService', () => {
   it('pushes local data to an empty remote on first sync', async () => {

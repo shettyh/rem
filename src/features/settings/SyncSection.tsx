@@ -1,6 +1,4 @@
 import { useState, type FormEvent } from 'react'
-import { isTauri } from '@tauri-apps/api/core'
-import { appDataDir, join } from '@tauri-apps/api/path'
 import type { Storage } from '../../data/Storage'
 import { useStorage } from '../../data/StorageContext'
 import { GitSyncService, type SyncConfig } from '../../data/sync/GitSyncService'
@@ -20,11 +18,6 @@ type Status =
 
 function defaultMakeService(storage: Storage, cfg: SyncConfig): GitSyncService {
   return new GitSyncService(storage, new TauriGitBridge(), cfg)
-}
-
-async function resolveRepoDir(): Promise<string> {
-  if (!isTauri()) return 'repo'
-  return join(await appDataDir(), 'repo')
 }
 
 export function SyncSection({
@@ -59,8 +52,7 @@ export function SyncSection({
     }
     setStatus({ kind: 'syncing' })
     try {
-      const repoDir = await resolveRepoDir()
-      await makeService(storage, { remoteUrl: url, repoDir }).sync()
+      await makeService(storage, { remoteUrl: url }).sync()
       const at = Date.now()
       localStorage.setItem(LAST_SYNC_KEY, String(at))
       setLastSuccessfulAt(at)

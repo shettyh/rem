@@ -5,7 +5,6 @@ import { deserializeSnapshot, serializeSnapshot, EMPTY_SNAPSHOT } from './snapsh
 
 export interface SyncConfig {
   remoteUrl: string
-  repoDir: string
 }
 
 export interface SyncOutcome {
@@ -24,27 +23,26 @@ export class GitSyncService {
   ) {}
 
   async sync(): Promise<SyncOutcome> {
-    const { remoteUrl, repoDir } = this.config
-    if (!(await this.bridge.isCloned(repoDir))) {
-      await this.bridge.clone(remoteUrl, repoDir)
+    const { remoteUrl } = this.config
+    if (!(await this.bridge.isCloned())) {
+      await this.bridge.clone(remoteUrl)
     } else {
-      await this.bridge.setRemoteUrl(remoteUrl, repoDir)
+      await this.bridge.setRemoteUrl(remoteUrl)
     }
     for (let attempt = 0; attempt < MAX_PUSH_ATTEMPTS; attempt++) {
-      const { remoteExists } = await this.bridge.fetchReset(repoDir)
+      const { remoteExists } = await this.bridge.fetchReset()
       const remote = remoteExists
         ? {
-            ...deserializeSnapshot(await this.bridge.readFiles(repoDir)),
-            assets: await this.bridge.readAssets(repoDir),
+            ...deserializeSnapshot(await this.bridge.readFiles()),
+            assets: await this.bridge.readAssets(),
           }
         : EMPTY_SNAPSHOT
       const local = await this.storage.exportSnapshot()
       const { merged, dbOps } = merge(local, remote)
       await this.storage.applyMerge(dbOps)
-      await this.bridge.writeFiles(repoDir, serializeSnapshot(merged))
-      await this.bridge.writeAssets(repoDir, merged.assets)
+      await this.bridge.writeFiles(serializeSnapshot(merged))
+      await this.bridge.writeAssets(merged.assets)
       const { pushed, rejected } = await this.bridge.commitPush(
-        repoDir,
         `sync ${new Date().toISOString()}`,
       )
       if (!rejected) return { pushed }
