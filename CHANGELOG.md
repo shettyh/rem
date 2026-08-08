@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 (2026-08-08)
+
+## What's Changed
+* fix(ui): improve editor safety and consistency by @shettyh in https://github.com/shettyh/rem/pull/14
+* fix(ui): improve readability and keyboard access by @shettyh in https://github.com/shettyh/rem/pull/16
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.2.0...v0.2.1
+
 ## 0.2.0 (2026-08-08)
 
 ## What's Changed
