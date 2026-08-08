@@ -202,7 +202,7 @@ export function ReviewPage() {
           <PageHeader title={terminalTitle} actions={terminalAction} />
           <div className="review-terminal">
             <div className="empty-state">
-              <div className="ico">🌙</div>
+              <div className="ico" aria-hidden="true">REST</div>
               <h3>{customMode ? 'No matching cards' : 'Nothing due'}</h3>
               <p>
                 {customMode
@@ -222,7 +222,7 @@ export function ReviewPage() {
         <PageHeader title={terminalTitle} actions={terminalAction} />
         <div className="review-terminal">
           <div className="empty-state">
-            <div className="ico">🎉</div>
+            <div className="ico" aria-hidden="true">DONE</div>
             <h3>{isPreview ? 'Preview complete' : 'Review complete'}</h3>
             <p>
               {isPreview

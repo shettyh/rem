@@ -94,7 +94,7 @@ export function DeckDetailPage() {
       <div className="page-body">
         {cards.length === 0 ? (
           <div className="empty-state">
-            <div className="ico">✏️</div>
+            <div className="ico" aria-hidden="true">CARDS</div>
             <h3>No cards yet</h3>
             <p>Add your first card — front, back, done.</p>
             <button className="btn btn-primary cta" onClick={() => navigate(`/decks/${deckId}/cards/new`)}>

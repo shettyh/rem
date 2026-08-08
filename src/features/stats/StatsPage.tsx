@@ -64,13 +64,13 @@ export function StatsPage() {
       <div className="stats-page">
         {stats.historyCount === 0 ? (
           <div className="empty-state stats-empty">
-            <div className="ico">▥</div>
+            <div className="ico" aria-hidden="true">STATS</div>
             <h3>No review history yet</h3>
             <p>Complete FSRS reviews to start building your activity history.</p>
           </div>
         ) : stats.totalReviews === 0 ? (
           <div className="empty-state stats-empty">
-            <div className="ico">○</div>
+            <div className="ico" aria-hidden="true">RANGE</div>
             <h3>No activity in this range</h3>
             <p>Try a longer range or another deck.</p>
           </div>

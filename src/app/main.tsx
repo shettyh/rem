@@ -19,7 +19,7 @@ function DesktopOnly() {
   return (
     <div className="desktop-only">
       <div className="empty-state">
-        <div className="ico">🖥️</div>
+        <div className="ico" aria-hidden="true">DESKTOP</div>
         <h3>rem is a desktop app</h3>
         <p>
           rem runs natively — it syncs through your system <code>git</code>, which a browser can't
