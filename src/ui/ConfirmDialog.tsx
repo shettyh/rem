@@ -48,7 +48,7 @@ export function ConfirmDialog({
         </button>
         <button
           type="button"
-          className={danger ? 'btn btn-danger-outline' : 'btn btn-primary'}
+          className={danger ? 'btn btn-danger' : 'btn btn-primary'}
           onClick={onConfirm}
         >
           {confirmLabel}

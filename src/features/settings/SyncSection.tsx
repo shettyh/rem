@@ -102,7 +102,7 @@ export function SyncSection({
           </p>
         </div>
         {!configured && !setupOpen && (
-          <button className="btn btn-primary" type="button" onClick={() => setSetupOpen(true)}>
+          <button className="btn btn-primary btn-sm" type="button" onClick={() => setSetupOpen(true)}>
             Set up Git sync
           </button>
         )}
@@ -122,13 +122,13 @@ export function SyncSection({
             autoFocus
           />
           <div className="settings-inline-actions">
-            <button className="btn btn-primary" type="submit" disabled={status.kind === 'syncing'}>
+            <button className="btn btn-primary btn-sm" type="submit" disabled={status.kind === 'syncing'}>
               {status.kind === 'syncing'
                 ? configured ? 'Updating…' : 'Connecting…'
                 : configured ? 'Update and sync' : 'Connect and sync'}
             </button>
             <button
-              className="btn btn-ghost"
+              className="btn btn-ghost btn-sm"
               type="button"
               disabled={status.kind === 'syncing'}
               onClick={() => {
@@ -151,7 +151,7 @@ export function SyncSection({
             <div className="settings-remote-value">
               <code title={configuredUrl}>{configuredUrl}</code>
               <button
-                className="btn btn-ghost"
+                className="btn btn-ghost btn-sm"
                 type="button"
                 disabled={status.kind === 'syncing'}
                 onClick={() => {
@@ -178,7 +178,7 @@ export function SyncSection({
           </label>
           <div className="settings-sync-actions">
             <button
-              className="btn btn-ghost"
+              className="btn btn-ghost btn-sm"
               type="button"
               disabled={status.kind === 'syncing'}
               onClick={() => void sync(configuredUrl, false)}

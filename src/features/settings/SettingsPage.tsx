@@ -113,7 +113,7 @@ export function SettingsPage() {
               </div>
               <div className="settings-inline-actions">
                 <button
-                  className="btn btn-ghost"
+                  className="btn btn-ghost btn-sm"
                   type="button"
                   disabled={list.length === 0}
                   aria-expanded={showDeckPicker}
@@ -122,7 +122,7 @@ export function SettingsPage() {
                   Choose decks
                 </button>
                 <button
-                  className="btn"
+                  className="btn btn-sm"
                   type="button"
                   disabled={list.length === 0}
                   onClick={() => void exportDecks(list.map((d) => d.id))}
@@ -156,7 +156,7 @@ export function SettingsPage() {
                   ))}
                 </div>
                 <button
-                  className="btn btn-primary"
+                  className="btn btn-primary btn-sm"
                   type="button"
                   disabled={selected.size === 0}
                   onClick={() => void exportDecks(list.filter((d) => selected.has(d.id)).map((d) => d.id))}
@@ -171,7 +171,7 @@ export function SettingsPage() {
                 <strong>Import backup</strong>
                 <span>Restore a rem JSON backup. Same-named decks require confirmation.</span>
               </div>
-              <button className="btn btn-ghost" type="button" onClick={() => importInput.current?.click()}>
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => importInput.current?.click()}>
                 Import backup…
               </button>
               <input
@@ -197,10 +197,10 @@ export function SettingsPage() {
                       ))}
                     </ul>
                     <div className="settings-inline-actions">
-                      <button className="btn btn-danger" type="button" onClick={() => void runImport(pending.decks)}>
+                      <button className="btn btn-danger btn-sm" type="button" onClick={() => void runImport(pending.decks)}>
                         Replace
                       </button>
-                      <button className="btn btn-ghost" type="button" onClick={() => setPending(null)}>
+                      <button className="btn btn-ghost btn-sm" type="button" onClick={() => setPending(null)}>
                         Cancel
                       </button>
                     </div>
