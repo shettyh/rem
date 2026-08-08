@@ -7,7 +7,7 @@ import { StatsPage } from './StatsPage'
 function daysAgo(days: number): number {
   const date = new Date()
   date.setDate(date.getDate() - days)
-  date.setHours(10, 0, 0, 0)
+  date.setHours(0, 0, 0, 0)
   return date.getTime()
 }
 
