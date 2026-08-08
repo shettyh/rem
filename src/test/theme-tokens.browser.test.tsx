@@ -27,13 +27,32 @@ function contrast(a: string, b: string): number {
   return (lighter + 0.05) / (darker + 0.05)
 }
 
-test('--bg resolves to the light content value by default', () => {
-  expect(bg()).toBe('#faf9f6')
+test('--bg resolves to the neutral light canvas by default', () => {
+  expect(bg()).toBe('#ffffff')
 })
 
-test('--bg resolves to the dark content value under [data-theme=dark]', () => {
+test('--bg resolves to the neutral dark canvas under [data-theme=dark]', () => {
   document.documentElement.dataset.theme = 'dark'
-  expect(bg()).toBe('#0f0e13')
+  expect(bg()).toBe('#161413')
+})
+
+test.each([
+  ['light', '#f1f0ee'],
+  ['dark', '#24211f'],
+] as const)('%s routine selection stays neutral', (theme, selection) => {
+  document.documentElement.dataset.theme = theme
+  expect(token('--selection')).toBe(selection)
+  expect(token('--accent-soft')).toBe(selection)
+  expect(token('--accent-text')).toBe(token('--text'))
+})
+
+test.each(['light', 'dark'] as const)('%s static surfaces do not cast shadows', (theme) => {
+  document.documentElement.dataset.theme = theme
+  expect(token('--shadow-sm')).toBe('none')
+})
+
+test('application chrome uses the system font stack', () => {
+  expect(token('--font-sans')).toContain('-apple-system')
 })
 
 test.each(['light', 'dark'] as const)('%s secondary text remains readable on app surfaces', (theme) => {
