@@ -33,12 +33,14 @@ test('revealing shows the answer and grade buttons', async () => {
   const showAnswer = showAnswerLocator.element()
   const endSession = page.getByRole('link', { name: 'End session' }).element()
   const questionHeight = questionCard.getBoundingClientRect().height
+  const questionAlign = getComputedStyle(questionCard.querySelector<HTMLElement>('.review-q')!).textAlign
   expect(showAnswer.getBoundingClientRect().width).toBeLessThan(
     questionCard.getBoundingClientRect().width / 2,
   )
   expect(showAnswer.getBoundingClientRect().height).toBeLessThanOrEqual(
     endSession.getBoundingClientRect().height + 8,
   )
+  expect(showAnswer).toHaveClass('btn-primary')
   await showAnswerLocator.click()
 
   await expect.element(page.getByText('A — the answer.')).toBeVisible()
@@ -46,13 +48,17 @@ test('revealing shows the answer and grade buttons', async () => {
   await expect.element(good).toBeVisible()
   const answerCard = page.getByText('A — the answer.').element().closest<HTMLElement>('.review-card')!
   expect(answerCard.getBoundingClientRect().height).toBe(questionHeight)
+  expect(getComputedStyle(answerCard.querySelector<HTMLElement>('.review-q')!).textAlign).toBe(questionAlign)
 
   const hard = page.getByRole('button', { name: 'Hard', exact: false }).element()
   const easy = page.getByRole('button', { name: 'Easy', exact: false }).element()
   const again = page.getByRole('button', { name: 'Again', exact: false }).element()
-  expect(getComputedStyle(hard).borderTopWidth).toBe('1px')
-  expect(getComputedStyle(easy).borderTopColor).toBe(getComputedStyle(hard).borderTopColor)
-  expect(getComputedStyle(good.element()).backgroundColor).toBe(getComputedStyle(document.body).color)
+  const gradeRow = good.element().closest<HTMLElement>('.grade-row')!
+  expect(getComputedStyle(gradeRow).borderTopWidth).toBe('1px')
+  expect(getComputedStyle(gradeRow).columnGap).toBe('0px')
+  expect(getComputedStyle(hard).borderTopWidth).toBe('0px')
+  expect(getComputedStyle(easy).backgroundColor).toBe(getComputedStyle(hard).backgroundColor)
+  expect(getComputedStyle(good.element()).backgroundColor).not.toBe(getComputedStyle(document.body).color)
   expect(
     getComputedStyle(again.querySelector<HTMLElement>('.grade-label')!).color,
   ).not.toBe(getComputedStyle(hard.querySelector<HTMLElement>('.grade-label')!).color)
