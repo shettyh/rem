@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0 (2026-08-08)
+
+## What's Changed
+* feat(ui): refine review card and grading controls by @shettyh in https://github.com/shettyh/rem/pull/30
+* feat(ui): simplify deck identity by @shettyh in https://github.com/shettyh/rem/pull/32
+* fix(ui): align review grades and editor typography by @shettyh in https://github.com/shettyh/rem/pull/33
+* docs: refresh README for quiet design by @shettyh in https://github.com/shettyh/rem/pull/34
+* docs: refresh license badge cache by @shettyh in https://github.com/shettyh/rem/pull/35
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.5.0...v0.6.0
+
 ## 0.5.0 (2026-08-08)
 
 ## What's Changed
