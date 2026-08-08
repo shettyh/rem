@@ -62,7 +62,6 @@ export function DeckDetailPage() {
     <>
       <span className="header-dot" style={{ background: deck.color ?? deckColor(deck.id) }} />
       <span className="header-title-text">{deck.name}</span>
-      <span className="algo-chip">FSRS</span>
     </>
   )
 
@@ -103,7 +102,7 @@ export function DeckDetailPage() {
           </div>
         ) : (
           <>
-            <div className="deck-stats">
+            <section className="deck-stats" aria-label="Deck summary">
               <div className="deck-stat deck-stat-due">
                 <div className="deck-stat-num">{due ?? 0}</div>
                 <div className="deck-stat-label">Due now</div>
@@ -116,7 +115,7 @@ export function DeckDetailPage() {
                 <div className="deck-stat-num">{cards.length}</div>
                 <div className="deck-stat-label">Total</div>
               </div>
-            </div>
+            </section>
 
             {tagOptions.length > 0 && (
               <div className="card-list-tools">
@@ -136,7 +135,7 @@ export function DeckDetailPage() {
               </div>
             )}
 
-            <div className="card-list">
+            <section className="card-list" aria-label="Cards">
               {visibleCards.map((card) => {
                 const status = cardStatus(card, now)
                 const tags = userTags(card.tags)
@@ -159,7 +158,7 @@ export function DeckDetailPage() {
                   </button>
                 )
               })}
-            </div>
+            </section>
           </>
         )}
       </div>

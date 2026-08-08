@@ -66,7 +66,9 @@ export function DeckListPage() {
     ? ''
     : deckCount === 0
       ? 'Create your first deck to start remembering.'
-      : `You have ${totalDue} card${totalDue === 1 ? '' : 's'} due across ${deckCount} deck${deckCount === 1 ? '' : 's'}.`
+      : totalDue > 0
+        ? `${totalDue} card${totalDue === 1 ? '' : 's'} due across ${deckCount} deck${deckCount === 1 ? '' : 's'}.`
+        : `All caught up across ${deckCount} deck${deckCount === 1 ? '' : 's'}.`
 
   return (
     <>
@@ -76,34 +78,22 @@ export function DeckListPage() {
           <h1 className="today-greet">{greeting(new Date().getHours())}</h1>
           <p className="today-sub">{sub}</p>
 
-          {loaded &&
-            (totalDue > 0 ? (
-              <div className="review-band">
-                <div className="review-band-left">
-                  <div className="band-figure">
-                    <span className="band-num">{totalDue}</span>
-                    <span className="band-cap">
-                      cards due
-                      <br />
-                      right now
-                    </span>
-                  </div>
-                  <div className="band-chips">
-                    <span className="chip chip-new">{overview?.totalNew ?? 0} NEW</span>
-                    <span className="chip chip-review">{overview?.totalReview ?? 0} REVIEW</span>
-                  </div>
-                </div>
-                <Link to="/study" className="band-start">
-                  <span className="band-start-title">Start review</span>
-                  <span className="band-start-hint">press ⏎</span>
-                </Link>
+          {loaded && totalDue > 0 && (
+            <section className="review-summary" aria-label="Review summary">
+              <div className="review-summary-copy">
+                <span className="review-summary-number">{totalDue}</span>
+                <span className="review-summary-label">
+                  <strong>{totalDue === 1 ? 'card due' : 'cards due'}</strong>
+                  <span>
+                    {overview?.totalNew ?? 0} new · {overview?.totalReview ?? 0} review
+                  </span>
+                </span>
               </div>
-            ) : deckCount > 0 ? (
-              <div className="caught-up">
-                <span className="caught-up-title">All caught up.</span>
-                <span className="caught-up-sub">Nothing due right now — add cards or come back later.</span>
-              </div>
-            ) : null)}
+              <Link to="/study" className="btn btn-primary review-summary-action">
+                Start review <span className="kbd">↵</span>
+              </Link>
+            </section>
+          )}
 
           {deckCount > 0 && (
             <>
@@ -113,24 +103,23 @@ export function DeckListPage() {
                   {deckCount} deck{deckCount === 1 ? '' : 's'}
                 </span>
               </div>
-              <div className="deck-grid">
+              <nav className="deck-list" aria-label="Decks">
                 {decks.map(({ deck, due, newCount, total }) => (
-                  <Link key={deck.id} to={`/decks/${deck.id}`} className="deck-card">
-                    <span className="deck-card-bar" style={{ background: deck.color ?? deckColor(deck.id) }} />
-                    <span className="deck-card-body">
-                      <span className="deck-card-meta">
-                        <span className="algo-chip">FSRS</span>
-                        <span className="deck-card-total">{total}</span>
-                      </span>
-                      <span className="deck-card-name">{deck.name}</span>
-                      <span className="deck-card-foot">
-                        <span className="deck-card-due">{due} due</span>
-                        <span className="deck-card-new">{newCount} new</span>
-                      </span>
+                  <Link key={deck.id} to={`/decks/${deck.id}`} className="deck-list-row">
+                    <span
+                      className="deck-list-dot"
+                      style={{ background: deck.color ?? deckColor(deck.id) }}
+                    />
+                    <span className="deck-list-name">{deck.name}</span>
+                    <span className="deck-list-meta">
+                      {due > 0 && <span className="deck-list-due has-due">{due} due</span>}
+                      {newCount > 0 && <span>{newCount} new</span>}
+                      <span>{total} {total === 1 ? 'card' : 'cards'}</span>
+                      <span className="deck-list-arrow" aria-hidden="true">›</span>
                     </span>
                   </Link>
                 ))}
-              </div>
+              </nav>
             </>
           )}
 

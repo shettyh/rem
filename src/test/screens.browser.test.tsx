@@ -32,6 +32,16 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
     },
   },
   {
+    name: 'deck-list-due',
+    run: async () => {
+      const storage = freshStorage()
+      const deck = await storage.createDeck('TypeScript')
+      await storage.createCard(deck.id, 'What is the `never` type?', 'The empty type.')
+      await renderRoute({ storage, entry: '/', path: '/', element: <DeckListPage /> })
+      await expect.element(page.getByLabelText('Review summary')).toBeVisible()
+    },
+  },
+  {
     name: 'deck-list-empty',
     run: async () => {
       const storage = freshStorage()
