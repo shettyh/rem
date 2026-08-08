@@ -280,7 +280,7 @@ export function ReviewPage() {
               </div>
             </div>
             <div className="review-actions">
-              <button className="review-show" onClick={reveal}>
+              <button className="btn btn-primary review-show" onClick={reveal}>
                 Show answer <span className="kbd">space</span>
               </button>
             </div>
@@ -299,7 +299,7 @@ export function ReviewPage() {
             </div>
             <div className="review-actions">
               {isPreview ? (
-                <button className="review-show" onClick={advancePreview}>
+                <button className="btn btn-primary review-show" onClick={advancePreview}>
                   Next card <span className="kbd">space</span>
                 </button>
               ) : nexts ? (

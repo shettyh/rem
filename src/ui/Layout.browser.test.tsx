@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'vitest'
 import { page } from 'vitest/browser'
+import { CardEditorPage } from '../features/cards/CardEditorPage'
 import { DeckSettingsPage } from '../features/decks/DeckSettingsPage'
 import { ReviewPage } from '../features/review/ReviewPage'
 import { freshStorage } from '../test/seed'
@@ -40,6 +41,42 @@ test('focused review toolbar aligns with the macOS overlay titlebar', async () =
   expect(Math.abs((titleRect.top + titleRect.bottom) / 2 - headerRect.height / 2)).toBeLessThan(1)
   expect(Math.abs((actionRect.top + actionRect.bottom) / 2 - headerRect.height / 2)).toBeLessThan(1)
   expect(progress.getBoundingClientRect().top).toBe(headerRect.bottom)
+})
+
+test('review actions do not overflow at the minimum supported window width', async () => {
+  await page.viewport(760, 720)
+
+  const storage = freshStorage()
+  const deck = await storage.createDeck('TypeScript')
+  await storage.createCard(deck.id, 'Question', 'Answer')
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await expect.element(page.getByRole('button', { name: 'Good', exact: false })).toBeVisible()
+
+  const content = document.querySelector<HTMLElement>('.content')!
+  expect(content.scrollWidth).toBe(content.clientWidth)
+})
+
+test('card editor does not overflow at the minimum supported window width', async () => {
+  await page.viewport(760, 720)
+
+  const storage = freshStorage()
+  const deck = await storage.createDeck('A long deck name that still fits cleanly')
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/cards/new`,
+    path: '/decks/:deckId/cards/new',
+    element: <CardEditorPage />,
+  })
+  await expect.element(page.getByLabelText('Card content')).toBeVisible()
+
+  const content = document.querySelector<HTMLElement>('.content')!
+  expect(content.scrollWidth).toBe(content.clientWidth)
 })
 
 test('deck options do not overflow at the minimum supported window width', async () => {
