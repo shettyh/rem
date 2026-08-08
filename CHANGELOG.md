@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 (2026-08-08)
+
+## What's Changed
+* feat(settings): emphasize local storage and optional sync by @shettyh in https://github.com/shettyh/rem/pull/21
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.3.1...v0.4.0
+
 ## 0.3.1 (2026-08-08)
 
 ## What's Changed
