@@ -1487,6 +1487,13 @@ select.text-input {
   padding-left: 20px;
   font-size: 13px;
 }
+.settings-version {
+  margin: 32px 0 0;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: center;
+}
 
 
 /* ─── Animations ───────────────────────────────────────────────────────── */
