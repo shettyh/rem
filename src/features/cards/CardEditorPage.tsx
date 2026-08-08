@@ -186,39 +186,35 @@ export function CardEditorPage() {
           <EditorToolbar editor={active?.editor ?? null} onImage={() => active?.openImagePicker()} />
         </div>
 
-        <div className="editor-field editor-field--front">
-          <div className="field-rule">
-            <span className="field-rule-label">Front</span>
-            <span className="field-rule-line" />
+        <section className="card-editor-surface" aria-label="Card content">
+          <div className="editor-field editor-field--front">
+            <div className="editor-field-label">Front</div>
+            <RichMarkdownEditor
+              value={front}
+              onChange={setFront}
+              placeholder="Type the prompt…"
+              ariaLabel="Front"
+              resolveAsset={resolveAsset}
+              ingestImage={ingestImage}
+              onReady={onFrontReady}
+              onFocus={() => frontHandle.current && setActive(frontHandle.current)}
+            />
           </div>
-          <RichMarkdownEditor
-            value={front}
-            onChange={setFront}
-            placeholder="Type the prompt…"
-            ariaLabel="Front"
-            resolveAsset={resolveAsset}
-            ingestImage={ingestImage}
-            onReady={onFrontReady}
-            onFocus={() => frontHandle.current && setActive(frontHandle.current)}
-          />
-        </div>
 
-        <div className="editor-field editor-field--back">
-          <div className="field-rule">
-            <span className="field-rule-label">Back</span>
-            <span className="field-rule-line" />
+          <div className="editor-field editor-field--back">
+            <div className="editor-field-label">Back</div>
+            <RichMarkdownEditor
+              value={back}
+              onChange={setBack}
+              placeholder="Type the answer…"
+              ariaLabel="Back"
+              resolveAsset={resolveAsset}
+              ingestImage={ingestImage}
+              onReady={onBackReady}
+              onFocus={() => backHandle.current && setActive(backHandle.current)}
+            />
           </div>
-          <RichMarkdownEditor
-            value={back}
-            onChange={setBack}
-            placeholder="Type the answer…"
-            ariaLabel="Back"
-            resolveAsset={resolveAsset}
-            ingestImage={ingestImage}
-            onReady={onBackReady}
-            onFocus={() => backHandle.current && setActive(backHandle.current)}
-          />
-        </div>
+        </section>
 
         <div className="editor-tag-field">
           <div className="field-rule">
@@ -236,7 +232,7 @@ export function CardEditorPage() {
         </div>
 
         <div className="editor-foot">
-          <span className="editor-hint">⌘⏎ to save · esc to cancel · what you type is the card</span>
+          <span className="editor-hint">⌘⏎ Save · Esc Cancel</span>
           {editing && (systemTags.length > 0 || suspended) && (
             <div className="editor-card-state">
               {systemTags.length > 0 && (
@@ -254,7 +250,7 @@ export function CardEditorPage() {
             </div>
           )}
           {editing && (
-            <button className="btn btn-danger-outline" onClick={() => setConfirmDelete(true)}>
+            <button className="btn btn-danger-outline editor-delete" onClick={() => setConfirmDelete(true)}>
               Delete card
             </button>
           )}

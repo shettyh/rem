@@ -29,13 +29,29 @@ test('revealing shows the answer and grade buttons', async () => {
   await expect.element(progress).toHaveAttribute('aria-valuetext', 'Card 1 of 1')
 
   const questionCard = page.getByText('Q?').element().closest<HTMLElement>('.review-card')!
+  const showAnswerLocator = page.getByRole('button', { name: 'Show answer', exact: false })
+  const showAnswer = showAnswerLocator.element()
   const questionHeight = questionCard.getBoundingClientRect().height
-  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  expect(showAnswer.getBoundingClientRect().width).toBeLessThan(
+    questionCard.getBoundingClientRect().width / 2,
+  )
+  await showAnswerLocator.click()
 
   await expect.element(page.getByText('A — the answer.')).toBeVisible()
-  await expect.element(page.getByRole('button', { name: 'Good', exact: false })).toBeVisible()
+  const good = page.getByRole('button', { name: 'Good', exact: false })
+  await expect.element(good).toBeVisible()
   const answerCard = page.getByText('A — the answer.').element().closest<HTMLElement>('.review-card')!
   expect(answerCard.getBoundingClientRect().height).toBe(questionHeight)
+
+  const hard = page.getByRole('button', { name: 'Hard', exact: false }).element()
+  const easy = page.getByRole('button', { name: 'Easy', exact: false }).element()
+  const again = page.getByRole('button', { name: 'Again', exact: false }).element()
+  expect(getComputedStyle(hard).borderTopWidth).toBe('1px')
+  expect(getComputedStyle(easy).borderTopColor).toBe(getComputedStyle(hard).borderTopColor)
+  expect(getComputedStyle(good.element()).backgroundColor).toBe(getComputedStyle(document.body).color)
+  expect(
+    getComputedStyle(again.querySelector<HTMLElement>('.grade-label')!).color,
+  ).not.toBe(getComputedStyle(hard.querySelector<HTMLElement>('.grade-label')!).color)
 })
 
 afterEach(() => {

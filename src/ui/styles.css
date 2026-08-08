@@ -1087,26 +1087,25 @@ select.text-input {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  background: var(--surface);
+  padding: 42px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
-  padding: 48px;
+  border-radius: 10px;
+  background: var(--surface);
 }
 .review-card.revealed {
   justify-content: flex-start;
 }
 .review-q {
-  font-family: var(--font-serif);
-  font-size: 44px;
-  line-height: 1.15;
-  text-align: center;
   color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 40px;
+  line-height: 1.18;
+  text-align: center;
 }
 .review-card.revealed .review-q {
-  font-size: 34px;
-  text-align: left;
   color: var(--muted);
+  font-size: 30px;
+  text-align: left;
 }
 .review-rule {
   height: 1px;
@@ -1115,38 +1114,33 @@ select.text-input {
   margin: 28px 0;
 }
 .answer-label {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.14em;
+  margin: 0 0 14px;
   color: var(--faint);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  margin: 0 0 18px;
 }
 .review-a {
-  font-family: var(--font-serif);
-  font-size: 40px;
-  line-height: 1.15;
   color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 36px;
+  line-height: 1.18;
 }
 
 .review-actions {
-  min-height: 104px;
+  min-height: 88px;
+  display: flex;
+  justify-content: center;
 }
 .review-show {
+  width: auto;
+  min-width: 180px;
+  min-height: 40px;
   margin-top: 18px;
-  width: 100%;
-  padding: 20px;
-  border: none;
-  border-radius: 16px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 17px;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
+  padding: 9px 18px;
+  border-radius: 8px;
+  font-size: 14px;
 }
 .review-show:hover {
   filter: brightness(1.08);
@@ -1169,72 +1163,58 @@ select.text-input {
 .grade-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  gap: 8px;
+  width: 100%;
   margin-top: 18px;
 }
 .grade {
-  padding: 18px 0 14px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--border-strong);
-  background: var(--surface);
-  cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  padding: 12px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
 }
 .grade:hover {
+  border-color: var(--border-strong);
   background: var(--surface-inset);
 }
 .grade-label {
-  font-weight: 700;
-  font-size: 15px;
   color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
 }
 .grade-hint {
-  font-family: var(--font-mono);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
-.grade-again {
-  border-top-color: var(--again);
-}
-.grade-again:hover {
-  border-color: var(--again);
-  border-top-color: var(--again);
-}
+.grade-again .grade-label,
 .grade-again .grade-hint {
   color: var(--again);
 }
-.grade-hard {
-  border-top-color: var(--hard);
-}
-.grade-hard:hover {
-  border-color: var(--hard);
-  border-top-color: var(--hard);
-}
-.grade-hard .grade-hint {
-  color: var(--hard);
+.grade-again:hover {
+  border-color: var(--again);
+  background: color-mix(in srgb, var(--again) 8%, transparent);
 }
 .grade-good {
-  border-top-color: var(--good);
+  border-color: var(--text);
+  background: var(--text);
 }
 .grade-good:hover {
-  border-color: var(--good);
-  border-top-color: var(--good);
+  border-color: var(--text);
+  background: var(--text);
+  opacity: 0.88;
 }
-.grade-good .grade-hint {
-  color: var(--good);
-}
-.grade-easy {
-  border-top-color: var(--accent);
-}
-.grade-easy:hover {
-  border-color: var(--accent);
-  border-top-color: var(--accent);
-}
-.grade-easy .grade-hint {
-  color: var(--accent);
+.grade-good .grade-label,
+.grade-good .grade-hint,
+.grade-good .kbd {
+  border-color: color-mix(in srgb, var(--bg) 35%, transparent);
+  color: var(--bg);
 }
 
 /* Keyboard hint chip */
@@ -1542,7 +1522,7 @@ select.text-input {
 
 /* ─── Card editor (create / edit) ──────────────────────────────────────── */
 .card-editor {
-  max-width: 760px;
+  max-width: 720px;
   margin-inline: auto;
   padding: 0 40px 90px;
 }
@@ -1552,13 +1532,9 @@ select.text-input {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 11px;
-  border-radius: 8px;
-  background: var(--surface-inset);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 400;
   color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
   white-space: nowrap;
 }
 .header-deck-dot {
@@ -1573,18 +1549,17 @@ select.text-input {
   position: sticky;
   top: var(--page-header-h);
   z-index: 5;
-  padding: 18px 0 14px;
+  padding: 12px 0;
   background: var(--bg);
 }
 .md-toolbar {
   display: inline-flex;
   align-items: center;
   gap: 1px;
-  padding: 5px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 .md-toolbar svg {
   display: block;
@@ -1713,49 +1688,71 @@ select.text-input {
   font-size: 16px;
 }
 
-/* Front / Back labelled fields. */
+/* Front / Back card content and supporting metadata. */
+.card-editor-surface {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.editor-field {
+  position: relative;
+}
+.editor-field--front {
+  border-bottom: 1px solid var(--border);
+}
+.editor-field:focus-within {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.editor-field-label {
+  padding: 13px 20px 0;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.card-editor-surface .rich-editor,
+.card-editor-surface .rich-editor:focus-within {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+.card-editor .rich-editor-content {
+  padding: 10px 20px 24px;
+}
+.editor-field--front .rich-editor-content {
+  min-height: 96px;
+  font-size: 28px;
+  line-height: 1.28;
+}
+.editor-field--back .rich-editor-content {
+  min-height: 144px;
+  font-size: 22px;
+  line-height: 1.38;
+}
 .field-rule {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 6px 0 10px;
+  margin: 6px 0 8px;
 }
 .field-rule-label {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--faint);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 .field-rule-line {
   flex: 1;
   height: 1px;
   background: var(--border);
 }
-.editor-field--front {
-  margin-bottom: 30px;
-}
-.card-editor .rich-editor {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  box-shadow: var(--shadow-sm);
-}
-.card-editor .rich-editor-content {
-  padding: 28px 30px;
-}
-.editor-field--front .rich-editor-content {
-  font-size: 32px;
-  line-height: 1.25;
-  min-height: 104px;
-}
-.editor-field--back .rich-editor-content {
-  font-size: 24px;
-  line-height: 1.35;
-  min-height: 150px;
-}
 .editor-tag-field {
-  margin-top: 30px;
+  margin-top: 24px;
 }
 .editor-tag-field .text-input {
   width: 100%;
@@ -1778,7 +1775,12 @@ select.text-input {
 }
 .editor-foot > .btn {
   margin-left: auto;
-  padding: 8px 16px;
+}
+.editor-delete {
+  border-color: transparent;
+}
+.editor-delete:hover {
+  border-color: transparent;
 }
 .editor-card-state {
   display: flex;

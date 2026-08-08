@@ -49,6 +49,24 @@ describe('CardEditorPage', () => {
     await expect.element(screen.getByText('deck page')).toBeInTheDocument()
   })
 
+  it('groups front and back into one surface with a flat toolbar', async () => {
+    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const deck = await storage.createDeck('D')
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
+
+    await expect.element(screen.getByRole('toolbar', { name: 'Formatting' })).toBeVisible()
+    const surface = screen.container.querySelector<HTMLElement>('.card-editor-surface')!
+    expect(surface).toBeTruthy()
+    expect(surface.querySelectorAll('.rich-editor')).toHaveLength(2)
+
+    const toolbar = screen.container.querySelector<HTMLElement>('.md-toolbar')!
+    expect(getComputedStyle(toolbar).borderTopWidth).toBe('0px')
+    for (const editor of surface.querySelectorAll<HTMLElement>('.rich-editor')) {
+      expect(getComputedStyle(editor).borderTopWidth).toBe('0px')
+      expect(getComputedStyle(editor).borderRadius).toBe('0px')
+    }
+  })
+
   it('warns before discarding unsaved changes', async () => {
     const storage = new DexieStorage(new RemDB('rem-editorpage'))
     const deck = await storage.createDeck('D')
