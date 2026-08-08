@@ -33,11 +33,9 @@ describe('CardEditorPage', () => {
   it('creates a card and navigates back to the deck', async () => {
     const storage = new DexieStorage(new RemDB('rem-editorpage'))
     const deck = await storage.createDeck('D', 'fsrs')
-    await storage.updateDeck(deck.id, { color: '#2fa86b' })
     const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
 
-    await expect.poll(() => screen.container.querySelector<HTMLElement>('.header-deck-dot')?.style.background)
-      .toBe('rgb(47, 168, 107)')
+    await expect.element(screen.getByText('D', { exact: true })).toBeVisible()
     const front = screen.container.querySelector('[aria-label="Front"]') as HTMLElement
     front.focus()
     await userEvent.type(front, 'Capital of France')

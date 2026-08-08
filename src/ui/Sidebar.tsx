@@ -2,7 +2,6 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../data/StorageContext'
 import { ThemeToggle } from './ThemeToggle'
-import { deckColor } from './deckColor'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
   isActive ? 'nav-item is-active' : 'nav-item'
@@ -58,7 +57,10 @@ export function Sidebar() {
       <div className="side-decks">
         {(decks ?? []).map(({ deck, due }) => (
           <NavLink key={deck.id} to={`/decks/${deck.id}`} className={navClass}>
-            <span className="deck-dot" style={{ background: deck.color ?? deckColor(deck.id) }} />
+            <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />
+              <path d="M4.5 1.5h7a2 2 0 0 1 2 2v6" />
+            </svg>
             <span className="nav-grow">{deck.name}</span>
             {due > 0 && <span className="side-badge">{due}</span>}
           </NavLink>

@@ -3,7 +3,6 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
 import { PageHeader } from '../../ui/PageHeader'
-import { deckColor } from '../../ui/deckColor'
 import { loadDueOverview } from '../review/dueOverview'
 
 /** Time-of-day greeting for the Today header. */
@@ -106,10 +105,6 @@ export function DeckListPage() {
               <nav className="deck-list" aria-label="Decks">
                 {decks.map(({ deck, due, newCount, total }) => (
                   <Link key={deck.id} to={`/decks/${deck.id}`} className="deck-list-row">
-                    <span
-                      className="deck-list-dot"
-                      style={{ background: deck.color ?? deckColor(deck.id) }}
-                    />
                     <span className="deck-list-name">{deck.name}</span>
                     <span className="deck-list-meta">
                       {due > 0 && <span className="deck-list-due has-due">{due} due</span>}

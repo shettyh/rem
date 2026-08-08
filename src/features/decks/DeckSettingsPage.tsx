@@ -7,7 +7,6 @@ import type { Deck, DeckSettings } from '../../domain/models'
 import { PageHeader } from '../../ui/PageHeader'
 import { Stepper } from '../../ui/Stepper'
 import { SegToggle } from '../../ui/SegToggle'
-import { DECK_PALETTE, deckColor } from '../../ui/deckColor'
 import { parseSteps, parseStepsMs } from '../../domain/scheduler/steps'
 import {
   buildReviewHistories,
@@ -32,7 +31,6 @@ export function DeckSettingsPage() {
 function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
   const navigate = useNavigate()
   const [name, setName] = useState(deck.name)
-  const [color, setColor] = useState(deck.color)
   const [settings, setSettings] = useState<DeckSettings>(deck.settings)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [customMode, setCustomMode] = useState<CustomStudyMode | null>(null)
@@ -50,10 +48,6 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
     setCustomAmount(preset.defaultAmount)
   }
 
-  function pickColor(c: string) {
-    setColor(c)
-    void storage.updateDeck(deck.id, { color: c })
-  }
   /** Update one setting and persist immediately (steppers, toggles, segmented).
    *  The `as DeckSettings` cast is required: TS can't narrow a generic
    *  computed-key spread under strict mode. */
@@ -100,7 +94,6 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
       <button className="back-link" aria-label="Back to deck" onClick={() => navigate(`/decks/${deck.id}`)}>
         ‹ {deck.name}
       </button>
-      <span className="header-dot" style={{ background: color ?? deckColor(deck.id) }} />
       <span className="header-title-text">Deck options</span>
     </>
   )
@@ -121,26 +114,6 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
               onChange={(e) => setName(e.target.value)}
               onBlur={() => void storage.updateDeck(deck.id, { name })}
             />
-            <div className="ds-rule" />
-            <div className="ds-row">
-              <div>
-                <div className="ds-row-title">Color</div>
-                <div className="ds-row-sub">Shown in the sidebar and on cards.</div>
-              </div>
-              <div className="ds-swatches">
-                {DECK_PALETTE.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    aria-label={`Color ${c}`}
-                    aria-pressed={c === color}
-                    className={c === color ? 'ds-swatch is-active' : 'ds-swatch'}
-                    style={{ background: c }}
-                    onClick={() => pickColor(c)}
-                  />
-                ))}
-              </div>
-            </div>
             <div className="ds-rule" />
             <div className="ds-row">
               <div>

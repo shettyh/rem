@@ -147,7 +147,6 @@ export function StatsPage() {
                 <div className="stats-decks">
                   {stats.byDeck.map((item) => (
                     <div key={item.deck.id} className="stats-deck-row" aria-label={`${item.deck.name} deck stats`}>
-                      <span className="stats-deck-dot" style={{ background: item.deck.color }} />
                       <span className="stats-deck-name">{item.deck.name}</span>
                       <strong>{item.reviews}</strong>
                       <span>{percent(item.recallRate)}</span>
