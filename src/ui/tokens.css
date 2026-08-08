@@ -11,8 +11,8 @@
   --border: #e7e4dd;
   --border-strong: #d9d5cd;
   --text: #1a1822;
-  --muted: #76727e;         /* secondary text */
-  --faint: #a6a1ac;         /* tertiary: Space Mono micro-labels, counts */
+  --muted: #65606c;         /* secondary text */
+  --faint: #6f6a76;         /* tertiary: Space Mono micro-labels, counts */
   --accent: #5a47e8;        /* purple — solid fills */
   --accent-hover: #4a39d6;
   --accent-soft: #eeebff;   /* tinted chip / selected-row background */
@@ -65,7 +65,7 @@
   --border-strong: #3a3848;
   --text: #f4f3f8;
   --muted: #9d99a8;
-  --faint: #615d6e;
+  --faint: #8e899a;
   --accent: #7e6cff;
   --accent-hover: #8f80ff;
   --accent-soft: #241f3d;
