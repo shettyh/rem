@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/shettyh/rem/actions/workflows/ci.yml/badge.svg)](https://github.com/shettyh/rem/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/shettyh/rem)](https://github.com/shettyh/rem/releases/latest)
-[![License](https://img.shields.io/github/license/shettyh/rem)](LICENSE)
+[![License](https://img.shields.io/github/license/shettyh/rem?cacheSeconds=300)](LICENSE)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 
 rem pairs a quiet, keyboard-friendly desktop interface with FSRS-6 scheduling, rich Markdown cards, useful study statistics, and optional Git-backed sync. Your collection stays on your device and remains exportable—no account or hosted service is required.
