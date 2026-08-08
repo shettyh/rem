@@ -76,6 +76,8 @@ export const SYNC_FORMAT = 'rem-sync'
 export const SYNC_VERSION = 1
 export const EMPTY_SNAPSHOT: RepoSnapshot = { decks: [], cards: [], reviewLogs: [], tombstones: [], assets: [] }
 
+const SAFE_ID = /^[A-Za-z0-9_-]+$/
+
 interface DeckFile {
   deck: DeckRecord
   cards: CardRecord[]
@@ -127,8 +129,18 @@ export function deserializeSnapshot(files: Record<string, string>): RepoSnapshot
     }
     if (path.startsWith('decks/') && path.endsWith('.json')) {
       const { deck, cards: deckCards, reviewLogs: deckReviews = [] } = JSON.parse(content) as DeckFile
+      const fileDeckId = path.slice('decks/'.length, -'.json'.length)
+      if (!SAFE_ID.test(fileDeckId) || deck?.id !== fileDeckId) {
+        throw new Error(`Invalid deck ID in ${path}.`)
+      }
+      if (!Array.isArray(deckCards)) throw new Error(`Invalid cards in ${path}.`)
       decks.push(normalizeDeck(deck))
-      for (const c of deckCards) cards.push(normalizeCard(c))
+      for (const c of deckCards) {
+        if (!SAFE_ID.test(c?.id) || c.deckId !== fileDeckId) {
+          throw new Error(`Invalid card in ${path}.`)
+        }
+        cards.push(normalizeCard(c))
+      }
       reviewLogs.push(...deckReviews)
     }
   }

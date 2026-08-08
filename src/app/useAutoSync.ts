@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { isTauri } from '@tauri-apps/api/core'
-import { appDataDir, join } from '@tauri-apps/api/path'
 import type { Storage } from '../data/Storage'
 import { GitSyncService } from '../data/sync/GitSyncService'
 import { TauriGitBridge } from '../data/sync/TauriGitBridge'
@@ -13,8 +12,7 @@ import {
 async function runSync(storage: Storage): Promise<void> {
   const remoteUrl = (localStorage.getItem(REMOTE_KEY) ?? '').trim()
   if (!remoteUrl || !isAutoSyncEnabled()) return
-  const repoDir = await join(await appDataDir(), 'repo')
-  await new GitSyncService(storage, new TauriGitBridge(), { remoteUrl, repoDir }).sync()
+  await new GitSyncService(storage, new TauriGitBridge(), { remoteUrl }).sync()
   localStorage.setItem(LAST_SYNC_KEY, String(Date.now()))
 }
 

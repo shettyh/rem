@@ -25,45 +25,45 @@ export class FakeGitBridge implements GitBridge {
     this.remoteVersion++
   }
 
-  async isCloned(_dir: string): Promise<boolean> {
+  async isCloned(): Promise<boolean> {
     return this.cloned
   }
 
-  async clone(remoteUrl: string, _dir: string): Promise<void> {
+  async clone(remoteUrl: string): Promise<void> {
     this.cloned = true
     this.remoteUrl = remoteUrl
     this.working = this.remote ? { ...this.remote } : {}
     this.workingAssets = [...this.remoteAssets]
   }
 
-  async setRemoteUrl(remoteUrl: string, _dir: string): Promise<void> {
+  async setRemoteUrl(remoteUrl: string): Promise<void> {
     this.remoteUrl = remoteUrl
   }
 
-  async fetchReset(_dir: string): Promise<FetchResetResult> {
+  async fetchReset(): Promise<FetchResetResult> {
     this.working = this.remote ? { ...this.remote } : {}
     this.workingAssets = [...this.remoteAssets]
     this.fetchedVersion = this.remoteVersion
     return { remoteExists: this.remote !== null }
   }
 
-  async readFiles(_dir: string): Promise<Record<string, string>> {
+  async readFiles(): Promise<Record<string, string>> {
     return { ...this.working }
   }
 
-  async writeFiles(_dir: string, files: Record<string, string>): Promise<void> {
+  async writeFiles(files: Record<string, string>): Promise<void> {
     this.working = { ...files }
   }
 
-  async readAssets(_dir: string): Promise<AssetBlob[]> {
+  async readAssets(): Promise<AssetBlob[]> {
     return [...this.workingAssets]
   }
 
-  async writeAssets(_dir: string, assets: AssetBlob[]): Promise<void> {
+  async writeAssets(assets: AssetBlob[]): Promise<void> {
     this.workingAssets = [...assets]
   }
 
-  async commitPush(_dir: string, _message: string): Promise<CommitPushResult> {
+  async commitPush(_message: string): Promise<CommitPushResult> {
     if (this.pushInterceptor) {
       const fn = this.pushInterceptor
       this.pushInterceptor = null
