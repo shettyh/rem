@@ -7,12 +7,15 @@
 [![License](https://img.shields.io/github/license/shettyh/rem)](LICENSE)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 
-rem combines a focused native interface with FSRS-6 scheduling, Markdown cards, useful study statistics, and optional Git-backed sync. Your collection stays on your device and remains exportable—no account or hosted service is required.
+rem pairs a quiet, keyboard-friendly desktop interface with FSRS-6 scheduling, rich Markdown cards, useful study statistics, and optional Git-backed sync. Your collection stays on your device and remains exportable—no account or hosted service is required.
 
 > [!IMPORTANT]
 > rem is a native [Tauri](https://tauri.app) desktop app for macOS, Linux, and Windows. The browser build is only the source for Tauri's webview and is not a supported version of the app.
 
-![Reviewing a card in rem](docs/assets/rem-review.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/rem-review-dark.png">
+  <img alt="Reviewing a card in rem" src="docs/assets/rem-review.png">
+</picture>
 
 ## Features
 
@@ -23,7 +26,7 @@ rem combines a focused native interface with FSRS-6 scheduling, Markdown cards, 
 - **Actionable statistics** — review activity, recall rate, streaks, grade distribution, and per-deck breakdowns.
 - **Portable data** — import and export full-fidelity JSON backups.
 - **Optional Git sync** — sync through any Git remote using your existing system credentials; rem does not store an access token.
-- **Light and dark themes** — a focused desktop interface designed for everyday study.
+- **Calm desktop design** — quiet light and dark themes keep reviews focused and primary actions clear.
 
 ## Installation
 
