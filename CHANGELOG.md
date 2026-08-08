@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 (2026-08-08)
+
+## What's Changed
+* feat(review): add focused study mode by @shettyh in https://github.com/shettyh/rem/pull/17
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.2.1...v0.3.0
+
 ## 0.2.1 (2026-08-08)
 
 ## What's Changed
