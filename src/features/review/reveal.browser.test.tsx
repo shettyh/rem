@@ -57,8 +57,14 @@ test('revealing shows the answer and grade buttons', async () => {
   expect(getComputedStyle(gradeRow).borderTopWidth).toBe('1px')
   expect(getComputedStyle(gradeRow).columnGap).toBe('0px')
   expect(getComputedStyle(hard).borderTopWidth).toBe('0px')
+  await page.getByText('A — the answer.').hover()
   expect(getComputedStyle(easy).backgroundColor).toBe(getComputedStyle(hard).backgroundColor)
-  expect(getComputedStyle(good.element()).backgroundColor).not.toBe(getComputedStyle(document.body).color)
+  await vi.waitFor(() => {
+    expect(getComputedStyle(good.element()).backgroundColor).toBe(getComputedStyle(hard).backgroundColor)
+  })
+  expect(
+    getComputedStyle(good.element().querySelector<HTMLElement>('.grade-label')!).fontWeight,
+  ).toBe(getComputedStyle(hard.querySelector<HTMLElement>('.grade-label')!).fontWeight)
   expect(
     getComputedStyle(again.querySelector<HTMLElement>('.grade-label')!).color,
   ).not.toBe(getComputedStyle(hard.querySelector<HTMLElement>('.grade-label')!).color)

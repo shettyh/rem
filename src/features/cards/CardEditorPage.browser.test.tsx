@@ -63,6 +63,11 @@ describe('CardEditorPage', () => {
       expect(getComputedStyle(editor).borderTopWidth).toBe('0px')
       expect(getComputedStyle(editor).borderRadius).toBe('0px')
     }
+
+    const front = surface.querySelector<HTMLElement>('.editor-field--front .rich-editor-content')!
+    const back = surface.querySelector<HTMLElement>('.editor-field--back .rich-editor-content')!
+    expect(getComputedStyle(front).fontSize).toBe(getComputedStyle(back).fontSize)
+    expect(getComputedStyle(front).lineHeight).toBe(getComputedStyle(back).lineHeight)
   })
 
   it('warns before discarding unsaved changes', async () => {

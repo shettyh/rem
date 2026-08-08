@@ -1204,16 +1204,6 @@ select.text-input {
 .grade-again:hover {
   background: color-mix(in srgb, var(--again) 8%, transparent);
 }
-.grade-good {
-  background: var(--surface-inset);
-}
-.grade-good:hover {
-  background: var(--bg-inset);
-}
-.grade-good .grade-label {
-  font-weight: 700;
-}
-
 /* Keyboard hint chip */
 .kbd {
   font-family: var(--font-mono);
@@ -1723,16 +1713,14 @@ select.text-input {
 }
 .card-editor .rich-editor-content {
   padding: 10px 20px 24px;
+  font-size: 22px;
+  line-height: 1.38;
 }
 .editor-field--front .rich-editor-content {
   min-height: 96px;
-  font-size: 28px;
-  line-height: 1.28;
 }
 .editor-field--back .rich-editor-content {
   min-height: 144px;
-  font-size: 22px;
-  line-height: 1.38;
 }
 .field-rule {
   display: flex;
