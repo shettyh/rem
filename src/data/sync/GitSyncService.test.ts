@@ -70,6 +70,15 @@ describe('GitSyncService', () => {
     expect(outcome.pushed).toBe(true)
   })
 
+  it('updates the origin URL before syncing an existing checkout', async () => {
+    const bridge = new FakeGitBridge(null)
+    await new GitSyncService(storage, bridge, { ...cfg, remoteUrl: 'old-url' }).sync()
+    expect(bridge.remoteUrl).toBe('old-url')
+
+    await new GitSyncService(storage, bridge, { ...cfg, remoteUrl: 'new-url' }).sync()
+    expect(bridge.remoteUrl).toBe('new-url')
+  })
+
   it('is idempotent: a second sync leaves remote and local unchanged', async () => {
     const deck = await storage.createDeck('S')
     await storage.createCard(deck.id, 'q', 'a')

@@ -6,6 +6,7 @@ import type { AssetBlob } from './snapshot'
  *  simulate a concurrent push (forcing a rejection). */
 export class FakeGitBridge implements GitBridge {
   remote: Record<string, string> | null
+  remoteUrl: string | null = null
   remoteAssets: AssetBlob[] = []
   pushInterceptor: (() => void) | null = null
   private working: Record<string, string> = {}
@@ -28,10 +29,15 @@ export class FakeGitBridge implements GitBridge {
     return this.cloned
   }
 
-  async clone(_remoteUrl: string, _dir: string): Promise<void> {
+  async clone(remoteUrl: string, _dir: string): Promise<void> {
     this.cloned = true
+    this.remoteUrl = remoteUrl
     this.working = this.remote ? { ...this.remote } : {}
     this.workingAssets = [...this.remoteAssets]
+  }
+
+  async setRemoteUrl(remoteUrl: string, _dir: string): Promise<void> {
+    this.remoteUrl = remoteUrl
   }
 
   async fetchReset(_dir: string): Promise<FetchResetResult> {

@@ -27,6 +27,8 @@ export class GitSyncService {
     const { remoteUrl, repoDir } = this.config
     if (!(await this.bridge.isCloned(repoDir))) {
       await this.bridge.clone(remoteUrl, repoDir)
+    } else {
+      await this.bridge.setRemoteUrl(remoteUrl, repoDir)
     }
     for (let attempt = 0; attempt < MAX_PUSH_ATTEMPTS; attempt++) {
       const { remoteExists } = await this.bridge.fetchReset(repoDir)

@@ -16,6 +16,7 @@ export interface FetchResetResult {
 export interface GitBridge {
   isCloned(dir: string): Promise<boolean>
   clone(remoteUrl: string, dir: string): Promise<void>
+  setRemoteUrl(remoteUrl: string, dir: string): Promise<void>
   fetchReset(dir: string): Promise<FetchResetResult>
   readFiles(dir: string): Promise<Record<string, string>>
   writeFiles(dir: string, files: Record<string, string>): Promise<void>

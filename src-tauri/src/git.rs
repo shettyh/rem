@@ -72,6 +72,15 @@ pub async fn git_clone(remote_url: String, dir: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn git_set_remote_url(remote_url: String, dir: String) -> Result<(), String> {
+    ok_or_stderr(run_git(
+        &["remote", "set-url", "origin", &remote_url],
+        &dir,
+    )?)?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn git_fetch_reset(dir: String) -> Result<bool, String> {
     ok_or_stderr(run_git(&["fetch", "origin"], &dir)?)?;
     let (_, _, has_main) = run_git(&["rev-parse", "--verify", "origin/main"], &dir)?;
@@ -329,6 +338,30 @@ mod tests {
                 String::from_utf8_lossy(&out.stderr)
             );
         }
+    }
+
+    #[test]
+    fn test_set_remote_url_updates_origin() {
+        let root = make_temp_dir();
+        let root_str = root.to_string_lossy().to_string();
+        let origin1 = root.join("origin1.git");
+        let origin2 = root.join("origin2.git");
+        let clone = root.join("clone");
+        let origin1_str = origin1.to_string_lossy().to_string();
+        let origin2_str = origin2.to_string_lossy().to_string();
+        let clone_str = clone.to_string_lossy().to_string();
+
+        fixture_git(&["init", "--bare", &origin1_str], &root_str);
+        fixture_git(&["init", "--bare", &origin2_str], &root_str);
+        fixture_git(&["clone", &origin1_str, &clone_str], &root_str);
+
+        tauri::async_runtime::block_on(git_set_remote_url(origin2_str.clone(), clone_str.clone()))
+            .unwrap();
+        let (stdout, _, success) = run_git(&["remote", "get-url", "origin"], &clone_str).unwrap();
+        assert!(success);
+        assert_eq!(stdout.trim(), origin2_str);
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     /// Contract #3 + first push: git_fetch_reset returns Ok(false) for an empty remote,
