@@ -10,12 +10,25 @@ describe('ThemeToggle', () => {
     document.documentElement.dataset.theme = 'light'
   })
 
-  it('flips the theme and persists it on click', async () => {
+  it('reflects an already-applied dark theme', () => {
+    document.documentElement.dataset.theme = 'dark'
     render(<ThemeToggle />)
-    const btn = screen.getByRole('button', { name: /toggle theme/i })
+
+    const btn = screen.getByRole('button', { name: 'Switch to light theme' })
+    expect(btn).toHaveTextContent('Dark')
+  })
+
+  it('shows the current theme and names the theme it will switch to', async () => {
+    render(<ThemeToggle />)
+    const btn = screen.getByRole('button', { name: 'Switch to dark theme' })
+    expect(btn).toHaveTextContent('Light')
+
     await userEvent.click(btn)
     expect(document.documentElement.dataset.theme).toBe('dark')
     expect(localStorage.getItem(THEME_KEY)).toBe('dark')
+    expect(btn).toHaveAccessibleName('Switch to light theme')
+    expect(btn).toHaveTextContent('Dark')
+
     await userEvent.click(btn)
     expect(document.documentElement.dataset.theme).toBe('light')
     expect(localStorage.getItem(THEME_KEY)).toBe('light')
