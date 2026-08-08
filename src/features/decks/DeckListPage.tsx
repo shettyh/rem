@@ -150,7 +150,7 @@ export function DeckListPage() {
 
           {loaded && deckCount === 0 && (
             <div className="empty-state">
-              <div className="ico">🗂️</div>
+              <div className="ico" aria-hidden="true">DECKS</div>
               <h3>No decks yet</h3>
               <p>Name a deck above to start building your memory.</p>
             </div>

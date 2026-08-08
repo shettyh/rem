@@ -39,6 +39,15 @@ test('renders review metrics and responds to deck and range filters', async () =
   await expect.element(page.getByLabelText('Recall rate')).toHaveTextContent('67%')
   await expect.element(page.getByLabelText('Current streak')).toHaveTextContent('2 days')
   await expect.element(page.getByLabelText('Active days')).toHaveTextContent('2')
+
+  const reviewsKpi = page.getByLabelText('FSRS reviews').element()
+  const kpiValue = reviewsKpi.querySelector<HTMLElement>('strong')!
+  const kpiLabel = reviewsKpi.querySelector<HTMLElement>('span')!
+  const activityTotal = document.querySelector<HTMLElement>('.stats-panel-head > strong')!
+  expect(getComputedStyle(kpiValue).fontWeight).toBe('400')
+  expect(getComputedStyle(kpiLabel).fontFamily).toContain('Space Mono')
+  expect(getComputedStyle(activityTotal).fontWeight).toBe('400')
+
   await expect.element(page.getByLabelText('Daily review activity')).toHaveAttribute(
     'aria-label',
     'Daily review activity: 3 reviews over 30 days',
