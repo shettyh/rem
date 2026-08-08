@@ -1083,11 +1083,11 @@ select.text-input {
 }
 
 .review-card {
-  min-height: 280px;
+  min-height: 240px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 42px;
+  padding: clamp(28px, 4vw, 40px);
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
@@ -1096,40 +1096,39 @@ select.text-input {
   justify-content: flex-start;
 }
 .review-q {
+  width: 100%;
   color: var(--text);
   font-family: var(--font-serif);
-  font-size: 40px;
-  line-height: 1.18;
-  text-align: center;
+  font-size: clamp(30px, 4vw, 40px);
+  line-height: 1.22;
+  text-align: left;
 }
 .review-card.revealed .review-q {
   color: var(--muted);
-  font-size: 30px;
-  text-align: left;
+  font-size: clamp(24px, 3vw, 30px);
 }
 .review-rule {
   height: 1px;
   background: var(--border);
   border: 0;
-  margin: 28px 0;
+  margin: 24px 0;
 }
 .answer-label {
-  margin: 0 0 14px;
+  margin: 0 0 9px;
   color: var(--faint);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 .review-a {
   color: var(--text);
   font-family: var(--font-serif);
-  font-size: 36px;
-  line-height: 1.18;
+  font-size: clamp(30px, 3.5vw, 36px);
+  line-height: 1.24;
 }
 
 .review-actions {
-  min-height: 88px;
+  min-height: 80px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1138,13 +1137,10 @@ select.text-input {
   width: auto;
   min-width: 180px;
   min-height: 40px;
-  margin-top: 18px;
+  margin-top: 14px;
   padding: 9px 18px;
   border-radius: 8px;
   font-size: 14px;
-}
-.review-show:hover {
-  filter: brightness(1.08);
 }
 .review-schedule-error {
   min-height: 86px;
@@ -1162,27 +1158,40 @@ select.text-input {
 
 /* ─── Grade buttons ────────────────────────────────────────────────────── */
 .grade-row {
+  overflow: hidden;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  gap: 0;
   width: 100%;
-  margin-top: 18px;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
 }
 .grade {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   padding: 12px 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   cursor: pointer;
+  transition: background 0.12s ease;
+}
+.grade + .grade {
+  border-left: 1px solid var(--border);
 }
 .grade:hover {
-  border-color: var(--border-strong);
   background: var(--surface-inset);
+}
+.grade:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline-offset: -2px;
 }
 .grade-label {
   color: var(--text);
@@ -1191,31 +1200,23 @@ select.text-input {
 }
 .grade-hint {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
-.grade-again .grade-label,
-.grade-again .grade-hint {
+.grade-again .grade-label {
   color: var(--again);
 }
 .grade-again:hover {
-  border-color: var(--again);
   background: color-mix(in srgb, var(--again) 8%, transparent);
 }
 .grade-good {
-  border-color: var(--text);
-  background: var(--text);
+  background: var(--surface-inset);
 }
 .grade-good:hover {
-  border-color: var(--text);
-  background: var(--text);
-  opacity: 0.88;
+  background: var(--bg-inset);
 }
-.grade-good .grade-label,
-.grade-good .grade-hint,
-.grade-good .kbd {
-  border-color: color-mix(in srgb, var(--bg) 35%, transparent);
-  color: var(--bg);
+.grade-good .grade-label {
+  font-weight: 700;
 }
 
 /* Keyboard hint chip */
@@ -1230,7 +1231,6 @@ select.text-input {
   color: var(--faint);
   margin-top: 2px;
 }
-.review-show .kbd,
 .btn-primary .kbd {
   border: none;
   background: rgba(255, 255, 255, 0.18);
@@ -1238,6 +1238,18 @@ select.text-input {
   font-size: 12px;
   padding: 4px 10px;
   border-radius: 7px;
+}
+
+@media (max-width: 520px) {
+  .grade-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .grade:nth-child(3) {
+    border-left: 0;
+  }
+  .grade:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+  }
 }
 
 /* ─── Settings ─────────────────────────────────────────────────────────── */
