@@ -13,6 +13,9 @@ test('keyboard navigation gives controls a consistent visible focus ring', async
     </div>,
   )
 
+  const button = container.querySelector<HTMLButtonElement>('button')!
+  expect(getComputedStyle(button).fontFamily).toBe(getComputedStyle(document.body).fontFamily)
+
   for (const selector of ['button', 'a', 'input', 'select']) {
     await userEvent.tab()
     const control = container.querySelector<HTMLElement>(selector)

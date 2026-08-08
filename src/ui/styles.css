@@ -339,6 +339,9 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
 .page-header h1 * {
   pointer-events: none;
 }
+.page-header h1 :is(button, a) {
+  pointer-events: auto;
+}
 .page-header-actions {
   pointer-events: auto;
 }
@@ -482,6 +485,10 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+button {
+  font-family: inherit;
 }
 
 input,

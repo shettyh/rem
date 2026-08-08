@@ -31,6 +31,22 @@ test('renders the General section and persists a rename on blur', async () => {
   await expect.poll(async () => (await storage.getDeck(deck.id))?.name).toBe('Español')
 })
 
+test('returns to the deck from the header back button', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Spanish')
+
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId/options',
+    entry: `/decks/${deck.id}/options`,
+    element: <DeckSettingsPage />,
+    extraRoutes: [{ path: '/decks/:deckId', element: <div>Deck screen</div> }],
+  })
+
+  await page.getByRole('button', { name: 'Back to deck' }).click()
+  await expect.element(page.getByText('Deck screen')).toBeVisible()
+})
+
 test('persists a color swatch and the desired-retention stepper', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Spanish')
