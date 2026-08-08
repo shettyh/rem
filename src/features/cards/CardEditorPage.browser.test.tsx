@@ -33,8 +33,11 @@ describe('CardEditorPage', () => {
   it('creates a card and navigates back to the deck', async () => {
     const storage = new DexieStorage(new RemDB('rem-editorpage'))
     const deck = await storage.createDeck('D', 'fsrs')
+    await storage.updateDeck(deck.id, { color: '#2fa86b' })
     const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
 
+    await expect.poll(() => screen.container.querySelector<HTMLElement>('.header-deck-dot')?.style.background)
+      .toBe('rgb(47, 168, 107)')
     const front = screen.container.querySelector('[aria-label="Front"]') as HTMLElement
     front.focus()
     await userEvent.type(front, 'Capital of France')
@@ -43,6 +46,43 @@ describe('CardEditorPage', () => {
 
     await expect.poll(async () => (await storage.listCards(deck.id)).length).toBe(1)
     expect((await storage.listCards(deck.id))[0].tags).toEqual(['geography', 'capitals'])
+    await expect.element(screen.getByText('deck page')).toBeInTheDocument()
+  })
+
+  it('warns before discarding unsaved changes', async () => {
+    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const deck = await storage.createDeck('D')
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
+    const front = screen.container.querySelector('[aria-label="Front"]') as HTMLElement
+    front.focus()
+    await userEvent.type(front, 'Unsaved question')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await expect.element(screen.getByRole('heading', { name: 'Discard unsaved changes?' })).toBeVisible()
+    await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await expect.element(screen.getByText('New card')).toBeVisible()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Discard changes' }))
+    await expect.element(screen.getByText('deck page')).toBeInTheDocument()
+    expect(await storage.listCards(deck.id)).toHaveLength(0)
+  })
+
+  it('confirms before permanently deleting a card', async () => {
+    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const deck = await storage.createDeck('D')
+    const card = await storage.createCard(deck.id, 'Question', 'Answer')
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/${card.id}/edit`)
+    await expect.element(screen.getByText('Question')).toBeVisible()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete card' }))
+    await expect.element(screen.getByRole('heading', { name: 'Delete this card?' })).toBeVisible()
+    expect(await storage.getCard(card.id)).toBeDefined()
+    await userEvent.click(screen.getByRole('button', { name: 'Keep card' }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete card' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
+    await expect.poll(async () => storage.getCard(card.id)).toBeUndefined()
     await expect.element(screen.getByText('deck page')).toBeInTheDocument()
   })
 

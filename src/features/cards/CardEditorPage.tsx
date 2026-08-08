@@ -1,14 +1,23 @@
 // src/features/cards/CardEditorPage.tsx
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useBlocker, useNavigate, useParams } from 'react-router-dom'
 import { useStorage } from '../../data/StorageContext'
 import type { Deck } from '../../domain/models'
+import { ConfirmDialog } from '../../ui/ConfirmDialog'
 import { PageHeader } from '../../ui/PageHeader'
 import { deckColor } from '../../ui/deckColor'
 import { RichMarkdownEditor, type EditorHandle } from './RichMarkdownEditor'
 import { EditorToolbar } from './EditorToolbar'
 import { loadAssetUrl } from './assetUrl'
 import { isSystemTag, mergeUserTags, userTags } from './cardTags'
+
+interface CardDraft {
+  front: string
+  back: string
+  tagInput: string
+}
+
+const EMPTY_DRAFT: CardDraft = { front: '', back: '', tagInput: '' }
 
 /** Full-screen create/edit card screen. Route params: deckId, optional cardId. */
 export function CardEditorPage() {
@@ -23,6 +32,9 @@ export function CardEditorPage() {
   const [tags, setTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState('')
   const [suspended, setSuspended] = useState(false)
+  const [baseline, setBaseline] = useState<CardDraft | null>(editing ? null : EMPTY_DRAFT)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const allowNavigationRef = useRef(false)
   // The field the shared toolbar should act on — defaults to Front, follows focus.
   const [active, setActive] = useState<EditorHandle | null>(null)
   const frontHandle = useRef<EditorHandle | null>(null)
@@ -42,11 +54,13 @@ export function CardEditorPage() {
     let active = true
     storage.getCard(cardId).then((card) => {
       if (active && card) {
+        const nextTagInput = userTags(card.tags).join(', ')
         setFront(card.front)
         setBack(card.back)
         setTags(card.tags)
-        setTagInput(userTags(card.tags).join(', '))
+        setTagInput(nextTagInput)
         setSuspended(card.suspended)
+        setBaseline({ front: card.front, back: card.back, tagInput: nextTagInput })
       }
     })
     return () => {
@@ -60,6 +74,25 @@ export function CardEditorPage() {
     return { hash: asset.hash, mime: asset.mime }
   }
   const resolveAsset = (hash: string) => loadAssetUrl(storage, hash)
+  const dirty = baseline !== null && (
+    front !== baseline.front || back !== baseline.back || tagInput !== baseline.tagInput
+  )
+  const blocker = useBlocker(({ currentLocation, nextLocation }) =>
+    !allowNavigationRef.current &&
+    dirty &&
+    `${currentLocation.pathname}${currentLocation.search}` !==
+      `${nextLocation.pathname}${nextLocation.search}`,
+  )
+
+  useEffect(() => {
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      if (!dirty || allowNavigationRef.current) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [dirty])
 
   const onFrontReady = useCallback((h: EditorHandle) => {
     frontHandle.current = h
@@ -79,6 +112,7 @@ export function CardEditorPage() {
     if (editing && cardId) await storage.updateCard(cardId, { front, back, tags: nextTags })
     else await storage.createCard(deckId, front, back, nextTags)
     await storage.sweepOrphanAssets()
+    allowNavigationRef.current = true
     back2deck()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [front, back, tags, tagInput, deckId, cardId, editing, storage])
@@ -87,7 +121,14 @@ export function CardEditorPage() {
     if (!cardId) return
     await storage.deleteCard(cardId)
     await storage.sweepOrphanAssets()
+    allowNavigationRef.current = true
     back2deck()
+  }
+
+  async function discardAndLeave() {
+    allowNavigationRef.current = true
+    await storage.sweepOrphanAssets()
+    if (blocker.state === 'blocked') blocker.proceed()
   }
 
   async function unsuspend() {
@@ -119,7 +160,7 @@ export function CardEditorPage() {
       <span className="header-title-text">{editing ? 'Edit card' : 'New card'}</span>
       {deck && (
         <span className="header-deck-chip">
-          <span className="header-deck-dot" style={{ background: deckColor(deck.id) }} />
+          <span className="header-deck-dot" style={{ background: deck.color ?? deckColor(deck.id) }} />
           {deck.name}
         </span>
       )}
@@ -213,12 +254,36 @@ export function CardEditorPage() {
             </div>
           )}
           {editing && (
-            <button className="btn btn-ghost btn-danger" onClick={remove}>
+            <button className="btn btn-ghost btn-danger" onClick={() => setConfirmDelete(true)}>
               Delete card
             </button>
           )}
         </div>
       </div>
+
+      {blocker.state === 'blocked' && (
+        <ConfirmDialog
+          title="Discard unsaved changes?"
+          description="Your edits to this card have not been saved."
+          confirmLabel="Discard changes"
+          cancelLabel="Keep editing"
+          danger
+          onCancel={() => blocker.reset()}
+          onConfirm={() => void discardAndLeave()}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete this card?"
+          description="This permanently removes the card and its review history. This cannot be undone."
+          confirmLabel="Delete permanently"
+          cancelLabel="Keep card"
+          danger
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => void remove()}
+        />
+      )}
     </>
   )
 }

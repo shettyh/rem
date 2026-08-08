@@ -7,7 +7,6 @@ import type { Deck, DeckSettings } from '../../domain/models'
 import { PageHeader } from '../../ui/PageHeader'
 import { Stepper } from '../../ui/Stepper'
 import { SegToggle } from '../../ui/SegToggle'
-import { Toggle } from '../../ui/Toggle'
 import { DECK_PALETTE, deckColor } from '../../ui/deckColor'
 import { parseSteps, parseStepsMs } from '../../domain/scheduler/steps'
 import {
@@ -340,26 +339,6 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
             >
               Start
             </button>
-          </div>
-
-          {/* BURYING & TIMER */}
-          <div className="ds-label">Burying &amp; timer</div>
-          <div className="ds-card">
-            <div className="ds-row">
-              <div>
-                <div className="ds-row-title">Bury related new cards</div>
-                <div className="ds-row-sub">Saved for future sibling-card support; not enforced yet.</div>
-              </div>
-              <Toggle checked={settings.buryRelated} onChange={(v) => set('buryRelated', v)} label="Bury related new cards" />
-            </div>
-            <div className="ds-rule" />
-            <div className="ds-row">
-              <div>
-                <div className="ds-row-title">Show answer timer</div>
-                <div className="ds-row-sub">Display time spent on each card.</div>
-              </div>
-              <Toggle checked={settings.showTimer} onChange={(v) => set('showTimer', v)} label="Show answer timer" />
-            </div>
           </div>
 
           {/* DANGER ZONE */}

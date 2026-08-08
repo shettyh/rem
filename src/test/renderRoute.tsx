@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { render } from 'vitest-browser-react'
 import { Layout } from '../ui/Layout'
 import { StorageProvider } from '../data/StorageContext'
@@ -19,19 +19,23 @@ export function renderRoute(opts: {
   /** Optional additional routes registered alongside the primary one. */
   extraRoutes?: { path: string; element: ReactElement }[]
 }) {
+  const router = createMemoryRouter(
+    [
+      {
+        element: <Layout />,
+        children: [
+          { path: opts.path, element: opts.element },
+          ...(opts.extraRoutes ?? []),
+        ],
+      },
+    ],
+    { initialEntries: [opts.entry] },
+  )
+
   return render(
     <div data-testid="screen">
       <StorageProvider storage={opts.storage}>
-        <MemoryRouter initialEntries={[opts.entry]}>
-          <Routes>
-            <Route element={<Layout />}>
-              <Route path={opts.path} element={opts.element} />
-              {opts.extraRoutes?.map((r) => (
-                <Route key={r.path} path={r.path} element={r.element} />
-              ))}
-            </Route>
-          </Routes>
-        </MemoryRouter>
+        <RouterProvider router={router} />
       </StorageProvider>
     </div>,
   )
