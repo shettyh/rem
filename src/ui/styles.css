@@ -1405,6 +1405,7 @@ select.text-input {
 .settings-action-row .btn,
 .settings-panel-summary > .btn,
 .settings-inline-actions .btn,
+.settings-remote .btn,
 .settings-sync-actions .btn {
   padding: 8px 13px;
   border-radius: 9px;
@@ -1484,7 +1485,14 @@ select.text-input {
   color: var(--muted);
   font-size: 12.5px;
 }
+.settings-remote-value {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
 .settings-remote code {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   color: var(--text);
@@ -1961,7 +1969,8 @@ select.text-input {
   .settings-action-row .settings-inline-actions { width: 100%; }
   .settings-action-row .settings-inline-actions .btn { flex: 1; }
   .check-list { grid-template-columns: 1fr; }
-  .settings-remote { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .settings-remote { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .settings-remote-value { width: 100%; }
   .card-editor { padding-inline: 18px; padding-bottom: 64px; }
   .review { padding: 28px 18px 40px; }
   .review-terminal { padding-inline: 18px; }

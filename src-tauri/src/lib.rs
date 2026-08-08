@@ -7,6 +7,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             git::git_is_cloned,
             git::git_clone,
+            git::git_set_remote_url,
             git::git_fetch_reset,
             git::git_read_files,
             git::git_write_files,

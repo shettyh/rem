@@ -13,6 +13,10 @@ export class TauriGitBridge implements GitBridge {
     return invoke<void>('git_clone', { remoteUrl, dir })
   }
 
+  setRemoteUrl(remoteUrl: string, dir: string): Promise<void> {
+    return invoke<void>('git_set_remote_url', { remoteUrl, dir })
+  }
+
   async fetchReset(dir: string): Promise<FetchResetResult> {
     const remoteExists = await invoke<boolean>('git_fetch_reset', { dir })
     return { remoteExists }

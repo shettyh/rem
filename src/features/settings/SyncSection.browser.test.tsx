@@ -64,4 +64,25 @@ describe('SyncSection', () => {
     await screen.getByLabelText('Automatic sync').click()
     expect(localStorage.getItem('rem.sync.auto')).toBe('false')
   })
+
+  it('updates the configured remote only after the new remote syncs successfully', async () => {
+    localStorage.setItem('rem.sync.remoteUrl', 'git@example.com:me/old.git')
+    const storage = new DexieStorage(new RemDB('sync-ui-test-4'))
+    const bridge = new FakeGitBridge(null)
+    const makeService = (s: any, cfg: any) => new GitSyncService(s, bridge, cfg)
+    const screen = await render(
+      <StorageProvider storage={storage}>
+        <SyncSection makeService={makeService} />
+      </StorageProvider>,
+    )
+
+    await screen.getByRole('button', { name: 'Change remote' }).click()
+    await screen.getByLabelText('Git remote URL').fill('git@example.com:me/new.git')
+    expect(localStorage.getItem('rem.sync.remoteUrl')).toBe('git@example.com:me/old.git')
+
+    await screen.getByRole('button', { name: 'Update and sync' }).click()
+    await expect.element(screen.getByText('git@example.com:me/new.git')).toBeInTheDocument()
+    expect(localStorage.getItem('rem.sync.remoteUrl')).toBe('git@example.com:me/new.git')
+    expect(bridge.remoteUrl).toBe('git@example.com:me/new.git')
+  })
 })

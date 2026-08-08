@@ -39,6 +39,7 @@ export function SyncSection({
   const [draftUrl, setDraftUrl] = useState(initialUrl)
   const [setupOpen, setSetupOpen] = useState(false)
   const [autoSync, setAutoSync] = useState(isAutoSyncEnabled)
+  const [lastSuccessfulAt, setLastSuccessfulAt] = useState(lastSyncAt)
   const [status, setStatus] = useState<Status>(
     lastSyncAt ? { kind: 'ok', at: lastSyncAt } : { kind: 'idle' },
   )
@@ -62,6 +63,7 @@ export function SyncSection({
       await makeService(storage, { remoteUrl: url, repoDir }).sync()
       const at = Date.now()
       localStorage.setItem(LAST_SYNC_KEY, String(at))
+      setLastSuccessfulAt(at)
       if (configure) {
         localStorage.setItem(REMOTE_KEY, url)
         setConfiguredUrl(url)
@@ -106,7 +108,7 @@ export function SyncSection({
         )}
       </div>
 
-      {!configured && setupOpen && (
+      {setupOpen && (
         <form className="settings-setup" onSubmit={submitSetup}>
           <label className="field-label" htmlFor="git-remote-url">Git remote URL</label>
           <input
@@ -121,16 +123,18 @@ export function SyncSection({
           />
           <div className="settings-inline-actions">
             <button className="btn btn-primary" type="submit" disabled={status.kind === 'syncing'}>
-              {status.kind === 'syncing' ? 'Connecting…' : 'Connect and sync'}
+              {status.kind === 'syncing'
+                ? configured ? 'Updating…' : 'Connecting…'
+                : configured ? 'Update and sync' : 'Connect and sync'}
             </button>
             <button
               className="btn btn-ghost"
               type="button"
               disabled={status.kind === 'syncing'}
               onClick={() => {
-                setDraftUrl('')
+                setDraftUrl(configuredUrl)
                 setSetupOpen(false)
-                setStatus({ kind: 'idle' })
+                setStatus(lastSuccessfulAt ? { kind: 'ok', at: lastSuccessfulAt } : { kind: 'idle' })
               }}
             >
               Cancel
@@ -140,11 +144,25 @@ export function SyncSection({
         </form>
       )}
 
-      {configured && (
+      {configured && !setupOpen && (
         <div className="settings-connected">
           <div className="settings-remote">
             <span>Repository</span>
-            <code title={configuredUrl}>{configuredUrl}</code>
+            <div className="settings-remote-value">
+              <code title={configuredUrl}>{configuredUrl}</code>
+              <button
+                className="btn btn-ghost"
+                type="button"
+                disabled={status.kind === 'syncing'}
+                onClick={() => {
+                  setDraftUrl(configuredUrl)
+                  setSetupOpen(true)
+                  setStatus(lastSuccessfulAt ? { kind: 'ok', at: lastSuccessfulAt } : { kind: 'idle' })
+                }}
+              >
+                Change remote
+              </button>
+            </div>
           </div>
           <label className="settings-toggle-row">
             <span>
