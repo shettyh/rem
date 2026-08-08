@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.6.2 (2026-08-08)
+
+## What's Changed
+* build(deps): bump react-dom and @types/react-dom by @dependabot[bot] in https://github.com/shettyh/rem/pull/59
+* build(deps): bump googleapis/release-please-action from 4 to 5 by @dependabot[bot] in https://github.com/shettyh/rem/pull/56
+* build(deps-dev): bump playwright from 1.61.0 to 1.62.1 by @dependabot[bot] in https://github.com/shettyh/rem/pull/51
+* build(deps): bump actions/upload-artifact from 4 to 7 by @dependabot[bot] in https://github.com/shettyh/rem/pull/41
+* build(deps): bump tauri from 2.11.3 to 2.11.5 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/42
+* build(deps): bump serde_json from 1.0.150 to 1.0.151 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/46
+* build(deps-dev): bump @tauri-apps/cli from 2.11.3 to 2.11.4 by @dependabot[bot] in https://github.com/shettyh/rem/pull/50
+* build(deps): bump serde from 1.0.228 to 1.0.229 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/44
+* build(deps-dev): bump @vitejs/plugin-react from 6.0.2 to 6.0.5 by @dependabot[bot] in https://github.com/shettyh/rem/pull/47
+* build(deps-dev): bump vite from 8.0.16 to 8.2.0 by @dependabot[bot] in https://github.com/shettyh/rem/pull/45
+* build(deps): bump base64 from 0.22.1 to 0.23.1 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/48
+
+## New Contributors
+* @dependabot[bot] made their first contribution in https://github.com/shettyh/rem/pull/59
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.6.1...v0.6.2
+
 ## 0.6.1 (2026-08-08)
 
 ## What's Changed
