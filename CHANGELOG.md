@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 (2026-08-08)
+
+## What's Changed
+* fix(ui): normalize button fonts and header controls by @shettyh in https://github.com/shettyh/rem/pull/23
+* fix(ui): clarify button variants and interaction states by @shettyh in https://github.com/shettyh/rem/pull/24
+* fix(ui): align typography and empty states by @shettyh in https://github.com/shettyh/rem/pull/26
+* feat(ui): establish a quieter visual foundation by @shettyh in https://github.com/shettyh/rem/pull/27
+* feat(ui): simplify Today and deck surfaces by @shettyh in https://github.com/shettyh/rem/pull/28
+* feat(ui): quiet review and card editing by @shettyh in https://github.com/shettyh/rem/pull/29
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.4.0...v0.5.0
+
 ## 0.4.0 (2026-08-08)
 
 ## What's Changed
