@@ -254,7 +254,7 @@ export function CardEditorPage() {
             </div>
           )}
           {editing && (
-            <button className="btn btn-ghost btn-danger" onClick={() => setConfirmDelete(true)}>
+            <button className="btn btn-danger-outline" onClick={() => setConfirmDelete(true)}>
               Delete card
             </button>
           )}
