@@ -1,99 +1,140 @@
 # rem
 
-A clean, local-first spaced-repetition flashcard **desktop app** — markdown cards (text + code),
-deck organisation, FSRS scheduling, review statistics, and git-backed sync across machines. Think
-AnkiDroid, less clunky.
+**A calm, local-first spaced-repetition app for remembering what matters.**
 
-> **Native only.** rem is a [Tauri](https://tauri.app) desktop app. It syncs by shelling out to
-> your system `git`, which a browser can't do, so the web build is unsupported — opening the dev
-> URL in a browser just shows a "desktop app" notice. Run it with `npm run app:dev`.
+[![CI](https://github.com/shettyh/rem/actions/workflows/ci.yml/badge.svg)](https://github.com/shettyh/rem/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/shettyh/rem)](https://github.com/shettyh/rem/releases/latest)
+[![License](https://img.shields.io/github/license/shettyh/rem)](LICENSE)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 
-## Stack
+rem combines a focused native interface with FSRS-6 scheduling, Markdown cards, useful study statistics, and optional Git-backed sync. Your collection stays on your device and remains exportable—no account or hosted service is required.
 
-React + TypeScript + Vite, packaged as a native app with **Tauri v2** (Rust). Local data in
-**Dexie** (IndexedDB); **TipTap** WYSIWYG-markdown editor; **react-markdown** for rendering;
-**ts-fsrs** for scheduling.
+> [!IMPORTANT]
+> rem is a native [Tauri](https://tauri.app) desktop app for macOS, Linux, and Windows. The browser build is only the source for Tauri's webview and is not a supported version of the app.
 
-## Run & build
+![Reviewing a card in rem](docs/assets/rem-review.png)
 
-```bash
-npm install
-npm run app:dev     # run the native app — this is how you use rem
-npm run app:build   # build native installers for your platform
-npm test            # unit + real-browser UI tests (Vitest + Playwright)
-npm run typecheck   # tsc --noEmit
-```
+## Features
 
-`npm run dev` and the printed `http://localhost:5173` are **only the internal webview source** that
-`npm run app:dev` loads — not a browser app. Open the desktop window, not the URL.
+- **Local-first by default** — decks, cards, assets, and review history live on your device.
+- **Modern scheduling** — FSRS-6 runs in Rust, with configurable retention, learning steps, daily limits, and per-deck parameter optimization.
+- **Rich Markdown cards** — a WYSIWYG editor with code highlighting, images and GIFs, links, lists, and tags.
+- **Fast review flow** — keyboard shortcuts, four-grade reviews, interval previews, custom study, and leech handling.
+- **Actionable statistics** — review activity, recall rate, streaks, grade distribution, and per-deck breakdowns.
+- **Portable data** — import and export full-fidelity JSON backups.
+- **Optional Git sync** — sync through any Git remote using your existing system credentials; rem does not store an access token.
+- **Light and dark themes** — a focused desktop interface designed for everyday study.
 
-## Install
+## Installation
 
-**macOS / Linux** — one-liner (no Apple Developer warning; `curl` downloads skip
-macOS quarantine):
+Download the latest installer for your platform from [GitHub Releases](https://github.com/shettyh/rem/releases/latest).
 
-```bash
+| Platform | Available packages |
+| --- | --- |
+| macOS | Apple Silicon and Intel DMG |
+| Linux | AppImage, `.deb`, and `.rpm` |
+| Windows | `.msi` and `.exe` |
+
+### macOS and Linux installer
+
+```sh
 curl -fsSL https://raw.githubusercontent.com/shettyh/rem/main/install.sh | sh
 ```
 
-macOS copies `rem.app` to `/Applications`; Linux installs the AppImage to
-`~/.local/bin/rem` (needs FUSE; on Debian/Ubuntu `sudo apt install libfuse2`).
+On Linux, the AppImage requires FUSE. Debian and Ubuntu users can install it with `sudo apt install libfuse2`.
 
-**Manual download** — grab a build from the
-[Releases page](https://github.com/shettyh/rem/releases). Because rem isn't
-notarized (no paid Apple Developer ID), a **browser-downloaded** DMG triggers a
-Gatekeeper warning. Either right-click the app → **Open** → **Open**, or clear
-quarantine after copying it to Applications:
+### Unsigned build notice
 
-```bash
+Current macOS and Windows builds are not notarized or code-signed with paid platform certificates. On macOS, right-click **rem** and choose **Open**, or clear quarantine after moving the app to `/Applications`:
+
+```sh
 xattr -dr com.apple.quarantine /Applications/rem.app
 ```
 
-**Windows** — download the `.msi`/`.exe` from the Releases page.
+## Getting started
 
-## Cutting a release
+1. Create a deck from the **Today** screen.
+2. Add cards with a front, back, and optional tags or images.
+3. Start a review and reveal each answer with <kbd>Space</kbd>.
+4. Grade your recall with the on-screen controls or keyboard shortcuts.
+5. Optionally configure backups and Git sync from **Settings**.
 
-The [`release.yml`](.github/workflows/release.yml) workflow builds installers for
-macOS (Apple Silicon + Intel), Linux, and Windows on every `v*` tag.
+## Data and sync
 
-1. Bump the version to match in all three files: `package.json`,
-   `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`.
-2. Commit, then tag and push:
-   ```bash
-   git tag v0.1.1 && git push origin v0.1.1
-   ```
-3. The workflow opens a **draft** GitHub Release with the installers attached.
-4. **Publish the draft.** Required — the curl installer reads `releases/latest`,
-   which ignores drafts and prereleases, so it only finds a published release.
+rem stores local data in IndexedDB through [Dexie](https://dexie.org). JSON backup files preserve decks, cards, scheduling state, and review history.
+
+Git sync is optional. When enabled, rem shells out to your system `git`, uses its existing credentials, and synchronizes a human-inspectable file-per-deck repository. Records are merged with last-writer-wins semantics, while tombstones propagate deletions between machines.
+
+## Development
+
+### Prerequisites
+
+- [Node.js 22](https://nodejs.org)
+- [Rust stable](https://www.rust-lang.org/tools/install)
+- The [Tauri v2 platform prerequisites](https://v2.tauri.app/start/prerequisites/)
+- Git, if you want to test sync
+
+### Run locally
+
+```sh
+git clone https://github.com/shettyh/rem.git
+cd rem
+npm ci
+npm run app:dev
+```
+
+Use `npm run app:dev`, not `npm run dev`. The latter starts only the internal Vite server consumed by the native webview.
+
+### Useful commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm run app:dev` | Run the native app in development mode |
+| `npm run app:build` | Build native installers for the current platform |
+| `npm test` | Run unit and real-browser UI tests |
+| `npm run typecheck` | Type-check the frontend |
+| `npm run build` | Type-check and build the frontend webview |
+| `cd src-tauri && cargo test` | Run Rust tests |
+
+Browser tests require Playwright's Chromium binary:
+
+```sh
+npx playwright install chromium
+```
 
 ## Architecture
 
-Dependencies point inward toward stable interfaces:
+rem keeps domain logic and infrastructure behind small interfaces so that product features do not depend directly on a database or scheduling implementation.
 
-- **`Scheduler`** (`src/domain/scheduler`) — the scheduling algorithm; FSRS today, behind an
-  interface so another algorithm stays a one-file addition. Pure and unit-tested.
-- **`Storage`** (`src/data/Storage.ts`) — the persistence port; Dexie (IndexedDB) today, with a
-  git-sync backend behind the same seam.
-
-```
+```text
 src/
-  domain/      models + scheduler (Scheduler interface, FSRS + SM-2)
-  data/        Storage interface + Dexie impl + git sync + React context
-  features/    decks · cards (TipTap editor + view) · review · settings
-  app/         entry, router
-  ui/          app shell (sidebar + content) + design tokens / styles
-src-tauri/     Rust: window chrome (overlay titlebar) + git bridge
+  app/         application entry point, routes, and auto-sync
+  domain/      card/deck models and the Scheduler interface
+  data/        Storage interface, Dexie persistence, backup, and Git sync
+  features/    decks, cards, review, settings, and statistics
+  ui/          app shell, shared components, themes, and design tokens
+src-tauri/     native shell, Rust FSRS-6 scheduling, and Git bridge
 ```
 
-## Sync
+The frontend uses React, TypeScript, and Vite. Tauri v2 provides the native shell, while `fsrs-rs` handles scheduling in Rust.
 
-Decks and cards sync through a GitHub (or any git) remote via the system `git` and your existing
-credentials — no token is stored. Per-record last-writer-wins with tombstones, behind the `Storage`
-seam. Configure the remote in **Settings → Sync**.
+## Contributing
 
-## Scheduling
+Issues and pull requests are welcome. For substantial changes, please open an issue first so the approach can be discussed before implementation.
 
-All cards are scheduled with **FSRS** (`fsrs-rs` in Rust). It sits behind the `Scheduler` interface,
-so swapping or adding an algorithm remains isolated. FSRS-effective grades are recorded locally and
-synced with the deck; **Deck options → FSRS parameters** can optimize or reset per-deck weights once
-a card has been reviewed on a later day.
+Before submitting a pull request, run the same core checks used by CI:
+
+```sh
+npm test
+npm run build
+(
+  cd src-tauri
+  cargo fmt --all --check
+  cargo clippy --all-targets -- -D warnings
+  cargo test
+)
+```
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
