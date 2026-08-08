@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
 import { PageHeader } from '../../ui/PageHeader'
 import { SyncSection } from './SyncSection'
+import packageInfo from '../../../package.json'
 import {
   collectBackup,
   serializeBackup,
@@ -218,6 +219,8 @@ export function SettingsPage() {
           </div>
           <SyncSection />
         </section>
+
+        <p className="settings-version">rem version {packageInfo.version}</p>
       </div>
     </>
   )

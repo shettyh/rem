@@ -5,6 +5,7 @@ import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
 import { serializeBackup, type DeckBackup } from '../../data/backup'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
+import packageInfo from '../../../package.json'
 
 function renderSettings(storage: ReturnType<typeof freshStorage>) {
   return renderRoute({ storage, entry: '/settings', path: '/settings', element: <SettingsPage /> })
@@ -19,6 +20,7 @@ test('presents local storage first and keeps per-deck export behind choose decks
   await expect.element(page.getByRole('heading', { name: 'Data & storage' })).toBeVisible()
   await expect.element(page.getByText('Active')).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Export all' })).toBeEnabled()
+  await expect.element(page.getByText(`rem version ${packageInfo.version}`)).toBeVisible()
   await expect.element(page.getByLabelText('Select all decks')).not.toBeInTheDocument()
 
   await page.getByRole('button', { name: 'Choose decks' }).click()
