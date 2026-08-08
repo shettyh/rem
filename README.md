@@ -102,6 +102,18 @@ Browser tests require Playwright's Chromium binary:
 npx playwright install chromium
 ```
 
+## Releasing
+
+Releases are gated by a Release Please pull request:
+
+1. Give feature and fix pull requests [Conventional Commit](https://www.conventionalcommits.org/) titles and squash-merge them into `main` so each change produces one clean changelog entry.
+2. Release Please opens or updates a `chore: release vX.Y.Z` pull request with the generated changelog and synchronized Node, Rust, and Tauri versions.
+3. Review that pull request and wait for CI to pass. Merge it when the accumulated changes are ready to ship.
+4. The release workflow creates a draft GitHub Release and builds the macOS, Linux, and Windows installers.
+5. The workflow publishes the release only after every installer build succeeds. A failed build leaves the release as a draft so it cannot become `latest` accidentally.
+
+Do not edit versions or create release tags manually. `feat` commits produce minor releases, `fix` commits produce patch releases, and breaking changes produce major releases. The repository must allow GitHub Actions to create pull requests under **Settings → Actions → General → Workflow permissions**.
+
 ## Architecture
 
 rem keeps domain logic and infrastructure behind small interfaces so that product features do not depend directly on a database or scheduling implementation.
