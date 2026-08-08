@@ -31,9 +31,13 @@ test('revealing shows the answer and grade buttons', async () => {
   const questionCard = page.getByText('Q?').element().closest<HTMLElement>('.review-card')!
   const showAnswerLocator = page.getByRole('button', { name: 'Show answer', exact: false })
   const showAnswer = showAnswerLocator.element()
+  const endSession = page.getByRole('link', { name: 'End session' }).element()
   const questionHeight = questionCard.getBoundingClientRect().height
   expect(showAnswer.getBoundingClientRect().width).toBeLessThan(
     questionCard.getBoundingClientRect().width / 2,
+  )
+  expect(showAnswer.getBoundingClientRect().height).toBeLessThanOrEqual(
+    endSession.getBoundingClientRect().height + 8,
   )
   await showAnswerLocator.click()
 

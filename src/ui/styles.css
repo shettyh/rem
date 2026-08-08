@@ -1131,6 +1131,7 @@ select.text-input {
 .review-actions {
   min-height: 88px;
   display: flex;
+  align-items: flex-start;
   justify-content: center;
 }
 .review-show {
