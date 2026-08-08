@@ -1,17 +1,47 @@
 name: Release
 
-# Push a version tag to build installers and open a draft GitHub Release:
-#   (bump version in package.json / Cargo.toml / tauri.conf.json first, then)
-#   git tag v0.1.0 && git push origin v0.1.0
+# Normal merges update a Release Please PR. Merging that PR creates a draft
+# release, builds every installer, and publishes only after all builds succeed.
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
-  release:
-    permissions:
-      contents: write
+  release_please:
+    runs-on: ubuntu-22.04
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+
+      # Pull requests opened with GITHUB_TOKEN do not emit another pull_request
+      # event. Dispatch CI explicitly so the release PR still gets checked
+      # without requiring a personal access token.
+      - name: Run CI for the release PR
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+        run: |
+          branch=$(printf '%s' "$RELEASE_PR" | jq -r '.headBranchName')
+          test -n "$branch" && test "$branch" != "null"
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
+
+  build:
+    if: needs.release_please.outputs.release_created == 'true'
+    needs: release_please
     strategy:
       fail-fast: false
       matrix:
@@ -27,6 +57,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release_please.outputs.tag_name }}
 
       - name: Install Tauri system dependencies (Linux)
         if: matrix.platform == 'ubuntu-22.04'
@@ -63,9 +95,18 @@ jobs:
           # NOTE: TAURI_SIGNING_PRIVATE_KEY is for the Tauri auto-updater, not
           # Windows Authenticode — no updater is configured, so it is unused.
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'rem v__VERSION__'
-          releaseBody: 'See the assets below to download and install this version.'
+          tagName: ${{ needs.release_please.outputs.tag_name }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish:
+    if: needs.release_please.outputs.release_created == 'true'
+    needs: [release_please, build]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Publish the completed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.release_please.outputs.tag_name }}
+        run: gh release edit "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --title "rem $TAG_NAME" --draft=false --latest
