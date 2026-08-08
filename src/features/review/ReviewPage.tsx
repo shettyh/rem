@@ -38,7 +38,7 @@ export function ReviewPage() {
   const [leechNotice, setLeechNotice] = useState<LeechAction | null>(null)
 
   const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
-  const deckName = deckId ? (deck?.name ?? '') : 'All decks'
+  const deckName = deckId ? (deck?.name ?? 'Deck') : 'All decks'
   const customTitle = customMode ? customStudyPreset(customMode).title : null
   const backTo = customMode && deckId ? `/decks/${deckId}/options` : deckId ? `/decks/${deckId}` : '/'
   const backLabel = customMode ? 'Back to options' : deckId ? 'Back to deck' : 'Back to Today'
@@ -185,52 +185,67 @@ export function ReviewPage() {
     : leechNotice === 'tag'
       ? 'Leech tagged.'
       : null
+  const contextLabel = customTitle ? `${deckName} · ${customTitle}` : deckName
+  const terminalTitle = (
+    <>
+      <span className="header-title-text">{isPreview ? 'Preview' : 'Review'}</span>
+      <span className="review-deck">{contextLabel}</span>
+    </>
+  )
+  const terminalAction = <Link to={backTo} className="btn btn-ghost">Close</Link>
 
   if (current === null) {
     const reviewed = sessionRef.current?.reviewed ?? 0
     if (reviewed === 0) {
       return (
-        <div className="page-body">
-          <div className="empty-state">
-            <div className="ico">🌙</div>
-            <h3>{customMode ? 'No matching cards' : 'Nothing due'}</h3>
-            <p>
-              {customMode
-                ? `No cards match ${customTitle?.toLowerCase()} right now.`
-                : deckId
-                  ? 'Nothing due in this deck right now.'
-                  : 'Nothing due across your decks right now.'}
-            </p>
-            <Link to={backTo} className="btn btn-ghost cta">{backLabel}</Link>
+        <>
+          <PageHeader title={terminalTitle} actions={terminalAction} />
+          <div className="review-terminal">
+            <div className="empty-state">
+              <div className="ico">🌙</div>
+              <h3>{customMode ? 'No matching cards' : 'Nothing due'}</h3>
+              <p>
+                {customMode
+                  ? `No cards match ${customTitle?.toLowerCase()} right now.`
+                  : deckId
+                    ? 'Nothing due in this deck right now.'
+                    : 'Nothing due across your decks right now.'}
+              </p>
+              <Link to={backTo} className="btn btn-ghost cta">{backLabel}</Link>
+            </div>
           </div>
-        </div>
+        </>
       )
     }
     return (
-      <div className="page-body">
-        <div className="empty-state">
-          <div className="ico">🎉</div>
-          <h3>{isPreview ? 'Preview complete' : 'Review complete'}</h3>
-          <p>
-            {isPreview
-              ? `${reviewed} card${reviewed === 1 ? '' : 's'} previewed.`
-              : `${reviewed} review${reviewed === 1 ? '' : 's'} done. Nice work.`}
-          </p>
-          {leechMessage && <p role="status">{leechMessage}</p>}
-          <Link to={backTo} className="btn btn-primary cta">{backLabel}</Link>
+      <>
+        <PageHeader title={terminalTitle} actions={terminalAction} />
+        <div className="review-terminal">
+          <div className="empty-state">
+            <div className="ico">🎉</div>
+            <h3>{isPreview ? 'Preview complete' : 'Review complete'}</h3>
+            <p>
+              {isPreview
+                ? `${reviewed} card${reviewed === 1 ? '' : 's'} previewed.`
+                : `${reviewed} review${reviewed === 1 ? '' : 's'} done. Nice work.`}
+            </p>
+            {leechMessage && <p role="status">{leechMessage}</p>}
+            <Link to={backTo} className="btn btn-primary cta">{backLabel}</Link>
+          </div>
         </div>
-      </div>
+      </>
     )
   }
 
   const reviewed = sessionRef.current?.reviewed ?? 0
   const total = reviewed + (sessionRef.current?.remaining ?? 0)
+  const position = reviewed + 1
   const title = (
     <>
       <span className="review-pos">
-        {reviewed + 1} / {total}
+        {position} / {total}
       </span>
-      <span className="review-deck">{customTitle ? `${deckName} · ${customTitle}` : deckName}</span>
+      <span className="review-deck">{contextLabel}</span>
     </>
   )
 
@@ -244,6 +259,17 @@ export function ReviewPage() {
           </Link>
         }
       />
+      <div
+        className="review-progress"
+        role="progressbar"
+        aria-label="Review progress"
+        aria-valuemin={1}
+        aria-valuemax={total}
+        aria-valuenow={position}
+        aria-valuetext={`Card ${position} of ${total}`}
+      >
+        <span style={{ width: `${Math.min(100, (position / total) * 100)}%` }} />
+      </div>
       <div className="review">
         {leechMessage && <p className="review-notice" role="status">{leechMessage}</p>}
         {!revealed ? (
@@ -253,9 +279,11 @@ export function ReviewPage() {
                 <MarkdownView source={current.card.front} />
               </div>
             </div>
-            <button className="review-show" onClick={reveal}>
-              Show answer <span className="kbd">space</span>
-            </button>
+            <div className="review-actions">
+              <button className="review-show" onClick={reveal}>
+                Show answer <span className="kbd">space</span>
+              </button>
+            </div>
           </div>
         ) : (
           <div className="review-stage reveal-enter">
@@ -269,21 +297,23 @@ export function ReviewPage() {
                 <MarkdownView source={current.card.back} />
               </div>
             </div>
-            {isPreview ? (
-              <button className="review-show" onClick={advancePreview}>
-                Next card <span className="kbd">space</span>
-              </button>
-            ) : nexts ? (
-              <GradeButtons nexts={nexts} now={revealedAt} onGrade={grade} />
-            ) : null}
-            {!isPreview && schedError && !nexts && (
-              <div className="empty-state">
-                <p>Couldn&#39;t schedule this card.</p>
-                <button className="btn btn-ghost" onClick={() => fetchNexts(current, revealedAt)}>
-                  Retry
+            <div className="review-actions">
+              {isPreview ? (
+                <button className="review-show" onClick={advancePreview}>
+                  Next card <span className="kbd">space</span>
                 </button>
-              </div>
-            )}
+              ) : nexts ? (
+                <GradeButtons nexts={nexts} now={revealedAt} onGrade={grade} />
+              ) : null}
+              {!isPreview && schedError && !nexts && (
+                <div className="review-schedule-error" role="alert">
+                  <p>Couldn&#39;t schedule this card.</p>
+                  <button className="btn btn-ghost" onClick={() => fetchNexts(current, revealedAt)}>
+                    Retry
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

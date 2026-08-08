@@ -21,15 +21,55 @@ test('revealing shows the answer and grade buttons', async () => {
 
   await expect.element(page.getByRole('button', { name: 'Show answer', exact: false })).toBeVisible()
   await expect.element(page.getByText('A — the answer.')).not.toBeInTheDocument()
+  await expect.element(page.getByRole('complementary')).not.toBeInTheDocument()
 
+  const shell = page.getByTestId('screen').element().querySelector('.app')
+  expect(shell).toHaveClass('is-reviewing')
+  const progress = page.getByRole('progressbar', { name: 'Review progress' })
+  await expect.element(progress).toHaveAttribute('aria-valuetext', 'Card 1 of 1')
+
+  const questionCard = page.getByText('Q?').element().closest<HTMLElement>('.review-card')!
+  const questionHeight = questionCard.getBoundingClientRect().height
   await page.getByRole('button', { name: 'Show answer', exact: false }).click()
 
   await expect.element(page.getByText('A — the answer.')).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Good', exact: false })).toBeVisible()
+  const answerCard = page.getByText('A — the answer.').element().closest<HTMLElement>('.review-card')!
+  expect(answerCard.getBoundingClientRect().height).toBe(questionHeight)
 })
 
 afterEach(() => {
   vi.restoreAllMocks()
+})
+
+test('progress advances through a multi-card session', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('TypeScript')
+  for (const front of ['First', 'Second']) {
+    const card = await storage.createCard(deck.id, front, 'Answer')
+    await storage.updateCard(card.id, {
+      scheduling: {
+        ...card.scheduling,
+        state: 2,
+        reps: 3,
+        stability: 10,
+        difficulty: 5,
+        due: 0,
+      },
+    })
+  }
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  const progress = page.getByRole('progressbar', { name: 'Review progress' })
+  await expect.element(progress).toHaveAttribute('aria-valuetext', 'Card 1 of 2')
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await page.getByRole('button', { name: 'Good', exact: false }).click()
+  await expect.element(progress).toHaveAttribute('aria-valuetext', 'Card 2 of 2')
 })
 
 test('scheduling rejection shows recoverable error and no grade buttons', async () => {
@@ -152,11 +192,15 @@ test('enforces newPerDay: only the day\'s new allowance enters the session', asy
     expect(stat.newIntroduced).toBe(1)
   })
   await expect.element(page.getByText('Review complete')).toBeVisible()
+  await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Review')
+  await expect.element(page.getByRole('link', { name: 'Close' })).toBeVisible()
 
   // Reopening on the same day does not grant allowance for the second new card.
   await page.getByRole('link', { name: 'Back to deck' }).click()
   await page.getByRole('link', { name: 'Reopen study' }).click()
   await expect.element(page.getByRole('heading', { name: 'Nothing due' })).toBeVisible()
+  await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Review')
+  await expect.element(page.getByRole('link', { name: 'Close' })).toBeVisible()
 })
 
 test('grading a Review-state card bumps reviewsDone, not newIntroduced', async () => {
