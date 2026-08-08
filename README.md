@@ -1,6 +1,6 @@
 # rem
 
-**A calm, local-first spaced-repetition app for remembering what matters.**
+**Local-first spaced-repetition desktop app with Markdown cards, FSRS-6 scheduling, study statistics, and optional Git sync.**
 
 [![CI](https://github.com/shettyh/rem/actions/workflows/ci.yml/badge.svg)](https://github.com/shettyh/rem/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/shettyh/rem)](https://github.com/shettyh/rem/releases/latest)
