@@ -5,7 +5,6 @@ import { useStorage } from '../../data/StorageContext'
 import type { Deck } from '../../domain/models'
 import { ConfirmDialog } from '../../ui/ConfirmDialog'
 import { PageHeader } from '../../ui/PageHeader'
-import { deckColor } from '../../ui/deckColor'
 import { RichMarkdownEditor, type EditorHandle } from './RichMarkdownEditor'
 import { EditorToolbar } from './EditorToolbar'
 import { loadAssetUrl } from './assetUrl'
@@ -159,10 +158,7 @@ export function CardEditorPage() {
     <>
       <span className="header-title-text">{editing ? 'Edit card' : 'New card'}</span>
       {deck && (
-        <span className="header-deck-chip">
-          <span className="header-deck-dot" style={{ background: deck.color ?? deckColor(deck.id) }} />
-          {deck.name}
-        </span>
+        <span className="header-deck-chip">{deck.name}</span>
       )}
     </>
   )

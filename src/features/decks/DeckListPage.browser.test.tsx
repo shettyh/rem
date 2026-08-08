@@ -18,17 +18,16 @@ test('creates a deck using the FSRS scheduler', async () => {
   await expect.poll(async () => (await storage.listDecks())[0]?.schedulerKind).toBe('fsrs')
 })
 
-test('uses the selected deck color as a small identity marker', async () => {
+test('presents decks with monochrome identity icons instead of color markers', async () => {
   const storage = freshStorage()
-  const deck = await storage.createDeck('Spanish')
-  await storage.updateDeck(deck.id, { color: '#2fa86b' })
+  await storage.createDeck('Spanish')
   await renderRoute({ storage, entry: '/', path: '/', element: <DeckListPage /> })
 
   const deckList = page.getByLabelText('Decks')
   await expect.element(deckList).toBeVisible()
-  const deckLink = deckList.element().querySelector<HTMLAnchorElement>('.deck-list-row')!
-  const colorMarker = deckLink.querySelector<HTMLElement>('.deck-list-dot')
-  expect(colorMarker?.style.background).toBe('rgb(47, 168, 107)')
+  expect(deckList.element().querySelector('.deck-list-dot')).toBeNull()
+  expect(document.querySelector('.deck-dot')).toBeNull()
+  expect(document.querySelector('.deck-icon')).toBeTruthy()
   await expect.element(page.getByText('FSRS')).not.toBeInTheDocument()
 })
 

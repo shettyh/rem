@@ -5,7 +5,6 @@ import { useStorage } from '../../data/StorageContext'
 import type { Card } from '../../domain/models'
 import { MS_PER_DAY } from '../../domain/scheduler'
 import { PageHeader } from '../../ui/PageHeader'
-import { deckColor } from '../../ui/deckColor'
 import { isNew } from '../review/dueOverview'
 import { userTags } from './cardTags'
 
@@ -58,12 +57,7 @@ export function DeckDetailPage() {
     ? cards.filter((card) => card.tags.includes(tagFilter))
     : cards
 
-  const title = (
-    <>
-      <span className="header-dot" style={{ background: deck.color ?? deckColor(deck.id) }} />
-      <span className="header-title-text">{deck.name}</span>
-    </>
-  )
+  const title = <span className="header-title-text">{deck.name}</span>
 
   const actions = (
     <>

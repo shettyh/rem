@@ -21,6 +21,7 @@ test('renders the General section and persists a rename on blur', async () => {
   })
 
   await expect.element(page.getByText('Deck options')).toBeVisible()
+  await expect.element(page.getByText('Color', { exact: true })).not.toBeInTheDocument()
   await expect.element(page.getByText('Default parameters')).toBeVisible()
   await expect.element(page.getByText('0 recorded FSRS reviews')).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Optimize' })).toBeDisabled()
@@ -47,7 +48,7 @@ test('returns to the deck from the header back button', async () => {
   await expect.element(page.getByText('Deck screen')).toBeVisible()
 })
 
-test('persists a color swatch and the desired-retention stepper', async () => {
+test('persists the desired-retention stepper', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Spanish')
   await renderRoute({
@@ -56,9 +57,6 @@ test('persists a color swatch and the desired-retention stepper', async () => {
     entry: `/decks/${deck.id}/options`,
     element: <DeckSettingsPage />,
   })
-
-  await page.getByLabelText('Color #2fa86b').click()
-  await expect.poll(async () => (await storage.getDeck(deck.id))?.color).toBe('#2fa86b')
 
   await page.getByLabelText('Increase Desired retention').click()
   await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.desiredRetention).toBe(0.91)

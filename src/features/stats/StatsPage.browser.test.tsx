@@ -55,6 +55,7 @@ test('renders review metrics and responds to deck and range filters', async () =
   await expect.element(page.getByLabelText('Again grade')).toHaveTextContent('1')
   await expect.element(page.getByLabelText('Alpha deck stats')).toBeVisible()
   await expect.element(page.getByLabelText('Beta deck stats')).toBeVisible()
+  expect(document.querySelector('.stats-deck-dot')).toBeNull()
 
   await page.getByLabelText('Deck filter').selectOptions(alpha.id)
   await expect.element(page.getByLabelText('FSRS reviews')).toHaveTextContent('2')
