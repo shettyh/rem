@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 (2026-08-09)
+
+## What's Changed
+* feat: add native SQLite storage and CLI capture by @shettyh in https://github.com/shettyh/rem/pull/73
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.7.0...v0.8.0
+
 ## 0.7.0 (2026-08-08)
 
 ## What's Changed
