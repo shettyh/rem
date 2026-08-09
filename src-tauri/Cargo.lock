@@ -128,7 +128,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "app"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "base64 0.23.1",
  "fsrs",
@@ -2823,7 +2823,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rem-cli"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "clap",
  "rem-core",
@@ -2834,7 +2834,7 @@ dependencies = [
 
 [[package]]
 name = "rem-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "directories",
  "rusqlite",
