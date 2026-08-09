@@ -426,6 +426,10 @@ h2 em {
   width: 100%;
 }
 
+.app-window img {
+  height: auto;
+}
+
 .approval-card {
   position: absolute;
   right: -15px;
