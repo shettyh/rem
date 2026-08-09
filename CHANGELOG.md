@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0 (2026-08-09)
+
+## What's Changed
+* feat(ui): add semantic sidebar icons by @shettyh in https://github.com/shettyh/rem/pull/77
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.9.0...v0.10.0
+
 ## 0.9.0 (2026-08-09)
 
 ## What's Changed
