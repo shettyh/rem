@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.1 (2026-08-09)
+
+## What's Changed
+* docs: add GitHub Pages website by @shettyh in https://github.com/shettyh/rem/pull/84
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.11.0...v0.11.1
+
 ## 0.11.0 (2026-08-09)
 
 ## What's Changed
