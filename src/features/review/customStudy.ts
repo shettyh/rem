@@ -1,16 +1,12 @@
-import type { Card, InsertionOrder } from '../../domain/models'
+import type {
+  Card,
+  CustomStudyMode,
+  CustomStudyRequest,
+  InsertionOrder,
+} from '../../domain/models'
 import { MS_PER_DAY } from '../../domain/scheduler'
 
-export type CustomStudyMode =
-  | 'study-ahead'
-  | 'increase-new'
-  | 'review-forgotten'
-  | 'preview-new'
-
-export interface CustomStudyRequest {
-  mode: CustomStudyMode
-  amount: number
-}
+export type { CustomStudyMode, CustomStudyRequest } from '../../domain/models'
 
 export interface CustomStudyPreset {
   mode: CustomStudyMode

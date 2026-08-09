@@ -52,6 +52,33 @@ fn concurrent_first_open_initializes_the_collection_once() {
 }
 
 #[test]
+fn opening_a_v1_collection_migrates_it_without_losing_cards() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("v1.sqlite3");
+    let collection = Collection::open(&path).unwrap();
+    let deck = collection.create_deck("Rust", 100).unwrap();
+    let card = collection
+        .create_card(&deck.id, "Question", "Answer", vec![], 110)
+        .unwrap();
+    drop(collection);
+
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE card_drafts;
+             ALTER TABLE cards DROP COLUMN local_revision;
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    drop(connection);
+
+    let migrated = Collection::open(&path).unwrap();
+    assert_eq!(migrated.get_card(&card.id).unwrap(), Some(card));
+    assert!(migrated.list_drafts().unwrap().is_empty());
+    assert_eq!(migrated.sync_revision().unwrap(), 2);
+}
+
+#[test]
 fn opening_a_newer_schema_is_rejected_without_modifying_it() {
     let temp = tempdir().unwrap();
     let path = temp.path().join("future.sqlite3");

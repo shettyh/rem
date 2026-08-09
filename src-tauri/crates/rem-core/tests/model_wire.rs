@@ -1,6 +1,7 @@
 use rem_core::{
-    ApplyMergeResult, Asset, Card, CardPatch, DailyStat, DbOps, Deck, DeckBackup, DeckSettings,
-    FsrsState, ImportResult, RepoSnapshot,
+    ApplyMergeResult, Asset, Card, CardDraft, CardPatch, DailyStat, DbOps, Deck, DeckBackup,
+    DeckSettings, DraftDecision, DraftProposalOutcome, DraftResolution, FsrsState, ImportResult,
+    RepoSnapshot, StudyGradeOutcome, StudyRequest, StudyView,
 };
 use serde_json::{json, Value};
 
@@ -59,6 +60,81 @@ fn deck_and_card_match_the_typescript_wire_shape() {
     let encoded_card: Value = serde_json::to_value(card).unwrap();
     assert_eq!(encoded_deck, deck_json);
     assert_eq!(encoded_card, card_json);
+}
+
+#[test]
+fn draft_models_use_the_tauri_wire_shape() {
+    let draft_json = json!({
+        "id": "draft-1",
+        "deckId": "deck-1",
+        "front": "Question",
+        "back": "Answer",
+        "tags": ["rust"],
+        "rationale": "Durable invariant",
+        "sources": [{ "locator": "src/lib.rs:1-5", "label": "Core" }],
+        "proposedBy": "pi",
+        "createdAt": 100,
+        "updatedAt": 100,
+        "revision": 0
+    });
+    let draft: CardDraft = serde_json::from_value(draft_json.clone()).unwrap();
+    assert_eq!(serde_json::to_value(draft.clone()).unwrap(), draft_json);
+    assert_eq!(
+        serde_json::to_value(DraftProposalOutcome::Created(draft)).unwrap(),
+        json!({ "status": "created", "value": draft_json })
+    );
+
+    let decision: DraftDecision = serde_json::from_value(json!({
+        "decision": "accept",
+        "deckId": "deck-1",
+        "card": { "front": "Q", "back": "A", "tags": [] }
+    }))
+    .unwrap();
+    assert!(matches!(decision, DraftDecision::Accept { .. }));
+    assert_eq!(
+        serde_json::to_value(DraftResolution::Rejected).unwrap(),
+        json!({ "status": "rejected" })
+    );
+}
+
+#[test]
+fn study_models_use_the_tauri_wire_shape() {
+    let request_json = json!({
+        "deckId": "deck-1",
+        "custom": { "mode": "study-ahead", "amount": 2 }
+    });
+    let request: StudyRequest = serde_json::from_value(request_json.clone()).unwrap();
+    assert_eq!(serde_json::to_value(request).unwrap(), request_json);
+
+    let view = StudyView {
+        current: None,
+        revealed: false,
+        next_states: None,
+        reviewed: 1,
+        remaining: 0,
+        preview: false,
+        notice: None,
+    };
+    assert_eq!(
+        serde_json::to_value(StudyGradeOutcome::Conflict {
+            card_id: "card-1".into(),
+            view,
+        })
+        .unwrap(),
+        json!({
+            "status": "conflict",
+            "cardId": "card-1",
+            "view": {
+                "current": null,
+                "revealed": false,
+                "nextStates": null,
+                "reviewed": 1,
+                "remaining": 0,
+                "preview": false,
+                "notice": null
+            }
+        })
+    );
 }
 
 #[test]

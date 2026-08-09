@@ -1,4 +1,24 @@
-import type { Asset, Card, Deck, DeckSettings, Grade, ID, ReviewLog, SchedulerKind, SchedulingState } from '../domain/models'
+import type {
+  Asset,
+  Card,
+  CardDraft,
+  Deck,
+  DeckSettings,
+  DraftDecision,
+  DraftResolution,
+  Grade,
+  ID,
+  NewDraftInput,
+  ProposalMetadata,
+  ProposeDraftsResult,
+  ReviewLog,
+  SchedulerKind,
+  SchedulingState,
+  StartedStudy,
+  StudyGradeOutcome,
+  StudyRequest,
+  StudyView,
+} from '../domain/models'
 import type { DeckBackup } from './backup'
 import type { RepoSnapshot } from './sync/snapshot'
 import type { DbOps } from './sync/merge'
@@ -45,11 +65,11 @@ export interface ReviewCommit {
 }
 
 /**
- * Persistence port for decks and cards.
+ * Native application port for collection persistence and study sessions.
  *
- * This is the seam between the app and where data lives. Packaged builds use
- * native SQLite through {@link ./TauriStorage}; browser tests inject the Dexie
- * adapter without changing feature code.
+ * Packaged builds use SQLite and the shared Rust StudySession through
+ * {@link ./TauriStorage}; browser tests inject the Dexie adapter without
+ * changing feature code.
  */
 export interface Storage {
   /** Re-run storage-backed UI queries after a mutation through this adapter. */
@@ -66,6 +86,25 @@ export interface Storage {
   listCards(deckId: ID): Promise<Card[]>
   updateCard(id: ID, patch: CardPatch): Promise<void>
   deleteCard(id: ID): Promise<void>
+
+  proposeDrafts(
+    deckId: ID,
+    inputs: NewDraftInput[],
+    metadata: ProposalMetadata,
+    dryRun?: boolean,
+  ): Promise<ProposeDraftsResult>
+  listDrafts(): Promise<CardDraft[]>
+  resolveDraft(
+    id: ID,
+    expectedRevision: number,
+    decision: DraftDecision,
+  ): Promise<DraftResolution>
+
+  startStudy(request: StudyRequest): Promise<StartedStudy>
+  revealStudy(sessionId: string): Promise<StudyView>
+  gradeStudy(sessionId: string, grade: Grade): Promise<StudyGradeOutcome>
+  advanceStudyPreview(sessionId: string): Promise<StudyView>
+  endStudy(sessionId: string): Promise<void>
 
   /** Atomically persist card/counter changes and an optional FSRS training event. */
   commitReview(commit: ReviewCommit): Promise<ReviewLog | null>

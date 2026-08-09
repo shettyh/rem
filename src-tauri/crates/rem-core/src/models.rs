@@ -143,6 +143,84 @@ pub struct NewCardInput {
     pub tags: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DraftSource {
+    pub locator: String,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardDraft {
+    pub id: Id,
+    pub deck_id: Id,
+    pub front: String,
+    pub back: String,
+    pub tags: Vec<String>,
+    pub rationale: Option<String>,
+    pub sources: Vec<DraftSource>,
+    pub proposed_by: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub revision: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewDraftInput {
+    pub front: String,
+    pub back: String,
+    pub tags: Vec<String>,
+    pub rationale: Option<String>,
+    pub sources: Vec<DraftSource>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposalMetadata {
+    pub proposed_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProposalMode {
+    Preview,
+    Create,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "status", content = "value", rename_all = "camelCase")]
+pub enum DraftProposalOutcome {
+    Created(CardDraft),
+    DuplicateDraft(CardDraft),
+    DuplicateCard(Card),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposeDraftsResult {
+    pub outcomes: Vec<DraftProposalOutcome>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "decision",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum DraftDecision {
+    Accept { deck_id: Id, card: NewCardInput },
+    Reject,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "status", content = "value", rename_all = "camelCase")]
+pub enum DraftResolution {
+    Accepted(Card),
+    ExistingCard(Card),
+    Rejected,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DuplicatePolicy {
     Skip,

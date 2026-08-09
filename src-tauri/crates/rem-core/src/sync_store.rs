@@ -212,7 +212,8 @@ impl Collection {
                     suspended = excluded.suspended,
                     last_again_at = excluded.last_again_at,
                     scheduling_json = excluded.scheduling_json,
-                    due = excluded.due",
+                    due = excluded.due,
+                    local_revision = cards.local_revision + 1",
                 params![
                     card.id,
                     card.deck_id,

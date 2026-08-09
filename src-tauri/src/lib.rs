@@ -1,6 +1,7 @@
 mod fsrs_sched;
 mod git;
 mod storage;
+mod study;
 
 use tauri::Manager;
 
@@ -19,12 +20,20 @@ pub fn run() {
             git::git_commit_push,
             fsrs_sched::fsrs_next_states,
             fsrs_sched::fsrs_optimize,
+            study::study_start,
+            study::study_reveal,
+            study::study_grade,
+            study::study_advance_preview,
+            study::study_end,
             storage::storage_create_deck,
             storage::storage_list_decks,
             storage::storage_get_deck,
             storage::storage_delete_deck,
             storage::storage_update_deck,
             storage::storage_create_card,
+            storage::storage_propose_drafts,
+            storage::storage_list_drafts,
+            storage::storage_resolve_draft,
             storage::storage_get_card,
             storage::storage_list_cards,
             storage::storage_update_card,
@@ -47,6 +56,7 @@ pub fn run() {
             let collection = rem_core::Collection::open(database_path)
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
             app.manage(collection);
+            app.manage(study::StudySessions::default());
 
             let repo_dir = app.path().app_data_dir()?.join("repo");
             app.manage(git::GitRepo::new(repo_dir));

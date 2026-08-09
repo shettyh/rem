@@ -1,15 +1,24 @@
 use std::env;
 use std::ffi::OsString;
 use std::fs;
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use crossterm::{
+    cursor::{Hide, Show},
+    event::{self, Event, KeyCode, KeyEventKind},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{backend::CrosstermBackend, Terminal};
+use rem_cli::tui::{draw, StudyApp, StudyControl, StudyInput, StudyScope};
 use rem_core::{
-    default_database_path, normalize_user_tags, Card, Collection, CollectionError,
-    CreateCardsResult, Deck, DuplicatePolicy, NewCardInput,
+    default_database_path, normalize_user_tags, Card, CardDraft, Collection, CollectionError,
+    CreateCardsResult, Deck, DraftProposalOutcome, DraftSource, DuplicatePolicy, Grade,
+    NewCardInput, NewDraftInput, ProposalMetadata, ProposalMode, StudyRequest,
 };
 use serde::{Deserialize, Serialize};
 
@@ -19,7 +28,11 @@ const EXIT_DECK: u8 = 4;
 const EXIT_STORAGE: u8 = 5;
 
 #[derive(Parser)]
-#[command(name = "rem", version, about = "Capture cards in your rem collection")]
+#[command(
+    name = "rem",
+    version,
+    about = "Capture, approve, and study cards in your rem collection"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -31,6 +44,17 @@ enum Command {
     Deck(DeckArgs),
     /// Capture cards in the local collection.
     Card(CardArgs),
+    /// Propose and inspect cards awaiting human approval.
+    Draft(DraftArgs),
+    /// Study due cards in an interactive terminal.
+    Study(StudyArgs),
+}
+
+#[derive(Args)]
+struct StudyArgs {
+    /// Study one deck by ID or exact unique name; defaults to all decks.
+    #[arg(long)]
+    deck: Option<String>,
 }
 
 #[derive(Args)]
@@ -55,6 +79,20 @@ struct CardArgs {
 enum CardCommand {
     /// Add one card or an atomic JSON batch.
     Add(AddCardArgs),
+}
+
+#[derive(Args)]
+struct DraftArgs {
+    #[command(subcommand)]
+    command: DraftCommand,
+}
+
+#[derive(Subcommand)]
+enum DraftCommand {
+    /// Add one draft or an atomic JSON batch.
+    Add(Box<AddDraftArgs>),
+    /// List pending drafts.
+    List(ListDraftsArgs),
 }
 
 #[derive(Args)]
@@ -100,7 +138,65 @@ struct AddCardArgs {
 }
 
 #[derive(Args)]
+struct AddDraftArgs {
+    /// Deck ID or exact unique deck name.
+    #[arg(long)]
+    deck: String,
+    /// Literal front Markdown.
+    #[arg(
+        long,
+        conflicts_with_all = ["front_file", "input_json"],
+        required_unless_present_any = ["front_file", "input_json"]
+    )]
+    front: Option<String>,
+    /// Read front Markdown from a UTF-8 file.
+    #[arg(
+        long,
+        conflicts_with_all = ["front", "input_json"],
+        required_unless_present_any = ["front", "input_json"]
+    )]
+    front_file: Option<PathBuf>,
+    /// Literal back Markdown; defaults to empty.
+    #[arg(long, conflicts_with_all = ["back_file", "input_json"])]
+    back: Option<String>,
+    /// Read back Markdown from a UTF-8 file.
+    #[arg(long, conflicts_with_all = ["back", "input_json"])]
+    back_file: Option<PathBuf>,
+    /// Add a tag; may be repeated.
+    #[arg(long = "tag", conflicts_with = "input_json")]
+    tags: Vec<String>,
+    /// Explain why this is a durable learning opportunity.
+    #[arg(long, conflicts_with = "input_json")]
+    rationale: Option<String>,
+    /// Add a source locator; may be repeated.
+    #[arg(long = "source", conflicts_with = "input_json")]
+    sources: Vec<String>,
+    /// Identify the proposing agent or tool.
+    #[arg(long)]
+    producer: Option<String>,
+    /// Read one draft or an array from a JSON file; use - for stdin.
+    #[arg(
+        long,
+        conflicts_with_all = ["front", "front_file", "back", "back_file", "tags", "rationale", "sources"]
+    )]
+    input_json: Option<PathBuf>,
+    /// Resolve, validate, and deduplicate without writing.
+    #[arg(long)]
+    dry_run: bool,
+    /// Select human-readable or versioned machine output.
+    #[arg(long, value_enum, default_value_t)]
+    output: OutputFormat,
+}
+
+#[derive(Args)]
 struct ListDecksArgs {
+    /// Select human-readable or versioned machine output.
+    #[arg(long, value_enum, default_value_t)]
+    output: OutputFormat,
+}
+
+#[derive(Args)]
+struct ListDraftsArgs {
     /// Select human-readable or versioned machine output.
     #[arg(long, value_enum, default_value_t)]
     output: OutputFormat,
@@ -142,6 +238,27 @@ enum JsonCardInputs {
     Many(Vec<JsonCardInput>),
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JsonDraftInput {
+    front: String,
+    #[serde(default)]
+    back: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    rationale: Option<String>,
+    #[serde(default)]
+    sources: Vec<DraftSource>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum JsonDraftInputs {
+    One(JsonDraftInput),
+    Many(Vec<JsonDraftInput>),
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CardOutcome {
@@ -156,6 +273,27 @@ struct CardAddData {
     deck: DeckSummary,
     dry_run: bool,
     cards: Vec<CardOutcome>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DraftOutcome {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DraftAddData {
+    deck: DeckSummary,
+    dry_run: bool,
+    drafts: Vec<DraftOutcome>,
+}
+
+#[derive(Serialize)]
+struct DraftListData {
+    drafts: Vec<CardDraft>,
 }
 
 #[derive(Serialize)]
@@ -276,6 +414,8 @@ fn requested_command(args: &[OsString]) -> &'static str {
     ) {
         (Some(group), Some(command)) if group == "deck" && command == "list" => "deck.list",
         (Some(group), Some(command)) if group == "card" && command == "add" => "card.add",
+        (Some(group), Some(command)) if group == "draft" && command == "add" => "draft.add",
+        (Some(group), Some(command)) if group == "draft" && command == "list" => "draft.list",
         _ => "unknown",
     }
 }
@@ -285,6 +425,13 @@ impl Cli {
         match &self.command {
             Command::Deck(_) => "deck.list",
             Command::Card(_) => "card.add",
+            Command::Draft(DraftArgs {
+                command: DraftCommand::Add(_),
+            }) => "draft.add",
+            Command::Draft(DraftArgs {
+                command: DraftCommand::List(_),
+            }) => "draft.list",
+            Command::Study(_) => "study",
         }
     }
 
@@ -296,6 +443,13 @@ impl Cli {
             Command::Card(CardArgs {
                 command: CardCommand::Add(args),
             }) => args.output,
+            Command::Draft(DraftArgs {
+                command: DraftCommand::Add(args),
+            }) => args.output,
+            Command::Draft(DraftArgs {
+                command: DraftCommand::List(args),
+            }) => args.output,
+            Command::Study(_) => OutputFormat::Text,
         }
     }
 }
@@ -310,6 +464,84 @@ fn run(cli: Cli) -> Result<(), CliError> {
         Command::Card(CardArgs {
             command: CardCommand::Add(args),
         }) => add_card(&collection, args),
+        Command::Draft(DraftArgs {
+            command: DraftCommand::Add(args),
+        }) => add_draft(&collection, *args),
+        Command::Draft(DraftArgs {
+            command: DraftCommand::List(args),
+        }) => list_drafts(&collection, args.output),
+        Command::Study(args) => study(&collection, args),
+    }
+}
+
+fn study(collection: &Collection, args: StudyArgs) -> Result<(), CliError> {
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Err(input_error(
+            "interactive_terminal_required",
+            "rem study requires an interactive terminal".into(),
+        ));
+    }
+
+    let (request, scope) = match args.deck {
+        Some(reference) => {
+            let deck = resolve_deck(collection, &reference)?;
+            (StudyRequest::deck(deck.id), StudyScope::Deck(deck.name))
+        }
+        None => (StudyRequest::all(), StudyScope::AllDecks),
+    };
+    let app = StudyApp::start(collection, request, scope, now_millis())?;
+    run_study_terminal(collection, app)
+}
+
+fn run_study_terminal(collection: &Collection, mut app: StudyApp) -> Result<(), CliError> {
+    enable_raw_mode().map_err(terminal_error)?;
+    let _restore = TerminalRestore;
+    let mut stdout = std::io::stdout();
+    execute!(stdout, EnterAlternateScreen, Hide).map_err(terminal_error)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend).map_err(terminal_error)?;
+
+    loop {
+        terminal
+            .draw(|frame| draw(frame, &app))
+            .map_err(terminal_error)?;
+        let input = match event::read().map_err(terminal_error)? {
+            Event::Resize(_, _) => continue,
+            Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
+                KeyCode::Char('q') => StudyInput::Quit,
+                KeyCode::Char(' ') | KeyCode::Enter => StudyInput::Reveal,
+                KeyCode::Char('1') => StudyInput::Grade(Grade::Again),
+                KeyCode::Char('2') => StudyInput::Grade(Grade::Hard),
+                KeyCode::Char('3') => StudyInput::Grade(Grade::Good),
+                KeyCode::Char('4') => StudyInput::Grade(Grade::Easy),
+                KeyCode::Up | KeyCode::Char('k') => StudyInput::ScrollUp,
+                KeyCode::Down | KeyCode::Char('j') => StudyInput::ScrollDown,
+                _ => continue,
+            },
+            _ => continue,
+        };
+        if app.handle(collection, input, now_millis())? == StudyControl::Quit {
+            break;
+        }
+    }
+    Ok(())
+}
+
+struct TerminalRestore;
+
+impl Drop for TerminalRestore {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(std::io::stdout(), Show, LeaveAlternateScreen);
+    }
+}
+
+fn terminal_error(error: std::io::Error) -> CliError {
+    CliError {
+        code: "terminal_error",
+        message: format!("terminal operation failed: {error}"),
+        candidates: vec![],
+        exit_code: EXIT_STORAGE,
     }
 }
 
@@ -373,6 +605,103 @@ fn add_card(collection: &Collection, args: AddCardArgs) -> Result<(), CliError> 
                 },
                 dry_run: args.dry_run,
                 cards,
+            },
+        }),
+    }
+    Ok(())
+}
+
+fn add_draft(collection: &Collection, args: AddDraftArgs) -> Result<(), CliError> {
+    let deck = resolve_deck(collection, &args.deck)?;
+    let inputs = if let Some(path) = args.input_json {
+        read_json_drafts(&path)?
+    } else {
+        let front = match (args.front, args.front_file) {
+            (Some(front), None) => front,
+            (None, Some(path)) => read_markdown(&path, "front")?,
+            _ => unreachable!("clap enforces exactly one front source"),
+        };
+        let back = match (args.back, args.back_file) {
+            (Some(back), None) => back,
+            (None, Some(path)) => read_markdown(&path, "back")?,
+            (None, None) => String::new(),
+            _ => unreachable!("clap prevents multiple back sources"),
+        };
+        vec![NewDraftInput {
+            front,
+            back,
+            tags: args.tags,
+            rationale: args.rationale,
+            sources: args
+                .sources
+                .into_iter()
+                .map(|locator| DraftSource {
+                    locator,
+                    label: None,
+                })
+                .collect(),
+        }]
+    };
+    let mode = if args.dry_run {
+        ProposalMode::Preview
+    } else {
+        ProposalMode::Create
+    };
+    let result = collection.propose_drafts(
+        &deck.id,
+        inputs,
+        ProposalMetadata {
+            proposed_by: args.producer,
+        },
+        now_millis(),
+        mode,
+    )?;
+    let existing_draft_ids = collection
+        .list_drafts()?
+        .into_iter()
+        .map(|draft| draft.id)
+        .collect::<std::collections::HashSet<_>>();
+    let drafts = result
+        .outcomes
+        .into_iter()
+        .map(|outcome| match outcome {
+            DraftProposalOutcome::Created(draft) => DraftOutcome {
+                id: (!args.dry_run).then_some(draft.id),
+                status: if args.dry_run {
+                    "wouldCreate"
+                } else {
+                    "created"
+                },
+            },
+            DraftProposalOutcome::DuplicateDraft(draft) => DraftOutcome {
+                id: existing_draft_ids.contains(&draft.id).then_some(draft.id),
+                status: "duplicateDraft",
+            },
+            DraftProposalOutcome::DuplicateCard(card) => DraftOutcome {
+                id: Some(card.id),
+                status: "duplicateCard",
+            },
+        })
+        .collect::<Vec<_>>();
+    match args.output {
+        OutputFormat::Text => {
+            for draft in drafts {
+                match draft.id {
+                    Some(id) => println!("{}\t{id}", draft.status),
+                    None => println!("{}", draft.status),
+                }
+            }
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "draft.add",
+            data: DraftAddData {
+                deck: DeckSummary {
+                    id: deck.id,
+                    name: deck.name,
+                },
+                dry_run: args.dry_run,
+                drafts,
             },
         }),
     }
@@ -467,6 +796,49 @@ fn read_json_cards(path: &Path) -> Result<Vec<NewCardInput>, CliError> {
         .collect())
 }
 
+fn read_json_drafts(path: &Path) -> Result<Vec<NewDraftInput>, CliError> {
+    let mut contents = String::new();
+    if path == Path::new("-") {
+        std::io::stdin()
+            .read_to_string(&mut contents)
+            .map_err(|error| {
+                input_error(
+                    "input_read_failed",
+                    format!("could not read stdin: {error}"),
+                )
+            })?;
+    } else {
+        contents = fs::read_to_string(path).map_err(|error| {
+            input_error(
+                "input_read_failed",
+                format!("could not read JSON file {}: {error}", path.display()),
+            )
+        })?;
+    }
+    let inputs = serde_json::from_str::<JsonDraftInputs>(&contents)
+        .map_err(|error| input_error("invalid_json", format!("invalid draft JSON: {error}")))?;
+    let inputs = match inputs {
+        JsonDraftInputs::One(draft) => vec![draft],
+        JsonDraftInputs::Many(drafts) => drafts,
+    };
+    if inputs.is_empty() {
+        return Err(input_error(
+            "invalid_input",
+            "draft JSON must contain at least one draft".into(),
+        ));
+    }
+    Ok(inputs
+        .into_iter()
+        .map(|draft| NewDraftInput {
+            front: draft.front,
+            back: draft.back,
+            tags: draft.tags,
+            rationale: draft.rationale,
+            sources: draft.sources,
+        })
+        .collect())
+}
+
 fn input_error(code: &'static str, message: String) -> CliError {
     CliError {
         code,
@@ -544,6 +916,25 @@ fn list_decks(collection: &Collection, output: OutputFormat) -> Result<(), CliEr
             version: OUTPUT_VERSION,
             command: "deck.list",
             data: DeckListData { decks },
+        }),
+    }
+    Ok(())
+}
+
+fn list_drafts(collection: &Collection, output: OutputFormat) -> Result<(), CliError> {
+    let drafts = collection.list_drafts()?;
+    match output {
+        OutputFormat::Text if drafts.is_empty() => println!("No drafts."),
+        OutputFormat::Text => {
+            for draft in drafts {
+                let front = draft.front.lines().next().unwrap_or_default();
+                println!("{}\t{}\t{}", draft.id, draft.deck_id, front);
+            }
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "draft.list",
+            data: DraftListData { drafts },
         }),
     }
     Ok(())

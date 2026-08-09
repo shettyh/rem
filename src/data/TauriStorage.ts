@@ -1,5 +1,23 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { Asset, Card, Deck, ID, ReviewLog, SchedulerKind } from '../domain/models'
+import type {
+  Asset,
+  Card,
+  CardDraft,
+  Deck,
+  DraftDecision,
+  DraftResolution,
+  Grade,
+  ID,
+  NewDraftInput,
+  ProposalMetadata,
+  ProposeDraftsResult,
+  ReviewLog,
+  SchedulerKind,
+  StartedStudy,
+  StudyGradeOutcome,
+  StudyRequest,
+  StudyView,
+} from '../domain/models'
 import type { DeckBackup } from './backup'
 import type {
   ApplyMergeResult,
@@ -98,6 +116,68 @@ export class TauriStorage implements Storage {
   async deleteCard(id: ID): Promise<void> {
     await this.call('storage_delete_card', { id, now: this.now() })
     this.notify()
+  }
+
+  async proposeDrafts(
+    deckId: ID,
+    inputs: NewDraftInput[],
+    metadata: ProposalMetadata,
+    dryRun = false,
+  ): Promise<ProposeDraftsResult> {
+    const result = await this.call<ProposeDraftsResult>('storage_propose_drafts', {
+      deckId,
+      inputs,
+      metadata,
+      now: this.now(),
+      dryRun,
+    })
+    if (!dryRun && result.outcomes.some((outcome) => outcome.status === 'created')) this.notify()
+    return result
+  }
+
+  listDrafts(): Promise<CardDraft[]> {
+    return this.call('storage_list_drafts')
+  }
+
+  async resolveDraft(
+    draftId: ID,
+    expectedRevision: number,
+    decision: DraftDecision,
+  ): Promise<DraftResolution> {
+    const result = await this.call<DraftResolution>('storage_resolve_draft', {
+      draftId,
+      expectedRevision,
+      decision,
+      now: this.now(),
+    })
+    this.notify()
+    return result
+  }
+
+  startStudy(request: StudyRequest): Promise<StartedStudy> {
+    return this.call('study_start', { request, now: this.now() })
+  }
+
+  revealStudy(sessionId: string): Promise<StudyView> {
+    return this.call('study_reveal', { sessionId, now: this.now() })
+  }
+
+  async gradeStudy(sessionId: string, grade: Grade): Promise<StudyGradeOutcome> {
+    const outcome = await this.call<StudyGradeOutcome>('study_grade', {
+      sessionId,
+      grade,
+      now: this.now(),
+    })
+    if (outcome.status === 'graded') this.notify()
+    return outcome
+  }
+
+  advanceStudyPreview(sessionId: string): Promise<StudyView> {
+    return this.call('study_advance_preview', { sessionId, now: this.now() })
+  }
+
+  endStudy(sessionId: string): Promise<void> {
+    return this.call('study_end', { sessionId })
   }
 
   async commitReview(commit: ReviewCommit): Promise<ReviewLog | null> {

@@ -53,6 +53,17 @@ export const DEFAULT_DECK_SETTINGS: DeckSettings = {
 /** How well the user recalled a card during review. */
 export type Grade = 'again' | 'hard' | 'good' | 'easy'
 
+export type CustomStudyMode =
+  | 'study-ahead'
+  | 'increase-new'
+  | 'review-forgotten'
+  | 'preview-new'
+
+export interface CustomStudyRequest {
+  mode: CustomStudyMode
+  amount: number
+}
+
 /** Which scheduling algorithm owns a deck's cards. FSRS is the only one today;
  *  the discriminant is kept so another algorithm stays a one-file addition. */
 export type SchedulerKind = 'fsrs'
@@ -99,6 +110,59 @@ export interface Card {
   scheduling: SchedulingState
 }
 
+export interface DraftSource {
+  locator: string
+  label: string | null
+}
+
+/** A local proposal awaiting human approval; it has no scheduling state. */
+export interface CardDraft {
+  id: ID
+  deckId: ID
+  front: string
+  back: string
+  tags: string[]
+  rationale: string | null
+  sources: DraftSource[]
+  proposedBy: string | null
+  createdAt: number
+  updatedAt: number
+  revision: number
+}
+
+export interface NewCardInput {
+  front: string
+  back: string
+  tags: string[]
+}
+
+export interface NewDraftInput extends NewCardInput {
+  rationale: string | null
+  sources: DraftSource[]
+}
+
+export interface ProposalMetadata {
+  proposedBy: string | null
+}
+
+export type DraftProposalOutcome =
+  | { status: 'created'; value: CardDraft }
+  | { status: 'duplicateDraft'; value: CardDraft }
+  | { status: 'duplicateCard'; value: Card }
+
+export interface ProposeDraftsResult {
+  outcomes: DraftProposalOutcome[]
+}
+
+export type DraftDecision =
+  | { decision: 'accept'; deckId: ID; card: NewCardInput }
+  | { decision: 'reject' }
+
+export type DraftResolution =
+  | { status: 'accepted'; value: Card }
+  | { status: 'existingCard'; value: Card }
+  | { status: 'rejected' }
+
 /** A content-addressed binary asset (image/GIF) embedded in card markdown as `asset:<hash>`. */
 export interface Asset {
   /** SHA-256 hex of {@link bytes}; primary key. */
@@ -126,6 +190,30 @@ export interface ReviewLog {
   reviewedAt: number
   grade: Grade
 }
+
+export interface StudyRequest {
+  deckId: ID | null
+  custom: CustomStudyRequest | null
+}
+
+export interface StudyView {
+  current: Card | null
+  revealed: boolean
+  nextStates: Record<Grade, FSRSState> | null
+  reviewed: number
+  remaining: number
+  preview: boolean
+  notice: LeechAction | null
+}
+
+export interface StartedStudy {
+  sessionId: string
+  view: StudyView
+}
+
+export type StudyGradeOutcome =
+  | { status: 'graded'; view: StudyView }
+  | { status: 'conflict'; cardId: ID; view: StudyView }
 
 /** Records that a deck or card was deleted, so the deletion propagates on sync. */
 export interface Tombstone {

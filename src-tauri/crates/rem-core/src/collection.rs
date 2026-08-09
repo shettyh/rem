@@ -8,7 +8,7 @@ use std::time::Duration;
 use directories::ProjectDirs;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
@@ -24,6 +24,7 @@ pub enum CollectionError {
     Json(serde_json::Error),
     InvalidInput(String),
     NotFound { kind: &'static str, id: String },
+    Conflict { kind: &'static str, id: String },
     Poisoned,
     NewerSchema { found: u32, supported: u32 },
 }
@@ -39,6 +40,7 @@ impl fmt::Display for CollectionError {
             Self::Json(error) => write!(formatter, "collection contains invalid JSON: {error}"),
             Self::InvalidInput(message) => write!(formatter, "invalid input: {message}"),
             Self::NotFound { kind, id } => write!(formatter, "{kind} not found: {id}"),
+            Self::Conflict { kind, id } => write!(formatter, "{kind} changed: {id}"),
             Self::Poisoned => write!(formatter, "collection connection is unavailable"),
             Self::NewerSchema { found, supported } => write!(
                 formatter,
@@ -93,6 +95,8 @@ impl Collection {
         }
         if version == 0 {
             initialize_schema(&mut connection)?;
+        } else if version < CURRENT_SCHEMA_VERSION {
+            migrate_schema(&mut connection)?;
         }
 
         connection.pragma_update(None, "foreign_keys", "ON")?;
@@ -158,7 +162,8 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
             suspended INTEGER NOT NULL CHECK (suspended IN (0, 1)),
             last_again_at INTEGER,
             scheduling_json TEXT NOT NULL,
-            due INTEGER NOT NULL
+            due INTEGER NOT NULL,
+            local_revision INTEGER NOT NULL DEFAULT 0 CHECK (local_revision >= 0)
         );
         CREATE INDEX cards_deck_created ON cards(deck_id, created_at);
         CREATE INDEX cards_deck_due ON cards(deck_id, due);
@@ -196,9 +201,56 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
             UNIQUE (deck_id, day)
         );
 
+        CREATE TABLE card_drafts (
+            id TEXT PRIMARY KEY,
+            deck_id TEXT NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+            front TEXT NOT NULL,
+            back TEXT NOT NULL,
+            tags_json TEXT NOT NULL,
+            rationale TEXT,
+            sources_json TEXT NOT NULL,
+            proposed_by TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0)
+        );
+        CREATE INDEX card_drafts_created ON card_drafts(created_at);
+        CREATE INDEX card_drafts_deck_created ON card_drafts(deck_id, created_at);
+
         INSERT INTO metadata(key, value) VALUES ('sync_revision', 0);
-        PRAGMA user_version = 1;
+        PRAGMA user_version = 2;
         ",
     )?;
+    transaction.commit()
+}
+
+fn migrate_schema(connection: &mut Connection) -> Result<(), rusqlite::Error> {
+    let transaction = write_transaction(connection)?;
+    let version: u32 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if version < 2 {
+        transaction.execute_batch(
+            "
+            ALTER TABLE cards ADD COLUMN local_revision INTEGER NOT NULL DEFAULT 0
+                CHECK (local_revision >= 0);
+
+            CREATE TABLE card_drafts (
+                id TEXT PRIMARY KEY,
+                deck_id TEXT NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+                front TEXT NOT NULL,
+                back TEXT NOT NULL,
+                tags_json TEXT NOT NULL,
+                rationale TEXT,
+                sources_json TEXT NOT NULL,
+                proposed_by TEXT,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0)
+            );
+            CREATE INDEX card_drafts_created ON card_drafts(created_at);
+            CREATE INDEX card_drafts_deck_created ON card_drafts(deck_id, created_at);
+            PRAGMA user_version = 2;
+            ",
+        )?;
+    }
     transaction.commit()
 }

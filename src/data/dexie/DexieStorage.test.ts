@@ -60,14 +60,20 @@ describe('decks', () => {
     expect(updated!.updatedAt).toBeGreaterThanOrEqual(deck.updatedAt)
   })
 
-  it('deletes a deck and cascades its cards', async () => {
+  it('deletes a deck and cascades its cards and local drafts', async () => {
     const deck = await storage.createDeck('Temp')
     await storage.createCard(deck.id, 'q', 'a')
+    await storage.proposeDrafts(
+      deck.id,
+      [{ front: 'draft', back: 'answer', tags: [], rationale: null, sources: [] }],
+      { proposedBy: null },
+    )
 
     await storage.deleteDeck(deck.id)
 
     expect(await storage.getDeck(deck.id)).toBeUndefined()
     expect(await storage.listCards(deck.id)).toHaveLength(0)
+    expect(await storage.listDrafts()).toHaveLength(0)
   })
 })
 
@@ -109,6 +115,79 @@ describe('cards', () => {
     const deck = await storage.createDeck('Algo', 'fsrs')
     const card = await storage.createCard(deck.id, 'q', 'a')
     expect(card.scheduling.kind).toBe('fsrs')
+  })
+})
+
+describe('drafts', () => {
+  it('keeps proposals local until atomic acceptance creates an edited due card', async () => {
+    const deck = await storage.createDeck('Rust')
+    const before = await storage.exportSnapshot()
+    const proposed = await storage.proposeDrafts(
+      deck.id,
+      [{
+        front: 'Original question',
+        back: 'Original answer',
+        tags: [' Rust ', 'rust'],
+        rationale: ' Durable invariant ',
+        sources: [{ locator: ' src/lib.rs:1-5 ', label: ' Core ' }],
+      }],
+      { proposedBy: ' pi ' },
+    )
+
+    expect(proposed.outcomes[0].status).toBe('created')
+    if (proposed.outcomes[0].status !== 'created') throw new Error('expected created draft')
+    const draft = proposed.outcomes[0].value
+    expect(draft).toMatchObject({
+      deckId: deck.id,
+      tags: ['Rust'],
+      rationale: 'Durable invariant',
+      sources: [{ locator: 'src/lib.rs:1-5', label: 'Core' }],
+      proposedBy: 'pi',
+      revision: 0,
+    })
+    expect(await storage.listDrafts()).toEqual([draft])
+    expect(await storage.listCards(deck.id)).toEqual([])
+    expect((await storage.exportSnapshot()).revision).toBe(before.revision)
+
+    const accepted = await storage.resolveDraft(draft.id, draft.revision, {
+      decision: 'accept',
+      deckId: deck.id,
+      card: { front: 'Edited question', back: 'Edited answer', tags: ['accepted'] },
+    })
+
+    expect(accepted.status).toBe('accepted')
+    if (accepted.status !== 'accepted') throw new Error('expected accepted card')
+    expect(accepted.value).toMatchObject({
+      deckId: deck.id,
+      front: 'Edited question',
+      back: 'Edited answer',
+      tags: ['accepted'],
+    })
+    expect(accepted.value.scheduling.due).toBeGreaterThanOrEqual(draft.createdAt)
+    expect(await storage.listDrafts()).toEqual([])
+    expect(await storage.listCards(deck.id)).toEqual([accepted.value])
+    expect((await storage.exportSnapshot()).revision).toBe(before.revision + 1)
+  })
+
+  it('keeps a stale draft decision pending and rejects it without advancing sync', async () => {
+    const deck = await storage.createDeck('Rust')
+    const proposed = await storage.proposeDrafts(
+      deck.id,
+      [{ front: 'Question', back: 'Answer', tags: [], rationale: null, sources: [] }],
+      { proposedBy: null },
+    )
+    if (proposed.outcomes[0].status !== 'created') throw new Error('expected created draft')
+    const draft = proposed.outcomes[0].value
+    const revision = (await storage.exportSnapshot()).revision
+
+    await expect(storage.resolveDraft(draft.id, 1, { decision: 'reject' }))
+      .rejects.toThrow(`draft changed: ${draft.id}`)
+    expect(await storage.listDrafts()).toEqual([draft])
+
+    await expect(storage.resolveDraft(draft.id, 0, { decision: 'reject' }))
+      .resolves.toEqual({ status: 'rejected' })
+    expect(await storage.listDrafts()).toEqual([])
+    expect((await storage.exportSnapshot()).revision).toBe(revision)
   })
 })
 

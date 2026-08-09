@@ -6,6 +6,7 @@ import { CardEditorPage } from '../features/cards/CardEditorPage'
 import { ReviewPage } from '../features/review/ReviewPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
 import { StatsPage } from '../features/stats/StatsPage'
+import { DraftInboxPage } from '../features/drafts/DraftInboxPage'
 import { freshStorage, MS_PER_DAY } from './seed'
 import { renderRoute } from './renderRoute'
 import { shoot } from './screenshot'
@@ -106,6 +107,39 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       await storage.commitReview({ cardId: esCard.id, deckId: spanish.id, patch: {}, reviewedAt: Date.now(), fsrsGrade: 'easy' })
       await renderRoute({ storage, entry: '/stats', path: '/stats', element: <StatsPage /> })
       await expect.element(page.getByLabelText('FSRS reviews')).toHaveTextContent('3')
+    },
+  },
+  {
+    name: 'draft-inbox-question',
+    run: async () => {
+      const storage = freshStorage()
+      const deck = await storage.createDeck('TypeScript')
+      await storage.proposeDrafts(deck.id, [{
+        front: 'Why does optimistic concurrency protect review commits?',
+        back: 'It prevents two open clients from grading the same stale card.',
+        tags: ['concurrency', 'review'],
+        rationale: 'This is a durable correctness invariant.',
+        sources: [{ locator: 'src-tauri/crates/rem-core/src/review_store.rs', label: 'Review store' }],
+      }], { proposedBy: 'pi' })
+      await renderRoute({ storage, entry: '/drafts', path: '/drafts', element: <DraftInboxPage /> })
+      await expect.element(page.getByRole('button', { name: 'Reveal proposal' })).toBeVisible()
+    },
+  },
+  {
+    name: 'draft-inbox-revealed',
+    run: async () => {
+      const storage = freshStorage()
+      const deck = await storage.createDeck('TypeScript')
+      await storage.proposeDrafts(deck.id, [{
+        front: 'Why does optimistic concurrency protect review commits?',
+        back: 'It prevents two open clients from grading the same stale card.',
+        tags: ['concurrency', 'review'],
+        rationale: 'This is a durable correctness invariant.',
+        sources: [{ locator: 'src-tauri/crates/rem-core/src/review_store.rs', label: 'Review store' }],
+      }], { proposedBy: 'pi' })
+      await renderRoute({ storage, entry: '/drafts', path: '/drafts', element: <DraftInboxPage /> })
+      await page.getByRole('button', { name: 'Reveal proposal' }).click()
+      await expect.element(page.getByRole('button', { name: 'Accept draft' })).toBeVisible()
     },
   },
   {

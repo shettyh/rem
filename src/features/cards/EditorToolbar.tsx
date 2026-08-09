@@ -139,7 +139,7 @@ function HeadingMenu({ editor }: { editor: Editor | null }) {
  * editor is currently focused (passed in as `editor`) and re-renders on that
  * editor's selection/transaction changes so its active states stay accurate.
  */
-export function EditorToolbar({ editor, onImage }: { editor: Editor | null; onImage: () => void }) {
+export function EditorToolbar({ editor, onImage }: { editor: Editor | null; onImage?: () => void }) {
   const [, force] = useReducer((n: number) => n + 1, 0)
   useEffect(() => {
     if (!editor) return
@@ -217,9 +217,11 @@ export function EditorToolbar({ editor, onImage }: { editor: Editor | null; onIm
       <Tool label="Link" active={a('link')} onRun={toggleLink}>
         {Icon.link}
       </Tool>
-      <Tool label="Image" onRun={onImage}>
-        {Icon.image}
-      </Tool>
+      {onImage && (
+        <Tool label="Image" onRun={onImage}>
+          {Icon.image}
+        </Tool>
+      )}
       {imageActive && (
         <>
           <span className="md-tool-sep" />

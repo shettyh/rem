@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Asset, Card, DailyStat, Deck, ReviewLog, Tombstone } from '../../domain/models'
+import type { Asset, Card, CardDraft, DailyStat, Deck, ReviewLog, Tombstone } from '../../domain/models'
 import { getScheduler } from '../../domain/scheduler'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 import { deckColor } from '../../ui/deckColor'
@@ -12,6 +12,7 @@ export class RemDB extends Dexie {
   assets!: EntityTable<Asset, 'hash'>
   dailyStats!: EntityTable<DailyStat, 'id'>
   reviewLogs!: EntityTable<ReviewLog, 'id'>
+  cardDrafts!: EntityTable<CardDraft, 'id'>
 
   constructor(name = 'rem') {
     super(name)
@@ -149,5 +150,16 @@ export class RemDB extends Dexie {
           if (d.settings && d.settings.fsrsWeights === undefined) d.settings.fsrsWeights = null
         })
       })
+    // v12: local card proposals awaiting human approval. Drafts are excluded
+    // from logical snapshots and therefore never enter backup or Git sync.
+    this.version(12).stores({
+      decks: 'id, createdAt',
+      cards: 'id, deckId, createdAt',
+      tombstones: 'id, deletedAt',
+      assets: 'hash',
+      dailyStats: 'id, deckId, day',
+      reviewLogs: 'id, deckId, cardId, reviewedAt',
+      cardDrafts: 'id, deckId, createdAt',
+    })
   }
 }

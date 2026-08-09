@@ -52,6 +52,18 @@ fn seed_deck(database: &Path, name: &str, now: i64) -> Deck {
 }
 
 #[test]
+fn study_requires_an_interactive_terminal() {
+    let temp = TempDir::new().unwrap();
+    let output = run(rem(&database(&temp)).arg("study"));
+
+    assert_eq!(output.status.code(), Some(3));
+    assert!(String::from_utf8(output.stderr)
+        .unwrap()
+        .contains("rem study requires an interactive terminal"));
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
 fn empty_deck_list_has_stable_json_output() {
     let temp = TempDir::new().unwrap();
     let output = run(rem(&database(&temp)).args(["deck", "list", "--output", "json"]));
@@ -167,6 +179,173 @@ fn card_add_accepts_a_json_batch_from_stdin() {
             { "id": ids[1], "status": "duplicate" }
         ])
     );
+}
+
+#[test]
+fn draft_add_and_list_expose_pending_agent_proposals_without_scheduling_cards() {
+    let temp = TempDir::new().unwrap();
+    let database = database(&temp);
+    let deck = seed_deck(&database, "Rust", 1);
+    let input = r#"{
+      "front":"Why are drafts separate from cards?",
+      "back":"They require human approval before scheduling.",
+      "tags":[" rem ", "REM"],
+      "rationale":"This is the trust invariant.",
+      "sources":[{"locator":"docs/design.md#drafts","label":"Design"}]
+    }"#;
+
+    let added = run_with_stdin(
+        rem(&database).args([
+            "draft",
+            "add",
+            "--deck",
+            &deck.id,
+            "--producer",
+            "pi",
+            "--input-json",
+            "-",
+            "--output",
+            "json",
+        ]),
+        input,
+    );
+    assert!(
+        added.status.success(),
+        "{}",
+        String::from_utf8_lossy(&added.stderr)
+    );
+    let added_json = stdout_json(&added);
+    assert_eq!(added_json["command"], "draft.add");
+    assert_eq!(added_json["data"]["drafts"][0]["status"], "created");
+    let draft_id = added_json["data"]["drafts"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let listed = run(rem(&database).args(["draft", "list", "--output", "json"]));
+    assert!(listed.status.success());
+    let draft = stdout_json(&listed)["data"]["drafts"][0].clone();
+    assert_eq!(draft["id"], draft_id);
+    assert_eq!(draft["deckId"], deck.id);
+    assert_eq!(draft["tags"], json!(["rem"]));
+    assert_eq!(draft["rationale"], "This is the trust invariant.");
+    assert_eq!(
+        draft["sources"],
+        json!([{
+            "locator": "docs/design.md#drafts",
+            "label": "Design"
+        }])
+    );
+    assert_eq!(draft["proposedBy"], "pi");
+    assert_eq!(draft["revision"], 0);
+
+    let collection = Collection::open(&database).unwrap();
+    assert!(collection.list_cards(&deck.id).unwrap().is_empty());
+    assert_eq!(collection.count_due(&deck.id, i64::MAX).unwrap(), 0);
+}
+
+#[test]
+fn draft_dry_runs_and_retries_have_stable_duplicate_outcomes() {
+    let temp = TempDir::new().unwrap();
+    let database = database(&temp);
+    let deck = seed_deck(&database, "Rust", 1);
+    let batch = r#"[
+      {"front":"Draft question","back":"Answer","tags":["rust"]},
+      {"front":"Draft question","back":"Answer","tags":["rust"]}
+    ]"#;
+    let base = [
+        "draft",
+        "add",
+        "--deck",
+        &deck.id,
+        "--input-json",
+        "-",
+        "--output",
+        "json",
+    ];
+
+    let preview = run_with_stdin(rem(&database).args(base).arg("--dry-run"), batch);
+    assert_eq!(
+        stdout_json(&preview)["data"]["drafts"],
+        json!([
+            { "status": "wouldCreate" },
+            { "status": "duplicateDraft" }
+        ])
+    );
+    assert!(Collection::open(&database)
+        .unwrap()
+        .list_drafts()
+        .unwrap()
+        .is_empty());
+
+    let created = run_with_stdin(rem(&database).args(base), batch);
+    let outcomes = stdout_json(&created)["data"]["drafts"].clone();
+    assert_eq!(outcomes[0]["status"], "created");
+    assert_eq!(outcomes[1]["status"], "duplicateDraft");
+    assert_eq!(outcomes[1]["id"], outcomes[0]["id"]);
+    let draft_id = outcomes[0]["id"].as_str().unwrap().to_owned();
+
+    let retry = run_with_stdin(
+        rem(&database).args(base),
+        r#"{"front":"Draft question","back":"Answer","tags":["rust"]}"#,
+    );
+    assert_eq!(
+        stdout_json(&retry)["data"]["drafts"],
+        json!([{ "id": draft_id, "status": "duplicateDraft" }])
+    );
+
+    let card = Collection::open(&database)
+        .unwrap()
+        .create_card(&deck.id, "Already a card", "Answer", vec![], 10)
+        .unwrap();
+    let card_duplicate = run_with_stdin(
+        rem(&database).args(base),
+        r#"{"front":"Already a card","back":"Answer"}"#,
+    );
+    assert_eq!(
+        stdout_json(&card_duplicate)["data"]["drafts"],
+        json!([{ "id": card.id, "status": "duplicateCard" }])
+    );
+}
+
+#[test]
+fn invalid_draft_json_batch_is_atomic() {
+    let temp = TempDir::new().unwrap();
+    let database = database(&temp);
+    let deck = seed_deck(&database, "Rust", 1);
+    let invalid = r#"[
+      {"front":"Valid","back":"Answer"},
+      {"front":"   ","back":"Invalid"}
+    ]"#;
+
+    let output = run_with_stdin(
+        rem(&database).args([
+            "draft",
+            "add",
+            "--deck",
+            &deck.id,
+            "--input-json",
+            "-",
+            "--output",
+            "json",
+        ]),
+        invalid,
+    );
+
+    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(
+        stdout_json(&output)["error"],
+        json!({
+            "code": "invalid_input",
+            "message": "invalid input: draft front must not be blank",
+            "candidates": []
+        })
+    );
+    assert!(Collection::open(&database)
+        .unwrap()
+        .list_drafts()
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

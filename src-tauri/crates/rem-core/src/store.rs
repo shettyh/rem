@@ -319,7 +319,7 @@ impl Collection {
     }
 }
 
-fn prepare_cards(
+pub(crate) fn prepare_cards(
     deck_id: &str,
     inputs: Vec<NewCardInput>,
     now: i64,
@@ -391,16 +391,25 @@ pub(crate) fn find_card_by_id(
     transaction: &Transaction<'_>,
     id: &str,
 ) -> rusqlite::Result<Option<Card>> {
+    Ok(find_card_by_id_with_revision(transaction, id)?.map(|(card, _revision)| card))
+}
+
+pub(crate) fn find_card_by_id_with_revision(
+    transaction: &Transaction<'_>,
+    id: &str,
+) -> rusqlite::Result<Option<(Card, u64)>> {
     let mut statement = transaction.prepare(
         "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                suspended, last_again_at, scheduling_json, due
+                suspended, last_again_at, scheduling_json, due, local_revision
          FROM cards WHERE id = ?1",
     )?;
     let mut rows = statement.query([id])?;
-    rows.next()?.map(card_from_row).transpose()
+    rows.next()?
+        .map(|row| Ok((card_from_row(row)?, row.get(11)?)))
+        .transpose()
 }
 
-fn find_exact_card(
+pub(crate) fn find_exact_card(
     connection: &Connection,
     deck_id: &str,
     front: &str,
@@ -427,7 +436,8 @@ pub(crate) fn update_card_row(
     transaction.execute(
         "UPDATE cards SET
             front = ?2, back = ?3, updated_at = ?4, tags_json = ?5,
-            suspended = ?6, last_again_at = ?7, scheduling_json = ?8, due = ?9
+            suspended = ?6, last_again_at = ?7, scheduling_json = ?8, due = ?9,
+            local_revision = local_revision + 1
          WHERE id = ?1",
         params![
             card.id,
@@ -472,7 +482,7 @@ pub(crate) fn insert_card(
     Ok(())
 }
 
-fn deck_exists(connection: &Connection, deck_id: &str) -> rusqlite::Result<bool> {
+pub(crate) fn deck_exists(connection: &Connection, deck_id: &str) -> rusqlite::Result<bool> {
     connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM decks WHERE id = ?1)",
         [deck_id],
