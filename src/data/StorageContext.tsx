@@ -1,10 +1,14 @@
+import { isTauri } from '@tauri-apps/api/core'
 import { createContext, useContext, type ReactNode } from 'react'
 import type { Storage } from './Storage'
 import { DexieStorage } from './dexie/DexieStorage'
 import { RemDB } from './dexie/db'
+import { TauriStorage } from './TauriStorage'
 
-/** The single app-wide storage instance (IndexedDB via Dexie). */
-export const defaultStorage: Storage = new DexieStorage(new RemDB())
+/** SQLite in packaged native execution; Dexie only supports browser tests. */
+export const defaultStorage: Storage = isTauri()
+  ? new TauriStorage()
+  : new DexieStorage(new RemDB())
 
 const StorageContext = createContext<Storage>(defaultStorage)
 

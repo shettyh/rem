@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
+import { useStorageQuery } from '../../data/useStorageQuery'
 import type { Grade } from '../../domain/models'
 import { PageHeader } from '../../ui/PageHeader'
 import { SegToggle } from '../../ui/SegToggle'
@@ -19,7 +19,7 @@ export function StatsPage() {
   const storage = useStorage()
   const [deckId, setDeckId] = useState('all')
   const [rangeKey, setRangeKey] = useState<RangeKey>('30')
-  const loaded = useLiveQuery(async () => {
+  const loaded = useStorageQuery(async () => {
     const decks = await storage.listDecks()
     const logs = (await Promise.all(decks.map((deck) => storage.listReviewLogs(deck.id)))).flat()
     return { decks, logs }

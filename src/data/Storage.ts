@@ -9,6 +9,15 @@ export interface ImportResult {
   replaced: string[]
 }
 
+export interface VersionedRepoSnapshot {
+  snapshot: RepoSnapshot
+  revision: number
+}
+
+export type ApplyMergeResult =
+  | { status: 'applied'; revision: number }
+  | { status: 'stale'; currentRevision: number }
+
 /** Fields of a card that can be patched after creation. */
 export interface CardPatch {
   front?: string
@@ -38,11 +47,14 @@ export interface ReviewCommit {
 /**
  * Persistence port for decks and cards.
  *
- * This is the seam between the app and where data lives. The MVP backs it with
- * IndexedDB (see {@link ./dexie/DexieStorage}); a future sync backend can
- * implement the same interface without the UI noticing.
+ * This is the seam between the app and where data lives. Packaged builds use
+ * native SQLite through {@link ./TauriStorage}; browser tests inject the Dexie
+ * adapter without changing feature code.
  */
 export interface Storage {
+  /** Re-run storage-backed UI queries after a mutation through this adapter. */
+  subscribe(listener: () => void): () => void
+
   createDeck(name: string, kind?: SchedulerKind): Promise<Deck>
   listDecks(): Promise<Deck[]>
   getDeck(id: ID): Promise<Deck | undefined>
@@ -71,10 +83,10 @@ export interface Storage {
    *  is removed first (replace-by-name). IDs are regenerated. */
   importDecks(decks: DeckBackup[]): Promise<ImportResult>
 
-  /** Full point-in-time snapshot of the store, for sync. */
-  exportSnapshot(): Promise<RepoSnapshot>
-  /** Apply a merge result: upsert records, delete by id, persist tombstones. */
-  applyMerge(ops: DbOps): Promise<void>
+  /** Full point-in-time snapshot and the local revision observed with it. */
+  exportSnapshot(): Promise<VersionedRepoSnapshot>
+  /** Apply a merge only if the local store is still at `expectedRevision`. */
+  applyMerge(ops: DbOps, expectedRevision: number): Promise<ApplyMergeResult>
 
   // Assets (images/GIFs embedded in card markdown as asset:<hash>)
   putAsset(bytes: Uint8Array, mime: string): Promise<Asset>

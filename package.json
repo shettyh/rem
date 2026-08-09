@@ -23,7 +23,6 @@
     "@tiptap/react": "^3.29.2",
     "@tiptap/starter-kit": "^3.29.2",
     "dexie": "^4.4.4",
-    "dexie-react-hooks": "^4.4.0",
     "highlight.js": "^11.11.1",
     "lowlight": "^3.3.0",
     "react": "^19.2.7",

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
+import { useStorageQuery } from '../../data/useStorageQuery'
 import { PageHeader } from '../../ui/PageHeader'
 import { loadDueOverview } from '../review/dueOverview'
 
@@ -24,7 +24,7 @@ export function DeckListPage() {
   const newDeckRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
 
-  const overview = useLiveQuery(() => loadDueOverview(storage, Date.now()), [])
+  const overview = useStorageQuery(() => loadDueOverview(storage, Date.now()), [])
 
   const totalDue = overview?.totalDue ?? 0
 

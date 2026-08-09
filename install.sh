@@ -28,17 +28,20 @@ fetch_release_json() {
 
 install_macos() {
   case "$1" in
-    arm64)  key="aarch64" ;;
-    x86_64) key="x64" ;;
+    arm64)  key="aarch64"; target="aarch64-apple-darwin" ;;
+    x86_64) key="x64"; target="x86_64-apple-darwin" ;;
     *) err "unsupported macOS arch: $1" ;;
   esac
-  url=$(select_asset_url "$(fetch_release_json)" '\.dmg' "$key")
-  [ -n "$url" ] || err "no .dmg asset for '$key' in the latest release"
+  release=$(fetch_release_json)
+  app_url=$(select_asset_url "$release" '\.dmg' "$key")
+  cli_url=$(select_asset_url "$release" 'rem-cli-.*\.tar\.gz' "$target")
+  [ -n "$app_url" ] || err "no .dmg asset for '$key' in the latest release"
+  [ -n "$cli_url" ] || err "no CLI archive for '$target' in the latest release"
 
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
-  info "Downloading $url"
-  curl -fL -o "$tmp/rem.dmg" "$url" || err "download failed"
+  info "Downloading $app_url"
+  curl -fL -o "$tmp/rem.dmg" "$app_url" || err "app download failed"
 
   info "Mounting disk image"
   attach_out=$(hdiutil attach "$tmp/rem.dmg" -nobrowse -readonly) || err "could not mount dmg"
@@ -54,28 +57,54 @@ install_macos() {
   rm -rf "/Applications/$name"
   cp -R "$app" /Applications/
   xattr -dr com.apple.quarantine "/Applications/$name" 2>/dev/null || true
-  info "Done. Launch $name from /Applications or Spotlight."
-}
 
-install_linux() {
-  case "$1" in
-    x86_64) : ;;
-    *) err "unsupported Linux arch: $1 (only x86_64 is built)" ;;
-  esac
-  url=$(select_asset_url "$(fetch_release_json)" '\.AppImage' "")
-  [ -n "$url" ] || err "no .AppImage asset in the latest release"
-
+  info "Downloading $cli_url"
+  curl -fL -o "$tmp/rem-cli.tar.gz" "$cli_url" || err "CLI download failed"
+  tar -xzf "$tmp/rem-cli.tar.gz" -C "$tmp" || err "could not extract CLI archive"
   dest="$HOME/.local/bin"
   mkdir -p "$dest"
-  info "Downloading $url"
-  curl -fL -o "$dest/rem" "$url" || err "download failed"
+  cp "$tmp/rem" "$dest/rem"
   chmod +x "$dest/rem"
-  info "Installed to $dest/rem"
+  info "Installed CLI to $dest/rem"
   case ":$PATH:" in
     *":$dest:"*) : ;;
     *) info "Note: $dest is not on your PATH. Add: export PATH=\"$dest:\$PATH\"" ;;
   esac
-  info "AppImage needs FUSE. On Debian/Ubuntu: sudo apt install libfuse2"
+  info "Done. Launch $name from /Applications or run: rem deck list"
+}
+
+install_linux() {
+  case "$1" in
+    x86_64) target="x86_64-unknown-linux-gnu" ;;
+    *) err "unsupported Linux arch: $1 (only x86_64 is built)" ;;
+  esac
+  release=$(fetch_release_json)
+  app_url=$(select_asset_url "$release" '\.AppImage' "")
+  cli_url=$(select_asset_url "$release" 'rem-cli-.*\.tar\.gz' "$target")
+  [ -n "$app_url" ] || err "no .AppImage asset in the latest release"
+  [ -n "$cli_url" ] || err "no CLI archive for '$target' in the latest release"
+
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+  dest="$HOME/.local/bin"
+  mkdir -p "$dest"
+
+  info "Downloading $app_url"
+  curl -fL -o "$dest/rem-app" "$app_url" || err "app download failed"
+  chmod +x "$dest/rem-app"
+  info "Installed desktop app to $dest/rem-app"
+
+  info "Downloading $cli_url"
+  curl -fL -o "$tmp/rem-cli.tar.gz" "$cli_url" || err "CLI download failed"
+  tar -xzf "$tmp/rem-cli.tar.gz" -C "$tmp" || err "could not extract CLI archive"
+  cp "$tmp/rem" "$dest/rem"
+  chmod +x "$dest/rem"
+  info "Installed CLI to $dest/rem"
+  case ":$PATH:" in
+    *":$dest:"*) : ;;
+    *) info "Note: $dest is not on your PATH. Add: export PATH=\"$dest:\$PATH\"" ;;
+  esac
+  info "Run the desktop app with rem-app. AppImage needs FUSE; on Debian/Ubuntu: sudo apt install libfuse2"
 }
 
 main() {

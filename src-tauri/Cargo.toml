@@ -1,6 +1,12 @@
+[workspace]
+members = [".", "crates/rem-core", "crates/rem-cli"]
+default-members = [".", "crates/rem-core", "crates/rem-cli"]
+resolver = "2"
+
 [package]
 name = "app"
 version = "0.7.0"
+default-run = "app"
 description = "A Tauri App"
 authors = ["you"]
 license = "Apache-2.0"
@@ -25,3 +31,4 @@ tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 base64 = "0.23"
 fsrs = "6.6.1"
+rem-core = { path = "crates/rem-core" }

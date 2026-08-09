@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
+import { useStorageQuery } from '../../data/useStorageQuery'
 import type { Card } from '../../domain/models'
 import { MS_PER_DAY } from '../../domain/scheduler'
 import { PageHeader } from '../../ui/PageHeader'
@@ -43,9 +43,9 @@ export function DeckDetailPage() {
   const navigate = useNavigate()
   const [tagFilter, setTagFilter] = useState('')
 
-  const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
-  const cards = useLiveQuery(() => (deckId ? storage.listCards(deckId) : []), [deckId])
-  const due = useLiveQuery(() => (deckId ? storage.countDue(deckId, Date.now()) : 0), [deckId])
+  const deck = useStorageQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
+  const cards = useStorageQuery(() => (deckId ? storage.listCards(deckId) : []), [deckId])
+  const due = useStorageQuery(() => (deckId ? storage.countDue(deckId, Date.now()) : 0), [deckId])
 
   if (!deckId || deck === undefined || cards === undefined) return null
 

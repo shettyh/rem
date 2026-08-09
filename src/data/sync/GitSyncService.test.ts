@@ -4,7 +4,7 @@ import { RemDB } from '../dexie/db'
 import { DexieStorage } from '../dexie/DexieStorage'
 import { FakeGitBridge } from './FakeGitBridge'
 import { GitSyncService } from './GitSyncService'
-import { serializeSnapshot } from './snapshot'
+import { deserializeSnapshot, serializeSnapshot } from './snapshot'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 
 const DB = 'rem-sync-service-test'
@@ -28,6 +28,19 @@ describe('GitSyncService', () => {
     await new GitSyncService(storage, bridge, cfg).sync()
     expect(bridge.remote).not.toBeNull()
     expect(Object.keys(bridge.remote!)).toContain(`decks/${deck.id}.json`)
+  })
+
+  it('keeps storage revisions out of the existing Git wire format', async () => {
+    const deck = await storage.createDeck('S')
+    const card = await storage.createCard(deck.id, 'q', 'a')
+    const { snapshot, revision } = await storage.exportSnapshot()
+
+    expect(revision).toBeGreaterThan(0)
+    expect(serializeSnapshot(snapshot)).toEqual({
+      'rem.json': '{\n  "format": "rem-sync",\n  "version": 1\n}',
+      [`decks/${deck.id}.json`]: JSON.stringify({ deck, cards: [card], reviewLogs: [] }, null, 2),
+      'tombstones.json': '[]',
+    })
   })
 
   it('pulls a remote-only deck into the local store', async () => {
@@ -57,6 +70,26 @@ describe('GitSyncService', () => {
     const bridge = new FakeGitBridge(remote)
     await new GitSyncService(storage, bridge, cfg).sync()
     expect(await storage.getCard(c.id)).toBeUndefined()
+  })
+
+  it('preserves a local card edit made while sync is merging', async () => {
+    const deck = await storage.createDeck('S')
+    const card = await storage.createCard(deck.id, 'before', 'answer')
+    const bridge = new FakeGitBridge(null)
+    const applyMerge = storage.applyMerge.bind(storage)
+    let injected = false
+    storage.applyMerge = async (ops, expectedRevision) => {
+      if (!injected) {
+        injected = true
+        await storage.updateCard(card.id, { front: 'concurrent edit' })
+      }
+      return applyMerge(ops, expectedRevision)
+    }
+
+    await new GitSyncService(storage, bridge, cfg).sync()
+
+    expect((await storage.getCard(card.id))?.front).toBe('concurrent edit')
+    expect(deserializeSnapshot(bridge.remote!).cards[0].front).toBe('concurrent edit')
   })
 
   it('retries when the push is rejected, then succeeds', async () => {

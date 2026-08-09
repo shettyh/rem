@@ -49,12 +49,20 @@ jobs:
         include:
           - platform: macos-latest # Apple Silicon
             args: --target aarch64-apple-darwin
+            cli-target: aarch64-apple-darwin
+            cli-name: aarch64-apple-darwin
           - platform: macos-latest # Intel
             args: --target x86_64-apple-darwin
+            cli-target: x86_64-apple-darwin
+            cli-name: x86_64-apple-darwin
           - platform: ubuntu-22.04
             args: ''
+            cli-target: ''
+            cli-name: x86_64-unknown-linux-gnu
           - platform: windows-latest
             args: ''
+            cli-target: ''
+            cli-name: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v7
@@ -83,6 +91,28 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Build CLI archive (macOS/Linux)
+        if: matrix.platform != 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p src-tauri/dist-cli
+          if [ -n "${{ matrix.cli-target }}" ]; then
+            cargo build --manifest-path src-tauri/Cargo.toml --release -p rem-cli --target "${{ matrix.cli-target }}"
+            binary_dir="src-tauri/target/${{ matrix.cli-target }}/release"
+          else
+            cargo build --manifest-path src-tauri/Cargo.toml --release -p rem-cli
+            binary_dir="src-tauri/target/release"
+          fi
+          tar -C "$binary_dir" -czf "src-tauri/dist-cli/rem-cli-${{ matrix.cli-name }}.tar.gz" rem
+
+      - name: Build CLI archive (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          cargo build --manifest-path src-tauri/Cargo.toml --release -p rem-cli
+          New-Item -ItemType Directory -Force src-tauri/dist-cli | Out-Null
+          Compress-Archive -Path src-tauri/target/release/rem.exe -DestinationPath src-tauri/dist-cli/rem-cli-${{ matrix.cli-name }}.zip
+
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -100,6 +130,13 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Upload CLI archive
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.release_please.outputs.tag_name }}
+        run: gh release upload "$TAG_NAME" src-tauri/dist-cli/* --repo "$GITHUB_REPOSITORY" --clobber
 
   publish:
     if: needs.release_please.outputs.release_created == 'true'

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
+import { useStorageQuery } from '../../data/useStorageQuery'
 import type { Storage } from '../../data/Storage'
 import type { Deck, DeckSettings } from '../../domain/models'
 import { PageHeader } from '../../ui/PageHeader'
@@ -22,7 +22,7 @@ import {
 export function DeckSettingsPage() {
   const { deckId } = useParams()
   const storage = useStorage()
-  const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
+  const deck = useStorageQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   if (!deckId || deck === undefined) return null
   // Remount on deck change so local form state re-seeds from storage.
   return <DeckSettingsForm key={deck.id} deck={deck} storage={storage} />
@@ -37,7 +37,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
   const [customAmount, setCustomAmount] = useState(1)
   const [optimizing, setOptimizing] = useState(false)
   const [optimizerError, setOptimizerError] = useState(false)
-  const reviewLogs = useLiveQuery(() => storage.listReviewLogs(deck.id), [deck.id, storage]) ?? []
+  const reviewLogs = useStorageQuery(() => storage.listReviewLogs(deck.id), [deck.id]) ?? []
   const reviewHistories = buildReviewHistories(reviewLogs)
   const canOptimize = hasDelayedReview(reviewHistories)
 

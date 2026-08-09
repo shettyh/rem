@@ -25,6 +25,7 @@ rem pairs a quiet, keyboard-friendly desktop interface with FSRS-6 scheduling, r
 - **Fast review flow** — keyboard shortcuts, four-grade reviews, interval previews, custom study, and leech handling.
 - **Actionable statistics** — review activity, recall rate, streaks, grade distribution, and per-deck breakdowns.
 - **Portable data** — import and export full-fidelity JSON backups.
+- **CLI capture** — add Markdown cards individually or in atomic JSON batches from terminals and AI agents.
 - **Optional Git sync** — sync through any Git remote using your existing system credentials; rem does not store an access token.
 - **Calm desktop design** — quiet light and dark themes keep reviews focused and primary actions clear.
 
@@ -32,11 +33,11 @@ rem pairs a quiet, keyboard-friendly desktop interface with FSRS-6 scheduling, r
 
 Download the latest installer for your platform from [GitHub Releases](https://github.com/shettyh/rem/releases/latest).
 
-| Platform | Available packages |
-| --- | --- |
-| macOS | Apple Silicon and Intel DMG |
-| Linux | AppImage, `.deb`, and `.rpm` |
-| Windows | `.msi` and `.exe` |
+| Platform | Desktop packages | CLI archives |
+| --- | --- | --- |
+| macOS | Apple Silicon and Intel DMG | Apple Silicon and Intel `.tar.gz` |
+| Linux | AppImage, `.deb`, and `.rpm` | x86_64 `.tar.gz` |
+| Windows | `.msi` and `.exe` | x86_64 `.zip` |
 
 ### macOS and Linux installer
 
@@ -44,7 +45,9 @@ Download the latest installer for your platform from [GitHub Releases](https://g
 curl -fsSL https://raw.githubusercontent.com/shettyh/rem/main/install.sh | sh
 ```
 
-On Linux, the AppImage requires FUSE. Debian and Ubuntu users can install it with `sudo apt install libfuse2`.
+This installs both the desktop app and the `rem` CLI. On Linux, launch the desktop AppImage with `rem-app`; `rem` is reserved for the CLI. The AppImage requires FUSE. Debian and Ubuntu users can install it with `sudo apt install libfuse2`.
+
+Windows releases include a separate CLI zip. Extract `rem.exe` into a directory on `PATH`.
 
 ### Unsigned build notice
 
@@ -62,11 +65,20 @@ xattr -dr com.apple.quarantine /Applications/rem.app
 4. Grade your recall with the on-screen controls or keyboard shortcuts.
 5. Optionally configure backups and Git sync from **Settings**.
 
+Cards can also be captured while the app is closed:
+
+```sh
+rem deck list
+rem card add --deck <deck-id> --front 'Question' --back 'Answer' --tag topic
+```
+
+See the [CLI reference](docs/cli.md) for JSON batch input, dry runs, and result schemas. AI agents can use the bundled [`rem-card-capture` skill](.agents/skills/rem-card-capture/SKILL.md) to create source-grounded cards through the same public CLI.
+
 ## Data and sync
 
-rem stores local data in IndexedDB through [Dexie](https://dexie.org). JSON backup files preserve decks, cards, scheduling state, and review history.
+rem stores local data in SQLite through its native Rust layer. JSON backup files preserve decks, cards, scheduling state, and review history.
 
-Git sync is optional. When enabled, rem shells out to your system `git`, uses its existing credentials, and synchronizes a human-inspectable file-per-deck repository. Records are merged with last-writer-wins semantics, while tombstones propagate deletions between machines.
+Git sync is optional. When enabled, rem shells out to your system `git`, uses its existing credentials, and synchronizes a human-inspectable file-per-deck repository. Records are merged with last-writer-wins semantics, while tombstones propagate deletions between machines. CLI capture is local and joins Git only on the desktop app's next sync.
 
 ## Development
 
@@ -98,6 +110,7 @@ Use `npm run app:dev`, not `npm run dev`. The latter starts only the internal Vi
 | `npm run typecheck` | Type-check the frontend |
 | `npm run build` | Type-check and build the frontend webview |
 | `cd src-tauri && cargo test` | Run Rust tests |
+| `cd src-tauri && cargo run -p rem-cli -- --help` | Run the CLI from source |
 
 Browser tests require Playwright's Chromium binary:
 
@@ -112,8 +125,8 @@ Releases are gated by a Release Please pull request:
 1. Give feature and fix pull requests [Conventional Commit](https://www.conventionalcommits.org/) titles and squash-merge them into `main` so each change produces one clean changelog entry.
 2. Release Please opens or updates a `chore: release vX.Y.Z` pull request with the generated changelog and synchronized Node, Rust, and Tauri versions.
 3. Review that pull request and wait for CI to pass. Merge it when the accumulated changes are ready to ship.
-4. The release workflow creates a draft GitHub Release and builds the macOS, Linux, and Windows installers.
-5. The workflow publishes the release only after every installer build succeeds. A failed build leaves the release as a draft so it cannot become `latest` accidentally.
+4. The release workflow creates a draft GitHub Release and builds the macOS, Linux, and Windows installers and CLI archives.
+5. The workflow publishes the release only after every app and CLI build succeeds. A failed build leaves the release as a draft so it cannot become `latest` accidentally.
 
 Do not edit versions or create release tags manually. `feat` commits produce minor releases, `fix` commits produce patch releases, and breaking changes produce major releases. The repository must allow GitHub Actions to create pull requests under **Settings → Actions → General → Workflow permissions**.
 
@@ -125,10 +138,10 @@ rem keeps domain logic and infrastructure behind small interfaces so that produc
 src/
   app/         application entry point, routes, and auto-sync
   domain/      card/deck models and the Scheduler interface
-  data/        Storage interface, Dexie persistence, backup, and Git sync
+  data/        Storage interface, native adapter, test persistence, backup, and Git sync
   features/    decks, cards, review, settings, and statistics
   ui/          app shell, shared components, themes, and design tokens
-src-tauri/     native shell, Rust FSRS-6 scheduling, and Git bridge
+src-tauri/     native shell, shared SQLite core, terminal CLI, Rust FSRS-6, and Git bridge
 ```
 
 The frontend uses React, TypeScript, and Vite. Tauri v2 provides the native shell, while `fsrs-rs` handles scheduling in Rust.
@@ -145,8 +158,8 @@ npm run build
 (
   cd src-tauri
   cargo fmt --all --check
-  cargo clippy --all-targets -- -D warnings
-  cargo test
+  cargo clippy --workspace --all-targets -- -D warnings
+  cargo test --workspace
 )
 ```
 
