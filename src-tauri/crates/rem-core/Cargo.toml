@@ -1,6 +1,6 @@
 [package]
 name = "rem-core"
-version = "0.8.0"
+version = "0.9.0"
 description = "Shared collection and review domain for rem"
 license = "Apache-2.0"
 edition = "2021"
