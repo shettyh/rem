@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0 (2026-08-09)
+
+## What's Changed
+* feat: add agent-first learning loop by @shettyh in https://github.com/shettyh/rem/pull/75
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.8.0...v0.9.0
+
 ## 0.8.0 (2026-08-09)
 
 ## What's Changed
