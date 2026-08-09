@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.1 (2026-08-09)
+
+## What's Changed
+* docs: showcase terminal study workflow by @shettyh in https://github.com/shettyh/rem/pull/79
+* docs: showcase desktop draft approval by @shettyh in https://github.com/shettyh/rem/pull/81
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.10.0...v0.10.1
+
 ## 0.10.0 (2026-08-09)
 
 ## What's Changed
