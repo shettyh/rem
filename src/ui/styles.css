@@ -1019,6 +1019,175 @@ select.text-input {
   display: inline-flex;
 }
 
+/* ─── Draft inbox ──────────────────────────────────────────────────────── */
+.draft-terminal {
+  min-height: calc(100vh - var(--page-header-h));
+  display: grid;
+  place-items: center;
+  padding: 40px;
+}
+.draft-inbox {
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 36px 32px 64px;
+}
+.draft-notice,
+.draft-error {
+  margin: 0 0 14px;
+  padding: 10px 13px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.draft-notice {
+  background: var(--surface-inset);
+  color: var(--muted);
+}
+.draft-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+.draft-error button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.draft-triage {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.draft-sequence {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.draft-prompt {
+  padding: clamp(36px, 8vh, 68px) clamp(24px, 7vw, 72px) 40px;
+  text-align: center;
+}
+.draft-eyebrow {
+  margin: 0 0 22px;
+  color: var(--faint);
+  font-size: 12px;
+}
+.draft-question {
+  margin: 0 auto 34px;
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 29px;
+  line-height: 1.35;
+  text-align: left;
+}
+.draft-question .markdown > :first-child { margin-top: 0; }
+.draft-question .markdown > :last-child { margin-bottom: 0; }
+.draft-edit {
+  padding-bottom: 20px;
+}
+.draft-edit .md-toolbar-bar {
+  border-bottom: 1px solid var(--border);
+}
+.draft-edit .card-editor-surface {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+}
+.draft-edit .rich-editor-content {
+  padding: 10px 20px 24px;
+  font-size: 18px;
+  line-height: 1.45;
+}
+.draft-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 20px;
+}
+.draft-fields label > span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.draft-fields select,
+.draft-fields input {
+  width: 100%;
+  min-width: 0;
+}
+.draft-fields select {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.draft-provenance {
+  display: grid;
+  gap: 18px;
+  margin: 0 20px;
+  padding: 18px;
+  border-radius: 10px;
+  background: var(--bg-inset);
+}
+.draft-provenance h2 {
+  margin: 0 0 6px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.draft-provenance p,
+.draft-provenance ul {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.draft-provenance ul {
+  padding: 0;
+  list-style: none;
+}
+.draft-provenance li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.draft-provenance li + li { margin-top: 8px; }
+.draft-provenance code {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.draft-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 22px 20px 0;
+}
+
 /* ─── Review ───────────────────────────────────────────────────────────── */
 .review-progress {
   position: sticky;
@@ -1921,6 +2090,8 @@ select.text-input {
   .settings-remote { align-items: flex-start; flex-direction: column; gap: 8px; }
   .settings-remote-value { width: 100%; }
   .card-editor { padding-inline: 18px; padding-bottom: 64px; }
+  .draft-inbox { padding: 24px 18px 48px; }
+  .draft-fields { grid-template-columns: 1fr; }
   .review { padding: 28px 18px 40px; }
   .review-terminal { padding-inline: 18px; }
   .deck-stat { padding: 13px 14px; }

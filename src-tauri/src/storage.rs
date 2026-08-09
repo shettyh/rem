@@ -1,6 +1,7 @@
 use rem_core::{
-    ApplyMergeResult, Asset, Card, CardPatch, Collection, DbOps, Deck, DeckBackup, DeckPatch,
-    ImportResult, ReviewCommit, ReviewLog, VersionedSnapshot,
+    ApplyMergeResult, Asset, Card, CardDraft, CardPatch, Collection, DbOps, Deck, DeckBackup,
+    DeckPatch, DraftDecision, DraftResolution, ImportResult, NewDraftInput, ProposalMetadata,
+    ProposalMode, ProposeDraftsResult, ReviewCommit, ReviewLog, VersionedSnapshot,
 };
 use serde::Serialize;
 use tauri::State;
@@ -68,6 +69,48 @@ pub fn storage_create_card(
 ) -> Result<Card, String> {
     collection
         .create_card(&deck_id, &front, &back, tags, now)
+        .map_err(message)
+}
+
+#[tauri::command]
+pub fn storage_propose_drafts(
+    collection: State<'_, Collection>,
+    deck_id: String,
+    inputs: Vec<NewDraftInput>,
+    metadata: ProposalMetadata,
+    now: i64,
+    dry_run: bool,
+) -> Result<ProposeDraftsResult, String> {
+    collection
+        .propose_drafts(
+            &deck_id,
+            inputs,
+            metadata,
+            now,
+            if dry_run {
+                ProposalMode::Preview
+            } else {
+                ProposalMode::Create
+            },
+        )
+        .map_err(message)
+}
+
+#[tauri::command]
+pub fn storage_list_drafts(collection: State<'_, Collection>) -> Result<Vec<CardDraft>, String> {
+    collection.list_drafts().map_err(message)
+}
+
+#[tauri::command]
+pub fn storage_resolve_draft(
+    collection: State<'_, Collection>,
+    draft_id: String,
+    expected_revision: u64,
+    decision: DraftDecision,
+    now: i64,
+) -> Result<DraftResolution, String> {
+    collection
+        .resolve_draft(&draft_id, expected_revision, decision, now)
         .map_err(message)
 }
 

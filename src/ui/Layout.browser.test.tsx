@@ -3,6 +3,7 @@ import { page } from 'vitest/browser'
 import { CardEditorPage } from '../features/cards/CardEditorPage'
 import { DeckSettingsPage } from '../features/decks/DeckSettingsPage'
 import { ReviewPage } from '../features/review/ReviewPage'
+import { DraftInboxPage } from '../features/drafts/DraftInboxPage'
 import { freshStorage } from '../test/seed'
 import { renderRoute } from '../test/renderRoute'
 
@@ -74,6 +75,31 @@ test('card editor does not overflow at the minimum supported window width', asyn
     element: <CardEditorPage />,
   })
   await expect.element(page.getByLabelText('Card content')).toBeVisible()
+
+  const content = document.querySelector<HTMLElement>('.content')!
+  expect(content.scrollWidth).toBe(content.clientWidth)
+})
+
+test('draft inbox does not overflow at the minimum supported window width', async () => {
+  await page.viewport(760, 720)
+
+  const storage = freshStorage()
+  const deck = await storage.createDeck('A long deck name that still fits cleanly')
+  await storage.proposeDrafts(deck.id, [{
+    front: 'A sufficiently long question that still needs to fit the draft inbox',
+    back: 'A proposed answer',
+    tags: ['one', 'two'],
+    rationale: 'A rationale',
+    sources: [{ locator: 'a/long/source/locator/that/must/wrap/without/overflow', label: null }],
+  }], { proposedBy: 'pi' })
+  await renderRoute({
+    storage,
+    entry: '/drafts',
+    path: '/drafts',
+    element: <DraftInboxPage />,
+  })
+  await page.getByRole('button', { name: 'Reveal proposal' }).click()
+  await expect.element(page.getByRole('button', { name: 'Accept draft' })).toBeVisible()
 
   const content = document.querySelector<HTMLElement>('.content')!
   expect(content.scrollWidth).toBe(content.clientWidth)

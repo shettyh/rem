@@ -11,12 +11,13 @@ export function Sidebar() {
   const storage = useStorage()
   const navigate = useNavigate()
 
-  const decks = useStorageQuery(async () => {
-    const all = await storage.listDecks()
+  const navigation = useStorageQuery(async () => {
+    const [all, drafts] = await Promise.all([storage.listDecks(), storage.listDrafts()])
     const now = Date.now()
-    return Promise.all(
+    const decks = await Promise.all(
       all.map(async (deck) => ({ deck, due: await storage.countDue(deck.id, now) })),
     )
+    return { decks, draftCount: drafts.length }
   }, [])
 
   return (
@@ -34,6 +35,13 @@ export function Sidebar() {
         <NavLink to="/" end className={navClass}>
           <span className="nav-dot" />
           <span className="nav-grow">Today</span>
+        </NavLink>
+        <NavLink to="/drafts" className={navClass} aria-label={`Drafts, ${navigation?.draftCount ?? 0} pending`}>
+          <span className="nav-dot nav-dot-drafts" />
+          <span className="nav-grow">Drafts</span>
+          {(navigation?.draftCount ?? 0) > 0 && (
+            <span className="side-badge">{navigation?.draftCount}</span>
+          )}
         </NavLink>
         <NavLink to="/stats" className={navClass}>
           <span className="nav-dot nav-dot-stats" />
@@ -55,7 +63,7 @@ export function Sidebar() {
       </div>
 
       <div className="side-decks">
-        {(decks ?? []).map(({ deck, due }) => (
+        {(navigation?.decks ?? []).map(({ deck, due }) => (
           <NavLink key={deck.id} to={`/decks/${deck.id}`} className={navClass}>
             <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
               <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />

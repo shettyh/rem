@@ -22,10 +22,10 @@ rem pairs a quiet, keyboard-friendly desktop interface with FSRS-6 scheduling, r
 - **Local-first by default** — decks, cards, assets, and review history live on your device.
 - **Modern scheduling** — FSRS-6 runs in Rust, with configurable retention, learning steps, daily limits, and per-deck parameter optimization.
 - **Rich Markdown cards** — a WYSIWYG editor with code highlighting, images and GIFs, links, lists, and tags.
-- **Fast review flow** — keyboard shortcuts, four-grade reviews, interval previews, custom study, and leech handling.
+- **Fast review flow** — study in the desktop app or terminal with keyboard shortcuts, four grades, interval previews, and shared FSRS scheduling.
 - **Actionable statistics** — review activity, recall rate, streaks, grade distribution, and per-deck breakdowns.
 - **Portable data** — import and export full-fidelity JSON backups.
-- **CLI capture** — add Markdown cards individually or in atomic JSON batches from terminals and AI agents.
+- **Agent-first CLI capture** — agents propose source-grounded drafts for human approval; trusted workflows can still create Markdown cards directly.
 - **Optional Git sync** — sync through any Git remote using your existing system credentials; rem does not store an access token.
 - **Calm desktop design** — quiet light and dark themes keep reviews focused and primary actions clear.
 
@@ -65,18 +65,21 @@ xattr -dr com.apple.quarantine /Applications/rem.app
 4. Grade your recall with the on-screen controls or keyboard shortcuts.
 5. Optionally configure backups and Git sync from **Settings**.
 
-Cards can also be captured while the app is closed:
+Cards and approval-gated drafts can also be captured while the app is closed:
 
 ```sh
 rem deck list
 rem card add --deck <deck-id> --front 'Question' --back 'Answer' --tag topic
+rem draft add --deck <deck-id> --front 'Question' --back 'Proposed answer' --producer pi
+rem study                       # all decks
+rem study --deck <id-or-name>   # one deck
 ```
 
-See the [CLI reference](docs/cli.md) for JSON batch input, dry runs, and result schemas. AI agents can use the bundled [`rem-card-capture` skill](.agents/skills/rem-card-capture/SKILL.md) to create source-grounded cards through the same public CLI.
+Open **Drafts** in the desktop sidebar to try each proposed question, inspect its source and rationale, edit it, and accept or reject it. See the [CLI reference](docs/cli.md) for JSON batches, dry runs, and stable result schemas. AI agents can use the bundled [`rem-card-capture` skill](.agents/skills/rem-card-capture/SKILL.md) to propose source-grounded drafts through the same public CLI.
 
 ## Data and sync
 
-rem stores local data in SQLite through its native Rust layer. JSON backup files preserve decks, cards, scheduling state, and review history.
+rem stores local data in SQLite through its native Rust layer. JSON backup files preserve decks, cards, scheduling state, and review history. Unapproved drafts stay local and are excluded from backup and Git sync.
 
 Git sync is optional. When enabled, rem shells out to your system `git`, uses its existing credentials, and synchronizes a human-inspectable file-per-deck repository. Records are merged with last-writer-wins semantics, while tombstones propagate deletions between machines. CLI capture is local and joins Git only on the desktop app's next sync.
 
@@ -144,7 +147,7 @@ src/
 src-tauri/     native shell, shared SQLite core, terminal CLI, Rust FSRS-6, and Git bridge
 ```
 
-The frontend uses React, TypeScript, and Vite. Tauri v2 provides the native shell, while `fsrs-rs` handles scheduling in Rust.
+The frontend uses React, TypeScript, and Vite. Tauri v2 provides the native shell. The shared Rust `rem-core` crate owns SQLite, FSRS-6 calculation and optimization, and the complete `StudySession` state machine used by both the desktop review adapter and `rem study` terminal UI.
 
 ## Contributing
 

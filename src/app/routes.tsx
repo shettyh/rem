@@ -7,6 +7,7 @@ import { ReviewPage } from '../features/review/ReviewPage'
 import { SettingsPage } from '../features/settings/SettingsPage'
 import { DeckSettingsPage } from '../features/decks/DeckSettingsPage'
 import { StatsPage } from '../features/stats/StatsPage'
+import { DraftInboxPage } from '../features/drafts/DraftInboxPage'
 
 export const router = createBrowserRouter([
   {
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
       { path: 'decks/:deckId/study', element: <ReviewPage /> },
       { path: 'study', element: <ReviewPage /> },
       { path: 'stats', element: <StatsPage /> },
+      { path: 'drafts', element: <DraftInboxPage /> },
       { path: 'settings', element: <SettingsPage /> },
     ],
   },

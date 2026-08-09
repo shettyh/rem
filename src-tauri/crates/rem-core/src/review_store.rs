@@ -2,7 +2,9 @@ use rusqlite::{params, OptionalExtension, Row};
 use uuid::Uuid;
 
 use crate::collection::write_transaction;
-use crate::store::{apply_card_patch, bump_sync_revision, find_card_by_id, update_card_row};
+use crate::store::{
+    apply_card_patch, bump_sync_revision, find_card_by_id_with_revision, update_card_row,
+};
 use crate::{Collection, CollectionError, DailyField, Grade, ReviewCommit, ReviewLog};
 
 impl Collection {
@@ -10,17 +12,49 @@ impl Collection {
         &self,
         commit: ReviewCommit,
     ) -> Result<Option<ReviewLog>, CollectionError> {
+        self.commit_review_with_revision(commit, None)
+    }
+
+    pub(crate) fn commit_review_if_revision(
+        &self,
+        commit: ReviewCommit,
+        expected_revision: u64,
+    ) -> Result<Option<ReviewLog>, CollectionError> {
+        self.commit_review_with_revision(commit, Some(expected_revision))
+    }
+
+    fn commit_review_with_revision(
+        &self,
+        commit: ReviewCommit,
+        expected_revision: Option<u64>,
+    ) -> Result<Option<ReviewLog>, CollectionError> {
         let mut connection = self
             .connection
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
         let transaction = write_transaction(&mut connection)?;
-        let mut card = find_card_by_id(&transaction, &commit.card_id)?.ok_or_else(|| {
-            CollectionError::NotFound {
-                kind: "card",
-                id: commit.card_id.clone(),
+        let found = find_card_by_id_with_revision(&transaction, &commit.card_id)?;
+        let (mut card, revision) = match (found, expected_revision) {
+            (Some(found), _) => found,
+            (None, Some(_)) => {
+                return Err(CollectionError::Conflict {
+                    kind: "card",
+                    id: commit.card_id,
+                });
             }
-        })?;
+            (None, None) => {
+                return Err(CollectionError::NotFound {
+                    kind: "card",
+                    id: commit.card_id,
+                });
+            }
+        };
+        if expected_revision.is_some_and(|expected| expected != revision) {
+            return Err(CollectionError::Conflict {
+                kind: "card",
+                id: commit.card_id,
+            });
+        }
         if card.deck_id != commit.deck_id {
             return Err(CollectionError::InvalidInput(
                 "review deck does not own the card".into(),

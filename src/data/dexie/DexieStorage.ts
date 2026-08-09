@@ -1,9 +1,29 @@
-import type { Asset, Card, Deck, ID, ReviewLog, SchedulerKind } from '../../domain/models'
+import type {
+  Asset,
+  Card,
+  CardDraft,
+  Deck,
+  DraftDecision,
+  DraftProposalOutcome,
+  DraftResolution,
+  Grade,
+  ID,
+  NewDraftInput,
+  ProposalMetadata,
+  ProposeDraftsResult,
+  ReviewLog,
+  SchedulerKind,
+  StartedStudy,
+  StudyGradeOutcome,
+  StudyRequest,
+  StudyView,
+} from '../../domain/models'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 import { deckColor } from '../../ui/deckColor'
 import { hashBytes } from '../assetHash'
 import { assetRefs } from '../assetRefs'
 import { getScheduler } from '../../domain/scheduler'
+import { BrowserStudySession } from '../../features/review/browserStudy'
 import type {
   ApplyMergeResult,
   CardPatch,
@@ -20,6 +40,7 @@ import type { RemDB } from './db'
 /** IndexedDB-backed {@link Storage}, using Dexie. */
 export class DexieStorage implements Storage {
   private readonly listeners = new Set<() => void>()
+  private readonly studySessions = new Map<string, BrowserStudySession>()
   private syncRevision = 0
 
   constructor(readonly db: RemDB) {}
@@ -62,9 +83,11 @@ export class DexieStorage implements Storage {
   async deleteDeck(id: ID): Promise<void> {
     await this.db.transaction(
       'rw',
-      this.db.decks, this.db.cards, this.db.tombstones, this.db.dailyStats, this.db.reviewLogs,
+      [this.db.decks, this.db.cards, this.db.cardDrafts, this.db.tombstones, this.db.dailyStats,
+        this.db.reviewLogs],
       async () => {
         await this.db.cards.where('deckId').equals(id).delete()
+        await this.db.cardDrafts.where('deckId').equals(id).delete()
         await this.db.dailyStats.where('deckId').equals(id).delete()
         await this.db.reviewLogs.where('deckId').equals(id).delete()
         await this.db.decks.delete(id)
@@ -104,6 +127,151 @@ export class DexieStorage implements Storage {
   async updateCard(id: ID, patch: CardPatch): Promise<void> {
     await this.db.cards.update(id, { ...patch, updatedAt: Date.now() })
     this.notify()
+  }
+
+  async proposeDrafts(
+    deckId: ID,
+    inputs: NewDraftInput[],
+    metadata: ProposalMetadata,
+    dryRun = false,
+  ): Promise<ProposeDraftsResult> {
+    if (inputs.length === 0) throw new Error('invalid input: draft batch must not be empty')
+    const now = Date.now()
+    const proposedBy = normalizeOptional(metadata.proposedBy)
+    const prepared = inputs.map((input): CardDraft => {
+      if (!input.front.trim()) throw new Error('invalid input: draft front must not be blank')
+      const sources = input.sources.map((source) => {
+        const locator = source.locator.trim()
+        if (!locator) throw new Error('invalid input: draft source locator must not be blank')
+        return { locator, label: normalizeOptional(source.label) }
+      })
+      return {
+        id: crypto.randomUUID(),
+        deckId,
+        front: input.front,
+        back: input.back,
+        tags: normalizeUserTags(input.tags),
+        rationale: normalizeOptional(input.rationale),
+        sources,
+        proposedBy,
+        createdAt: now,
+        updatedAt: now,
+        revision: 0,
+      }
+    })
+
+    const result = await this.db.transaction(
+      'rw',
+      this.db.decks,
+      this.db.cards,
+      this.db.cardDrafts,
+      async (): Promise<ProposeDraftsResult> => {
+        if (!await this.db.decks.get(deckId)) throw new Error(`deck not found: ${deckId}`)
+        const cards = await this.db.cards.where('deckId').equals(deckId).toArray()
+        const drafts = await this.db.cardDrafts.where('deckId').equals(deckId).toArray()
+        const planned: CardDraft[] = []
+        const outcomes: DraftProposalOutcome[] = []
+        for (const draft of prepared) {
+          const card = cards.find((candidate) => sameContent(candidate, draft))
+          if (card) {
+            outcomes.push({ status: 'duplicateCard', value: card })
+            continue
+          }
+          const duplicate = drafts.find((candidate) => sameContent(candidate, draft))
+            ?? planned.find((candidate) => sameContent(candidate, draft))
+          if (duplicate) {
+            outcomes.push({ status: 'duplicateDraft', value: duplicate })
+            continue
+          }
+          if (!dryRun) await this.db.cardDrafts.add(draft)
+          planned.push(draft)
+          outcomes.push({ status: 'created', value: draft })
+        }
+        return { outcomes }
+      },
+    )
+    if (!dryRun && result.outcomes.some((outcome) => outcome.status === 'created')) {
+      this.notify(false)
+    }
+    return result
+  }
+
+  listDrafts(): Promise<CardDraft[]> {
+    return this.db.cardDrafts.orderBy('createdAt').toArray()
+  }
+
+  async resolveDraft(
+    id: ID,
+    expectedRevision: number,
+    decision: DraftDecision,
+  ): Promise<DraftResolution> {
+    const now = Date.now()
+    const result = await this.db.transaction(
+      'rw',
+      this.db.decks,
+      this.db.cards,
+      this.db.cardDrafts,
+      async (): Promise<DraftResolution> => {
+        const draft = await this.db.cardDrafts.get(id)
+        if (!draft) throw new Error(`draft not found: ${id}`)
+        if (draft.revision !== expectedRevision) throw new Error(`draft changed: ${id}`)
+        if (decision.decision === 'reject') {
+          await this.db.cardDrafts.delete(id)
+          return { status: 'rejected' }
+        }
+        if (!await this.db.decks.get(decision.deckId)) {
+          throw new Error(`deck not found: ${decision.deckId}`)
+        }
+        if (!decision.card.front.trim()) throw new Error('invalid input: card front must not be blank')
+        const tags = normalizeUserTags(decision.card.tags)
+        const cards = await this.db.cards.where('deckId').equals(decision.deckId).toArray()
+        const existing = cards.find((card) =>
+          card.front === decision.card.front
+          && card.back === decision.card.back
+          && sameTags(card.tags, tags))
+        await this.db.cardDrafts.delete(id)
+        if (existing) return { status: 'existingCard', value: existing }
+        const card: Card = {
+          id: crypto.randomUUID(),
+          deckId: decision.deckId,
+          front: decision.card.front,
+          back: decision.card.back,
+          createdAt: now,
+          updatedAt: now,
+          tags,
+          suspended: false,
+          lastAgainAt: null,
+          scheduling: getScheduler().initial(now),
+        }
+        await this.db.cards.add(card)
+        return { status: 'accepted', value: card }
+      },
+    )
+    this.notify(result.status === 'accepted')
+    return result
+  }
+
+  async startStudy(request: StudyRequest): Promise<StartedStudy> {
+    const session = await BrowserStudySession.start(this, request, Date.now())
+    const sessionId = `study-${crypto.randomUUID()}`
+    this.studySessions.set(sessionId, session)
+    return { sessionId, view: session.view() }
+  }
+
+  revealStudy(sessionId: string): Promise<StudyView> {
+    return this.studySession(sessionId).reveal(Date.now())
+  }
+
+  gradeStudy(sessionId: string, grade: Grade): Promise<StudyGradeOutcome> {
+    return this.studySession(sessionId).grade(grade, Date.now())
+  }
+
+  async advanceStudyPreview(sessionId: string): Promise<StudyView> {
+    return this.studySession(sessionId).advancePreview(Date.now())
+  }
+
+  async endStudy(sessionId: string): Promise<void> {
+    this.studySessions.delete(sessionId)
   }
 
   async commitReview(commit: ReviewCommit): Promise<ReviewLog | null> {
@@ -169,7 +337,7 @@ export class DexieStorage implements Storage {
 
   async importDecks(decks: DeckBackup[]): Promise<ImportResult> {
     const incomingNames = decks.map((d) => d.name)
-    const result = await this.db.transaction('rw', this.db.decks, this.db.cards, this.db.reviewLogs, async () => {
+    const result = await this.db.transaction('rw', this.db.decks, this.db.cards, this.db.cardDrafts, this.db.reviewLogs, async () => {
       const existing = await this.db.decks.toArray()
       const result = planImport(incomingNames, existing.map((d) => d.name))
 
@@ -177,6 +345,7 @@ export class DexieStorage implements Storage {
       const deckIdsToDelete = existing.filter((d) => toReplace.has(d.name)).map((d) => d.id)
       for (const id of deckIdsToDelete) {
         await this.db.cards.where('deckId').equals(id).delete()
+        await this.db.cardDrafts.where('deckId').equals(id).delete()
         await this.db.reviewLogs.where('deckId').equals(id).delete()
         await this.db.decks.delete(id)
       }
@@ -249,10 +418,14 @@ export class DexieStorage implements Storage {
     }
     await this.db.transaction(
       'rw',
-      this.db.decks, this.db.cards, this.db.reviewLogs, this.db.tombstones, this.db.assets,
+      [this.db.decks, this.db.cards, this.db.cardDrafts, this.db.reviewLogs, this.db.tombstones,
+        this.db.assets],
       async () => {
         if (ops.deleteReviewLogIds.length) await this.db.reviewLogs.bulkDelete(ops.deleteReviewLogIds)
         if (ops.deleteCardIds.length) await this.db.cards.bulkDelete(ops.deleteCardIds)
+        for (const deckId of ops.deleteDeckIds) {
+          await this.db.cardDrafts.where('deckId').equals(deckId).delete()
+        }
         if (ops.deleteDeckIds.length) await this.db.decks.bulkDelete(ops.deleteDeckIds)
         if (ops.deleteAssetHashes.length) await this.db.assets.bulkDelete(ops.deleteAssetHashes)
         if (ops.upsertDecks.length) await this.db.decks.bulkPut(ops.upsertDecks)
@@ -295,8 +468,43 @@ export class DexieStorage implements Storage {
     this.notify()
   }
 
-  private notify(): void {
-    this.syncRevision++
+  private studySession(sessionId: string): BrowserStudySession {
+    const session = this.studySessions.get(sessionId)
+    if (!session) throw new Error(`study session not found: ${sessionId}`)
+    return session
+  }
+
+  private notify(synchronized = true): void {
+    if (synchronized) this.syncRevision++
     for (const listener of this.listeners) listener()
   }
+}
+
+function normalizeOptional(value: string | null): string | null {
+  const normalized = value?.trim() ?? ''
+  return normalized || null
+}
+
+function normalizeUserTags(tags: string[]): string[] {
+  const seen = new Set<string>()
+  const normalized: string[] = []
+  for (const value of tags) {
+    const tag = value.trim()
+    const key = tag.toLocaleLowerCase()
+    if (!tag || key === 'leech' || seen.has(key)) continue
+    seen.add(key)
+    normalized.push(tag)
+  }
+  return normalized
+}
+
+function sameTags(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((tag, index) => tag === right[index])
+}
+
+function sameContent(
+  left: Pick<Card, 'front' | 'back' | 'tags'> | Pick<CardDraft, 'front' | 'back' | 'tags'>,
+  right: Pick<CardDraft, 'front' | 'back' | 'tags'>,
+): boolean {
+  return left.front === right.front && left.back === right.back && sameTags(left.tags, right.tags)
 }

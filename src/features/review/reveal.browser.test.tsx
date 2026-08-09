@@ -174,6 +174,41 @@ test('grading twice before the first persist resolves applies only one grade', a
   expect(spy).toHaveBeenCalledTimes(1)
 })
 
+test('a stale native grade conflict is explained and not counted as a review', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Concurrency')
+  const card = await storage.createCard(deck.id, 'Q?', 'A.')
+  vi.spyOn(storage, 'gradeStudy').mockResolvedValueOnce({
+    status: 'conflict',
+    cardId: card.id,
+    view: {
+      current: null,
+      revealed: false,
+      nextStates: null,
+      reviewed: 0,
+      remaining: 0,
+      preview: false,
+      notice: null,
+    },
+  })
+  const commit = vi.spyOn(storage, 'commitReview')
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await page.getByRole('button', { name: 'Good', exact: false }).click()
+
+  await expect.element(page.getByRole('heading', { name: 'Card changed' })).toBeVisible()
+  await expect.element(page.getByRole('alert')).toHaveTextContent(
+    'skipped without recording a review',
+  )
+  expect(commit).not.toHaveBeenCalled()
+})
+
 test('a long answer renders after reveal', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Long')

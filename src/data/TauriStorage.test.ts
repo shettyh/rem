@@ -70,6 +70,104 @@ describe('TauriStorage', () => {
     expect(notifications).toBe(1)
   })
 
+  it('forwards draft proposal, listing, and resolution through native commands', async () => {
+    const draft = {
+      id: 'draft-1',
+      deckId: deck.id,
+      front: 'Question',
+      back: 'Answer',
+      tags: ['rust'],
+      rationale: 'Worth remembering',
+      sources: [{ locator: 'src/lib.rs:1-5', label: 'Core' }],
+      proposedBy: 'pi',
+      createdAt: 123,
+      updatedAt: 123,
+      revision: 0,
+    }
+    const fake = fakeInvoke((command) => {
+      if (command === 'storage_propose_drafts') {
+        return { outcomes: [{ status: 'created', value: draft }] }
+      }
+      if (command === 'storage_list_drafts') return [draft]
+      if (command === 'storage_resolve_draft') return { status: 'rejected' }
+      throw new Error(`unexpected command ${command}`)
+    })
+    const storage = new TauriStorage(fake.invoke, () => 123)
+    let notifications = 0
+    storage.subscribe(() => notifications++)
+    const input = {
+      front: draft.front,
+      back: draft.back,
+      tags: draft.tags,
+      rationale: draft.rationale,
+      sources: draft.sources,
+    }
+
+    await expect(storage.proposeDrafts(deck.id, [input], { proposedBy: 'pi' })).resolves.toEqual({
+      outcomes: [{ status: 'created', value: draft }],
+    })
+    await expect(storage.listDrafts()).resolves.toEqual([draft])
+    await expect(storage.resolveDraft(draft.id, 0, { decision: 'reject' })).resolves.toEqual({
+      status: 'rejected',
+    })
+    expect(fake.calls).toEqual([
+      ['storage_propose_drafts', {
+        deckId: deck.id,
+        inputs: [input],
+        metadata: { proposedBy: 'pi' },
+        now: 123,
+        dryRun: false,
+      }],
+      ['storage_list_drafts', undefined],
+      ['storage_resolve_draft', {
+        draftId: draft.id,
+        expectedRevision: 0,
+        decision: { decision: 'reject' },
+        now: 123,
+      }],
+    ])
+    expect(notifications).toBe(2)
+  })
+
+  it('forwards the opaque native study session lifecycle', async () => {
+    const view = {
+      current: null,
+      revealed: false,
+      nextStates: null,
+      reviewed: 0,
+      remaining: 0,
+      preview: false,
+      notice: null,
+    }
+    const fake = fakeInvoke((command) => {
+      if (command === 'study_start') return { sessionId: 'study-1', view }
+      if (command === 'study_reveal') return { ...view, revealed: true }
+      if (command === 'study_grade') return { status: 'graded', view }
+      if (command === 'study_advance_preview') return view
+      if (command === 'study_end') return undefined
+      throw new Error(`unexpected command ${command}`)
+    })
+    const storage = new TauriStorage(fake.invoke, () => 123)
+    let notifications = 0
+    storage.subscribe(() => notifications++)
+    const request = { deckId: deck.id, custom: null }
+
+    await expect(storage.startStudy(request)).resolves.toEqual({ sessionId: 'study-1', view })
+    await storage.revealStudy('study-1')
+    await storage.gradeStudy('study-1', 'good')
+    await storage.advanceStudyPreview('study-1')
+    await storage.endStudy('study-1')
+
+    expect(fake.calls).toEqual([
+      ['study_start', { request, now: 123 }],
+      ['study_reveal', { sessionId: 'study-1', now: 123 }],
+      ['study_grade', { sessionId: 'study-1', grade: 'good', now: 123 }],
+      ['study_advance_preview', { sessionId: 'study-1', now: 123 }],
+      ['study_end', { sessionId: 'study-1' }],
+    ])
+    expect(notifications).toBe(1)
+  })
+
   it('maps native null option values to undefined', async () => {
     const fake = fakeInvoke(() => null)
     const storage = new TauriStorage(fake.invoke)
