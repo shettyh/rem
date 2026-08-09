@@ -73,6 +73,16 @@ This installs both the desktop app and the `rem` CLI. On Linux, launch the deskt
 
 Windows releases include a separate CLI zip. Extract `rem.exe` into a directory on `PATH`.
 
+### Agent skill
+
+After installing the `rem` CLI, install the `rem-card-capture` skill for your local AI agents:
+
+```sh
+npx skills add shettyh/rem --skill rem-card-capture --global
+```
+
+The [Skills CLI](https://github.com/vercel-labs/skills) detects supported agents such as Claude Code and Codex and installs the skill in their user-level directories. Omit `--global` to install it only in the current project.
+
 ### Unsigned build notice
 
 Current macOS and Windows builds are not notarized or code-signed with paid platform certificates. On macOS, right-click **rem** and choose **Open**, or clear quarantine after moving the app to `/Applications`:
@@ -99,7 +109,7 @@ rem study                       # all decks
 rem study --deck <id-or-name>   # one deck
 ```
 
-Open **Drafts** in the desktop sidebar to try each proposed question, inspect its source and rationale, edit it, and accept or reject it. See the [CLI reference](docs/cli.md) for JSON batches, dry runs, and stable result schemas. AI agents can use the bundled [`rem-card-capture` skill](.agents/skills/rem-card-capture/SKILL.md) to propose source-grounded drafts through the same public CLI.
+Open **Drafts** in the desktop sidebar to try each proposed question, inspect its source and rationale, edit it, and accept or reject it. See the [CLI reference](docs/cli.md) for JSON batches, dry runs, and stable result schemas. AI agents can use the installable [`rem-card-capture` skill](skills/rem-card-capture/SKILL.md) to propose source-grounded drafts through the same public CLI.
 
 ## Data and sync
 

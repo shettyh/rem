@@ -246,5 +246,6 @@ AppImage is a separate command, `rem-app`. Windows releases include a
 For isolated development and tests, `REM_DATABASE_PATH` can point the command at an explicit SQLite
 file. Normal use should leave it unset so CLI and desktop share the standard collection.
 
-The project-level `.agents/skills/rem-card-capture/SKILL.md` teaches agents the draft-first workflow
-without duplicating persistence logic.
+The distributable `skills/rem-card-capture/SKILL.md` teaches agents the draft-first workflow
+without duplicating persistence logic. Install it for supported local agents with
+`npx skills add shettyh/rem --skill rem-card-capture --global`.
