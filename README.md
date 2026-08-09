@@ -7,14 +7,35 @@
 [![License](https://img.shields.io/github/license/shettyh/rem?cacheSeconds=300)](LICENSE)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 
-rem pairs a quiet, keyboard-friendly desktop interface with FSRS-6 scheduling, rich Markdown cards, useful study statistics, and optional Git-backed sync. Your collection stays on your device and remains exportable—no account or hosted service is required.
+rem turns useful work into durable memory. Agents can propose a few source-grounded recall prompts, you decide what enters your study plan, and accepted cards use the same FSRS-6 scheduler whether you review in the desktop app or terminal.
+
+```text
+agent does useful work → proposes drafts → you try, edit, and approve → FSRS schedules → you study
+```
+
+- **Human-approved agent capture** — generated content remains an unscheduled local draft until you accept it.
+- **One review engine** — desktop and terminal study share the same Rust `StudySession`, scheduling rules, limits, and history.
+- **Local by default** — your SQLite collection needs no account or hosted service and remains exportable.
 
 > [!IMPORTANT]
 > rem is a native [Tauri](https://tauri.app) desktop app for macOS, Linux, and Windows. The browser build is only the source for Tauri's webview and is not a supported version of the app.
 
+## See rem in action
+
+### Study in the terminal
+
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/rem-terminal-study.png">
+  <img alt="A revealed Markdown card in rem terminal study with FSRS grading choices" src="docs/assets/rem-terminal-study.svg">
+</picture>
+
+The terminal UI renders Markdown, previews the next FSRS intervals, and writes reviews to the same collection used by the desktop app.
+
+### Or use the desktop app
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/rem-review-dark.png">
-  <img alt="Reviewing a card in rem" src="docs/assets/rem-review.png">
+  <img alt="Reviewing a card in the rem desktop app" src="docs/assets/rem-review.png">
 </picture>
 
 ## Features
