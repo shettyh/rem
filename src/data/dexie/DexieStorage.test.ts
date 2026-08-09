@@ -4,6 +4,7 @@ import { RemDB } from './db'
 import { DexieStorage } from './DexieStorage'
 import { MS_PER_DAY } from '../../domain/scheduler'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
+import type { DbOps } from '../sync/merge'
 
 const DB_NAME = 'rem-test'
 let db: RemDB
@@ -18,6 +19,15 @@ beforeEach(async () => {
 afterEach(() => {
   db.close()
 })
+
+async function currentSnapshot() {
+  return (await storage.exportSnapshot()).snapshot
+}
+
+async function applyMerge(ops: DbOps) {
+  const { revision } = await storage.exportSnapshot()
+  return storage.applyMerge(ops, revision)
+}
 
 describe('decks', () => {
   it('creates and lists a deck', async () => {
@@ -202,7 +212,7 @@ describe('sync storage', () => {
   it('exportSnapshot returns decks, cards, and tombstones', async () => {
     const deck = await storage.createDeck('S')
     await storage.createCard(deck.id, 'q', 'a')
-    const snap = await storage.exportSnapshot()
+    const snap = await currentSnapshot()
     expect(snap.decks).toHaveLength(1)
     expect(snap.cards).toHaveLength(1)
     expect(snap.tombstones).toHaveLength(0)
@@ -212,7 +222,7 @@ describe('sync storage', () => {
     const deck = await storage.createDeck('S')
     const c = await storage.createCard(deck.id, 'q', 'a')
     await storage.deleteCard(c.id)
-    const snap = await storage.exportSnapshot()
+    const snap = await currentSnapshot()
     expect(snap.tombstones).toEqual([
       expect.objectContaining({ id: c.id, kind: 'card' }),
     ])
@@ -221,7 +231,7 @@ describe('sync storage', () => {
   it('deleteDeck writes a deck tombstone', async () => {
     const deck = await storage.createDeck('S')
     await storage.deleteDeck(deck.id)
-    const snap = await storage.exportSnapshot()
+    const snap = await currentSnapshot()
     expect(snap.tombstones).toEqual([
       expect.objectContaining({ id: deck.id, kind: 'deck' }),
     ])
@@ -230,7 +240,7 @@ describe('sync storage', () => {
   it('applyMerge upserts and deletes records', async () => {
     const deck = await storage.createDeck('S')
     const stale = await storage.createCard(deck.id, 'old', 'old')
-    await storage.applyMerge({
+    await applyMerge({
       upsertDecks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, updatedAt: deck.updatedAt, color: deck.color, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
       upsertCards: [{
         id: 'new', deckId: deck.id, front: 'new', back: 'new', createdAt: 1, updatedAt: 2,
@@ -247,7 +257,7 @@ describe('sync storage', () => {
     })
     expect(await storage.getCard(stale.id)).toBeUndefined()
     expect(await storage.getCard('new')).toBeTruthy()
-    expect((await storage.exportSnapshot()).tombstones).toHaveLength(1)
+    expect((await currentSnapshot()).tombstones).toHaveLength(1)
   })
 })
 
@@ -358,7 +368,7 @@ describe('assets', () => {
 describe('snapshot assets', () => {
   it('exports stored assets in the snapshot', async () => {
     const a = await storage.putAsset(new Uint8Array([7]), 'image/gif')
-    const snap = await storage.exportSnapshot()
+    const snap = await currentSnapshot()
     expect(snap.assets.map((x) => x.hash)).toEqual([a.hash])
     expect(snap.assets[0].mime).toBe('image/gif')
   })
@@ -374,7 +384,7 @@ describe('snapshot assets', () => {
       schedulerKind: 'fsrs' as const,
       settings: { ...DEFAULT_DECK_SETTINGS, newPerDay: 99 },
     }
-    await storage.applyMerge({
+    await applyMerge({
       upsertDecks: [incoming], upsertCards: [], upsertReviewLogs: [], deleteReviewLogIds: [],
       deleteDeckIds: [], deleteCardIds: [], tombstones: [], upsertAssets: [], deleteAssetHashes: [],
     })
@@ -385,7 +395,7 @@ describe('snapshot assets', () => {
 
   it('applyMerge upserts new assets and deletes by hash', async () => {
     const keep = 'c'.repeat(64)
-    await storage.applyMerge({
+    await applyMerge({
       upsertDecks: [], upsertCards: [], upsertReviewLogs: [], deleteReviewLogIds: [],
       deleteDeckIds: [], deleteCardIds: [], tombstones: [],
       upsertAssets: [{ hash: keep, mime: 'image/png', bytes: new Uint8Array([5]) }],
@@ -393,7 +403,7 @@ describe('snapshot assets', () => {
     })
     expect((await storage.getAsset(keep))?.bytes).toEqual(new Uint8Array([5]))
 
-    await storage.applyMerge({
+    await applyMerge({
       upsertDecks: [], upsertCards: [], upsertReviewLogs: [], deleteReviewLogIds: [],
       deleteDeckIds: [], deleteCardIds: [], tombstones: [],
       upsertAssets: [], deleteAssetHashes: [keep],

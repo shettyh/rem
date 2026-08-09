@@ -25,8 +25,28 @@
         },
         {
           "type": "toml",
+          "path": "src-tauri/crates/rem-core/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "src-tauri/crates/rem-cli/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
           "path": "src-tauri/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value==\"app\")].version"
+        },
+        {
+          "type": "toml",
+          "path": "src-tauri/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value==\"rem-core\")].version"
+        },
+        {
+          "type": "toml",
+          "path": "src-tauri/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value==\"rem-cli\")].version"
         }
       ]
     }

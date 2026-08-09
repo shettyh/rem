@@ -62,9 +62,37 @@ jobs:
       - name: Build installers
         run: npx tauri build ${{ matrix.args }}
 
+      - name: Build CLI archives (macOS)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          mkdir -p src-tauri/dist-cli
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --manifest-path src-tauri/Cargo.toml --release -p rem-cli --target "$target"
+            tar -C "src-tauri/target/$target/release" -czf "src-tauri/dist-cli/rem-cli-$target.tar.gz" rem
+          done
+
+      - name: Build CLI archive (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          cargo build --manifest-path src-tauri/Cargo.toml --release -p rem-cli
+          mkdir -p src-tauri/dist-cli
+          tar -C src-tauri/target/release -czf src-tauri/dist-cli/rem-cli-x86_64-unknown-linux-gnu.tar.gz rem
+
+      - name: Build CLI archive (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          cargo build --manifest-path src-tauri/Cargo.toml --release -p rem-cli
+          New-Item -ItemType Directory -Force src-tauri/dist-cli | Out-Null
+          Compress-Archive -Path src-tauri/target/release/rem.exe -DestinationPath src-tauri/dist-cli/rem-cli-x86_64-pc-windows-msvc.zip
+
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.bundle }}/**
+          path: |
+            ${{ matrix.bundle }}/**
+            src-tauri/dist-cli/**
           if-no-files-found: error
           retention-days: 14

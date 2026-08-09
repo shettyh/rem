@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
 import type { DeckSettings, FSRSState, Grade, LeechAction } from '../../domain/models'
 import { nextStates } from '../../domain/scheduler/reviewScheduler'
 import { useStorage } from '../../data/StorageContext'
+import { useStorageQuery } from '../../data/useStorageQuery'
 import type { CardPatch } from '../../data/Storage'
 import { PageHeader } from '../../ui/PageHeader'
 import { MarkdownView } from '../cards/MarkdownView'
@@ -37,7 +37,7 @@ export function ReviewPage() {
   const [schedError, setSchedError] = useState(false)
   const [leechNotice, setLeechNotice] = useState<LeechAction | null>(null)
 
-  const deck = useLiveQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
+  const deck = useStorageQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const deckName = deckId ? (deck?.name ?? 'Deck') : 'All decks'
   const customTitle = customMode ? customStudyPreset(customMode).title : null
   const backTo = customMode && deckId ? `/decks/${deckId}/options` : deckId ? `/decks/${deckId}` : '/'

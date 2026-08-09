@@ -1,5 +1,6 @@
 mod fsrs_sched;
 mod git;
+mod storage;
 
 use tauri::Manager;
 
@@ -18,8 +19,35 @@ pub fn run() {
             git::git_commit_push,
             fsrs_sched::fsrs_next_states,
             fsrs_sched::fsrs_optimize,
+            storage::storage_create_deck,
+            storage::storage_list_decks,
+            storage::storage_get_deck,
+            storage::storage_delete_deck,
+            storage::storage_update_deck,
+            storage::storage_create_card,
+            storage::storage_get_card,
+            storage::storage_list_cards,
+            storage::storage_update_card,
+            storage::storage_delete_card,
+            storage::storage_commit_review,
+            storage::storage_list_review_logs,
+            storage::storage_due_cards,
+            storage::storage_count_due,
+            storage::storage_get_daily_stat,
+            storage::storage_import_decks,
+            storage::storage_export_snapshot,
+            storage::storage_apply_merge,
+            storage::storage_put_asset,
+            storage::storage_get_asset,
+            storage::storage_sweep_orphan_assets,
         ])
         .setup(|app| {
+            let database_path = rem_core::default_database_path()
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+            let collection = rem_core::Collection::open(database_path)
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+            app.manage(collection);
+
             let repo_dir = app.path().app_data_dir()?.join("repo");
             app.manage(git::GitRepo::new(repo_dir));
             if cfg!(debug_assertions) {

@@ -30,6 +30,9 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
+      - name: Test release installer selection
+        run: sh tools/test-install.sh
+
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
@@ -72,7 +75,7 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test
+        run: cargo test --workspace

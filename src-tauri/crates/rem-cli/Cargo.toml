@@ -1,0 +1,20 @@
+[package]
+name = "rem-cli"
+version = "0.7.0"
+description = "Terminal interface for rem"
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.77.2"
+
+[[bin]]
+name = "rem"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "=4.5.4", features = ["derive"] }
+rem-core = { path = "../rem-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

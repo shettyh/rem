@@ -1,0 +1,18 @@
+[package]
+name = "rem-core"
+version = "0.7.0"
+description = "Shared collection and review domain for rem"
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.77.2"
+
+[dependencies]
+directories = "5.0"
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+uuid = { version = "1.0", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../data/StorageContext'
+import { useStorageQuery } from '../data/useStorageQuery'
 import { ThemeToggle } from './ThemeToggle'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -11,7 +11,7 @@ export function Sidebar() {
   const storage = useStorage()
   const navigate = useNavigate()
 
-  const decks = useLiveQuery(async () => {
+  const decks = useStorageQuery(async () => {
     const all = await storage.listDecks()
     const now = Date.now()
     return Promise.all(

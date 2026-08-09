@@ -1,6 +1,6 @@
 import { useRef, useState, type ChangeEvent } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { useStorage } from '../../data/StorageContext'
+import { useStorageQuery } from '../../data/useStorageQuery'
 import { PageHeader } from '../../ui/PageHeader'
 import { SyncSection } from './SyncSection'
 import packageInfo from '../../../package.json'
@@ -27,7 +27,7 @@ function todayStamp(): string {
 
 export function SettingsPage() {
   const storage = useStorage()
-  const decks = useLiveQuery(() => storage.listDecks(), [])
+  const decks = useStorageQuery(() => storage.listDecks(), [])
 
   const importInput = useRef<HTMLInputElement>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
