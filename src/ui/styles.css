@@ -188,13 +188,19 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
   color: var(--text);
 }
 
-.nav-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  background: currentColor;
-  opacity: 0.85;
+.nav-icon {
+  width: 14px;
+  height: 14px;
   flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.65;
+}
+.nav-item.is-active .nav-icon {
+  opacity: 1;
 }
 
 .deck-icon {

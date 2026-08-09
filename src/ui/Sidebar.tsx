@@ -33,18 +33,26 @@ export function Sidebar() {
 
       <nav className="side-nav">
         <NavLink to="/" end className={navClass}>
-          <span className="nav-dot" />
+          <svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <rect x="2.5" y="3.5" width="11" height="10" rx="2" />
+            <path d="M5 2v3M11 2v3M2.5 6.5h11" />
+          </svg>
           <span className="nav-grow">Today</span>
         </NavLink>
         <NavLink to="/drafts" className={navClass} aria-label={`Drafts, ${navigation?.draftCount ?? 0} pending`}>
-          <span className="nav-dot nav-dot-drafts" />
+          <svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4 2.5h5l3 3V12a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 4 12V2.5Z" />
+            <path d="M9 2.5v3h3M6.5 8.5h3M6.5 11h3" />
+          </svg>
           <span className="nav-grow">Drafts</span>
           {(navigation?.draftCount ?? 0) > 0 && (
             <span className="side-badge">{navigation?.draftCount}</span>
           )}
         </NavLink>
         <NavLink to="/stats" className={navClass}>
-          <span className="nav-dot nav-dot-stats" />
+          <svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2.5 13.5h11M4 13.5v-4h2v4M8 13.5v-7h2v7M12 13.5v-10h2v10" />
+          </svg>
           <span className="nav-grow">Stats</span>
         </NavLink>
       </nav>
