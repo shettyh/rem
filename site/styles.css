@@ -73,6 +73,7 @@ svg {
 
 img {
   max-width: 100%;
+  height: auto;
 }
 
 a {
@@ -426,10 +427,6 @@ h2 em {
   width: 100%;
 }
 
-.app-window img {
-  height: auto;
-}
-
 .approval-card {
   position: absolute;
   right: -15px;
@@ -703,17 +700,9 @@ h2 em {
   box-shadow: 0 28px 65px rgba(38, 32, 29, 0.16);
 }
 
-.light-shot {
-  margin-right: -150px;
-}
-
 .light-shot::before {
   top: -12%;
   right: 0;
-}
-
-.terminal-shot {
-  margin-left: -150px;
 }
 
 .terminal-shot::before {
@@ -967,12 +956,6 @@ h2 em {
     order: initial;
   }
 
-  .light-shot,
-  .terminal-shot {
-    width: 110%;
-    margin: 0 -5%;
-  }
-
   .feature-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -1153,12 +1136,6 @@ h2 em {
 
   .product-copy > p:not(.eyebrow) {
     font-size: 15px;
-  }
-
-  .light-shot,
-  .terminal-shot {
-    width: 115%;
-    margin-inline: -7.5%;
   }
 
   .feature-grid {
