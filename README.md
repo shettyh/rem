@@ -7,6 +7,8 @@
 [![License](https://img.shields.io/github/license/shettyh/rem?cacheSeconds=300)](LICENSE)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 
+[Website](https://shettyh.github.io/rem/) · [Download](https://github.com/shettyh/rem/releases/latest) · [CLI reference](docs/cli.md)
+
 rem turns useful work into durable memory. Agents can propose a few source-grounded recall prompts, you decide what enters your study plan, and accepted cards use the same FSRS-6 scheduler whether you review in the desktop app or terminal.
 
 ```text

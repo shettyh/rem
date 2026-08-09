@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="rem is local-first spaced repetition with human-approved agent capture, FSRS-6 scheduling, Markdown cards, and desktop and terminal study."
+    />
+    <meta name="theme-color" content="#f8f7f4" />
+    <meta property="og:title" content="rem — turn useful work into durable memory" />
+    <meta
+      property="og:description"
+      content="Local-first spaced repetition with agent-friendly capture and human approval."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://shettyh.github.io/rem/" />
+    <meta
+      property="og:image"
+      content="https://shettyh.github.io/rem/assets/rem-draft-approval.webp"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/png" href="./assets/favicon.png" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>rem — local-first spaced repetition</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <nav class="nav shell" aria-label="Main navigation">
+        <a class="brand" href="#top" aria-label="rem home">
+          <img src="./assets/favicon.png" width="34" height="34" alt="" />
+          <span>rem</span>
+          <span class="brand-dot" aria-hidden="true"></span>
+        </a>
+        <div class="nav-links">
+          <a href="#workflow">How it works</a>
+          <a href="#features">Features</a>
+          <a href="#install">Install</a>
+        </div>
+        <a class="github-link" href="https://github.com/shettyh/rem" aria-label="View rem on GitHub">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 .7a11.5 11.5 0 0 0-3.64 22.4c.58.1.79-.25.79-.56v-2.23c-3.22.7-3.9-1.37-3.9-1.37-.52-1.34-1.28-1.7-1.28-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.57-.3-5.27-1.29-5.27-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.16 1.18a10.9 10.9 0 0 1 5.76 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.71 5.39-5.29 5.68.42.36.79 1.06.79 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z" />
+          </svg>
+          <span>GitHub</span>
+        </a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero shell" id="top">
+        <div class="hero-copy">
+          <p class="eyebrow"><span></span> Local-first spaced repetition</p>
+          <h1>Turn useful work into <em>durable memory.</em></h1>
+          <p class="hero-lede">
+            rem helps agents propose source-grounded recall prompts. You stay in control of what
+            enters your study plan, then FSRS schedules it for the right time.
+          </p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="https://github.com/shettyh/rem/releases/latest">
+              Download latest release
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M8 2v8m0 0 3-3m-3 3L5 7M3 13h10" />
+              </svg>
+            </a>
+            <a class="button button-secondary" href="#install">Install the CLI</a>
+          </div>
+          <ul class="hero-facts" aria-label="Product highlights">
+            <li>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
+              No account
+            </li>
+            <li>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
+              Your data stays local
+            </li>
+            <li>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
+              Open source
+            </li>
+          </ul>
+        </div>
+
+        <div class="hero-visual" aria-label="The rem draft approval screen">
+          <div class="orbit orbit-one"></div>
+          <div class="orbit orbit-two"></div>
+          <div class="app-window">
+            <div class="window-bar" aria-hidden="true">
+              <span class="traffic red"></span><span class="traffic yellow"></span
+              ><span class="traffic green"></span>
+              <span class="window-title">rem · Drafts</span>
+            </div>
+            <picture>
+              <source type="image/webp" srcset="./assets/rem-draft-approval.webp" />
+              <img
+                src="./assets/rem-draft-approval.png"
+                width="1152"
+                height="720"
+                alt="A rem draft showing the question, proposed answer, rationale, sources, and accept or reject controls"
+              />
+            </picture>
+          </div>
+          <div class="approval-card" aria-hidden="true">
+            <span class="approval-icon">
+              <svg viewBox="0 0 18 18"><path d="m4 9 3 3 7-7" /></svg>
+            </span>
+            <span><strong>Human approved</strong><small>Ready to schedule</small></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="trust-strip" aria-label="Core technologies">
+        <div class="shell trust-list">
+          <span>Built for focused recall</span>
+          <span class="trust-divider"></span>
+          <strong>FSRS-6</strong>
+          <span class="trust-divider"></span>
+          <strong>Markdown</strong>
+          <span class="trust-divider"></span>
+          <strong>SQLite</strong>
+          <span class="trust-divider"></span>
+          <strong>Tauri</strong>
+          <span class="trust-divider"></span>
+          <strong>Git</strong>
+        </div>
+      </section>
+
+      <section class="section workflow-section shell" id="workflow">
+        <div class="section-heading centered-heading">
+          <p class="eyebrow">A deliberate capture loop</p>
+          <h2>Your agent can suggest.<br /><em>You decide what sticks.</em></h2>
+          <p>
+            Generated content never becomes a scheduled card by accident. Every prompt passes
+            through a simple, inspectable workflow.
+          </p>
+        </div>
+
+        <ol class="workflow-grid">
+          <li>
+            <span class="step-number">01</span>
+            <span class="step-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17.5V20h2.5L18 8.5 15.5 6 4 17.5ZM14 7.5l2.5 2.5M13 20h7" /></svg>
+            </span>
+            <h3>Do useful work</h3>
+            <p>Keep coding, researching, or writing with your agent as usual.</p>
+          </li>
+          <li>
+            <span class="step-number">02</span>
+            <span class="step-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 0-4 12.74V19h8v-3.26A7 7 0 0 0 12 3ZM9 22h6M9 12h6M12 9v6" /></svg>
+            </span>
+            <h3>Capture the insight</h3>
+            <p>The agent proposes a concise draft with its rationale and source.</p>
+          </li>
+          <li>
+            <span class="step-number">03</span>
+            <span class="step-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5 9 17l11-11M4 5h5M4 9h3" /></svg>
+            </span>
+            <h3>Try and approve</h3>
+            <p>Answer it, edit it, and accept only what belongs in your study plan.</p>
+          </li>
+          <li>
+            <span class="step-number">04</span>
+            <span class="step-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-13v5l3 2M8 2v3M16 2v3" /></svg>
+            </span>
+            <h3>Remember on time</h3>
+            <p>FSRS-6 schedules each review to build durable recall efficiently.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section product-section">
+        <div class="shell product-row">
+          <div class="product-copy">
+            <p class="eyebrow">Approval, not autopilot</p>
+            <h2>Keep generated content <em>reviewable and intentional.</em></h2>
+            <p>
+              Agent proposals remain local, editable, and unscheduled until you accept them. See
+              why a card matters and where it came from before it joins your reviews.
+            </p>
+            <ul class="check-list">
+              <li><span>✓</span> Try the question before accepting it</li>
+              <li><span>✓</span> Inspect rationale and source provenance</li>
+              <li><span>✓</span> Edit the card, deck, and tags</li>
+            </ul>
+          </div>
+          <figure class="product-shot light-shot">
+            <picture>
+              <source type="image/webp" srcset="./assets/rem-draft-approval.webp" />
+              <img
+                src="./assets/rem-draft-approval.png"
+                width="1152"
+                height="720"
+                alt="The rem desktop draft approval interface"
+              />
+            </picture>
+          </figure>
+        </div>
+
+        <div class="shell product-row product-row-reverse">
+          <div class="product-copy">
+            <p class="eyebrow">One review engine</p>
+            <h2>Study at your desk<br />or <em>stay in the terminal.</em></h2>
+            <p>
+              Desktop and terminal reviews use the same Rust StudySession. Card selection,
+              scheduling, daily limits, and history cannot drift apart.
+            </p>
+            <ul class="check-list">
+              <li><span>✓</span> Rich Markdown with code and images</li>
+              <li><span>✓</span> Fast, keyboard-first grading</li>
+              <li><span>✓</span> Preview the next FSRS intervals</li>
+            </ul>
+          </div>
+          <figure class="product-shot terminal-shot">
+            <img
+              src="./assets/rem-terminal-study.png"
+              width="1036"
+              height="661"
+              alt="A Markdown card being reviewed with rem study in the terminal"
+            />
+          </figure>
+        </div>
+      </section>
+
+      <section class="section features-section shell" id="features">
+        <div class="section-heading">
+          <p class="eyebrow">Built to remain yours</p>
+          <h2>A calm study tool with<br /><em>strong foundations.</em></h2>
+        </div>
+        <div class="feature-grid">
+          <article>
+            <span class="feature-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 7v5c0 4.5 3.2 7.7 8 9 4.8-1.3 8-4.5 8-9V7l-8-4Zm-3 9 2 2 4-4" /></svg>
+            </span>
+            <h3>Local by default</h3>
+            <p>Your decks, cards, assets, and complete review history live on your device.</p>
+          </article>
+          <article>
+            <span class="feature-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-14v5l4 2" /></svg>
+            </span>
+            <h3>Modern scheduling</h3>
+            <p>FSRS-6 adapts to your memory with configurable retention and learning steps.</p>
+          </article>
+          <article>
+            <span class="feature-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 9l2.5 3L8 15m5 0h3" /></svg>
+            </span>
+            <h3>Agent-first CLI</h3>
+            <p>Capture source-grounded drafts from Codex, Claude Code, pi, or your own scripts.</p>
+          </article>
+          <article>
+            <span class="feature-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13H5zM8 9h8M8 13h8M8 17h5" /></svg>
+            </span>
+            <h3>Rich Markdown</h3>
+            <p>Write naturally with code highlighting, images, GIFs, links, lists, and tags.</p>
+          </article>
+          <article>
+            <span class="feature-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10M17 7l-4-4m4 4-4 4M17 17H7V7m0 10 4 4m-4-4 4-4" /></svg>
+            </span>
+            <h3>Optional Git sync</h3>
+            <p>Sync through any remote using your existing Git credentials—no stored token.</p>
+          </article>
+          <article>
+            <span class="feature-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m5 10V5m6 14v-7m5 7V3" /></svg>
+            </span>
+            <h3>Actionable statistics</h3>
+            <p>Track recall, activity, streaks, grade distribution, and deck performance.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section install-section" id="install">
+        <div class="shell install-shell">
+          <div class="install-heading">
+            <p class="eyebrow">Start remembering</p>
+            <h2>Native where you study.<br /><em>Simple where you capture.</em></h2>
+            <p>
+              Install the desktop app and CLI together on macOS or Linux, or download the package
+              for your platform from GitHub Releases.
+            </p>
+            <a class="button button-primary" href="https://github.com/shettyh/rem/releases/latest">
+              View all downloads
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10m0 0-4-4m4 4-4 4" /></svg>
+            </a>
+          </div>
+
+          <div class="command-stack">
+            <div class="command-card">
+              <div class="command-label">
+                <span>macOS &amp; Linux</span>
+                <span>App + CLI</span>
+              </div>
+              <code><span>$</span> curl -fsSL https://raw.githubusercontent.com/shettyh/rem/main/install.sh | sh</code>
+            </div>
+            <div class="command-card">
+              <div class="command-label">
+                <span>Agent skill</span>
+                <span>Codex · Claude Code · pi</span>
+              </div>
+              <code><span>$</span> npx skills add shettyh/rem --skill rem-card-capture --global</code>
+            </div>
+            <p class="install-note">
+              Windows installers and a standalone CLI zip are available from Releases. Current
+              macOS and Windows builds are unsigned; see the
+              <a href="https://github.com/shettyh/rem#unsigned-build-notice">launch instructions</a>.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="closing-section shell">
+        <img src="./assets/favicon.png" width="72" height="72" alt="" />
+        <p class="eyebrow">Remember what matters</p>
+        <h2>Keep the insight.<br /><em>Not just the output.</em></h2>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://github.com/shettyh/rem/releases/latest">Download rem</a>
+          <a class="button button-secondary" href="https://github.com/shettyh/rem">Explore the source</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <a class="brand" href="#top" aria-label="Back to top">
+          <img src="./assets/favicon.png" width="30" height="30" alt="" />
+          <span>rem</span>
+        </a>
+        <p>Local-first spaced repetition for durable memory.</p>
+        <div class="footer-links">
+          <a href="https://github.com/shettyh/rem/blob/main/docs/cli.md">CLI docs</a>
+          <a href="https://github.com/shettyh/rem/blob/main/docs/ROADMAP.md">Roadmap</a>
+          <a href="https://github.com/shettyh/rem/releases">Releases</a>
+          <a href="https://github.com/shettyh/rem/blob/main/LICENSE">Apache-2.0</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
