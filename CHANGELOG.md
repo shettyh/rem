@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0 (2026-08-09)
+
+## What's Changed
+* feat: distribute the agent skill universally by @shettyh in https://github.com/shettyh/rem/pull/82
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.10.1...v0.11.0
+
 ## 0.10.1 (2026-08-09)
 
 ## What's Changed
