@@ -1,6 +1,7 @@
 ---
 name: rem-card-capture
 description: Proposes high-quality spaced-repetition drafts in the user's local rem collection through the machine-readable rem CLI. Use when the user asks to capture notes, facts, questions, or study material as rem cards.
+license: Apache-2.0
 compatibility: Requires the rem CLI on PATH and an existing target deck.
 ---
 
@@ -54,4 +55,6 @@ The result is pending human approval, not a scheduled card. The user can review 
 in the desktop sidebar. Drafts are local-only and do not reach Git sync or backup. Never claim they
 were accepted, scheduled, or synced.
 
-See [the full CLI reference](../../../docs/cli.md) for schemas, errors, and exit codes.
+Run `rem --help` or `rem draft add --help` for the installed command reference. See the
+[full CLI reference](https://github.com/shettyh/rem/blob/main/docs/cli.md) for schemas, errors,
+and exit codes.
