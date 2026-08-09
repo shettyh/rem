@@ -22,7 +22,17 @@ agent does useful work → proposes drafts → you try, edit, and approve → FS
 
 ## See rem in action
 
-### Study in the terminal
+### Review agent proposals in the desktop app
+
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/rem-draft-approval.png">
+  <source type="image/webp" srcset="docs/assets/rem-draft-approval.webp">
+  <img alt="A rem desktop draft showing its proposed answer, rationale, source, and approval controls" src="docs/assets/rem-draft-approval.png">
+</picture>
+
+Agent proposals remain local and unscheduled while you try the question, inspect its provenance, edit it, and decide whether it belongs in your study plan.
+
+### Study accepted cards in the terminal
 
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/rem-terminal-study.png">
@@ -30,13 +40,6 @@ agent does useful work → proposes drafts → you try, edit, and approve → FS
 </picture>
 
 The terminal UI renders Markdown, previews the next FSRS intervals, and writes reviews to the same collection used by the desktop app.
-
-### Or use the desktop app
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/rem-review-dark.png">
-  <img alt="Reviewing a card in the rem desktop app" src="docs/assets/rem-review.png">
-</picture>
 
 ## Features
 
