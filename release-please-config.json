@@ -12,6 +12,7 @@
       "pull-request-title-pattern": "chore: release v${version}",
       "draft": true,
       "force-tag-creation": true,
+      "exclude-paths": ["site"],
       "extra-files": [
         {
           "type": "json",
