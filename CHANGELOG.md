@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.2 (2026-08-10)
+
+## What's Changed
+* fix(deps): resolve lru security advisory by @shettyh in https://github.com/shettyh/rem/pull/94
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.12.1...v0.12.2
+
 ## 0.12.1 (2026-08-10)
 
 ## What's Changed
