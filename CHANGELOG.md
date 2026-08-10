@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.0 (2026-08-10)
+
+## What's Changed
+* fix(site): preserve hero image aspect ratio by @shettyh in https://github.com/shettyh/rem/pull/86
+* fix(site): make screenshots responsive by @shettyh in https://github.com/shettyh/rem/pull/87
+* docs(site): sharpen AI-assisted work pitch by @shettyh in https://github.com/shettyh/rem/pull/88
+* feat(review): improve study reading layout by @shettyh in https://github.com/shettyh/rem/pull/89
+* docs(site): broaden durable understanding pitch by @shettyh in https://github.com/shettyh/rem/pull/91
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.11.1...v0.12.0
+
 ## 0.11.1 (2026-08-09)
 
 ## What's Changed
