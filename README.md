@@ -1,6 +1,6 @@
 # rem
 
-**Local-first spaced repetition with agent-friendly CLI capture, FSRS-6 scheduling, Markdown cards, and optional Git sync.**
+**Local-first spaced repetition for durable understanding, with agent-friendly CLI capture, FSRS-6 scheduling, Markdown cards, and optional Git sync.**
 
 [![CI](https://github.com/shettyh/rem/actions/workflows/ci.yml/badge.svg)](https://github.com/shettyh/rem/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/shettyh/rem)](https://github.com/shettyh/rem/releases/latest)
@@ -9,13 +9,13 @@
 
 [Website](https://shettyh.github.io/rem/) · [Download](https://github.com/shettyh/rem/releases/latest) · [CLI reference](docs/cli.md)
 
-rem turns useful work into durable memory. Agents can propose a few source-grounded recall prompts, you decide what enters your study plan, and accepted cards use the same FSRS-6 scheduler whether you review in the desktop app or terminal.
+Use rem to build a durable understanding of the system you are working in—or any topic. Agents can turn code, documentation, research, or other source material into a few source-grounded recall prompts; you decide what enters your study plan, and accepted cards use the same FSRS-6 scheduler whether you review in the desktop app or terminal.
 
 ```text
-agent does useful work → proposes drafts → you try, edit, and approve → FSRS schedules → you study
+explore a system or topic → agent proposes drafts → you try, edit, and approve → FSRS schedules → you study
 ```
 
-- **Human-approved agent capture** — generated content remains an unscheduled local draft until you accept it.
+- **Human-approved agent capture** — agents can generate cards from the material at hand, but each proposal remains an unscheduled local draft until you accept it.
 - **One review engine** — desktop and terminal study share the same Rust `StudySession`, scheduling rules, limits, and history.
 - **Local by default** — your SQLite collection needs no account or hosted service and remains exportable.
 
@@ -51,7 +51,7 @@ The terminal UI renders Markdown, previews the next FSRS intervals, and writes r
 - **Fast review flow** — study in the desktop app or terminal with keyboard shortcuts, four grades, interval previews, and shared FSRS scheduling.
 - **Actionable statistics** — review activity, recall rate, streaks, grade distribution, and per-deck breakdowns.
 - **Portable data** — import and export full-fidelity JSON backups.
-- **Agent-first CLI capture** — agents propose source-grounded drafts for human approval; trusted workflows can still create Markdown cards directly.
+- **Agent-first CLI capture** — agents turn codebases, research, and other source material into source-grounded drafts for human approval; trusted workflows can still create Markdown cards directly.
 - **Optional Git sync** — sync through any Git remote using your existing system credentials; rem does not store an access token.
 - **Calm desktop design** — quiet light and dark themes keep reviews focused and primary actions clear.
 
