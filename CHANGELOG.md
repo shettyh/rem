@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.1 (2026-08-10)
+
+## What's Changed
+* fix(skill): strengthen rem capture policy by @shettyh in https://github.com/shettyh/rem/pull/92
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.12.0...v0.12.1
+
 ## 0.12.0 (2026-08-10)
 
 ## What's Changed
