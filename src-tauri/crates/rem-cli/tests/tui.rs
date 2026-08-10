@@ -36,7 +36,7 @@ fn rendered(app: &StudyApp, width: u16, height: u16) -> String {
         .map(|y| {
             let mut line = String::new();
             for x in 0..width {
-                line.push_str(buffer.get(x, y).symbol());
+                line.push_str(buffer[(x, y)].symbol());
             }
             line.trim_end().to_owned()
         })
@@ -158,13 +158,13 @@ fn markdown_terminal_styles_are_preserved_in_the_rendered_frame() {
     terminal.draw(|frame| draw(frame, &app)).unwrap();
     let buffer = terminal.backend().buffer();
 
-    assert!(buffer.get(0, 5).modifier.contains(Modifier::BOLD));
-    assert_eq!(buffer.get(0, 5).fg, Color::Cyan);
-    assert!(buffer.get(4, 7).modifier.contains(Modifier::BOLD));
-    assert!(buffer.get(11, 10).modifier.contains(Modifier::ITALIC));
-    assert!(buffer.get(2, 11).modifier.contains(Modifier::UNDERLINED));
-    assert_eq!(buffer.get(0, 13).fg, Color::Yellow);
-    assert_eq!(buffer.get(2, 15).fg, Color::Yellow);
+    assert!(buffer[(0, 5)].modifier.contains(Modifier::BOLD));
+    assert_eq!(buffer[(0, 5)].fg, Color::Cyan);
+    assert!(buffer[(4, 7)].modifier.contains(Modifier::BOLD));
+    assert!(buffer[(11, 10)].modifier.contains(Modifier::ITALIC));
+    assert!(buffer[(2, 11)].modifier.contains(Modifier::UNDERLINED));
+    assert_eq!(buffer[(0, 13)].fg, Color::Yellow);
+    assert_eq!(buffer[(2, 15)].fg, Color::Yellow);
 }
 
 #[test]

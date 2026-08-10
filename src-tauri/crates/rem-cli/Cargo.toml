@@ -4,7 +4,7 @@ version = "0.12.1"
 description = "Terminal interface for rem"
 license = "Apache-2.0"
 edition = "2021"
-rust-version = "1.77.2"
+rust-version = "1.88"
 
 [[bin]]
 name = "rem"
@@ -14,7 +14,7 @@ path = "src/main.rs"
 clap = { version = "=4.5.4", features = ["derive"] }
 crossterm = "0.27"
 pulldown-cmark = { version = "0.10.3", default-features = false }
-ratatui = "0.26.3"
+ratatui = "0.30.2"
 rem-core = { path = "../rem-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
