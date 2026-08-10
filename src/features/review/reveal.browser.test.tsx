@@ -32,7 +32,6 @@ test('revealing shows the answer and grade buttons', async () => {
   const showAnswerLocator = page.getByRole('button', { name: 'Show answer', exact: false })
   const showAnswer = showAnswerLocator.element()
   const endSession = page.getByRole('link', { name: 'End session' }).element()
-  const questionHeight = questionCard.getBoundingClientRect().height
   const questionAlign = getComputedStyle(questionCard.querySelector<HTMLElement>('.review-q')!).textAlign
   expect(showAnswer.getBoundingClientRect().width).toBeLessThan(
     questionCard.getBoundingClientRect().width / 2,
@@ -47,24 +46,19 @@ test('revealing shows the answer and grade buttons', async () => {
   const good = page.getByRole('button', { name: 'Good', exact: false })
   await expect.element(good).toBeVisible()
   const answerCard = page.getByText('A — the answer.').element().closest<HTMLElement>('.review-card')!
-  expect(answerCard.getBoundingClientRect().height).toBe(questionHeight)
   expect(getComputedStyle(answerCard.querySelector<HTMLElement>('.review-q')!).textAlign).toBe(questionAlign)
 
   const hard = page.getByRole('button', { name: 'Hard', exact: false }).element()
   const easy = page.getByRole('button', { name: 'Easy', exact: false }).element()
   const again = page.getByRole('button', { name: 'Again', exact: false }).element()
   const gradeRow = good.element().closest<HTMLElement>('.grade-row')!
-  expect(getComputedStyle(gradeRow).borderTopWidth).toBe('1px')
-  expect(getComputedStyle(gradeRow).columnGap).toBe('0px')
-  expect(getComputedStyle(hard).borderTopWidth).toBe('0px')
-  await page.getByText('A — the answer.').hover()
+  expect(getComputedStyle(gradeRow).borderTopWidth).toBe('0px')
+  expect(getComputedStyle(gradeRow).columnGap).toBe('8px')
+  expect(getComputedStyle(hard).flexDirection).toBe('row')
+  expect(hard.querySelector('.grade-key')).toBeTruthy()
   expect(getComputedStyle(easy).backgroundColor).toBe(getComputedStyle(hard).backgroundColor)
-  await vi.waitFor(() => {
-    expect(getComputedStyle(good.element()).backgroundColor).toBe(getComputedStyle(hard).backgroundColor)
-  })
-  expect(
-    getComputedStyle(good.element().querySelector<HTMLElement>('.grade-label')!).fontWeight,
-  ).toBe(getComputedStyle(hard.querySelector<HTMLElement>('.grade-label')!).fontWeight)
+  expect(getComputedStyle(good.element()).backgroundColor)
+    .not.toBe(getComputedStyle(hard).backgroundColor)
   expect(
     getComputedStyle(again.querySelector<HTMLElement>('.grade-label')!).color,
   ).not.toBe(getComputedStyle(hard.querySelector<HTMLElement>('.grade-label')!).color)
@@ -72,6 +66,36 @@ test('revealing shows the answer and grade buttons', async () => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+})
+
+test('revealed content uses readable question and answer regions', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('TypeScript')
+  await storage.createCard(
+    deck.id,
+    'Why does `never` represent an impossible value?',
+    'Because no runtime value can be assigned to the `never` type.',
+  )
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+
+  const question = page.getByRole('region', { name: 'Question' })
+  const answer = page.getByRole('region', { name: 'Answer' })
+  await expect.element(question).toBeVisible()
+  await expect.element(answer).toBeVisible()
+
+  const answerContent = answer.element().querySelector<HTMLElement>('.review-a')!
+  const typography = getComputedStyle(answerContent)
+  expect(typography.fontFamily).toBe(getComputedStyle(document.body).fontFamily)
+  expect(Number.parseFloat(typography.fontSize)).toBeLessThanOrEqual(24)
+  expect(Number.parseFloat(typography.lineHeight) / Number.parseFloat(typography.fontSize))
+    .toBeGreaterThanOrEqual(1.5)
 })
 
 test('progress advances through a multi-card session', async () => {
@@ -209,7 +233,7 @@ test('a stale native grade conflict is explained and not counted as a review', a
   expect(commit).not.toHaveBeenCalled()
 })
 
-test('a long answer renders after reveal', async () => {
+test('grading controls stay available while a long answer scrolls', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Long')
   const longBack =
@@ -226,7 +250,17 @@ test('a long answer renders after reveal', async () => {
 
   await page.getByRole('button', { name: 'Show answer', exact: false }).click()
 
-  await expect.element(page.getByText('The final distinctive closing phrase.')).toBeVisible()
+  const grades = page.getByRole('group', { name: 'Grade answer' })
+  await expect.element(grades).toBeVisible()
+  const dockTop = grades.element().getBoundingClientRect().top
+  expect(grades.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(window.innerHeight)
+
+  const closingPhrase = page.getByText('The final distinctive closing phrase.')
+  closingPhrase.element().scrollIntoView({ block: 'end' })
+  await new Promise((resolve) => requestAnimationFrame(resolve))
+
+  expect(closingPhrase.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(window.innerHeight)
+  expect(grades.element().getBoundingClientRect().top).toBe(dockTop)
 })
 
 test('enforces newPerDay: only the day\'s new allowance enters the session', async () => {

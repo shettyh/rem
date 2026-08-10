@@ -31,7 +31,7 @@ export function GradeButtons({
   onGrade: (grade: Grade) => void
 }) {
   return (
-    <div className="grade-row">
+    <div className="grade-row" role="group" aria-label="Grade answer">
       {GRADES.map(({ grade, label, key }) => (
         <button
           key={grade}
@@ -39,9 +39,9 @@ export function GradeButtons({
           className={`grade grade-${grade}`}
           onClick={() => onGrade(grade)}
         >
+          <span className="grade-key">{key}</span>
           <span className="grade-label">{label}</span>
           <span className="grade-hint">{formatInterval(nexts[grade].due - now)}</span>
-          <span className="kbd">{key}</span>
         </button>
       ))}
     </div>
