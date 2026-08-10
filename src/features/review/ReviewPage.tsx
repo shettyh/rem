@@ -235,57 +235,66 @@ export function ReviewPage() {
       >
         <span style={{ width: `${Math.min(100, (position / total) * 100)}%` }} />
       </div>
-      <div className="review">
-        {leechMessage && <p className="review-notice" role="status">{leechMessage}</p>}
-        {conflictNotice && (
-          <p className="review-notice" role="alert">
-            A changed card was skipped instead of grading stale content.
-          </p>
-        )}
-        {!displayedRevealed ? (
-          <div className="review-stage">
-            <div className="review-card">
-              <div className="review-q">
-                <MarkdownView source={current.front} />
+      <div className={`review${displayedRevealed ? ' is-revealed' : ''}`}>
+        <div className="review-scroll">
+          <div className={`review-stage${displayedRevealed ? ' reveal-enter' : ''}`}>
+            {leechMessage && <p className="review-notice" role="status">{leechMessage}</p>}
+            {conflictNotice && (
+              <p className="review-notice" role="alert">
+                A changed card was skipped instead of grading stale content.
+              </p>
+            )}
+            {!displayedRevealed ? (
+              <div className="review-card">
+                <section className="review-question" aria-label="Question">
+                  <p className="review-label">Question</p>
+                  <div className="review-q">
+                    <MarkdownView source={current.front} />
+                  </div>
+                </section>
               </div>
-            </div>
-            <div className="review-actions">
+            ) : (
+              <div className="review-card revealed">
+                <section className="review-question" aria-label="Question">
+                  <p className="review-label">Question</p>
+                  <div className="review-q">
+                    <MarkdownView source={current.front} />
+                  </div>
+                </section>
+                <hr className="review-rule" />
+                <section className="review-answer" aria-label="Answer">
+                  <p className="review-label">Answer</p>
+                  <div className="review-a">
+                    <MarkdownView source={current.back} />
+                  </div>
+                </section>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="review-dock">
+          <div className="review-actions">
+            {!displayedRevealed ? (
               <button className="btn btn-primary review-show" onClick={reveal}>
                 Show answer <span className="kbd">space</span>
               </button>
-            </div>
-          </div>
-        ) : (
-          <div className="review-stage reveal-enter">
-            <div className="review-card revealed">
-              <div className="review-q">
-                <MarkdownView source={current.front} />
-              </div>
-              <hr className="review-rule" />
-              <p className="answer-label">Answer</p>
-              <div className="review-a">
-                <MarkdownView source={current.back} />
-              </div>
-            </div>
-            <div className="review-actions">
-              {isPreview ? (
-                <button className="btn btn-primary review-show" onClick={advancePreview}>
-                  Next card <span className="kbd">space</span>
+            ) : isPreview ? (
+              <button className="btn btn-primary review-show" onClick={advancePreview}>
+                Next card <span className="kbd">space</span>
+              </button>
+            ) : view.nextStates ? (
+              <GradeButtons nexts={view.nextStates} now={revealedAt} onGrade={grade} />
+            ) : null}
+            {!isPreview && schedError && !view.nextStates && (
+              <div className="review-schedule-error" role="alert">
+                <p>Couldn&#39;t schedule this card.</p>
+                <button className="btn btn-ghost" onClick={reveal}>
+                  Retry
                 </button>
-              ) : view.nextStates ? (
-                <GradeButtons nexts={view.nextStates} now={revealedAt} onGrade={grade} />
-              ) : null}
-              {!isPreview && schedError && !view.nextStates && (
-                <div className="review-schedule-error" role="alert">
-                  <p>Couldn&#39;t schedule this card.</p>
-                  <button className="btn btn-ghost" onClick={reveal}>
-                    Retry
-                  </button>
-                </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </>
   )
