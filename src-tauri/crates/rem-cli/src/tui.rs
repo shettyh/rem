@@ -131,7 +131,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &StudyApp) {
             Constraint::Min(1),
             Constraint::Length(3),
         ])
-        .split(frame.size());
+        .split(frame.area());
 
     let total = app.view.reviewed + app.view.remaining;
     let progress = if app.view.current.is_some() {
@@ -157,7 +157,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &StudyApp) {
             None => None,
         })
         .unwrap_or_default();
-    let rule = "─".repeat(frame.size().width as usize);
+    let rule = "─".repeat(frame.area().width as usize);
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(vec![
