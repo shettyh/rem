@@ -1,16 +1,22 @@
 // src/features/cards/CardEditorPage.browser.test.tsx
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render } from 'vitest-browser-react'
-import { userEvent } from '@vitest/browser/context'
+import { page, userEvent } from 'vitest/browser'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import Dexie from 'dexie'
 import { RemDB } from '../../data/dexie/db'
 import { DexieStorage } from '../../data/dexie/DexieStorage'
 import { StorageProvider } from '../../data/StorageContext'
 import { CardEditorPage } from './CardEditorPage'
+import { freshStorage } from '../../test/seed'
+import { renderRoute } from '../../test/renderRoute'
 
 beforeEach(async () => {
   await Dexie.delete('rem-editorpage')
+})
+
+afterEach(async () => {
+  await page.viewport(1280, 800)
 })
 
 function renderAt(storage: DexieStorage, path: string) {
@@ -69,6 +75,88 @@ describe('CardEditorPage', () => {
     expect(getComputedStyle(front).fontSize).toBe(getComputedStyle(back).fontSize)
     expect(getComputedStyle(front).lineHeight).toBe(getComputedStyle(back).lineHeight)
     expect(getComputedStyle(front).fontFamily).toBe(getComputedStyle(document.body).fontFamily)
+  })
+
+  it('keeps essential card field labels legible', async () => {
+    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const deck = await storage.createDeck('D')
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
+
+    for (const text of ['Front', 'Back', 'Tags']) {
+      const label = screen.getByText(text, { exact: true }).element()
+      expect(Number.parseFloat(getComputedStyle(label).fontSize)).toBeGreaterThanOrEqual(12)
+    }
+  })
+
+  it('keeps image formatting reachable at the minimum app width', async () => {
+    await page.viewport(760, 540)
+    const storage = freshStorage()
+    const deck = await storage.createDeck('Images')
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120"><rect width="320" height="120" fill="#8174ff"/></svg>'
+    const asset = await storage.putAsset(new TextEncoder().encode(svg), 'image/svg+xml')
+    const card = await storage.createCard(deck.id, `![Diagram](asset:${asset.hash})`, 'Explanation')
+    await renderRoute({
+      storage,
+      entry: `/decks/${deck.id}/cards/${card.id}/edit`,
+      path: '/decks/:deckId/cards/:cardId/edit',
+      element: <CardEditorPage />,
+    })
+
+    const image = page.getByRole('img', { name: 'Diagram' })
+    await expect.element(image).toBeVisible()
+    await image.click()
+    await expect.poll(() => image.element().classList.contains('ProseMirror-selectednode')).toBe(true)
+    const alignRight = page.getByRole('button', { name: 'Align right' })
+    await expect.element(alignRight).toBeVisible()
+
+    const content = document.querySelector<HTMLElement>('.content')!
+    const toolbar = document.querySelector<HTMLElement>('.md-toolbar-bar')!
+    expect(content.scrollWidth).toBe(content.clientWidth)
+    expect(getComputedStyle(toolbar).overflowX).toBe('auto')
+
+    alignRight.element().scrollIntoView({ block: 'nearest', inline: 'end' })
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    expect(alignRight.element().getBoundingClientRect().right)
+      .toBeLessThanOrEqual(toolbar.getBoundingClientRect().right)
+
+    await alignRight.click()
+    await expect.poll(() => document.querySelector<HTMLImageElement>('.rich-editor-content img')?.dataset.align)
+      .toBe('right')
+  })
+
+  it('keeps a large rich answer readable and saveable while editing', async () => {
+    await page.viewport(760, 540)
+    const storage = freshStorage()
+    const deck = await storage.createDeck('Rich cards')
+    const details = Array.from(
+      { length: 10 },
+      (_, index) => `Editing detail ${index + 1} remains part of the answer.`,
+    ).join('\n\n')
+    const back = `> A quoted principle should remain visually distinct.\n\n` +
+      '```ts\nconst readable = true\n```\n\n' +
+      `${details}\n\nFinal editable answer line.`
+    const card = await storage.createCard(deck.id, 'How should this appear?', back)
+    await renderRoute({
+      storage,
+      entry: `/decks/${deck.id}/cards/${card.id}/edit`,
+      path: '/decks/:deckId/cards/:cardId/edit',
+      element: <CardEditorPage />,
+    })
+
+    const backField = document.querySelector<HTMLElement>('.editor-field--back')!
+    await expect.poll(() => backField.querySelector('blockquote')).not.toBeNull()
+    const quote = backField.querySelector<HTMLElement>('blockquote')!
+    const code = backField.querySelector<HTMLElement>('pre')!
+    expect(Number.parseFloat(getComputedStyle(quote).borderLeftWidth)).toBeGreaterThanOrEqual(2)
+    expect(Number.parseFloat(getComputedStyle(code).fontSize)).toBeGreaterThanOrEqual(16)
+
+    const save = page.getByRole('button', { name: 'Save card' })
+    const closing = page.getByText('Final editable answer line.', { exact: true })
+    closing.element().scrollIntoView({ block: 'end' })
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+
+    await expect.element(save).toBeVisible()
+    expect(closing.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(window.innerHeight)
   })
 
   it('warns before discarding unsaved changes', async () => {

@@ -12,6 +12,27 @@ import { renderRoute } from './renderRoute'
 import { shoot } from './screenshot'
 
 const CODE_BACK = 'Use a guard:\n\n```ts\nfunction f(x: unknown) {\n  if (typeof x === "string") return x\n}\n```'
+const RICH_EDITOR_BACK = `## Readable answer
+
+> Preserve hierarchy when an answer mixes several kinds of content.
+
+- Keep prose at a comfortable measure.
+- Keep grading controls available.
+- Let wide content scroll locally.
+
+\`\`\`ts
+function normalize(input: string): string {
+  return input.trim().toLowerCase()
+}
+\`\`\`
+
+[Read the WCAG text-spacing guidance](https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html)`
+const RICH_BACK = `${RICH_EDITOR_BACK}
+
+| Content | Treatment |
+| --- | --- |
+| Prose | Comfortable reading size |
+| Code | Locally scrollable block |`
 
 type Storage = ReturnType<typeof freshStorage>
 
@@ -176,6 +197,21 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
     },
   },
   {
+    name: 'card-editor-rich',
+    run: async () => {
+      const storage = freshStorage()
+      const deck = await storage.createDeck('TypeScript')
+      const card = await storage.createCard(deck.id, 'How should a rich answer read?', RICH_EDITOR_BACK)
+      await renderRoute({
+        storage,
+        entry: `/decks/${deck.id}/cards/${card.id}/edit`,
+        path: '/decks/:deckId/cards/:cardId/edit',
+        element: <CardEditorPage />,
+      })
+      await expect.element(page.getByText('Preserve hierarchy', { exact: false })).toBeVisible()
+    },
+  },
+  {
     name: 'review-question',
     run: async () => {
       const storage = freshStorage()
@@ -194,6 +230,17 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       await renderRoute({ storage, entry: `/decks/${deck.id}/study`, path: '/decks/:deckId/study', element: <ReviewPage /> })
       await page.getByRole('button', { name: 'Show answer', exact: false }).click()
       await expect.element(page.getByText('no value is assignable', { exact: false })).toBeVisible()
+    },
+  },
+  {
+    name: 'review-rich-answer',
+    run: async () => {
+      const storage = freshStorage()
+      const deck = await storage.createDeck('TypeScript')
+      await storage.createCard(deck.id, 'How should a rich answer read?', RICH_BACK)
+      await renderRoute({ storage, entry: `/decks/${deck.id}/study`, path: '/decks/:deckId/study', element: <ReviewPage /> })
+      await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+      await expect.element(page.getByRole('heading', { name: 'Readable answer' })).toBeVisible()
     },
   },
   {

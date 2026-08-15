@@ -585,6 +585,48 @@ select.text-input {
 .markdown li > p {
   margin: 0;
 }
+.rich-editor-content a,
+.markdown a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.16em;
+}
+.rich-editor-content a:focus-visible,
+.markdown a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.rich-editor-content blockquote,
+.markdown blockquote {
+  margin: 1em 0;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid var(--border-strong);
+  color: var(--muted);
+}
+.rich-editor-content blockquote > :last-child,
+.markdown blockquote > :last-child {
+  margin-bottom: 0;
+}
+.markdown table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 var(--space-4);
+  border-collapse: collapse;
+}
+.markdown th,
+.markdown td {
+  min-width: 10ch;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.markdown th {
+  font-weight: 650;
+}
 
 /* ─── Rich (WYSIWYG) editor ────────────────────────────────────────────── */
 .rich-editor {
@@ -617,7 +659,7 @@ select.text-input {
   padding: 12px 14px;
   border-radius: var(--radius-md);
   overflow-x: auto;
-  font-size: var(--text-base);
+  font-size: 16px;
   line-height: 1.5;
 }
 .rich-editor-content pre code.hljs,
@@ -1224,7 +1266,8 @@ select.text-input {
 }
 .review:not(.is-revealed) .review-scroll {
   display: grid;
-  place-items: center;
+  align-items: safe center;
+  justify-items: center;
 }
 .review-terminal {
   min-height: calc(100vh - var(--page-header-h));
@@ -1279,7 +1322,7 @@ select.text-input {
 .review-label {
   margin: 0 0 10px;
   color: var(--faint);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1397,18 +1440,18 @@ select.text-input {
 .grade-key {
   color: var(--faint);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
 }
 .grade-label {
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 650;
 }
 .grade-hint {
   margin-left: auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .grade-good {
@@ -1436,7 +1479,7 @@ select.text-input {
 .btn-primary .kbd {
   border: none;
   background: rgba(255, 255, 255, 0.18);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12px;
   padding: 4px 10px;
   border-radius: 7px;
@@ -1758,8 +1801,15 @@ select.text-input {
   position: sticky;
   top: var(--page-header-h);
   z-index: 5;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
   padding: 12px 0;
   background: var(--bg);
+  scrollbar-width: none;
+}
+.md-toolbar-bar::-webkit-scrollbar {
+  display: none;
 }
 .md-toolbar {
   display: inline-flex;
@@ -1916,7 +1966,7 @@ select.text-input {
 .editor-field-label {
   padding: 13px 20px 0;
   color: var(--faint);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1948,7 +1998,7 @@ select.text-input {
 }
 .field-rule-label {
   color: var(--faint);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
