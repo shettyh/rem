@@ -64,8 +64,44 @@ test('revealing shows the answer and grade buttons', async () => {
   ).not.toBe(getComputedStyle(hard.querySelector<HTMLElement>('.grade-label')!).color)
 })
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks()
+  delete document.documentElement.dataset.theme
+  await page.viewport(1280, 800)
+})
+
+function relativeLuminance(color: string): number {
+  const [red, green, blue] = color.match(/[\d.]+/g)!.slice(0, 3).map(Number)
+    .map((channel) => {
+      const value = channel / 255
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+    })
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const lighter = Math.max(relativeLuminance(foreground), relativeLuminance(background))
+  const darker = Math.min(relativeLuminance(foreground), relativeLuminance(background))
+  return (lighter + 0.05) / (darker + 0.05)
+}
+
+test('dark primary review action has readable text contrast', async () => {
+  document.documentElement.dataset.theme = 'dark'
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Contrast')
+  await storage.createCard(deck.id, 'Question', 'Answer')
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  const showAnswer = page.getByRole('button', { name: 'Show answer', exact: false })
+  await expect.element(showAnswer).toBeVisible()
+  const style = getComputedStyle(showAnswer.element())
+
+  expect(contrastRatio(style.color, style.backgroundColor)).toBeGreaterThanOrEqual(4.5)
 })
 
 test('revealed content uses readable question and answer regions', async () => {
@@ -96,6 +132,33 @@ test('revealed content uses readable question and answer regions', async () => {
   expect(Number.parseFloat(typography.fontSize)).toBeLessThanOrEqual(24)
   expect(Number.parseFloat(typography.lineHeight) / Number.parseFloat(typography.fontSize))
     .toBeGreaterThanOrEqual(1.5)
+})
+
+test('review labels and grading controls remain legible', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Readable controls')
+  await storage.createCard(deck.id, 'Question', 'Answer')
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  const showAnswer = page.getByRole('button', { name: 'Show answer', exact: false })
+  await expect.element(showAnswer).toBeVisible()
+  const question = page.getByRole('region', { name: 'Question' }).element()
+  const questionLabel = question.querySelector<HTMLElement>('.review-label')!
+  expect(Number.parseFloat(getComputedStyle(questionLabel).fontSize)).toBeGreaterThanOrEqual(12)
+
+  await showAnswer.click()
+  const good = page.getByRole('button', { name: 'Good', exact: false }).element()
+  expect(Number.parseFloat(getComputedStyle(good.querySelector<HTMLElement>('.grade-label')!).fontSize))
+    .toBeGreaterThanOrEqual(14)
+  expect(Number.parseFloat(getComputedStyle(good.querySelector<HTMLElement>('.grade-hint')!).fontSize))
+    .toBeGreaterThanOrEqual(13)
+  expect(Number.parseFloat(getComputedStyle(good.querySelector<HTMLElement>('.grade-key')!).fontSize))
+    .toBeGreaterThanOrEqual(11)
 })
 
 test('progress advances through a multi-card session', async () => {
@@ -233,7 +296,99 @@ test('a stale native grade conflict is explained and not counted as a review', a
   expect(commit).not.toHaveBeenCalled()
 })
 
-test('grading controls stay available while a long answer scrolls', async () => {
+test('a long question remains reachable from its opening through its closing line', async () => {
+  await page.viewport(760, 540)
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Long question')
+  const paragraphs = Array.from(
+    { length: 12 },
+    (_, index) => `Prompt detail ${index + 1}: explain how this condition affects the result and why it matters.`,
+  )
+  await storage.createCard(
+    deck.id,
+    ['Opening instruction for the question.', ...paragraphs, 'Final condition for the question.'].join('\n\n'),
+    'Answer',
+  )
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await expect.element(page.getByRole('button', { name: 'Show answer', exact: false })).toBeVisible()
+  const reviewScroll = document.querySelector<HTMLElement>('.review-scroll')!
+  const opening = page.getByText('Opening instruction for the question.', { exact: true }).element()
+  const closing = page.getByText('Final condition for the question.', { exact: true }).element()
+  const scrollBounds = reviewScroll.getBoundingClientRect()
+
+  expect(reviewScroll.scrollHeight).toBeGreaterThan(reviewScroll.clientHeight)
+  expect(opening.getBoundingClientRect().top).toBeGreaterThanOrEqual(scrollBounds.top)
+
+  closing.scrollIntoView({ block: 'end' })
+  await new Promise((resolve) => requestAnimationFrame(resolve))
+  expect(closing.getBoundingClientRect().bottom).toBeLessThanOrEqual(scrollBounds.bottom)
+})
+
+test('a large rich answer stays readable while its grading controls remain available', async () => {
+  await page.viewport(760, 540)
+  document.documentElement.dataset.theme = 'dark'
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Rich answer')
+  const explanation = Array.from(
+    { length: 10 },
+    (_, index) => `Explanation ${index + 1} connects the example to the principle being recalled.`,
+  ).join('\n\n')
+  const richBack = `## Readable answer\n\n` +
+    `> Readable cards preserve hierarchy even when an answer contains several content types.\n\n` +
+    `- Keep prose at a comfortable measure.\n- Keep controls available.\n- Let wide content scroll locally.\n\n` +
+    '```ts\nfunction normalize(input: string): string {\n  return input.trim().toLowerCase()\n}\n```\n\n' +
+    `[WCAG text spacing guidance](https://www.w3.org/WAI/WCAG22/Understanding/text-spacing.html)\n\n` +
+    `| Typography consideration | Reading behavior | Validation approach | Narrow-window result | Theme result | Control behavior |\n` +
+    `| --- | --- | --- | --- | --- | --- |\n` +
+    `| Comfortable body text | Lines remain easy to follow | Inspect at minimum width | Scrolls locally | Passes in both themes | Dock remains fixed |\n\n` +
+    `${explanation}\n\nThe final distinctive closing phrase.`
+  await storage.createCard(deck.id, 'How should rich study content behave?', richBack)
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+
+  const grades = page.getByRole('group', { name: 'Grade answer' })
+  await expect.element(grades).toBeVisible()
+  const dockTop = grades.element().getBoundingClientRect().top
+  expect(grades.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(window.innerHeight)
+
+  const answer = page.getByRole('region', { name: 'Answer' }).element()
+  const reviewScroll = document.querySelector<HTMLElement>('.review-scroll')!
+  const quote = answer.querySelector<HTMLElement>('blockquote')!
+  const code = answer.querySelector<HTMLElement>('pre')!
+  const table = answer.querySelector<HTMLElement>('table')!
+  const link = page.getByRole('link', { name: 'WCAG text spacing guidance' }).element()
+
+  expect(Number.parseFloat(getComputedStyle(quote).borderLeftWidth)).toBeGreaterThanOrEqual(2)
+  expect(Number.parseFloat(getComputedStyle(code).fontSize)).toBeGreaterThanOrEqual(16)
+  expect(contrastRatio(getComputedStyle(link).color, getComputedStyle(document.body).backgroundColor))
+    .toBeGreaterThanOrEqual(4.5)
+  expect(getComputedStyle(table).overflowX).toBe('auto')
+  expect(table.scrollWidth).toBeGreaterThan(table.clientWidth)
+  expect(reviewScroll.scrollWidth).toBe(reviewScroll.clientWidth)
+  table.scrollLeft = table.scrollWidth
+  expect(table.scrollLeft).toBeGreaterThan(0)
+
+  const closingPhrase = page.getByText('The final distinctive closing phrase.')
+  closingPhrase.element().scrollIntoView({ block: 'end' })
+  await new Promise((resolve) => requestAnimationFrame(resolve))
+
+  expect(closingPhrase.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(dockTop)
+  expect(grades.element().getBoundingClientRect().top).toBe(dockTop)
+})
+
+test('grading controls stay available while a long plain answer scrolls', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Long')
   const longBack =
