@@ -8,7 +8,7 @@ rust-version = "1.77.2"
 
 [dependencies]
 chrono = "0.4"
-directories = "5.0"
+directories = "6.0"
 fsrs = "6.6.1"
 rand = "0.8"
 rusqlite = { version = "0.32", features = ["bundled"] }
