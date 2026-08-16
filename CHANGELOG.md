@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.13.0 (2026-08-16)
+
+## What's Changed
+* feat(review): improve rich card readability by @shettyh in https://github.com/shettyh/rem/pull/96
+* build(deps): bump actions/upload-pages-artifact from 4 to 5 by @dependabot[bot] in https://github.com/shettyh/rem/pull/113
+* build(deps-dev): bump vite from 8.2.0 to 8.2.1 by @dependabot[bot] in https://github.com/shettyh/rem/pull/110
+* build(deps-dev): bump @testing-library/jest-dom from 7.0.0 to 7.0.1 by @dependabot[bot] in https://github.com/shettyh/rem/pull/109
+* build(deps-dev): bump @testing-library/user-event from 14.6.3 to 14.6.4 by @dependabot[bot] in https://github.com/shettyh/rem/pull/108
+* build(deps): bump highlight.js from 11.11.1 to 11.12.0 by @dependabot[bot] in https://github.com/shettyh/rem/pull/107
+* build(deps): bump the tiptap group with 7 updates by @dependabot[bot] in https://github.com/shettyh/rem/pull/106
+* build(deps): bump uuid from 1.23.3 to 1.24.0 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/105
+* build(deps): bump directories from 5.0.1 to 6.0.0 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/102
+* build(deps): bump clap from 4.5.4 to 4.6.6 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/100
+* build(deps): bump crossterm from 0.27.0 to 0.29.0 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/98
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.12.2...v0.13.0
+
 ## 0.12.2 (2026-08-10)
 
 ## What's Changed
