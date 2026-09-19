@@ -9,7 +9,7 @@ use crate::{Asset, Collection, CollectionError};
 
 impl Collection {
     pub fn put_asset(&self, bytes: &[u8], mime: &str, now: i64) -> Result<Asset, CollectionError> {
-        let hash = format!("{:x}", Sha256::digest(bytes));
+        let hash = hex::encode(Sha256::digest(bytes));
         let mut connection = self
             .connection
             .lock()
