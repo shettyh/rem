@@ -370,7 +370,11 @@ impl MarkdownRenderer {
             Event::FootnoteReference(label) if self.image_depth == 0 => {
                 self.spans.push(Span::raw(format!("[{}]", label)));
             }
-            Event::Code(_) | Event::TaskListMarker(_) | Event::FootnoteReference(_) => {}
+            Event::Code(_)
+            | Event::InlineMath(_)
+            | Event::DisplayMath(_)
+            | Event::TaskListMarker(_)
+            | Event::FootnoteReference(_) => {}
         }
     }
 
@@ -421,7 +425,7 @@ impl MarkdownRenderer {
                 self.code_block = true;
                 self.push_style(Style::default().fg(Color::Yellow));
             }
-            Tag::BlockQuote => {
+            Tag::BlockQuote(_) => {
                 self.finish_line();
                 self.spans
                     .push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
@@ -465,7 +469,7 @@ impl MarkdownRenderer {
                 self.pop_style();
                 self.blank_line();
             }
-            TagEnd::BlockQuote => self.finish_line(),
+            TagEnd::BlockQuote(_) => self.finish_line(),
             _ => {}
         }
     }
