@@ -159,7 +159,7 @@ impl StudySession {
             }
         }
         if all_decks {
-            queue.shuffle(&mut rand::thread_rng());
+            queue.shuffle(&mut rand::rng());
         }
 
         let mut session = Self {
@@ -417,7 +417,7 @@ fn build_custom_queue(
                 .filter(|item| item.card.scheduling.state == 0 && item.card.scheduling.due <= now)
                 .collect();
             if settings.insertion_order == InsertionOrder::Random {
-                selected.shuffle(&mut rand::thread_rng());
+                selected.shuffle(&mut rand::rng());
             } else {
                 selected.sort_by_key(|item| item.card.created_at);
             }
@@ -478,7 +478,7 @@ fn build_deck_queue(
         }
     }
     if settings.insertion_order == InsertionOrder::Random {
-        new.shuffle(&mut rand::thread_rng());
+        new.shuffle(&mut rand::rng());
     } else {
         new.sort_by_key(|item| item.card.created_at);
     }
