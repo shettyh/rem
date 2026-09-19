@@ -1304,11 +1304,11 @@ dependencies = [
 
 [[package]]
 name = "fsrs"
-version = "6.6.1"
+version = "6.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8a99ea3dec9af37c9ed3835463ff6820a578a0026a8e370b4c1c0db48dfab3f"
+checksum = "89836c0a26b347b585b23824034600b69bfc7f0b0112d0cd656791799eb3a717"
 dependencies = [
- "itertools",
+ "itertools 0.15.0",
  "log",
  "ndarray",
  "priority-queue",
@@ -2052,6 +2052,15 @@ name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
 dependencies = [
  "either",
 ]
@@ -3320,7 +3329,7 @@ dependencies = [
  "compact_str",
  "critical-section",
  "hashbrown 0.17.1",
- "itertools",
+ "itertools 0.14.0",
  "kasuari",
  "lru",
  "palette",
@@ -3385,7 +3394,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "indoc",
  "instability",
- "itertools",
+ "itertools 0.14.0",
  "line-clipping",
  "ratatui-core",
  "serde",
@@ -5046,7 +5055,7 @@ version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16b380a1238663e5f8a691f9039c73e1cdae598a30e9855f541d29b08b53e9a5"
 dependencies = [
- "itertools",
+ "itertools 0.14.0",
  "unicode-segmentation",
  "unicode-width",
 ]
