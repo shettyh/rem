@@ -44,7 +44,7 @@
     "@vitest/browser-playwright": "^5.0.1",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.0.1",
-    "playwright": "^1.62.1",
+    "playwright": "^1.63.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.1",
