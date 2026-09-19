@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.13.1 (2026-09-19)
+
+## What's Changed
+* build(deps): bump actions/configure-pages from 5 to 6 by @dependabot[bot] in https://github.com/shettyh/rem/pull/112
+* build(deps): bump actions/deploy-pages from 4 to 5 by @dependabot[bot] in https://github.com/shettyh/rem/pull/111
+* build(deps): bump the tiptap group with 7 updates by @dependabot[bot] in https://github.com/shettyh/rem/pull/115
+* build(deps): bump rand from 0.8.7 to 0.10.1 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/99
+* build(deps): bump rusqlite from 0.32.1 to 0.40.2 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/101
+* build(deps): bump pulldown-cmark from 0.10.3 to 0.13.4 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/103
+* build(deps): bump sha2 from 0.10.9 to 0.11.0 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/104
+* build(deps-dev): bump @vitest/browser-playwright from 4.1.10 to 4.1.11 by @dependabot[bot] in https://github.com/shettyh/rem/pull/116
+* build(deps): bump dexie from 4.4.4 to 4.4.6 by @dependabot[bot] in https://github.com/shettyh/rem/pull/117
+* build(deps-dev): bump Vitest packages to 5.0.1 by @dependabot[bot] in https://github.com/shettyh/rem/pull/118
+* build(deps): bump the codeql group with 2 updates by @dependabot[bot] in https://github.com/shettyh/rem/pull/119
+* build(deps): bump log from 0.4.33 to 0.4.34 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/122
+* build(deps-dev): bump vite from 8.2.1 to 8.3.0 by @dependabot[bot] in https://github.com/shettyh/rem/pull/124
+* build(deps): bump uuid from 1.24.0 to 1.26.1 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/127
+* build(deps): bump react-router-dom from 7.18.2 to 7.18.3 by @dependabot[bot] in https://github.com/shettyh/rem/pull/128
+* build(deps): bump fsrs from 6.6.1 to 6.6.2 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/129
+* build(deps-dev): bump @testing-library/react from 16.3.2 to 16.3.3 by @dependabot[bot] in https://github.com/shettyh/rem/pull/130
+* build(deps): bump tauri-plugin-log from 2.9.0 to 2.9.1 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/131
+* build(deps-dev): bump @vitejs/plugin-react from 6.0.5 to 6.1.1 by @dependabot[bot] in https://github.com/shettyh/rem/pull/132
+* build(deps-dev): bump @testing-library/user-event from 14.6.4 to 14.6.7 by @dependabot[bot] in https://github.com/shettyh/rem/pull/133
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.13.0...v0.13.1
+
 ## 0.13.0 (2026-08-16)
 
 ## What's Changed
