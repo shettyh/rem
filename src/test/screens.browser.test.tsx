@@ -127,7 +127,7 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       await storage.commitReview({ cardId: tsCard.id, deckId: typescript.id, patch: {}, reviewedAt: Date.now() - 1000, fsrsGrade: 'good' })
       await storage.commitReview({ cardId: esCard.id, deckId: spanish.id, patch: {}, reviewedAt: Date.now(), fsrsGrade: 'easy' })
       await renderRoute({ storage, entry: '/stats', path: '/stats', element: <StatsPage /> })
-      await expect.element(page.getByLabelText('FSRS reviews')).toHaveTextContent('3')
+      await expect.element(page.getByLabelText('FSRS reviews')).toMatchTextContent('3')
     },
   },
   {
@@ -192,7 +192,7 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
         element: <DeckDetailPage />,
         extraRoutes: [{ path: '/decks/:deckId/cards/:cardId/edit', element: <CardEditorPage /> }],
       })
-      await page.getByText('How to narrow').click()
+      await page.getByText('How to narrow', { exact: false }).click()
       await expect.element(page.getByText('Edit card')).toBeVisible()
     },
   },

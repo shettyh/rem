@@ -35,10 +35,10 @@ test('renders review metrics and responds to deck and range filters', async () =
 
   await renderRoute({ storage, entry: '/stats', path: '/stats', element: <StatsPage /> })
 
-  await expect.element(page.getByLabelText('FSRS reviews')).toHaveTextContent('3')
-  await expect.element(page.getByLabelText('Recall rate')).toHaveTextContent('67%')
-  await expect.element(page.getByLabelText('Current streak')).toHaveTextContent('2 days')
-  await expect.element(page.getByLabelText('Active days')).toHaveTextContent('2')
+  await expect.element(page.getByLabelText('FSRS reviews')).toMatchTextContent('3')
+  await expect.element(page.getByLabelText('Recall rate')).toMatchTextContent('67%')
+  await expect.element(page.getByLabelText('Current streak')).toMatchTextContent('2 days')
+  await expect.element(page.getByLabelText('Active days')).toMatchTextContent('2')
 
   const reviewsKpi = page.getByLabelText('FSRS reviews').element()
   const kpiValue = reviewsKpi.querySelector<HTMLElement>('strong')!
@@ -48,18 +48,17 @@ test('renders review metrics and responds to deck and range filters', async () =
   expect(getComputedStyle(kpiLabel).fontFamily).toContain('Space Mono')
   expect(getComputedStyle(activityTotal).fontWeight).toBe('400')
 
-  await expect.element(page.getByLabelText('Daily review activity')).toHaveAttribute(
-    'aria-label',
-    'Daily review activity: 3 reviews over 30 days',
-  )
-  await expect.element(page.getByLabelText('Again grade')).toHaveTextContent('1')
+  await expect
+    .element(page.getByLabelText('Daily review activity', { exact: false }))
+    .toHaveAttribute('aria-label', 'Daily review activity: 3 reviews over 30 days')
+  await expect.element(page.getByLabelText('Again grade')).toMatchTextContent('1')
   await expect.element(page.getByLabelText('Alpha deck stats')).toBeVisible()
   await expect.element(page.getByLabelText('Beta deck stats')).toBeVisible()
   expect(document.querySelector('.stats-deck-dot')).toBeNull()
 
   await page.getByLabelText('Deck filter').selectOptions(alpha.id)
-  await expect.element(page.getByLabelText('FSRS reviews')).toHaveTextContent('2')
-  await expect.element(page.getByLabelText('Recall rate')).toHaveTextContent('50%')
+  await expect.element(page.getByLabelText('FSRS reviews')).toMatchTextContent('2')
+  await expect.element(page.getByLabelText('Recall rate')).toMatchTextContent('50%')
   await expect.element(page.getByLabelText('Beta deck stats')).not.toBeInTheDocument()
 
   await page.getByRole('button', { name: '7D' }).click()
