@@ -290,7 +290,7 @@ test('a stale native grade conflict is explained and not counted as a review', a
   await page.getByRole('button', { name: 'Good', exact: false }).click()
 
   await expect.element(page.getByRole('heading', { name: 'Card changed' })).toBeVisible()
-  await expect.element(page.getByRole('alert')).toHaveTextContent(
+  await expect.element(page.getByRole('alert')).toMatchTextContent(
     'skipped without recording a review',
   )
   expect(commit).not.toHaveBeenCalled()
@@ -448,14 +448,14 @@ test('enforces newPerDay: only the day\'s new allowance enters the session', asy
     expect(stat.newIntroduced).toBe(1)
   })
   await expect.element(page.getByText('Review complete')).toBeVisible()
-  await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Review')
+  await expect.element(page.getByRole('heading', { level: 1 })).toMatchTextContent('Review')
   await expect.element(page.getByRole('link', { name: 'Close' })).toBeVisible()
 
   // Reopening on the same day does not grant allowance for the second new card.
   await page.getByRole('link', { name: 'Back to deck' }).click()
   await page.getByRole('link', { name: 'Reopen study' }).click()
   await expect.element(page.getByRole('heading', { name: 'Nothing due' })).toBeVisible()
-  await expect.element(page.getByRole('heading', { level: 1 })).toHaveTextContent('Review')
+  await expect.element(page.getByRole('heading', { level: 1 })).toMatchTextContent('Review')
   await expect.element(page.getByRole('link', { name: 'Close' })).toBeVisible()
 })
 
@@ -552,9 +552,9 @@ test('preview new reveals cards without scheduling or persistence', async () => 
 
   await page.getByRole('button', { name: 'Show answer', exact: false }).click()
   await expect.element(page.getByText('Preview answer')).toBeVisible()
-  await expect.element(page.getByRole('button', { name: 'Next card' })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Next card', exact: false })).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Good', exact: false })).not.toBeInTheDocument()
-  await page.getByRole('button', { name: 'Next card' }).click()
+  await page.getByRole('button', { name: 'Next card', exact: false }).click()
 
   await expect.element(page.getByText('Preview complete')).toBeVisible()
   expect(update).not.toHaveBeenCalled()
@@ -588,7 +588,7 @@ test('suspend leech action removes the lapsed card from this and later sessions'
   await page.getByRole('button', { name: 'Show answer', exact: false }).click()
   await page.getByRole('button', { name: 'Again', exact: false }).click()
 
-  await expect.element(page.getByRole('status')).toHaveTextContent('Leech suspended')
+  await expect.element(page.getByRole('status')).toMatchTextContent('Leech suspended')
   await expect.element(page.getByText('Review complete')).toBeVisible()
   await vi.waitFor(async () => {
     expect(await storage.getCard(card.id)).toMatchObject({ tags: ['leech'], suspended: true })
@@ -620,7 +620,7 @@ test('tag leech action keeps the card active for relearning', async () => {
   await page.getByRole('button', { name: 'Show answer', exact: false }).click()
   await page.getByRole('button', { name: 'Again', exact: false }).click()
 
-  await expect.element(page.getByRole('status')).toHaveTextContent('Leech tagged')
+  await expect.element(page.getByRole('status')).toMatchTextContent('Leech tagged')
   await expect.element(page.getByRole('button', { name: 'Show answer', exact: false })).toBeVisible()
   expect(await storage.getCard(card.id)).toMatchObject({ tags: ['leech'], suspended: false })
 })

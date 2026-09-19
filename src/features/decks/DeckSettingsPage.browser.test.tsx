@@ -180,7 +180,7 @@ test('shows a recoverable optimizer error', async () => {
   })
 
   await page.getByRole('button', { name: 'Optimize' }).click()
-  await expect.element(page.getByRole('alert')).toHaveTextContent("Couldn't optimize parameters")
+  await expect.element(page.getByRole('alert')).toMatchTextContent("Couldn't optimize parameters")
   await expect.element(page.getByRole('button', { name: 'Optimize' })).toBeEnabled()
 })
 
