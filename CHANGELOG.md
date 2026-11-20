@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.14.0 (2026-11-20)
+
+## What's Changed
+* build(deps): bump clap from 4.6.6 to 4.6.7 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/136
+* build(deps): bump react-router-dom from 7.18.3 to 7.18.4 by @dependabot[bot] in https://github.com/shettyh/rem/pull/137
+* build(deps-dev): bump playwright from 1.62.1 to 1.63.0 by @dependabot[bot] in https://github.com/shettyh/rem/pull/139
+* build(deps): bump react-dom and @types/react-dom by @dependabot[bot] in https://github.com/shettyh/rem/pull/140
+* build(deps): bump the codeql group with 2 updates by @dependabot[bot] in https://github.com/shettyh/rem/pull/141
+* build(deps): bump rand from 0.10.1 to 0.10.3 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/142
+* fix(deps): apply the pending npm and Rust security updates by @shettyh in https://github.com/shettyh/rem/pull/171
+* build(deps): bump uuid from 1.26.1 to 1.29.0 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/167
+* build(deps): bump sha2 from 0.11.0 to 0.11.1 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/158
+* build(deps): bump serde_json from 1.0.151 to 1.0.154 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/160
+* build(deps): upgrade Tauri, TipTap, and rusqlite together by @shettyh in https://github.com/shettyh/rem/pull/172
+* feat(ui): elevate design cohesion, study motivation, and everyday ergonomics by @shettyh in https://github.com/shettyh/rem/pull/173
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.13.1...v0.14.0
+
 ## 0.13.1 (2026-09-19)
 
 ## What's Changed
