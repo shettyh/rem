@@ -53,7 +53,30 @@
   --shadow: var(--shadow-sm);
   --reveal-ms: 180ms;
 
+  /* study & editor card text scale (adjustable via Settings) */
+  --card-q-size: clamp(26px, 3vw, 30px);
+  --card-q-revealed-size: 20px;
+  --card-a-size: 21px;
+  --card-editor-size: 21px;
+  --card-code-size: 16px;
+
   color-scheme: light;
+}
+
+[data-card-size='compact'] {
+  --card-q-size: clamp(22px, 2.5vw, 26px);
+  --card-q-revealed-size: 17px;
+  --card-a-size: 18px;
+  --card-editor-size: 18px;
+  --card-code-size: 15px;
+}
+
+[data-card-size='large'] {
+  --card-q-size: clamp(30px, 3.4vw, 34px);
+  --card-q-revealed-size: 22px;
+  --card-a-size: 24px;
+  --card-editor-size: 24px;
+  --card-code-size: 18px;
 }
 
 [data-theme='dark'] {

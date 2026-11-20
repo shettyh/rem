@@ -16,6 +16,8 @@ export interface DeckOverview {
   newCount: number
   /** Total cards in the deck. */
   total: number
+  /** Cards studied at least once (not in New state). */
+  studied: number
 }
 
 export interface DueOverview {
@@ -25,6 +27,8 @@ export interface DueOverview {
   totalDue: number
   totalNew: number
   totalReview: number
+  /** Total cards introduced or reviewed today across all decks. */
+  reviewedToday: number
 }
 
 /**
@@ -36,6 +40,7 @@ export async function loadDueOverview(storage: Storage, now: number): Promise<Du
   const day = localDay(now)
   const decks: DeckOverview[] = []
   const queue: Card[] = []
+  let reviewedToday = 0
 
   for (const deck of allDecks) {
     const [cards, dueList, stat] = await Promise.all([
@@ -43,6 +48,7 @@ export async function loadDueOverview(storage: Storage, now: number): Promise<Du
       storage.dueCards(deck.id, now),
       storage.getDailyStat(deck.id, day),
     ])
+    reviewedToday += stat.newIntroduced + stat.reviewsDone
     const caps = {
       newSlots: deck.settings.newPerDay - stat.newIntroduced,
       reviewSlots: deck.settings.maxReviews - stat.reviewsDone,
@@ -58,13 +64,14 @@ export async function loadDueOverview(storage: Storage, now: number): Promise<Du
       due: capped.length,
       newCount: capped.filter((c) => isNew(c.scheduling)).length,
       total: cards.length,
+      studied: cards.filter((c) => !isNew(c.scheduling)).length,
     })
     queue.push(...capped)
   }
 
   const totalDue = queue.length
   const totalNew = queue.filter((c) => isNew(c.scheduling)).length
-  return { decks, queue, totalDue, totalNew, totalReview: totalDue - totalNew }
+  return { decks, queue, totalDue, totalNew, totalReview: totalDue - totalNew, reviewedToday }
 }
 
 /** Fisher–Yates shuffle into a new array; `rng` is injectable for tests. */

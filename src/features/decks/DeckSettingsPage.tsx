@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useStorage } from '../../data/StorageContext'
 import { useStorageQuery } from '../../data/useStorageQuery'
 import type { Storage } from '../../data/Storage'
@@ -30,6 +30,7 @@ export function DeckSettingsPage() {
 
 function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const [name, setName] = useState(deck.name)
   const [settings, setSettings] = useState<DeckSettings>(deck.settings)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -40,6 +41,12 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
   const reviewLogs = useStorageQuery(() => storage.listReviewLogs(deck.id), [deck.id]) ?? []
   const reviewHistories = buildReviewHistories(reviewLogs)
   const canOptimize = hasDelayedReview(reviewHistories)
+
+  useEffect(() => {
+    if (location.hash === '#custom-study') {
+      document.getElementById('custom-study')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [location.hash])
 
   const customPreset = customMode ? customStudyPreset(customMode) : null
   function selectCustomMode(mode: CustomStudyMode) {
@@ -126,7 +133,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
             <div className="ds-row">
               <div>
                 <div className="ds-row-title">Desired retention</div>
-                <div className="ds-row-sub">Target probability of recall at review time.</div>
+                <div className="ds-row-sub">Target recall probability. Higher values schedule more frequent reviews.</div>
               </div>
               <Stepper
                 value={settings.desiredRetention}
@@ -276,7 +283,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
           </div>
 
           {/* CUSTOM STUDY */}
-          <div className="ds-label">Custom study</div>
+          <div id="custom-study" className="ds-label">Custom study</div>
           <div className="ds-grid">
             {CUSTOM_STUDY_PRESETS.map((preset) => (
               <button

@@ -53,6 +53,22 @@ describe('CardEditorPage', () => {
     await expect.element(screen.getByText('deck page')).toBeInTheDocument()
   })
 
+  it('saves and resets for the next card with Save & add another', async () => {
+    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const deck = await storage.createDeck('D', 'fsrs')
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
+
+    const front = screen.container.querySelector('[aria-label="Front"]') as HTMLElement
+    front.focus()
+    await userEvent.type(front, 'First prompt')
+    await userEvent.click(screen.getByRole('button', { name: 'Save & add another' }))
+
+    await expect.poll(async () => (await storage.listCards(deck.id)).length).toBe(1)
+    await expect.element(screen.getByText('Card saved.', { exact: false })).toBeVisible()
+    await expect.element(screen.getByText('New card')).toBeVisible()
+    expect(front.textContent?.trim()).toBe('')
+  })
+
   it('groups front and back into one surface with a flat toolbar', async () => {
     const storage = new DexieStorage(new RemDB('rem-editorpage'))
     const deck = await storage.createDeck('D')

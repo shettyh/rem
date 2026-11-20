@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useStorage } from '../../data/StorageContext'
 import { useStorageQuery } from '../../data/useStorageQuery'
+import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
 import { loadDueOverview } from '../review/dueOverview'
 
@@ -17,6 +18,14 @@ function todayDate(): string {
   return new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+/** Rough session time estimate (~10s per card) to lower the barrier to starting. */
+function estimateStudyTime(cards: number): string {
+  const seconds = cards * 10
+  if (seconds < 60) return '< 1 min'
+  const minutes = Math.round(seconds / 60)
+  return `~${minutes} min`
+}
+
 export function DeckListPage() {
   const storage = useStorage()
   const navigate = useNavigate()
@@ -27,6 +36,7 @@ export function DeckListPage() {
   const overview = useStorageQuery(() => loadDueOverview(storage, Date.now()), [])
 
   const totalDue = overview?.totalDue ?? 0
+  const reviewedToday = overview?.reviewedToday ?? 0
 
   // Focus the new-deck input when arriving via the sidebar "+".
   useEffect(() => {
@@ -40,7 +50,7 @@ export function DeckListPage() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement | null)?.tagName ?? ''
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'A') return
       if (e.key === 'Enter' && totalDue > 0) {
         e.preventDefault()
         navigate('/study')
@@ -66,7 +76,7 @@ export function DeckListPage() {
     : deckCount === 0
       ? 'Create your first deck to start remembering.'
       : totalDue > 0
-        ? `${totalDue} card${totalDue === 1 ? '' : 's'} due across ${deckCount} deck${deckCount === 1 ? '' : 's'}.`
+        ? `${totalDue} card${totalDue === 1 ? '' : 's'} due across ${deckCount} deck${deckCount === 1 ? '' : 's'}${reviewedToday > 0 ? ` · ${reviewedToday} reviewed today` : ''}.`
         : `All caught up across ${deckCount} deck${deckCount === 1 ? '' : 's'}.`
 
   return (
@@ -84,12 +94,35 @@ export function DeckListPage() {
                 <span className="review-summary-label">
                   <strong>{totalDue === 1 ? 'card due' : 'cards due'}</strong>
                   <span>
-                    {overview?.totalNew ?? 0} new · {overview?.totalReview ?? 0} review
+                    {overview?.totalNew ?? 0} new · {overview?.totalReview ?? 0} review · {estimateStudyTime(totalDue)}
                   </span>
                 </span>
               </div>
               <Link to="/study" className="btn btn-primary review-summary-action">
                 Start review <span className="kbd">↵</span>
+              </Link>
+            </section>
+          )}
+
+          {loaded && totalDue === 0 && deckCount > 0 && (
+            <section className="review-summary is-caught-up" aria-label="Daily progress">
+              <div className="review-summary-copy">
+                <span className="caught-up-check" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />
+                  </svg>
+                </span>
+                <span className="review-summary-label">
+                  <strong>All caught up for today</strong>
+                  <span>
+                    {reviewedToday > 0
+                      ? `${reviewedToday} card${reviewedToday === 1 ? '' : 's'} reviewed today — nice consistency.`
+                      : 'No cards due right now. Add new cards or review your progress.'}
+                  </span>
+                </span>
+              </div>
+              <Link to="/stats" className="btn btn-ghost btn-sm review-summary-action">
+                View stats
               </Link>
             </section>
           )}
@@ -103,16 +136,41 @@ export function DeckListPage() {
                 </span>
               </div>
               <nav className="deck-list" aria-label="Decks">
-                {decks.map(({ deck, due, newCount, total }) => (
-                  <Link key={deck.id} to={`/decks/${deck.id}`} className="deck-list-row">
-                    <span className="deck-list-name">{deck.name}</span>
-                    <span className="deck-list-meta">
-                      {due > 0 && <span className="deck-list-due has-due">{due} due</span>}
-                      {newCount > 0 && <span>{newCount} new</span>}
-                      <span>{total} {total === 1 ? 'card' : 'cards'}</span>
-                      <span className="deck-list-arrow" aria-hidden="true">›</span>
-                    </span>
-                  </Link>
+                {decks.map(({ deck, due, newCount, total, studied }) => (
+                  <div key={deck.id} className="deck-list-row">
+                    <Link to={`/decks/${deck.id}`} className="deck-list-link">
+                      <span className="deck-list-identity">
+                        <span className="deck-list-name">{deck.name}</span>
+                        {total > 0 && studied > 0 && (
+                          <span className="deck-list-progress" aria-hidden="true" title={`${studied} of ${total} studied`}>
+                            <span style={{ width: `${Math.round((studied / total) * 100)}%` }} />
+                          </span>
+                        )}
+                      </span>
+                      <span className="deck-list-meta">
+                        {due > 0 && <span className="deck-list-due has-due">{due} due</span>}
+                        {newCount > 0 && <span>{newCount} new</span>}
+                        <span>{total} {total === 1 ? 'card' : 'cards'}</span>
+                      </span>
+                    </Link>
+                    {due > 0 ? (
+                      <Link
+                        to={`/decks/${deck.id}/study`}
+                        className="btn btn-ghost btn-sm deck-list-study"
+                        aria-label={`Study ${deck.name}`}
+                      >
+                        Study
+                      </Link>
+                    ) : (
+                      <Link
+                        to={`/decks/${deck.id}`}
+                        className="deck-list-arrow"
+                        aria-label={`Open ${deck.name}`}
+                      >
+                        ›
+                      </Link>
+                    )}
+                  </div>
                 ))}
               </nav>
             </>
@@ -127,14 +185,18 @@ export function DeckListPage() {
               onChange={(e) => setName(e.target.value)}
               aria-label="New deck name"
             />
-            <button className="btn btn-primary" type="submit" disabled={!name.trim()}>
+            <button
+              className={loaded && deckCount === 0 ? 'btn btn-primary' : 'btn'}
+              type="submit"
+              disabled={!name.trim()}
+            >
               Add deck
             </button>
           </form>
 
           {loaded && deckCount === 0 && (
             <div className="empty-state">
-              <div className="ico" aria-hidden="true">DECKS</div>
+              <EmptyIcon kind="decks" />
               <h3>No decks yet</h3>
               <p>Name a deck above to start building your memory.</p>
             </div>

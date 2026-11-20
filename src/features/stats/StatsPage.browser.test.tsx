@@ -43,10 +43,11 @@ test('renders review metrics and responds to deck and range filters', async () =
   const reviewsKpi = page.getByLabelText('FSRS reviews').element()
   const kpiValue = reviewsKpi.querySelector<HTMLElement>('strong')!
   const kpiLabel = reviewsKpi.querySelector<HTMLElement>('span')!
-  const activityTotal = document.querySelector<HTMLElement>('.stats-panel-head > strong')!
-  expect(getComputedStyle(kpiValue).fontWeight).toBe('400')
-  expect(getComputedStyle(kpiLabel).fontFamily).toContain('Space Mono')
-  expect(getComputedStyle(activityTotal).fontWeight).toBe('400')
+  const activityTotal = document.querySelector<HTMLElement>('.stats-head-readout > strong')!
+  expect(getComputedStyle(kpiValue).fontFamily).toBe(getComputedStyle(document.body).fontFamily)
+  expect(getComputedStyle(kpiValue).fontWeight).toBe('600')
+  expect(getComputedStyle(kpiLabel).fontFamily).toBe(getComputedStyle(document.body).fontFamily)
+  expect(getComputedStyle(activityTotal).fontWeight).toBe('600')
 
   await expect
     .element(page.getByLabelText('Daily review activity', { exact: false }))

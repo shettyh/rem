@@ -4,7 +4,10 @@ import { RouterProvider } from 'react-router-dom'
 import { router } from './routes'
 import { StorageProvider, defaultStorage } from '../data/StorageContext'
 import { useAutoSync } from './useAutoSync'
+import { applyCardTextSize, getStoredCardTextSize } from '../ui/cardTextSize'
 import '../ui/styles.css'
+
+applyCardTextSize(getStoredCardTextSize())
 
 /** rem is a native app; the Tauri IPC bridge is always present inside the desktop window. */
 const isDesktop = '__TAURI_INTERNALS__' in window || '__TAURI__' in window

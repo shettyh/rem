@@ -2,6 +2,12 @@ import { useRef, useState, type ChangeEvent } from 'react'
 import { useStorage } from '../../data/StorageContext'
 import { useStorageQuery } from '../../data/useStorageQuery'
 import { PageHeader } from '../../ui/PageHeader'
+import { SegToggle } from '../../ui/SegToggle'
+import {
+  applyCardTextSize,
+  getStoredCardTextSize,
+  type CardTextSize,
+} from '../../ui/cardTextSize'
 import { SyncSection } from './SyncSection'
 import packageInfo from '../../../package.json'
 import {
@@ -35,6 +41,12 @@ export function SettingsPage() {
   const [pending, setPending] = useState<{ decks: DeckBackup[]; replaced: string[] } | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [cardTextSize, setCardTextSize] = useState<CardTextSize>(() => getStoredCardTextSize())
+
+  function updateCardTextSize(next: CardTextSize) {
+    applyCardTextSize(next)
+    setCardTextSize(next)
+  }
 
   const list = decks ?? []
   const allSelected = list.length > 0 && list.every((d) => selected.has(d.id))
@@ -209,6 +221,31 @@ export function SettingsPage() {
                 )}
               </div>
             )}
+          </div>
+        </section>
+
+        <section className="settings-group" aria-labelledby="reading-heading">
+          <div className="settings-group-heading">
+            <h2 id="reading-heading">Reading</h2>
+            <p>Tune study and card-editor typography to your screen.</p>
+          </div>
+
+          <div className="settings-panel">
+            <div className="settings-action-row settings-action-row--first">
+              <div className="settings-action-copy">
+                <strong>Card text size</strong>
+                <span>Adjusts question, answer, code, and editor text proportionally.</span>
+              </div>
+              <SegToggle
+                value={cardTextSize}
+                onChange={updateCardTextSize}
+                options={[
+                  { value: 'compact', label: 'Compact' },
+                  { value: 'standard', label: 'Standard' },
+                  { value: 'large', label: 'Large' },
+                ]}
+              />
+            </div>
           </div>
         </section>
 

@@ -27,8 +27,6 @@ export function Sidebar() {
       <div className="side-brand">
         <img className="brand-mark" src="/favicon.png" alt="" />
         <span className="brand-word">rem</span>
-        <span className="brand-dot" />
-        <span className="brand-tag">recall</span>
       </div>
 
       <nav className="side-nav">
@@ -90,11 +88,12 @@ export function Sidebar() {
           aria-label="Settings"
           title="Settings"
         >
-          <span className="ico-lines">
-            <span />
-            <span />
-            <span />
-          </span>
+          <svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2.5 4.5h6M11.5 4.5h2M2.5 8h2M7.5 8h6M2.5 11.5h7M12.5 11.5h1" />
+            <circle cx="10" cy="4.5" r="1.5" />
+            <circle cx="6" cy="8" r="1.5" />
+            <circle cx="11" cy="11.5" r="1.5" />
+          </svg>
           Settings
         </NavLink>
         <ThemeToggle />

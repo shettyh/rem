@@ -90,3 +90,18 @@ test('rejecting advances to the next draft without creating a card', async () =>
   await expect.element(page.getByText('Proposed answer')).not.toBeInTheDocument()
   expect(await storage.listCards(deck.id)).toEqual([])
 })
+
+test('skipping rotates to the next pending draft without rejecting it', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Rust')
+  await propose(storage, deck.id, 'First question')
+  await propose(storage, deck.id, 'Second question')
+
+  const ordered = await storage.listDrafts()
+  await renderRoute({ storage, entry: '/drafts', path: '/drafts', element: <DraftInboxPage /> })
+  await expect.element(page.getByText(ordered[0].front)).toBeVisible()
+
+  await page.getByRole('button', { name: 'Skip for now' }).click()
+  await expect.element(page.getByText(ordered[1].front)).toBeVisible()
+  expect(await storage.listDrafts()).toHaveLength(2)
+})

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { Grade, StudyRequest, StudyView } from '../../domain/models'
 import { useStorage } from '../../data/StorageContext'
 import { useStorageQuery } from '../../data/useStorageQuery'
+import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
 import { MarkdownView } from '../cards/MarkdownView'
 import { GradeButtons } from './GradeButtons'
@@ -11,9 +12,19 @@ import {
   parseCustomStudyRequest,
 } from './customStudy'
 
+function formatDuration(ms: number): string {
+  const totalSec = Math.max(1, Math.round(ms / 1000))
+  if (totalSec < 60) return `${totalSec}s`
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  return sec === 0 ? `${min}m` : `${min}m ${sec}s`
+}
+
 export function ReviewPage() {
   const { deckId } = useParams()
   const storage = useStorage()
+  const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const customRequest = deckId ? parseCustomStudyRequest(searchParams) : null
   const customMode = customRequest?.mode ?? null
@@ -21,11 +32,13 @@ export function ReviewPage() {
 
   const sessionIdRef = useRef<string | null>(null)
   const gradingRef = useRef(false)
+  const sessionStartRef = useRef(Date.now())
   const [view, setView] = useState<StudyView | null>(null)
   const [ready, setReady] = useState(false)
   const [revealedAt, setRevealedAt] = useState(0)
   const [schedError, setSchedError] = useState(false)
   const [conflictNotice, setConflictNotice] = useState(false)
+  const [sessionStats, setSessionStats] = useState({ total: 0, recalled: 0, elapsedMs: 0 })
 
   const deck = useStorageQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const deckName = deckId ? (deck?.name ?? 'Deck') : 'All decks'
@@ -36,6 +49,8 @@ export function ReviewPage() {
   useEffect(() => {
     let active = true
     let startedId: string | null = null
+    sessionStartRef.current = Date.now()
+    setSessionStats({ total: 0, recalled: 0, elapsedMs: 0 })
     const request: StudyRequest = {
       deckId: deckId ?? null,
       custom: customRequest,
@@ -78,7 +93,11 @@ export function ReviewPage() {
     if (!isPreview || !sessionId || gradingRef.current) return
     gradingRef.current = true
     try {
-      setView(await storage.advanceStudyPreview(sessionId))
+      const next = await storage.advanceStudyPreview(sessionId)
+      setView(next)
+      if (next.current === null) {
+        setSessionStats((prev) => ({ ...prev, elapsedMs: Date.now() - sessionStartRef.current }))
+      }
     } finally {
       gradingRef.current = false
     }
@@ -94,6 +113,13 @@ export function ReviewPage() {
         setView(outcome.view)
         setSchedError(false)
         setConflictNotice(outcome.status === 'conflict')
+        if (outcome.status !== 'conflict') {
+          setSessionStats((prev) => ({
+            total: prev.total + 1,
+            recalled: prev.recalled + (grade === 'again' ? 0 : 1),
+            elapsedMs: Date.now() - sessionStartRef.current,
+          }))
+        }
       } finally {
         gradingRef.current = false
       }
@@ -101,9 +127,24 @@ export function ReviewPage() {
     [storage, view],
   )
 
+  const editCurrent = useCallback(() => {
+    const card = view?.current
+    if (!card) return
+    navigate(`/decks/${card.deckId}/cards/${card.id}/edit`, {
+      state: { returnTo: `${location.pathname}${location.search}` },
+    })
+  }, [view?.current, navigate, location.pathname, location.search])
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement | null)?.tagName ?? ''
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
       if (!view?.current) return
+      if (e.key === 'e' || e.key === 'E') {
+        e.preventDefault()
+        editCurrent()
+        return
+      }
       if (!view.revealed && !schedError) {
         if (e.code === 'Space' || e.key === 'Enter') {
           e.preventDefault()
@@ -113,7 +154,7 @@ export function ReviewPage() {
       }
       if (isPreview && (e.code === 'Space' || e.key === 'Enter')) {
         e.preventDefault()
-        advancePreview()
+        void advancePreview()
         return
       }
       const byKey: Record<string, Grade> = { '1': 'again', '2': 'hard', '3': 'good', '4': 'easy' }
@@ -125,7 +166,7 @@ export function ReviewPage() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [view, isPreview, schedError, reveal, advancePreview, grade])
+  }, [view, isPreview, schedError, reveal, advancePreview, grade, editCurrent])
 
   if (!ready || !view) return null
 
@@ -151,7 +192,7 @@ export function ReviewPage() {
           <PageHeader title={terminalTitle} actions={terminalAction} />
           <div className="review-terminal">
             <div className="empty-state">
-              <div className="ico" aria-hidden="true">SKIP</div>
+              <EmptyIcon kind="skip" />
               <h3>Card changed</h3>
               <p role="alert">The stale card was skipped without recording a review.</p>
               <Link to={backTo} className="btn btn-ghost cta">{backLabel}</Link>
@@ -166,7 +207,7 @@ export function ReviewPage() {
           <PageHeader title={terminalTitle} actions={terminalAction} />
           <div className="review-terminal">
             <div className="empty-state">
-              <div className="ico" aria-hidden="true">REST</div>
+              <EmptyIcon kind="rest" />
               <h3>{customMode ? 'No matching cards' : 'Nothing due'}</h3>
               <p>
                 {customMode
@@ -181,20 +222,39 @@ export function ReviewPage() {
         </>
       )
     }
+    const recallPct = sessionStats.total > 0
+      ? Math.round((sessionStats.recalled / sessionStats.total) * 100)
+      : null
     return (
       <>
         <PageHeader title={terminalTitle} actions={terminalAction} />
         <div className="review-terminal">
-          <div className="empty-state">
-            <div className="ico" aria-hidden="true">DONE</div>
+          <div className="empty-state review-complete-card">
+            <EmptyIcon kind="done" tone="success" />
             <h3>{isPreview ? 'Preview complete' : 'Review complete'}</h3>
             <p>
               {isPreview
                 ? `${view.reviewed} card${view.reviewed === 1 ? '' : 's'} previewed.`
                 : `${view.reviewed} review${view.reviewed === 1 ? '' : 's'} done. Nice work.`}
             </p>
-            {leechMessage && <p role="status">{leechMessage}</p>}
-            {conflictNotice && <p role="alert">A changed card was skipped instead of grading stale content.</p>}
+            <div className="session-summary-strip" aria-label="Session summary">
+              <div className="session-stat">
+                <strong>{view.reviewed}</strong>
+                <span>{isPreview ? 'Previewed' : 'Reviewed'}</span>
+              </div>
+              {!isPreview && recallPct !== null && (
+                <div className="session-stat">
+                  <strong>{recallPct}%</strong>
+                  <span>Recalled</span>
+                </div>
+              )}
+              <div className="session-stat">
+                <strong>{formatDuration(sessionStats.elapsedMs)}</strong>
+                <span>Time</span>
+              </div>
+            </div>
+            {leechMessage && <p className="review-complete-note" role="status">{leechMessage}</p>}
+            {conflictNotice && <p className="review-complete-note" role="alert">A changed card was skipped instead of grading stale content.</p>}
             <Link to={backTo} className="btn btn-primary cta">{backLabel}</Link>
           </div>
         </div>
@@ -219,9 +279,19 @@ export function ReviewPage() {
       <PageHeader
         title={title}
         actions={
-          <Link to={backTo} className="btn btn-ghost">
-            End session
-          </Link>
+          <>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              title="Edit card (E)"
+              onClick={editCurrent}
+            >
+              Edit
+            </button>
+            <Link to={backTo} className="btn btn-ghost">
+              End session
+            </Link>
+          </>
         }
       />
       <div

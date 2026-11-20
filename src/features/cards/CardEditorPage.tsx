@@ -1,6 +1,6 @@
 // src/features/cards/CardEditorPage.tsx
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useBlocker, useNavigate, useParams } from 'react-router-dom'
+import { useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useStorage } from '../../data/StorageContext'
 import type { Deck } from '../../domain/models'
 import { ConfirmDialog } from '../../ui/ConfirmDialog'
@@ -23,7 +23,9 @@ export function CardEditorPage() {
   const { deckId, cardId } = useParams()
   const storage = useStorage()
   const navigate = useNavigate()
+  const location = useLocation()
   const editing = Boolean(cardId)
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo
 
   const [deck, setDeck] = useState<Deck>()
   const [front, setFront] = useState('')
@@ -33,6 +35,7 @@ export function CardEditorPage() {
   const [suspended, setSuspended] = useState(false)
   const [baseline, setBaseline] = useState<CardDraft | null>(editing ? null : EMPTY_DRAFT)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [savedCount, setSavedCount] = useState(0)
   const allowNavigationRef = useRef(false)
   // The field the shared toolbar should act on — defaults to Front, follows focus.
   const [active, setActive] = useState<EditorHandle | null>(null)
@@ -50,9 +53,9 @@ export function CardEditorPage() {
 
   useEffect(() => {
     if (!cardId) return
-    let active = true
+    let live = true
     storage.getCard(cardId).then((card) => {
-      if (active && card) {
+      if (live && card) {
         const nextTagInput = userTags(card.tags).join(', ')
         setFront(card.front)
         setBack(card.back)
@@ -63,7 +66,7 @@ export function CardEditorPage() {
       }
     })
     return () => {
-      active = false
+      live = false
     }
   }, [cardId, storage])
 
@@ -101,27 +104,42 @@ export function CardEditorPage() {
     backHandle.current = h
   }, [])
 
-  function back2deck() {
-    navigate(`/decks/${deckId}`)
+  function leaveEditor() {
+    navigate(returnTo ?? `/decks/${deckId}`)
   }
 
-  const save = useCallback(async () => {
+  const save = useCallback(async (addAnother = false) => {
     if (!front.trim() || !deckId) return
     const nextTags = mergeUserTags(tags, tagInput)
-    if (editing && cardId) await storage.updateCard(cardId, { front, back, tags: nextTags })
-    else await storage.createCard(deckId, front, back, nextTags)
+    if (editing && cardId) {
+      await storage.updateCard(cardId, { front, back, tags: nextTags })
+    } else {
+      await storage.createCard(deckId, front, back, nextTags)
+    }
     await storage.sweepOrphanAssets()
+
+    if (addAnother && !editing) {
+      setFront('')
+      setBack('')
+      setTags([])
+      setTagInput('')
+      setBaseline(EMPTY_DRAFT)
+      setSavedCount((n) => n + 1)
+      frontHandle.current?.editor.commands.focus('end')
+      return
+    }
+
     allowNavigationRef.current = true
-    back2deck()
+    leaveEditor()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [front, back, tags, tagInput, deckId, cardId, editing, storage])
+  }, [front, back, tags, tagInput, deckId, cardId, editing, storage, returnTo])
 
   async function remove() {
     if (!cardId) return
     await storage.deleteCard(cardId)
     await storage.sweepOrphanAssets()
     allowNavigationRef.current = true
-    back2deck()
+    leaveEditor()
   }
 
   async function discardAndLeave() {
@@ -136,21 +154,21 @@ export function CardEditorPage() {
     setSuspended(false)
   }
 
-  // ⌘⏎ / Ctrl+⏎ saves, Esc cancels — from anywhere on the screen.
+  // ⌘⏎ / Ctrl+⏎ saves, ⌘⇧⏎ saves & starts another new card, Esc cancels.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault()
-        void save()
+        void save(e.shiftKey && !editing)
       } else if (e.key === 'Escape') {
         e.preventDefault()
-        back2deck()
+        leaveEditor()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [save])
+  }, [save, editing])
 
   const systemTags = tags.filter(isSystemTag)
 
@@ -165,10 +183,15 @@ export function CardEditorPage() {
 
   const actions = (
     <>
-      <button className="btn btn-ghost" onClick={back2deck}>
+      <button className="btn btn-ghost" onClick={leaveEditor}>
         Cancel
       </button>
-      <button className="btn btn-primary" onClick={save} disabled={!front.trim()}>
+      {!editing && (
+        <button className="btn btn-ghost" onClick={() => void save(true)} disabled={!front.trim()}>
+          Save &amp; add another
+        </button>
+      )}
+      <button className="btn btn-primary" onClick={() => void save(false)} disabled={!front.trim()}>
         Save card
       </button>
     </>
@@ -178,6 +201,12 @@ export function CardEditorPage() {
     <>
       <PageHeader title={title} actions={actions} />
       <div className="card-editor">
+        {savedCount > 0 && (
+          <p className="editor-saved-notice" role="status">
+            {savedCount === 1 ? 'Card saved.' : `${savedCount} cards saved.`} Ready for the next one.
+          </p>
+        )}
+
         <div className="md-toolbar-bar">
           <EditorToolbar editor={active?.editor ?? null} onImage={() => active?.openImagePicker()} />
         </div>
@@ -190,6 +219,7 @@ export function CardEditorPage() {
               onChange={setFront}
               placeholder="Type the prompt…"
               ariaLabel="Front"
+              autoFocus={!editing}
               resolveAsset={resolveAsset}
               ingestImage={ingestImage}
               onReady={onFrontReady}
@@ -228,7 +258,9 @@ export function CardEditorPage() {
         </div>
 
         <div className="editor-foot">
-          <span className="editor-hint">⌘⏎ Save · Esc Cancel</span>
+          <span className="editor-hint">
+            {editing ? '⌘⏎ Save · Esc Cancel' : '⌘⏎ Save · ⌘⇧⏎ Save & add another · Esc Cancel'}
+          </span>
           {editing && (systemTags.length > 0 || suspended) && (
             <div className="editor-card-state">
               {systemTags.length > 0 && (

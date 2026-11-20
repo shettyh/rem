@@ -56,3 +56,16 @@ test('importing a same-named deck warns, then replaces on confirm', async () => 
   await page.getByRole('button', { name: 'Replace' }).click()
   await expect.element(page.getByText('Imported', { exact: false })).toBeVisible()
 })
+
+test('updates and persists card text size preference', async () => {
+  const storage = freshStorage()
+  renderSettings(storage)
+
+  await page.getByRole('button', { name: 'Large' }).click()
+  expect(document.documentElement.dataset.cardSize).toBe('large')
+  expect(localStorage.getItem('rem-card-text-size')).toBe('large')
+
+  await page.getByRole('button', { name: 'Standard' }).click()
+  expect(document.documentElement.dataset.cardSize).toBeUndefined()
+  expect(localStorage.getItem('rem-card-text-size')).toBe('standard')
+})
