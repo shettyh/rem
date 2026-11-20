@@ -17,7 +17,7 @@
     <meta property="og:url" content="https://shettyh.github.io/rem/" />
     <meta
       property="og:image"
-      content="https://shettyh.github.io/rem/assets/rem-draft-approval.webp"
+      content="https://shettyh.github.io/rem/assets/rem-draft-approval.png"
     />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" type="image/png" href="./assets/favicon.png" />
@@ -92,6 +92,7 @@
               <span class="window-title">rem · Drafts</span>
             </div>
             <picture>
+              <source media="(prefers-reduced-motion: reduce)" srcset="./assets/rem-draft-approval.png" />
               <source type="image/webp" srcset="./assets/rem-draft-approval.webp" />
               <img
                 src="./assets/rem-draft-approval.png"
@@ -177,32 +178,59 @@
       <section class="section product-section">
         <div class="shell product-row">
           <div class="product-copy">
-            <p class="eyebrow">Approval, not autopilot</p>
-            <h2>Keep generated content <em>reviewable and intentional.</em></h2>
+            <p class="eyebrow">Calm daily ritual</p>
+            <h2>Open rem, see what’s due,<br /><em>start in one keystroke.</em></h2>
             <p>
-              Agent proposals remain local, editable, and unscheduled until you accept them. See
-              why a card matters and where it came from before it joins your reviews.
+              Today keeps your review queue clear and inviting—estimated session length, deck
+              progress, and one-click Study actions without dashboard clutter.
             </p>
             <ul class="check-list">
-              <li><span>✓</span> Try the question before accepting it</li>
-              <li><span>✓</span> Inspect rationale and source provenance</li>
-              <li><span>✓</span> Edit the card, deck, and tags</li>
+              <li><span>✓</span> Estimated session duration before you begin</li>
+              <li><span>✓</span> One-click Study per deck or Enter for all due cards</li>
+              <li><span>✓</span> Quiet light and dark themes with adjustable card text size</li>
             </ul>
           </div>
           <figure class="product-shot light-shot">
             <picture>
-              <source type="image/webp" srcset="./assets/rem-draft-approval.webp" />
+              <source type="image/webp" srcset="./assets/rem-today.webp" />
               <img
-                src="./assets/rem-draft-approval.png"
+                src="./assets/rem-today.png"
                 width="1152"
                 height="720"
-                alt="The rem desktop draft approval interface"
+                alt="The rem Today screen showing due counts, estimated time, decks, and Study controls"
               />
             </picture>
           </figure>
         </div>
 
         <div class="shell product-row product-row-reverse">
+          <div class="product-copy">
+            <p class="eyebrow">Focused recall</p>
+            <h2>Distraction-free review<br />for <em>rich Markdown cards.</em></h2>
+            <p>
+              Navigation folds away during review so your focus stays on the prompt, syntax-highlighted
+              code, images, and FSRS interval previews.
+            </p>
+            <ul class="check-list">
+              <li><span>✓</span> Syntax-highlighted code blocks, quotes, and tables</li>
+              <li><span>✓</span> Fast keyboard grading (1–4) with live interval hints</li>
+              <li><span>✓</span> Jump to edit any card mid-session with E</li>
+            </ul>
+          </div>
+          <figure class="product-shot terminal-shot">
+            <picture>
+              <source type="image/webp" srcset="./assets/rem-review-dark.webp" />
+              <img
+                src="./assets/rem-review-dark.png"
+                width="1152"
+                height="720"
+                alt="Focused dark-mode review in rem with syntax-highlighted TypeScript code and FSRS grading controls"
+              />
+            </picture>
+          </figure>
+        </div>
+
+        <div class="shell product-row">
           <div class="product-copy">
             <p class="eyebrow">One review engine</p>
             <h2>Study at your desk<br />or <em>stay in the terminal.</em></h2>
@@ -223,6 +251,33 @@
               height="661"
               alt="A Markdown card being reviewed with rem study in the terminal"
             />
+          </figure>
+        </div>
+
+        <div class="shell product-row product-row-reverse">
+          <div class="product-copy">
+            <p class="eyebrow">Actionable insight</p>
+            <h2>Watch your recall<br />and <em>rhythm compound.</em></h2>
+            <p>
+              Track review activity, recall rate, streaks, grade distribution, and upcoming 7-day
+              workload across all decks or any single topic.
+            </p>
+            <ul class="check-list">
+              <li><span>✓</span> Interactive daily activity and recall breakdown</li>
+              <li><span>✓</span> Filter by deck and 7, 30, or 90-day window</li>
+              <li><span>✓</span> Upcoming workload forecast to pace your study</li>
+            </ul>
+          </div>
+          <figure class="product-shot light-shot">
+            <picture>
+              <source type="image/webp" srcset="./assets/rem-stats.webp" />
+              <img
+                src="./assets/rem-stats.png"
+                width="1152"
+                height="720"
+                alt="The rem Stats dashboard showing reviews, recall rate, streak, grade distribution, and deck breakdown"
+              />
+            </picture>
           </figure>
         </div>
       </section>

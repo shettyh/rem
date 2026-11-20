@@ -29,10 +29,35 @@ explore a system or topic → agent proposes drafts → you try, edit, and appro
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/rem-draft-approval.png">
   <source type="image/webp" srcset="docs/assets/rem-draft-approval.webp">
-  <img alt="A rem desktop draft showing its proposed answer, rationale, source, and approval controls" src="docs/assets/rem-draft-approval.png">
+  <img alt="A rem desktop draft showing its front-first prompt, proposed answer, rationale, source, and approval controls" src="docs/assets/rem-draft-approval.png">
 </picture>
 
 Agent proposals remain local and unscheduled while you try the question, inspect its provenance, edit it, and decide whether it belongs in your study plan.
+
+### Start your daily session from Today
+
+<picture>
+  <source type="image/webp" srcset="docs/assets/rem-today.webp">
+  <img alt="The rem Today screen showing due counts, estimated session duration, deck progress, and one-click Study actions" src="docs/assets/rem-today.png">
+</picture>
+
+See what is due at a glance with estimated study time, press <kbd>Enter</kbd> to start a cross-deck review, or jump directly into any deck.
+
+### Focus on recall with rich Markdown cards
+
+<picture>
+  <source type="image/webp" srcset="docs/assets/rem-review-dark.webp">
+  <img alt="Focused dark-mode review in rem with syntax-highlighted TypeScript code, blockquote, and FSRS grading intervals" src="docs/assets/rem-review-dark.png">
+</picture>
+
+Review sessions hide navigation chrome so attention stays on the prompt, syntax-highlighted code, and FSRS interval previews.
+
+### Track recall rate and momentum
+
+<picture>
+  <source type="image/webp" srcset="docs/assets/rem-stats.webp">
+  <img alt="The rem Stats screen showing review activity, recall rate, streak, grade distribution, and deck breakdown" src="docs/assets/rem-stats.png">
+</picture>
 
 ### Study accepted cards in the terminal
 
