@@ -105,3 +105,25 @@ test('shows user tags and filters cards by tag', async () => {
   await expect.element(page.getByText('Hola', { exact: true })).not.toBeInTheDocument()
   await expect.element(page.getByText('1 of 2 cards')).toBeVisible()
 })
+
+test('searches cards and lets the user clear active filters', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Spanish')
+  await storage.createCard(deck.id, 'Ser vs estar', 'Two forms of “to be”')
+  await storage.createCard(deck.id, 'Hola', 'Hello')
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId',
+    entry: `/decks/${deck.id}`,
+    element: <DeckDetailPage />,
+  })
+
+  await page.getByLabelText('Search cards').fill('estar')
+  await expect.element(page.getByText('Ser vs estar')).toBeVisible()
+  await expect.element(page.getByText('Hola', { exact: true })).not.toBeInTheDocument()
+
+  await page.getByLabelText('Search cards').fill('nonexistent')
+  await expect.element(page.getByRole('heading', { name: 'No matching cards' })).toBeVisible()
+  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await expect.element(page.getByText('Hola', { exact: true })).toBeVisible()
+})

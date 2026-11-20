@@ -18,6 +18,7 @@ export function RichMarkdownEditor({
   onChange,
   placeholder,
   ariaLabel,
+  autoFocus = false,
   resolveAsset,
   ingestImage,
   onReady,
@@ -27,6 +28,7 @@ export function RichMarkdownEditor({
   onChange: (markdown: string) => void
   placeholder?: string
   ariaLabel?: string
+  autoFocus?: boolean
   resolveAsset?: (hash: string) => Promise<string | null>
   ingestImage?: (file: File) => Promise<{ hash: string; mime: string }>
   onReady?: (handle: EditorHandle) => void
@@ -47,6 +49,7 @@ export function RichMarkdownEditor({
   const editor = useEditor({
     extensions: createEditorExtensions(placeholder, resolveAsset),
     content: value,
+    autofocus: autoFocus ? 'end' : false,
     immediatelyRender: false,
     editorProps: {
       attributes: {

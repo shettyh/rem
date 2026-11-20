@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useStorage } from '../../data/StorageContext'
 import { useStorageQuery } from '../../data/useStorageQuery'
 import type { CardDraft, DraftResolution } from '../../domain/models'
+import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
 import { EditorToolbar } from '../cards/EditorToolbar'
 import { MarkdownView } from '../cards/MarkdownView'
@@ -25,8 +26,18 @@ export function DraftInboxPage() {
     const [drafts, decks] = await Promise.all([storage.listDrafts(), storage.listDecks()])
     return { drafts, decks }
   }, [refresh])
-  const current = data?.drafts[0]
-  const pending = data?.drafts.length ?? 0
+  const [deferredIds, setDeferredIds] = useState<string[]>([])
+  const orderedDrafts = useMemo(() => {
+    const list = data?.drafts ?? []
+    if (deferredIds.length === 0) return list
+    const deferred = new Set(deferredIds)
+    return [
+      ...list.filter((d) => !deferred.has(d.id)),
+      ...deferredIds.map((id) => list.find((d) => d.id === id)).filter((d): d is CardDraft => Boolean(d)),
+    ]
+  }, [data?.drafts, deferredIds])
+  const current = orderedDrafts[0]
+  const pending = orderedDrafts.length
   const [loadedId, setLoadedId] = useState<string>()
   const [edit, setEdit] = useState<DraftEdit>(EMPTY_EDIT)
   const [revealed, setRevealed] = useState(false)
@@ -59,7 +70,7 @@ export function DraftInboxPage() {
     backHandle.current = handle
   }, [])
 
-  async function resolve(draft: CardDraft, action: 'accept' | 'reject') {
+  const resolve = useCallback(async (draft: CardDraft, action: 'accept' | 'reject') => {
     setBusy(true)
     setError(undefined)
     try {
@@ -78,13 +89,42 @@ export function DraftInboxPage() {
               },
             },
       )
+      setDeferredIds((ids) => ids.filter((id) => id !== draft.id))
       setMessage(resolutionMessage(resolution))
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not resolve this draft.')
     } finally {
       setBusy(false)
     }
+  }, [storage, edit])
+
+  function skipCurrent() {
+    if (!current || pending <= 1) return
+    setDeferredIds((ids) => [...ids.filter((id) => id !== current.id), current.id])
+    setMessage(undefined)
   }
+
+  // Space/Enter reveals an unrevealed proposal; ⌘⏎/Ctrl+⏎ accepts a revealed one.
+  useEffect(() => {
+    if (!current || current.id !== loadedId) return
+    function onKey(e: KeyboardEvent) {
+      if (!revealed) {
+        const tag = (e.target as HTMLElement | null)?.tagName ?? ''
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || tag === 'A') return
+        if (e.code === 'Space' || e.key === 'Enter') {
+          e.preventDefault()
+          setRevealed(true)
+        }
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !busy && edit.front.trim() && edit.deckId) {
+        e.preventDefault()
+        void resolve(current, 'accept')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [current, loadedId, revealed, busy, edit.front, edit.deckId, resolve])
 
   const title = (
     <>
@@ -101,7 +141,7 @@ export function DraftInboxPage() {
         <PageHeader title={title} />
         <div className="draft-terminal">
           <div className="empty-state">
-            <div className="ico" aria-hidden="true">CLEAR</div>
+            <EmptyIcon kind="clear" />
             <h3>Inbox clear</h3>
             <p>{message ?? 'Agent proposals will wait here for your approval.'}</p>
           </div>
@@ -141,17 +181,26 @@ export function DraftInboxPage() {
 
           {!revealed ? (
             <div className="draft-prompt">
-              <p className="draft-eyebrow">Try answering before you reveal</p>
-              <div className="draft-question">
-                <MarkdownView source={current.front} />
+              <div className="draft-prompt-inner">
+                <p className="draft-eyebrow">Try answering before you reveal</p>
+                <div className="draft-question">
+                  <MarkdownView source={current.front} />
+                </div>
+                <div className="draft-prompt-actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => setRevealed(true)}
+                  >
+                    Reveal proposal <span className="kbd" aria-hidden="true">space</span>
+                  </button>
+                  {pending > 1 && (
+                    <button type="button" className="btn btn-ghost" onClick={skipCurrent}>
+                      Skip for now
+                    </button>
+                  )}
+                </div>
               </div>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => setRevealed(true)}
-              >
-                Reveal proposal
-              </button>
             </div>
           ) : (
             <div className="draft-edit">
@@ -238,14 +287,21 @@ export function DraftInboxPage() {
               )}
 
               <div className="draft-actions">
-                <button
-                  type="button"
-                  className="btn btn-danger-outline"
-                  disabled={busy}
-                  onClick={() => void resolve(current, 'reject')}
-                >
-                  Reject draft
-                </button>
+                <div className="draft-actions-left">
+                  <button
+                    type="button"
+                    className="btn btn-danger-outline"
+                    disabled={busy}
+                    onClick={() => void resolve(current, 'reject')}
+                  >
+                    Reject draft
+                  </button>
+                  {pending > 1 && (
+                    <button type="button" className="btn btn-ghost" disabled={busy} onClick={skipCurrent}>
+                      Skip
+                    </button>
+                  )}
+                </div>
                 <button
                   type="button"
                   className="btn btn-primary"

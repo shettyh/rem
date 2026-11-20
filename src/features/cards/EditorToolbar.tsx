@@ -134,6 +134,107 @@ function HeadingMenu({ editor }: { editor: Editor | null }) {
   )
 }
 
+function LinkMenu({ editor }: { editor: Editor | null }) {
+  const [open, setOpen] = useState(false)
+  const [url, setUrl] = useState('')
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const active = !!editor?.isActive('link')
+
+  useEffect(() => {
+    if (!open) return
+    inputRef.current?.focus()
+    inputRef.current?.select()
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setOpen(false)
+        editor?.commands.focus()
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open, editor])
+
+  function openPopover() {
+    if (!editor) return
+    const existing = (editor.getAttributes('link').href as string | undefined) ?? ''
+    setUrl(existing)
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect()
+      setPos({
+        top: rect.bottom + 6,
+        left: Math.max(12, Math.min(rect.left, window.innerWidth - 330)),
+      })
+    }
+    setOpen((v) => !v)
+  }
+
+  function apply() {
+    if (!editor) return
+    const trimmed = url.trim()
+    setOpen(false)
+    if (!trimmed) {
+      editor.chain().focus().unsetLink().run()
+      return
+    }
+    editor.chain().focus().extendMarkRange('link').setLink({ href: trimmed }).run()
+  }
+
+  function remove() {
+    setOpen(false)
+    editor?.chain().focus().unsetLink().run()
+  }
+
+  return (
+    <div className="md-head" ref={ref}>
+      <Tool label="Link" active={active} disabled={!editor} onRun={openPopover}>
+        {Icon.link}
+      </Tool>
+      {open && (
+        <div
+          className="md-link-pop"
+          role="dialog"
+          aria-label="Edit link"
+          style={pos ? { top: pos.top, left: pos.left } : undefined}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              apply()
+            }
+          }}
+        >
+          <input
+            ref={inputRef}
+            type="url"
+            className="text-input md-link-input"
+            placeholder="https://…"
+            aria-label="Link URL"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+          <button type="button" className="btn btn-primary btn-sm" onClick={apply}>
+            Apply
+          </button>
+          {active && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={remove}>
+              Remove
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /**
  * The single formatting toolbar shared by both card fields. It acts on whichever
  * editor is currently focused (passed in as `editor`) and re-renders on that
@@ -159,16 +260,6 @@ export function EditorToolbar({ editor, onImage }: { editor: Editor | null; onIm
   const run = (fn: (chain: ReturnType<Editor['chain']>) => ReturnType<Editor['chain']>) => () => {
     if (!editor) return
     fn(editor.chain().focus()).run()
-  }
-
-  function toggleLink() {
-    if (!editor) return
-    if (editor.isActive('link')) {
-      editor.chain().focus().unsetLink().run()
-      return
-    }
-    const url = window.prompt('Link URL')
-    if (url) editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run()
   }
 
   const imageActive = !!editor?.isActive('image')
@@ -214,9 +305,7 @@ export function EditorToolbar({ editor, onImage }: { editor: Editor | null; onIm
         {Icon.quote}
       </Tool>
       <span className="md-tool-sep" />
-      <Tool label="Link" active={a('link')} onRun={toggleLink}>
-        {Icon.link}
-      </Tool>
+      <LinkMenu editor={editor} />
       {onImage && (
         <Tool label="Image" onRun={onImage}>
           {Icon.image}
