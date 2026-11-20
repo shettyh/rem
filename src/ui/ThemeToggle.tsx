@@ -40,7 +40,7 @@ export function ThemeToggle() {
           </svg>
         )}
       </span>
-      <span>{theme === 'dark' ? 'Dark' : 'Light'}</span>
+      <span className="theme-toggle-label">{theme === 'dark' ? 'Dark' : 'Light'}</span>
     </button>
   )
 }

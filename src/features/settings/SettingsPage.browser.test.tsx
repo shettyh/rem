@@ -69,3 +69,16 @@ test('updates and persists card text size preference', async () => {
   expect(document.documentElement.dataset.cardSize).toBeUndefined()
   expect(localStorage.getItem('rem-card-text-size')).toBe('standard')
 })
+
+test('defaults sidebar hover auto-expand to on and persists toggling', async () => {
+  localStorage.removeItem('rem-sidebar-hover-expand')
+  const storage = freshStorage()
+  renderSettings(storage)
+
+  const toggle = page.getByRole('checkbox', { name: /Auto-expand collapsed sidebar on hover/ })
+  await expect.element(toggle).toBeChecked()
+
+  await toggle.click()
+  await expect.element(toggle).not.toBeChecked()
+  expect(localStorage.getItem('rem-sidebar-hover-expand')).toBe('false')
+})

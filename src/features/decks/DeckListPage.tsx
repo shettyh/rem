@@ -136,42 +136,65 @@ export function DeckListPage() {
                 </span>
               </div>
               <nav className="deck-list" aria-label="Decks">
-                {decks.map(({ deck, due, newCount, total, studied }) => (
-                  <div key={deck.id} className="deck-list-row">
-                    <Link to={`/decks/${deck.id}`} className="deck-list-link">
-                      <span className="deck-list-identity">
+                {decks.map(({ deck, due, newCount, total, studied }) => {
+                  const pct = total > 0 ? Math.min(1, studied / total) : 0
+                  const ringCircumference = 2 * Math.PI * 7
+                  const ringOffset = ringCircumference * (1 - pct)
+                  const complete = total > 0 && studied >= total
+                  return (
+                    <div key={deck.id} className="deck-list-row">
+                      <Link to={`/decks/${deck.id}`} className="deck-list-link">
                         <span className="deck-list-name">{deck.name}</span>
-                        {total > 0 && studied > 0 && (
-                          <span className="deck-list-progress" aria-hidden="true" title={`${studied} of ${total} studied`}>
-                            <span style={{ width: `${Math.round((studied / total) * 100)}%` }} />
-                          </span>
-                        )}
-                      </span>
-                      <span className="deck-list-meta">
-                        {due > 0 && <span className="deck-list-due has-due">{due} due</span>}
-                        {newCount > 0 && <span>{newCount} new</span>}
-                        <span>{total} {total === 1 ? 'card' : 'cards'}</span>
-                      </span>
-                    </Link>
-                    {due > 0 ? (
-                      <Link
-                        to={`/decks/${deck.id}/study`}
-                        className="btn btn-ghost btn-sm deck-list-study"
-                        aria-label={`Study ${deck.name}`}
-                      >
-                        Study
+                        <span className="deck-list-meta">
+                          {due > 0 && <span className="deck-list-due has-due">{due} due</span>}
+                          {newCount > 0 && <span>{newCount} new</span>}
+                          {total > 0 && studied > 0 ? (
+                            <span
+                              className={`deck-progress-ring${complete ? ' is-complete' : ''}`}
+                              title={`${studied} of ${total} studied`}
+                            >
+                              <svg viewBox="0 0 18 18" aria-hidden="true">
+                                <circle className="deck-progress-track" cx="9" cy="9" r="7" />
+                                <circle
+                                  className="deck-progress-fill"
+                                  cx="9"
+                                  cy="9"
+                                  r="7"
+                                  strokeDasharray={ringCircumference}
+                                  strokeDashoffset={ringOffset}
+                                />
+                              </svg>
+                              <span>
+                                {studied} / {total} studied
+                              </span>
+                            </span>
+                          ) : (
+                            <span>
+                              {total} {total === 1 ? 'card' : 'cards'}
+                            </span>
+                          )}
+                        </span>
                       </Link>
-                    ) : (
-                      <Link
-                        to={`/decks/${deck.id}`}
-                        className="deck-list-arrow"
-                        aria-label={`Open ${deck.name}`}
-                      >
-                        ›
-                      </Link>
-                    )}
-                  </div>
-                ))}
+                      {due > 0 ? (
+                        <Link
+                          to={`/decks/${deck.id}/study`}
+                          className="btn btn-ghost btn-sm deck-list-study"
+                          aria-label={`Study ${deck.name}`}
+                        >
+                          Study
+                        </Link>
+                      ) : (
+                        <Link
+                          to={`/decks/${deck.id}`}
+                          className="deck-list-arrow"
+                          aria-label={`Open ${deck.name}`}
+                        >
+                          ›
+                        </Link>
+                      )}
+                    </div>
+                  )
+                })}
               </nav>
             </>
           )}

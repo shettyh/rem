@@ -1,5 +1,5 @@
 // src/features/cards/CardEditorPage.tsx
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useBlocker, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useStorage } from '../../data/StorageContext'
 import type { Deck } from '../../domain/models'
@@ -8,15 +8,16 @@ import { PageHeader } from '../../ui/PageHeader'
 import { RichMarkdownEditor, type EditorHandle } from './RichMarkdownEditor'
 import { EditorToolbar } from './EditorToolbar'
 import { loadAssetUrl } from './assetUrl'
-import { isSystemTag, mergeUserTags, userTags } from './cardTags'
+import { isSystemTag, mergeUserTags, parseUserTags, userTags } from './cardTags'
+import { cardStatus } from './DeckDetailPage'
 
 interface CardDraft {
   front: string
   back: string
-  tagInput: string
+  tagsKey: string
 }
 
-const EMPTY_DRAFT: CardDraft = { front: '', back: '', tagInput: '' }
+const EMPTY_DRAFT: CardDraft = { front: '', back: '', tagsKey: '' }
 
 /** Full-screen create/edit card screen. Route params: deckId, optional cardId. */
 export function CardEditorPage() {
@@ -28,15 +29,19 @@ export function CardEditorPage() {
   const returnTo = (location.state as { returnTo?: string } | null)?.returnTo
 
   const [deck, setDeck] = useState<Deck>()
+  const [deckTagPool, setDeckTagPool] = useState<string[]>([])
   const [front, setFront] = useState('')
   const [back, setBack] = useState('')
   const [tags, setTags] = useState<string[]>([])
-  const [tagInput, setTagInput] = useState('')
+  const [userTagChips, setUserTagChips] = useState<string[]>([])
+  const [tagDraft, setTagDraft] = useState('')
   const [suspended, setSuspended] = useState(false)
+  const [reviewMeta, setReviewMeta] = useState<{ reps: number; nextLabel: string } | null>(null)
   const [baseline, setBaseline] = useState<CardDraft | null>(editing ? null : EMPTY_DRAFT)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [savedCount, setSavedCount] = useState(0)
   const allowNavigationRef = useRef(false)
+  const tagInputRef = useRef<HTMLInputElement>(null)
   // The field the shared toolbar should act on — defaults to Front, follows focus.
   const [active, setActive] = useState<EditorHandle | null>(null)
   const frontHandle = useRef<EditorHandle | null>(null)
@@ -45,30 +50,54 @@ export function CardEditorPage() {
   useEffect(() => {
     if (!deckId) return
     let live = true
-    storage.getDeck(deckId).then((d) => live && d && setDeck(d))
+    Promise.all([storage.getDeck(deckId), storage.listCards(deckId)]).then(([d, deckCards]) => {
+      if (!live) return
+      if (d) setDeck(d)
+      const unique = [...new Set(deckCards.flatMap((c) => userTags(c.tags)))].sort((a, b) =>
+        a.localeCompare(b),
+      )
+      setDeckTagPool(unique)
+    })
     return () => {
       live = false
     }
-  }, [deckId, storage])
+  }, [deckId, storage, savedCount])
 
   useEffect(() => {
     if (!cardId) return
     let live = true
     storage.getCard(cardId).then((card) => {
       if (live && card) {
-        const nextTagInput = userTags(card.tags).join(', ')
+        const currentUserTags = userTags(card.tags)
         setFront(card.front)
         setBack(card.back)
         setTags(card.tags)
-        setTagInput(nextTagInput)
+        setUserTagChips(currentUserTags)
+        setTagDraft('')
         setSuspended(card.suspended)
-        setBaseline({ front: card.front, back: card.back, tagInput: nextTagInput })
+        if (card.scheduling.reps > 0) {
+          const st = cardStatus(card, Date.now())
+          setReviewMeta({
+            reps: card.scheduling.reps,
+            nextLabel: st.kind === 'scheduled' ? `Next review in ${st.label}` : `Status: ${st.label}`,
+          })
+        } else {
+          setReviewMeta(null)
+        }
+        setBaseline({
+          front: card.front,
+          back: card.back,
+          tagsKey: currentUserTags.join(', '),
+        })
       }
     })
     return () => {
       live = false
     }
   }, [cardId, storage])
+
+  const combinedTagInput = [...userTagChips, tagDraft].filter(Boolean).join(', ')
+  const currentTagsKey = parseUserTags(combinedTagInput).join(', ')
 
   const ingestImage = async (file: File) => {
     const bytes = new Uint8Array(await file.arrayBuffer())
@@ -77,7 +106,7 @@ export function CardEditorPage() {
   }
   const resolveAsset = (hash: string) => loadAssetUrl(storage, hash)
   const dirty = baseline !== null && (
-    front !== baseline.front || back !== baseline.back || tagInput !== baseline.tagInput
+    front !== baseline.front || back !== baseline.back || currentTagsKey !== baseline.tagsKey
   )
   const blocker = useBlocker(({ currentLocation, nextLocation }) =>
     !allowNavigationRef.current &&
@@ -108,9 +137,36 @@ export function CardEditorPage() {
     navigate(returnTo ?? `/decks/${deckId}`)
   }
 
+  function commitTagDraft(raw = tagDraft) {
+    if (!raw.trim()) {
+      setTagDraft('')
+      return
+    }
+    setUserTagChips((prev) => parseUserTags([...prev, raw].join(', ')))
+    setTagDraft('')
+  }
+
+  function addSuggestedTag(tag: string) {
+    setUserTagChips((prev) => parseUserTags([...prev, tag].join(', ')))
+    tagInputRef.current?.focus()
+  }
+
+  function removeTagChip(tag: string) {
+    setUserTagChips((prev) => prev.filter((item) => item !== tag))
+  }
+
+  function onTagKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Enter' || event.key === ',') {
+      event.preventDefault()
+      commitTagDraft()
+    } else if (event.key === 'Backspace' && tagDraft === '' && userTagChips.length > 0) {
+      setUserTagChips((prev) => prev.slice(0, -1))
+    }
+  }
+
   const save = useCallback(async (addAnother = false) => {
     if (!front.trim() || !deckId) return
-    const nextTags = mergeUserTags(tags, tagInput)
+    const nextTags = mergeUserTags(tags, combinedTagInput)
     if (editing && cardId) {
       await storage.updateCard(cardId, { front, back, tags: nextTags })
     } else {
@@ -122,7 +178,8 @@ export function CardEditorPage() {
       setFront('')
       setBack('')
       setTags([])
-      setTagInput('')
+      setUserTagChips([])
+      setTagDraft('')
       setBaseline(EMPTY_DRAFT)
       setSavedCount((n) => n + 1)
       frontHandle.current?.editor.commands.focus('end')
@@ -132,7 +189,7 @@ export function CardEditorPage() {
     allowNavigationRef.current = true
     leaveEditor()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [front, back, tags, tagInput, deckId, cardId, editing, storage, returnTo])
+  }, [front, back, tags, combinedTagInput, deckId, cardId, editing, storage, returnTo])
 
   async function remove() {
     if (!cardId) return
@@ -171,6 +228,15 @@ export function CardEditorPage() {
   }, [save, editing])
 
   const systemTags = tags.filter(isSystemTag)
+  const existingKeys = new Set(userTagChips.map((t) => t.toLocaleLowerCase()))
+  const draftNeedle = tagDraft.trim().toLocaleLowerCase()
+  const suggestedTags = deckTagPool
+    .filter((tag) => {
+      const key = tag.toLocaleLowerCase()
+      if (existingKeys.has(key)) return false
+      return !draftNeedle || key.includes(draftNeedle)
+    })
+    .slice(0, 6)
 
   const title = (
     <>
@@ -247,20 +313,65 @@ export function CardEditorPage() {
             <label className="field-rule-label" htmlFor="card-tags">Tags</label>
             <span className="field-rule-line" />
           </div>
-          <input
-            id="card-tags"
-            className="text-input"
-            value={tagInput}
-            onChange={(event) => setTagInput(event.target.value)}
-            placeholder="grammar, chapter 1"
-          />
-          <p className="editor-tag-hint">Comma-separated. The leech tag is managed automatically.</p>
+          <div
+            className="tag-chip-box"
+            onClick={() => tagInputRef.current?.focus()}
+          >
+            {userTagChips.map((tag) => (
+              <span key={tag} className="tag-chip">
+                {tag}
+                <button
+                  type="button"
+                  className="tag-chip-remove"
+                  aria-label={`Remove tag ${tag}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    removeTagChip(tag)
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            <input
+              ref={tagInputRef}
+              id="card-tags"
+              className="tag-chip-input"
+              value={tagDraft}
+              onChange={(event) => setTagDraft(event.target.value)}
+              onKeyDown={onTagKeyDown}
+              onBlur={() => commitTagDraft()}
+              placeholder={userTagChips.length === 0 ? 'Add tags (press Enter or comma)…' : 'Add another…'}
+            />
+          </div>
+          {suggestedTags.length > 0 && (
+            <div className="tag-suggestions" aria-label="Suggested deck tags">
+              <span className="tag-suggestions-label">Deck tags:</span>
+              {suggestedTags.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  className="tag-suggest-btn"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => addSuggestedTag(tag)}
+                >
+                  + {tag}
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="editor-tag-hint">Press Enter or comma to add a tag. The leech tag is managed automatically.</p>
         </div>
 
         <div className="editor-foot">
           <span className="editor-hint">
             {editing ? '⌘⏎ Save · Esc Cancel' : '⌘⏎ Save · ⌘⇧⏎ Save & add another · Esc Cancel'}
           </span>
+          {editing && reviewMeta && (
+            <span className="editor-review-meta">
+              {reviewMeta.nextLabel} · {reviewMeta.reps} {reviewMeta.reps === 1 ? 'review' : 'reviews'}
+            </span>
+          )}
           {editing && (systemTags.length > 0 || suspended) && (
             <div className="editor-card-state">
               {systemTags.length > 0 && (

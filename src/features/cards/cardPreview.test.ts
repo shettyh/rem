@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cardPreview } from './DeckDetailPage'
+import { cardPreview, cardSnippet } from './DeckDetailPage'
 
 describe('cardPreview', () => {
   it('strips leading heading markers', () => {
@@ -25,6 +25,16 @@ describe('cardPreview', () => {
   it('strips list and blockquote markers', () => {
     expect(cardPreview('- first item')).toBe('first item')
     expect(cardPreview('> a quote')).toBe('a quote')
+  })
+
+  it('skips code-fence openers and returns the first code line', () => {
+    const md = '```rust\nfn main() {\n  println!("hi");\n}\n```'
+    expect(cardPreview(md)).toBe('fn main() {')
+    expect(cardSnippet(md)).toEqual({ text: 'fn main() {', lang: 'rust' })
+  })
+
+  it('handles untagged code fences', () => {
+    expect(cardSnippet('```\nplain code\n```')).toEqual({ text: 'plain code', lang: null })
   })
 
   it('returns an empty string for blank input', () => {

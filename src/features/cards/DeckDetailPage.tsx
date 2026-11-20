@@ -9,9 +9,8 @@ import { PageHeader } from '../../ui/PageHeader'
 import { isNew } from '../review/dueOverview'
 import { userTags } from './cardTags'
 
-/** First non-empty line of markdown, reduced to plain text for a one-line card preview. */
-export function cardPreview(md: string): string {
-  const line = md.split('\n').find((l) => l.trim())?.trim() ?? ''
+/** Clean a single line of markdown into plain preview text. */
+function cleanMarkdownLine(line: string): string {
   return line
     .replace(/^#{1,6}\s+/, '') // heading
     .replace(/^>\s?/, '') // blockquote
@@ -20,6 +19,34 @@ export function cardPreview(md: string): string {
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // link -> text
     .replace(/(\*\*|__|~~|[*_`])/g, '') // emphasis / inline-code markers
     .trim()
+}
+
+/** First non-empty line of markdown, reduced to plain text; skips fenced code openers. */
+export function cardPreview(md: string): string {
+  return cardSnippet(md).text
+}
+
+/** Structured one-line preview that preserves code-block language metadata instead of showing "rust". */
+export function cardSnippet(md: string): { text: string; lang: string | null } {
+  const lines = md.split('\n')
+  const firstIdx = lines.findIndex((l) => l.trim().length > 0)
+  if (firstIdx === -1) return { text: '', lang: null }
+
+  const first = lines[firstIdx].trim()
+  const fence = first.match(/^(`{3,}|~{3,})\s*([a-zA-Z0-9_+-]*)\s*$/)
+  if (fence) {
+    const marker = fence[1][0]
+    const lang = fence[2]?.trim() || null
+    for (let i = firstIdx + 1; i < lines.length; i++) {
+      const candidate = lines[i].trim()
+      if (!candidate) continue
+      if (candidate.startsWith(marker.repeat(3))) break
+      return { text: candidate, lang }
+    }
+    return { text: '', lang }
+  }
+
+  return { text: cleanMarkdownLine(first), lang: null }
 }
 
 /** A card's management status; suspension/leech metadata takes priority over scheduling. */
@@ -70,6 +97,8 @@ export function DeckDetailPage() {
 
   const now = Date.now()
   const newCount = cards.filter((c) => isNew(c.scheduling)).length
+  const studiedCount = cards.length - newCount
+  const studiedPct = cards.length > 0 ? Math.round((studiedCount / cards.length) * 100) : 0
   const tagOptions = [...new Set(cards.flatMap((card) => userTags(card.tags)))]
     .sort((a, b) => a.localeCompare(b))
   const needle = query.trim().toLowerCase()
@@ -91,37 +120,87 @@ export function DeckDetailPage() {
 
   const hasFilters = Boolean(needle || tagFilter || statusFilter !== 'all')
 
-  const title = <span className="header-title-text">{deck.name}</span>
+  async function toggleSuspend(card: Card) {
+    await storage.updateCard(card.id, { suspended: !card.suspended })
+  }
 
-  const actions = (
+  const title = (
     <>
-      <button className="btn btn-ghost" onClick={() => navigate(`/decks/${deckId}/options`)}>
-        Options
-      </button>
+      <span className="header-title-text">{deck.name}</span>
       {cards.length > 0 && (
-        <>
-          <button className="btn btn-ghost" onClick={() => navigate(`/decks/${deckId}/cards/new`)}>
-            + Add card
-          </button>
-          {due && due > 0 ? (
-            <Link to={`/decks/${deckId}/study`} className="btn btn-primary">
-              Study {due}
-            </Link>
-          ) : (
-            <>
-              <span className="header-caught-up muted">All caught up today</span>
-              <button
-                className="btn btn-ghost"
-                onClick={() => navigate(`/decks/${deckId}/options#custom-study`)}
-              >
-                Custom study
-              </button>
-            </>
-          )}
-        </>
+        due && due > 0 ? (
+          <span className="header-status-pill is-due">
+            <span className="status-dot" aria-hidden="true" />
+            {due} due
+          </span>
+        ) : (
+          <span className="header-status-pill is-good">
+            <span className="status-dot" aria-hidden="true" />
+            Caught up
+          </span>
+        )
       )}
     </>
   )
+
+  const actions = (
+    <>
+      <button
+        type="button"
+        className="btn btn-ghost btn-icon"
+        aria-label="Options"
+        title="Deck options"
+        onClick={() => navigate(`/decks/${deckId}/options`)}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.5 4.5h6M11.5 4.5h2M2.5 8h2M7.5 8h6M2.5 11.5h7M12.5 11.5h1" />
+          <circle cx="10" cy="4.5" r="1.4" />
+          <circle cx="6" cy="8" r="1.4" />
+          <circle cx="11" cy="11.5" r="1.4" />
+        </svg>
+      </button>
+      {cards.length > 0 && (
+        due && due > 0 ? (
+          <>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => navigate(`/decks/${deckId}/cards/new`)}
+            >
+              + Add card
+            </button>
+            <Link to={`/decks/${deckId}/study`} className="btn btn-primary">
+              Study {due}
+            </Link>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => navigate(`/decks/${deckId}/options#custom-study`)}
+            >
+              Custom study
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => navigate(`/decks/${deckId}/cards/new`)}
+            >
+              + Add card
+            </button>
+          </>
+        )
+      )}
+    </>
+  )
+
+  const statusTabs: { value: StatusFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'due', label: 'Due' },
+    { value: 'new', label: 'New' },
+    { value: 'suspended', label: 'Suspended' },
+  ]
 
   return (
     <>
@@ -138,18 +217,26 @@ export function DeckDetailPage() {
           </div>
         ) : (
           <>
-            <section className="deck-stats" aria-label="Deck summary">
-              <div className="deck-stat deck-stat-due">
-                <div className="deck-stat-num">{due ?? 0}</div>
-                <div className="deck-stat-label">Due now</div>
+            <section className="deck-summary-bar" aria-label="Deck overview">
+              <div className="deck-stats" aria-label="Deck summary">
+                <div className="deck-stat deck-stat-due">
+                  <span className="deck-stat-num">{due ?? 0}</span>
+                  <span className="deck-stat-label">Due now</span>
+                </div>
+                <div className="deck-stat">
+                  <span className="deck-stat-num">{newCount}</span>
+                  <span className="deck-stat-label">New</span>
+                </div>
+                <div className="deck-stat">
+                  <span className="deck-stat-num">{cards.length}</span>
+                  <span className="deck-stat-label">Total</span>
+                </div>
               </div>
-              <div className="deck-stat">
-                <div className="deck-stat-num">{newCount}</div>
-                <div className="deck-stat-label">New</div>
-              </div>
-              <div className="deck-stat">
-                <div className="deck-stat-num">{cards.length}</div>
-                <div className="deck-stat-label">Total</div>
+              <div className="deck-summary-progress" title={`${studiedCount} of ${cards.length} cards studied`}>
+                <span>{studiedCount} / {cards.length} studied</span>
+                <span className="deck-summary-track" aria-hidden="true">
+                  <span style={{ width: `${studiedPct}%` }} />
+                </span>
               </div>
             </section>
 
@@ -169,17 +256,19 @@ export function DeckDetailPage() {
                   onChange={(event) => setQuery(event.target.value)}
                 />
               </div>
-              <select
-                className="card-tag-filter"
-                aria-label="Filter by status"
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-              >
-                <option value="all">All status</option>
-                <option value="due">Due &amp; new</option>
-                <option value="new">New only</option>
-                <option value="suspended">Suspended</option>
-              </select>
+              <div className="card-status-pills" role="group" aria-label="Filter by status">
+                {statusTabs.map((tab) => (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    className={`filter-pill${statusFilter === tab.value ? ' is-active' : ''}`}
+                    aria-pressed={statusFilter === tab.value}
+                    onClick={() => setStatusFilter(tab.value)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
               {tagOptions.length > 0 && (
                 <select
                   id="tag-filter"
@@ -219,23 +308,56 @@ export function DeckDetailPage() {
                 {visibleCards.map((card) => {
                   const status = cardStatus(card, now)
                   const tags = userTags(card.tags)
+                  const backSnippet = cardSnippet(card.back)
+                  const frontText = cardPreview(card.front)
                   return (
-                    <button
-                      key={card.id}
-                      className="card-row"
-                      onClick={() => navigate(`/decks/${deckId}/cards/${card.id}/edit`)}
-                    >
-                      <span className="card-front">
-                        {cardPreview(card.front) || <span className="muted">Untitled card</span>}
-                      </span>
-                      <span className="card-back">{cardPreview(card.back)}</span>
-                      {tags.length > 0 && (
-                        <span className="card-user-tags" aria-label={`Tags: ${tags.join(', ')}`}>
-                          {tags.map((tag) => <span key={tag} className="card-user-tag">{tag}</span>)}
+                    <div key={card.id} className="card-row">
+                      <button
+                        type="button"
+                        className="card-row-main"
+                        onClick={() => navigate(`/decks/${deckId}/cards/${card.id}/edit`)}
+                      >
+                        <span className="card-front">
+                          {frontText || <span className="muted">Untitled card</span>}
                         </span>
-                      )}
-                      <span className={`status-tag status-${status.kind}`}>{status.label}</span>
-                    </button>
+                        {(backSnippet.text || backSnippet.lang) && (
+                          <span className="card-back">
+                            {backSnippet.lang && (
+                              <span className="card-lang-pill">{backSnippet.lang}</span>
+                            )}
+                            <span className={backSnippet.lang ? 'card-back-code' : 'card-back-text'}>
+                              {backSnippet.text}
+                            </span>
+                          </span>
+                        )}
+                      </button>
+
+                      <div className="card-row-actions">
+                        <button
+                          type="button"
+                          className="card-row-action"
+                          onClick={() => navigate(`/decks/${deckId}/cards/${card.id}/edit`)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="card-row-action"
+                          onClick={() => void toggleSuspend(card)}
+                        >
+                          {card.suspended ? 'Unsuspend' : 'Suspend'}
+                        </button>
+                      </div>
+
+                      <div className="card-row-meta">
+                        {tags.length > 0 && (
+                          <span className="card-user-tags" aria-label={`Tags: ${tags.join(', ')}`}>
+                            {tags.map((tag) => <span key={tag} className="card-user-tag">{tag}</span>)}
+                          </span>
+                        )}
+                        <span className={`status-tag status-${status.kind}`}>{status.label}</span>
+                      </div>
+                    </div>
                   )
                 })}
               </section>

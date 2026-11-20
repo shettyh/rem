@@ -1,15 +1,19 @@
 import { afterEach, expect, test } from 'vitest'
 import { page } from 'vitest/browser'
 import { CardEditorPage } from '../features/cards/CardEditorPage'
+import { DeckListPage } from '../features/decks/DeckListPage'
 import { DeckSettingsPage } from '../features/decks/DeckSettingsPage'
 import { ReviewPage } from '../features/review/ReviewPage'
 import { DraftInboxPage } from '../features/drafts/DraftInboxPage'
 import { freshStorage } from '../test/seed'
 import { renderRoute } from '../test/renderRoute'
+import { setSidebarCollapsed, setSidebarHoverExpand } from './sidebarPrefs'
 
 afterEach(async () => {
   delete document.documentElement.dataset.tauri
   delete document.documentElement.dataset.platform
+  setSidebarCollapsed(false)
+  setSidebarHoverExpand(true)
   await page.viewport(1280, 800)
 })
 
@@ -120,4 +124,24 @@ test('deck options do not overflow at the minimum supported window width', async
 
   const content = document.querySelector<HTMLElement>('.content')!
   expect(content.scrollWidth).toBe(content.clientWidth)
+})
+
+test('sidebar collapses to an icon rail and persists state', async () => {
+  const storage = freshStorage()
+  await storage.createDeck('Rust')
+  await renderRoute({
+    storage,
+    entry: '/',
+    path: '/',
+    element: <DeckListPage />,
+  })
+
+  const collapseBtn = page.getByRole('button', { name: 'Collapse sidebar' })
+  await expect.element(collapseBtn).toBeVisible()
+  await collapseBtn.click()
+
+  const app = document.querySelector<HTMLElement>('.app')!
+  expect(app.classList.contains('is-sidebar-collapsed')).toBe(true)
+  expect(localStorage.getItem('rem-sidebar-collapsed')).toBe('true')
+  await expect.element(page.getByRole('button', { name: 'Expand sidebar' })).toBeVisible()
 })
