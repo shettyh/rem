@@ -65,4 +65,35 @@ final class RemAppTests: XCTestCase {
         )
         XCTAssertEqual(keyA, keyB)
     }
+
+    func testMarkdownParserExtractsCodeQuotesListsAndAssetImages() {
+        let hash = String(repeating: "a", count: 64)
+        let md = """
+        # TypeScript
+
+        Use `satisfies` to validate without widening.
+
+        ```ts
+        const x = 1 satisfies number
+        ```
+
+        > Keeps literal types intact.
+
+        - First
+        - Second
+
+        ![Diagram](asset:\(hash))
+        """
+        let blocks = MarkdownBlockParser.parse(md)
+        XCTAssertEqual(blocks.count, 6)
+        XCTAssertEqual(blocks[0], .heading(level: 1, text: "TypeScript"))
+        XCTAssertEqual(blocks[1], .paragraph(text: "Use `satisfies` to validate without widening."))
+        XCTAssertEqual(blocks[2], .codeBlock(language: "ts", code: "const x = 1 satisfies number"))
+        XCTAssertEqual(blocks[3], .blockquote(text: "Keeps literal types intact."))
+        XCTAssertEqual(blocks[4], .bulletList(items: ["First", "Second"]))
+        XCTAssertEqual(blocks[5], .image(alt: "Diagram", source: .asset(hash: hash)))
+
+        let highlighted = CodeHighlighter.highlight("const x = 'hi' // note", language: "ts")
+        XCTAssertEqual(String(highlighted.characters), "const x = 'hi' // note")
+    }
 }

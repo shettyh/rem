@@ -292,9 +292,14 @@ struct QuickCaptureSheet: View {
                     .font(.system(size: 10.5, weight: .bold))
                     .tracking(0.8)
                     .foregroundStyle(RemColor.faint)
-                Text(localizedMarkdown(front.isEmpty ? "_Empty question_" : front))
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(RemColor.text)
+                RemMarkdownView(
+                    markdown: front.isEmpty ? "_Empty question_" : front,
+                    store: appState.store,
+                    baseFontSize: appState.cardTextSize.revealedQuestionSize,
+                    codeFontSize: appState.cardTextSize.codeSize,
+                    textColor: RemColor.text,
+                    baseWeight: .medium
+                )
 
                 Divider().overlay(RemColor.border).padding(.vertical, 4)
 
@@ -302,9 +307,13 @@ struct QuickCaptureSheet: View {
                     .font(.system(size: 10.5, weight: .bold))
                     .tracking(0.8)
                     .foregroundStyle(RemColor.faint)
-                Text(localizedMarkdown(back.isEmpty ? "_No answer yet_" : back))
-                    .font(.system(size: 15.5))
-                    .foregroundStyle(RemColor.text)
+                RemMarkdownView(
+                    markdown: back.isEmpty ? "_No answer yet_" : back,
+                    store: appState.store,
+                    baseFontSize: appState.cardTextSize.answerSize,
+                    codeFontSize: appState.cardTextSize.codeSize,
+                    textColor: RemColor.text
+                )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -463,10 +472,5 @@ struct QuickCaptureSheet: View {
         } catch {
             appState.showToast(error.localizedDescription)
         }
-    }
-
-    private func localizedMarkdown(_ raw: String) -> AttributedString {
-        (try? AttributedString(markdown: raw, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(raw)
     }
 }

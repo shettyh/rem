@@ -12,8 +12,10 @@
 		0DDAD341758AB938466D3415 /* rem_ffi.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0B6EAAC09D301BB681E301 /* rem_ffi.swift */; };
 		11463BFEC7C471AC6282A1FB /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1815B3EB1508F3BED353BD /* AppState.swift */; };
 		1C57FC6B61E61725F7433B5E /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */; };
+		2B9E2665163134C4960129C2 /* MarkdownBlockParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5ADA201F3DEEC39FFA0FB76 /* MarkdownBlockParser.swift */; };
 		5F55AE7919E11A6C0BBDD818 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826924FAB93A7D776261FB18 /* SettingsView.swift */; };
 		6F25913452E569E6029713EE /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16278B140AD8DE458882895B /* KeychainStore.swift */; };
+		7556F594E668E98E3AD6A61C /* ImageLightboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E11D38FDBD7F3BF4C3891B /* ImageLightboxView.swift */; };
 		7847E21ADEB515B1E9B67B67 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A23A9B47C22CFA16FA06F8D2 /* TodayView.swift */; };
 		81401AD06D3E3EC74CE48206 /* FirstRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DE67B932E46F12BFE3E215 /* FirstRunView.swift */; };
 		8CF14AAF03B1A4832A829AF3 /* RemTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ABC582F7419B4F3FEFD0AA8 /* RemTokens.swift */; };
@@ -24,9 +26,12 @@
 		B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA01A89644F04D2536A7AC3D /* DecksView.swift */; };
 		BA683193E62377A9CB644FAC /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E2AEDEFBEE449696BAAEA397 /* UserNotifications.framework */; };
 		D19929A93E0EB1BB1467D57F /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6564B229B20BA26BC37F4291 /* Security.framework */; };
+		D3DCCF33397A1A676DCD1378 /* RemMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E670AF040422AD01B9994B2F /* RemMarkdownView.swift */; };
 		D98E184FBE92A160FD24DD8B /* RemStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E2DD644390DD61851BB031 /* RemStore.swift */; };
+		D993148BD033563EA25808C0 /* AssetImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6F2429A3C21B7147D7B9238 /* AssetImageCache.swift */; };
 		F111BE04364058F56DA1EAC7 /* RemApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82581381AD6AC6E10D3D734B /* RemApp.swift */; };
 		F705E41584E290A7FC6DFF96 /* DeckDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC30A16A1E8B9680802B58F /* DeckDetailView.swift */; };
+		F886E6947EB0096CB8F11598 /* ReviewMenuSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BC6D748FA17C66ACFB88297 /* ReviewMenuSheet.swift */; };
 		FA82F87A75D3E2E76B8583A7 /* RemCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E7C4717F9816E2B76DD12439 /* RemCore.xcframework */; };
 		FDF6ECD3BE9DDA2776C2A7BE /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A84A243D48ABBD2F8C18E812 /* RootTabView.swift */; };
 /* End PBXBuildFile section */
@@ -53,18 +58,23 @@
 		82581381AD6AC6E10D3D734B /* RemApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemApp.swift; sourceTree = "<group>"; };
 		826924FAB93A7D776261FB18 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		872ED05E3BF79C8E15E1BFD3 /* NewDeckSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewDeckSheet.swift; sourceTree = "<group>"; };
+		8BC6D748FA17C66ACFB88297 /* ReviewMenuSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewMenuSheet.swift; sourceTree = "<group>"; };
 		A0621EFAD1B2EA7FDF89398A /* RemApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RemApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1D83B33D3DD6D4646C9D8E7 /* AuthenticationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AuthenticationServices.framework; path = System/Library/Frameworks/AuthenticationServices.framework; sourceTree = SDKROOT; };
 		A23A9B47C22CFA16FA06F8D2 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		A84A243D48ABBD2F8C18E812 /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
 		B297A224C7F01BD19A9EB8D7 /* RemAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemAppTests.swift; sourceTree = "<group>"; };
 		B61826F3FB259AB3054EB2B6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B6F2429A3C21B7147D7B9238 /* AssetImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetImageCache.swift; sourceTree = "<group>"; };
 		B9D0EEF3129F4028DB95E9EE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		CC0B6EAAC09D301BB681E301 /* rem_ffi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = rem_ffi.swift; sourceTree = "<group>"; };
 		D1025E01C7EF0E39CBDA2F19 /* QuickCaptureSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCaptureSheet.swift; sourceTree = "<group>"; };
+		D2E11D38FDBD7F3BF4C3891B /* ImageLightboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageLightboxView.swift; sourceTree = "<group>"; };
 		DA01A89644F04D2536A7AC3D /* DecksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecksView.swift; sourceTree = "<group>"; };
 		DAC30A16A1E8B9680802B58F /* DeckDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckDetailView.swift; sourceTree = "<group>"; };
 		E2AEDEFBEE449696BAAEA397 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
+		E5ADA201F3DEEC39FFA0FB76 /* MarkdownBlockParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownBlockParser.swift; sourceTree = "<group>"; };
+		E670AF040422AD01B9994B2F /* RemMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemMarkdownView.swift; sourceTree = "<group>"; };
 		E7C4717F9816E2B76DD12439 /* RemCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = RemCore.xcframework; path = Frameworks/RemCore.xcframework; sourceTree = "<group>"; };
 		EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -105,6 +115,8 @@
 		23D42F09FBF8CCFA1FF46E0F /* Review */ = {
 			isa = PBXGroup;
 			children = (
+				D2E11D38FDBD7F3BF4C3891B /* ImageLightboxView.swift */,
+				8BC6D748FA17C66ACFB88297 /* ReviewMenuSheet.swift */,
 				18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */,
 			);
 			path = Review;
@@ -202,6 +214,7 @@
 				3CA550CF41A69BEEF553A3BF /* App */,
 				37737757CEF3983ADA7A60AB /* Features */,
 				167DC8B530CC826D559084B1 /* Generated */,
+				E280518F1A88794FB16597B0 /* Markdown */,
 				B44BFB3363CB95F65395A2CD /* Resources */,
 				C0B5D51284B8679AB6F6CDE7 /* Theme */,
 			);
@@ -241,6 +254,16 @@
 				826924FAB93A7D776261FB18 /* SettingsView.swift */,
 			);
 			path = Settings;
+			sourceTree = "<group>";
+		};
+		E280518F1A88794FB16597B0 /* Markdown */ = {
+			isa = PBXGroup;
+			children = (
+				B6F2429A3C21B7147D7B9238 /* AssetImageCache.swift */,
+				E5ADA201F3DEEC39FFA0FB76 /* MarkdownBlockParser.swift */,
+				E670AF040422AD01B9994B2F /* RemMarkdownView.swift */,
+			);
+			path = Markdown;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -339,15 +362,20 @@
 			buildActionMask = 2147483647;
 			files = (
 				11463BFEC7C471AC6282A1FB /* AppState.swift in Sources */,
+				D993148BD033563EA25808C0 /* AssetImageCache.swift in Sources */,
 				F705E41584E290A7FC6DFF96 /* DeckDetailView.swift in Sources */,
 				B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */,
 				81401AD06D3E3EC74CE48206 /* FirstRunView.swift in Sources */,
+				7556F594E668E98E3AD6A61C /* ImageLightboxView.swift in Sources */,
 				6F25913452E569E6029713EE /* KeychainStore.swift in Sources */,
+				2B9E2665163134C4960129C2 /* MarkdownBlockParser.swift in Sources */,
 				07359559E477945E46C39210 /* NewDeckSheet.swift in Sources */,
 				026A1F86F2FDF2DF243503D2 /* QuickCaptureSheet.swift in Sources */,
 				F111BE04364058F56DA1EAC7 /* RemApp.swift in Sources */,
+				D3DCCF33397A1A676DCD1378 /* RemMarkdownView.swift in Sources */,
 				D98E184FBE92A160FD24DD8B /* RemStore.swift in Sources */,
 				8CF14AAF03B1A4832A829AF3 /* RemTokens.swift in Sources */,
+				F886E6947EB0096CB8F11598 /* ReviewMenuSheet.swift in Sources */,
 				B55EBD4B3D524BD59F1A46B2 /* ReviewScreen.swift in Sources */,
 				FDF6ECD3BE9DDA2776C2A7BE /* RootTabView.swift in Sources */,
 				5F55AE7919E11A6C0BBDD818 /* SettingsView.swift in Sources */,
