@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.0 (2026-11-21)
+
+## What's Changed
+* docs: refresh README and website screenshots after UI redesign by @shettyh in https://github.com/shettyh/rem/pull/174
+* feat(ui): collapsible icon-rail sidebar, dense cards list, editor polish, and deck progress ring by @shettyh in https://github.com/shettyh/rem/pull/176
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.14.0...v0.15.0
+
 ## 0.14.0 (2026-11-20)
 
 ## What's Changed
