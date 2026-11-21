@@ -3,10 +3,11 @@ use rusqlite::{params, Connection, Row, Transaction};
 use uuid::Uuid;
 
 use crate::collection::write_transaction;
+use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc};
 use crate::tags::normalize_card_tags;
 use crate::{
     normalize_user_tags, Card, CardPatch, Collection, CollectionError, CreateCardsResult, Deck,
-    DeckPatch, DeckSettings, DuplicatePolicy, FsrsState, NewCardInput, SchedulerKind,
+    DeckPatch, DeckSettings, DuplicatePolicy, FsrsState, NewCardInput, SchedulerKind, SyncOp,
 };
 
 const DECK_PALETTE: [&str; 5] = ["#7e6cff", "#e8638c", "#2fa86b", "#e8922e", "#3ba0e8"];
@@ -35,19 +36,39 @@ impl Collection {
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
         let transaction = write_transaction(&mut connection)?;
+        let hlc = if is_cloud_sync_enabled(&transaction)? {
+            next_hlc(&transaction, now)?
+        } else {
+            String::new()
+        };
         transaction.execute(
             "INSERT INTO decks(
-                id, name, created_at, updated_at, color, scheduler_kind, settings_json
-             ) VALUES (?1, ?2, ?3, ?4, ?5, 'fsrs', ?6)",
+                id, name, created_at, updated_at, color, scheduler_kind, settings_json, hlc
+             ) VALUES (?1, ?2, ?3, ?4, ?5, 'fsrs', ?6, ?7)",
             params![
                 deck.id,
                 deck.name,
                 deck.created_at,
                 deck.updated_at,
                 deck.color,
-                settings
+                settings,
+                hlc,
             ],
         )?;
+        if !hlc.is_empty() {
+            enqueue_new_op(
+                &transaction,
+                &SyncOp::DeckUpsert {
+                    id: deck.id.clone(),
+                    name: deck.name.clone(),
+                    color: deck.color.clone(),
+                    settings: deck.settings.clone(),
+                    created_at: deck.created_at,
+                    hlc,
+                },
+                now,
+            )?;
+        }
         bump_sync_revision(&transaction)?;
         transaction.commit()?;
         Ok(deck)
@@ -84,6 +105,28 @@ impl Collection {
                 kind: "deck",
                 id: id.to_owned(),
             });
+        }
+        if is_cloud_sync_enabled(&transaction)? {
+            let hlc = next_hlc(&transaction, now)?;
+            transaction.execute("UPDATE decks SET hlc = ?2 WHERE id = ?1", params![id, hlc])?;
+            let updated: Deck = transaction.query_row(
+                "SELECT id, name, created_at, updated_at, color, scheduler_kind, settings_json
+                 FROM decks WHERE id = ?1",
+                [id],
+                deck_from_row,
+            )?;
+            enqueue_new_op(
+                &transaction,
+                &SyncOp::DeckUpsert {
+                    id: updated.id,
+                    name: updated.name,
+                    color: updated.color,
+                    settings: updated.settings,
+                    created_at: updated.created_at,
+                    hlc,
+                },
+                now,
+            )?;
         }
         bump_sync_revision(&transaction)?;
         transaction.commit()?;
@@ -132,6 +175,7 @@ impl Collection {
             });
         }
 
+        let cloud_enabled = is_cloud_sync_enabled(&transaction)?;
         let mut result = CreateCardsResult {
             created: Vec::new(),
             duplicates: Vec::new(),
@@ -147,7 +191,34 @@ impl Collection {
                 }
             }
             let scheduling_json = serde_json::to_string(&card.scheduling)?;
-            insert_card(&transaction, &card, &tags_json, &scheduling_json)?;
+            let content_hlc = if cloud_enabled {
+                next_hlc(&transaction, now)?
+            } else {
+                String::new()
+            };
+            insert_card_with_hlc(
+                &transaction,
+                &card,
+                &tags_json,
+                &scheduling_json,
+                &content_hlc,
+            )?;
+            if cloud_enabled {
+                enqueue_new_op(
+                    &transaction,
+                    &SyncOp::CardCreate {
+                        id: card.id.clone(),
+                        deck_id: card.deck_id.clone(),
+                        front: card.front.clone(),
+                        back: card.back.clone(),
+                        tags: card.tags.clone(),
+                        created_at: card.created_at,
+                        initial_due: card.scheduling.due,
+                        hlc: content_hlc,
+                    },
+                    now,
+                )?;
+            }
             result.created.push(card);
         }
         if !result.created.is_empty() {
@@ -203,6 +274,10 @@ impl Collection {
     }
 
     pub fn update_card(&self, id: &str, patch: CardPatch, now: i64) -> Result<(), CollectionError> {
+        let content_changed = patch.front.is_some() || patch.back.is_some() || patch.tags.is_some();
+        let suspended_changed = patch.suspended.is_some();
+        let scheduling_changed = patch.scheduling.is_some() || patch.last_again_at.is_some();
+
         let mut connection = self
             .connection
             .lock()
@@ -217,6 +292,67 @@ impl Collection {
         let tags_json = serde_json::to_string(&card.tags)?;
         let scheduling_json = serde_json::to_string(&card.scheduling)?;
         update_card_row(&transaction, &card, &tags_json, &scheduling_json)?;
+
+        if is_cloud_sync_enabled(&transaction)? {
+            if content_changed {
+                let hlc = next_hlc(&transaction, now)?;
+                transaction.execute(
+                    "UPDATE cards SET content_hlc = ?2 WHERE id = ?1",
+                    params![card.id, hlc],
+                )?;
+                enqueue_new_op(
+                    &transaction,
+                    &SyncOp::CardContentPatch {
+                        id: card.id.clone(),
+                        front: card.front.clone(),
+                        back: card.back.clone(),
+                        tags: card.tags.clone(),
+                        hlc,
+                    },
+                    now,
+                )?;
+            }
+            if suspended_changed {
+                let hlc = next_hlc(&transaction, now)?;
+                transaction.execute(
+                    "UPDATE cards SET suspended_hlc = ?2 WHERE id = ?1",
+                    params![card.id, hlc],
+                )?;
+                enqueue_new_op(
+                    &transaction,
+                    &SyncOp::CardSuspendPatch {
+                        id: card.id.clone(),
+                        suspended: card.suspended,
+                        hlc,
+                    },
+                    now,
+                )?;
+            }
+            if scheduling_changed {
+                let hlc = next_hlc(&transaction, now)?;
+                transaction.execute(
+                    "UPDATE cards SET scheduling_hlc = ?2 WHERE id = ?1",
+                    params![card.id, hlc],
+                )?;
+                enqueue_new_op(
+                    &transaction,
+                    &SyncOp::CardReview {
+                        card_id: card.id.clone(),
+                        deck_id: card.deck_id.clone(),
+                        reviewed_at: now,
+                        grade: None,
+                        scheduling: card.scheduling.clone(),
+                        last_again_at: card.last_again_at,
+                        leech_suspended: false,
+                        leech_tag_added: false,
+                        review_log_id: None,
+                        hlc,
+                    },
+                    now,
+                )?;
+            }
+        }
+
         bump_sync_revision(&transaction)?;
         transaction.commit()?;
         Ok(())
@@ -454,17 +590,18 @@ pub(crate) fn update_card_row(
     Ok(())
 }
 
-pub(crate) fn insert_card(
+pub(crate) fn insert_card_with_hlc(
     transaction: &Transaction<'_>,
     card: &Card,
     tags_json: &str,
     scheduling_json: &str,
+    content_hlc: &str,
 ) -> rusqlite::Result<()> {
     transaction.execute(
         "INSERT INTO cards(
             id, deck_id, front, back, created_at, updated_at, tags_json,
-            suspended, last_again_at, scheduling_json, due
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            suspended, last_again_at, scheduling_json, due, content_hlc
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             card.id,
             card.deck_id,
@@ -477,6 +614,7 @@ pub(crate) fn insert_card(
             card.last_again_at,
             scheduling_json,
             card.scheduling.due,
+            content_hlc,
         ],
     )?;
     Ok(())

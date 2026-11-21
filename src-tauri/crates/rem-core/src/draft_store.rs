@@ -3,11 +3,14 @@ use rusqlite::{params, Connection, Row};
 use uuid::Uuid;
 
 use crate::collection::write_transaction;
-use crate::store::{bump_sync_revision, deck_exists, find_exact_card, insert_card, prepare_cards};
+use crate::store::{
+    bump_sync_revision, deck_exists, find_exact_card, insert_card_with_hlc, prepare_cards,
+};
+use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc};
 use crate::{
     normalize_user_tags, CardDraft, Collection, CollectionError, DraftDecision,
     DraftProposalOutcome, DraftResolution, DraftSource, NewDraftInput, ProposalMetadata,
-    ProposalMode, ProposeDraftsResult,
+    ProposalMode, ProposeDraftsResult, SyncOp,
 };
 
 impl Collection {
@@ -126,7 +129,34 @@ impl Collection {
                     DraftResolution::ExistingCard(existing)
                 } else {
                     let scheduling_json = serde_json::to_string(&card.scheduling)?;
-                    insert_card(&transaction, &card, &tags_json, &scheduling_json)?;
+                    let content_hlc = if is_cloud_sync_enabled(&transaction)? {
+                        next_hlc(&transaction, now)?
+                    } else {
+                        String::new()
+                    };
+                    insert_card_with_hlc(
+                        &transaction,
+                        &card,
+                        &tags_json,
+                        &scheduling_json,
+                        &content_hlc,
+                    )?;
+                    if !content_hlc.is_empty() {
+                        enqueue_new_op(
+                            &transaction,
+                            &SyncOp::CardCreate {
+                                id: card.id.clone(),
+                                deck_id: card.deck_id.clone(),
+                                front: card.front.clone(),
+                                back: card.back.clone(),
+                                tags: card.tags.clone(),
+                                created_at: card.created_at,
+                                initial_due: card.scheduling.due,
+                                hlc: content_hlc,
+                            },
+                            now,
+                        )?;
+                    }
                     bump_sync_revision(&transaction)?;
                     DraftResolution::Accepted(card)
                 }

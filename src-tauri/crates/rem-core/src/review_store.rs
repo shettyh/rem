@@ -5,7 +5,8 @@ use crate::collection::write_transaction;
 use crate::store::{
     apply_card_patch, bump_sync_revision, find_card_by_id_with_revision, update_card_row,
 };
-use crate::{Collection, CollectionError, DailyField, Grade, ReviewCommit, ReviewLog};
+use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc};
+use crate::{Collection, CollectionError, DailyField, Grade, ReviewCommit, ReviewLog, SyncOp};
 
 impl Collection {
     pub fn commit_review(
@@ -60,7 +61,11 @@ impl Collection {
                 "review deck does not own the card".into(),
             ));
         }
+        let had_leech = card.tags.iter().any(|tag| tag == "leech");
+        let was_suspended = card.suspended;
         apply_card_patch(&mut card, commit.patch, commit.reviewed_at)?;
+        let leech_tag_added = !had_leech && card.tags.iter().any(|tag| tag == "leech");
+        let leech_suspended = !was_suspended && card.suspended;
         let tags_json = serde_json::to_string(&card.tags)?;
         let scheduling_json = serde_json::to_string(&card.scheduling)?;
         update_card_row(&transaction, &card, &tags_json, &scheduling_json)?;
@@ -88,8 +93,8 @@ impl Collection {
 
         let log = commit.fsrs_grade.map(|grade| ReviewLog {
             id: Uuid::new_v4().to_string(),
-            deck_id: commit.deck_id,
-            card_id: commit.card_id,
+            deck_id: commit.deck_id.clone(),
+            card_id: commit.card_id.clone(),
             reviewed_at: commit.reviewed_at,
             grade,
         });
@@ -104,6 +109,36 @@ impl Collection {
                     log.reviewed_at,
                     grade_name(log.grade)
                 ],
+            )?;
+        }
+        if is_cloud_sync_enabled(&transaction)? {
+            let hlc = next_hlc(&transaction, commit.reviewed_at)?;
+            if leech_suspended {
+                transaction.execute(
+                    "UPDATE cards SET scheduling_hlc = ?2, suspended_hlc = ?2 WHERE id = ?1",
+                    params![card.id, hlc],
+                )?;
+            } else {
+                transaction.execute(
+                    "UPDATE cards SET scheduling_hlc = ?2 WHERE id = ?1",
+                    params![card.id, hlc],
+                )?;
+            }
+            enqueue_new_op(
+                &transaction,
+                &SyncOp::CardReview {
+                    card_id: card.id,
+                    deck_id: card.deck_id,
+                    reviewed_at: commit.reviewed_at,
+                    grade: commit.fsrs_grade,
+                    scheduling: card.scheduling,
+                    last_again_at: card.last_again_at,
+                    leech_suspended,
+                    leech_tag_added,
+                    review_log_id: log.as_ref().map(|entry| entry.id.clone()),
+                    hlc,
+                },
+                commit.reviewed_at,
             )?;
         }
         bump_sync_revision(&transaction)?;

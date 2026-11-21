@@ -108,7 +108,7 @@ pub(crate) fn asset_from_row(row: &Row<'_>) -> rusqlite::Result<Asset> {
     })
 }
 
-fn asset_refs(markdown: &str) -> HashSet<String> {
+pub(crate) fn asset_refs(markdown: &str) -> HashSet<String> {
     markdown
         .match_indices("asset:")
         .filter_map(|(index, _)| {

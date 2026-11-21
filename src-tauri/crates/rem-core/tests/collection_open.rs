@@ -66,7 +66,15 @@ fn opening_a_v1_collection_migrates_it_without_losing_cards() {
     connection
         .execute_batch(
             "DROP TABLE card_drafts;
+             DROP TABLE sync_meta;
+             DROP TABLE sync_outbox;
+             DROP TABLE synced_assets;
+             ALTER TABLE decks DROP COLUMN hlc;
              ALTER TABLE cards DROP COLUMN local_revision;
+             ALTER TABLE cards DROP COLUMN content_hlc;
+             ALTER TABLE cards DROP COLUMN suspended_hlc;
+             ALTER TABLE cards DROP COLUMN scheduling_hlc;
+             ALTER TABLE tombstones DROP COLUMN hlc;
              PRAGMA user_version = 1;",
         )
         .unwrap();
@@ -76,6 +84,46 @@ fn opening_a_v1_collection_migrates_it_without_losing_cards() {
     assert_eq!(migrated.get_card(&card.id).unwrap(), Some(card));
     assert!(migrated.list_drafts().unwrap().is_empty());
     assert_eq!(migrated.sync_revision().unwrap(), 2);
+    let sync = migrated.sync_state().unwrap();
+    assert_eq!(sync.mode, rem_core::SyncMode::Local);
+    assert_eq!(sync.device_id.len(), 8);
+    assert_eq!(sync.last_seq, 0);
+}
+
+#[test]
+fn opening_a_v2_collection_migrates_to_v3_and_initializes_sync_state() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("v2.sqlite3");
+    let collection = Collection::open(&path).unwrap();
+    let deck = collection.create_deck("Rust", 100).unwrap();
+    let card = collection
+        .create_card(&deck.id, "Q", "A", vec![], 110)
+        .unwrap();
+    drop(collection);
+
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute_batch(
+            "DROP TABLE sync_meta;
+             DROP TABLE sync_outbox;
+             DROP TABLE synced_assets;
+             ALTER TABLE decks DROP COLUMN hlc;
+             ALTER TABLE cards DROP COLUMN content_hlc;
+             ALTER TABLE cards DROP COLUMN suspended_hlc;
+             ALTER TABLE cards DROP COLUMN scheduling_hlc;
+             ALTER TABLE tombstones DROP COLUMN hlc;
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+    drop(connection);
+
+    let migrated = Collection::open(&path).unwrap();
+    assert_eq!(migrated.get_card(&card.id).unwrap(), Some(card));
+    let sync = migrated.sync_state().unwrap();
+    assert_eq!(sync.mode, rem_core::SyncMode::Local);
+    assert_eq!(sync.device_id.len(), 8);
+    assert_eq!(sync.last_seq, 0);
+    assert_eq!(migrated.pending_outbox_count().unwrap(), 0);
 }
 
 #[test]
