@@ -1,0 +1,631 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		026A1F86F2FDF2DF243503D2 /* QuickCaptureSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1025E01C7EF0E39CBDA2F19 /* QuickCaptureSheet.swift */; };
+		07359559E477945E46C39210 /* NewDeckSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872ED05E3BF79C8E15E1BFD3 /* NewDeckSheet.swift */; };
+		0DDAD341758AB938466D3415 /* rem_ffi.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0B6EAAC09D301BB681E301 /* rem_ffi.swift */; };
+		11463BFEC7C471AC6282A1FB /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1815B3EB1508F3BED353BD /* AppState.swift */; };
+		1C57FC6B61E61725F7433B5E /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */; };
+		5F55AE7919E11A6C0BBDD818 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826924FAB93A7D776261FB18 /* SettingsView.swift */; };
+		6F25913452E569E6029713EE /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16278B140AD8DE458882895B /* KeychainStore.swift */; };
+		7847E21ADEB515B1E9B67B67 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A23A9B47C22CFA16FA06F8D2 /* TodayView.swift */; };
+		81401AD06D3E3EC74CE48206 /* FirstRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DE67B932E46F12BFE3E215 /* FirstRunView.swift */; };
+		8CF14AAF03B1A4832A829AF3 /* RemTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ABC582F7419B4F3FEFD0AA8 /* RemTokens.swift */; };
+		9586A4D03F68B7E927B2FC07 /* AuthenticationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1D83B33D3DD6D4646C9D8E7 /* AuthenticationServices.framework */; };
+		A0D4DA45C4654480420C62C6 /* RemAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B297A224C7F01BD19A9EB8D7 /* RemAppTests.swift */; };
+		A57945E5CB8DD6A384A314C9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B9D0EEF3129F4028DB95E9EE /* Assets.xcassets */; };
+		B55EBD4B3D524BD59F1A46B2 /* ReviewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */; };
+		B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA01A89644F04D2536A7AC3D /* DecksView.swift */; };
+		BA683193E62377A9CB644FAC /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E2AEDEFBEE449696BAAEA397 /* UserNotifications.framework */; };
+		D19929A93E0EB1BB1467D57F /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6564B229B20BA26BC37F4291 /* Security.framework */; };
+		D98E184FBE92A160FD24DD8B /* RemStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E2DD644390DD61851BB031 /* RemStore.swift */; };
+		F111BE04364058F56DA1EAC7 /* RemApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82581381AD6AC6E10D3D734B /* RemApp.swift */; };
+		F705E41584E290A7FC6DFF96 /* DeckDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC30A16A1E8B9680802B58F /* DeckDetailView.swift */; };
+		FA82F87A75D3E2E76B8583A7 /* RemCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E7C4717F9816E2B76DD12439 /* RemCore.xcframework */; };
+		FDF6ECD3BE9DDA2776C2A7BE /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A84A243D48ABBD2F8C18E812 /* RootTabView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B1B3764BDBF48BC55C80B3F0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = ED0DA921D2FD6756829C23AA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0222BDDF4A59AE4F1D2B36AF;
+			remoteInfo = RemApp;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		16278B140AD8DE458882895B /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewScreen.swift; sourceTree = "<group>"; };
+		38E2DD644390DD61851BB031 /* RemStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemStore.swift; sourceTree = "<group>"; };
+		39DE67B932E46F12BFE3E215 /* FirstRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunView.swift; sourceTree = "<group>"; };
+		4ABC582F7419B4F3FEFD0AA8 /* RemTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemTokens.swift; sourceTree = "<group>"; };
+		523C20E8C6C0E5941D8ABA9D /* RemAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RemAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		6564B229B20BA26BC37F4291 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		7D1815B3EB1508F3BED353BD /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		82581381AD6AC6E10D3D734B /* RemApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemApp.swift; sourceTree = "<group>"; };
+		826924FAB93A7D776261FB18 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		872ED05E3BF79C8E15E1BFD3 /* NewDeckSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewDeckSheet.swift; sourceTree = "<group>"; };
+		A0621EFAD1B2EA7FDF89398A /* RemApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RemApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1D83B33D3DD6D4646C9D8E7 /* AuthenticationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AuthenticationServices.framework; path = System/Library/Frameworks/AuthenticationServices.framework; sourceTree = SDKROOT; };
+		A23A9B47C22CFA16FA06F8D2 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		A84A243D48ABBD2F8C18E812 /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
+		B297A224C7F01BD19A9EB8D7 /* RemAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemAppTests.swift; sourceTree = "<group>"; };
+		B61826F3FB259AB3054EB2B6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		B9D0EEF3129F4028DB95E9EE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		CC0B6EAAC09D301BB681E301 /* rem_ffi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = rem_ffi.swift; sourceTree = "<group>"; };
+		D1025E01C7EF0E39CBDA2F19 /* QuickCaptureSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCaptureSheet.swift; sourceTree = "<group>"; };
+		DA01A89644F04D2536A7AC3D /* DecksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecksView.swift; sourceTree = "<group>"; };
+		DAC30A16A1E8B9680802B58F /* DeckDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckDetailView.swift; sourceTree = "<group>"; };
+		E2AEDEFBEE449696BAAEA397 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
+		E7C4717F9816E2B76DD12439 /* RemCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = RemCore.xcframework; path = Frameworks/RemCore.xcframework; sourceTree = "<group>"; };
+		EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		DBE2BB3B3D6E3783CFDCF1C2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FA82F87A75D3E2E76B8583A7 /* RemCore.xcframework in Frameworks */,
+				D19929A93E0EB1BB1467D57F /* Security.framework in Frameworks */,
+				9586A4D03F68B7E927B2FC07 /* AuthenticationServices.framework in Frameworks */,
+				BA683193E62377A9CB644FAC /* UserNotifications.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1268541518B13678734FF027 = {
+			isa = PBXGroup;
+			children = (
+				69129F51316EB3ACA3A0BD4D /* RemApp */,
+				67368321CC746AE59269C5EE /* RemAppTests */,
+				47EF0477C99E3AA3DF4BDDA7 /* Frameworks */,
+				5CA07EEF1809832DBF64E212 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		167DC8B530CC826D559084B1 /* Generated */ = {
+			isa = PBXGroup;
+			children = (
+				CC0B6EAAC09D301BB681E301 /* rem_ffi.swift */,
+			);
+			path = Generated;
+			sourceTree = "<group>";
+		};
+		23D42F09FBF8CCFA1FF46E0F /* Review */ = {
+			isa = PBXGroup;
+			children = (
+				18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */,
+			);
+			path = Review;
+			sourceTree = "<group>";
+		};
+		2770B69EA9EEB6D724ED3B54 /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				39DE67B932E46F12BFE3E215 /* FirstRunView.swift */,
+			);
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		37112E6D9854C1E693F6AA42 /* Today */ = {
+			isa = PBXGroup;
+			children = (
+				A23A9B47C22CFA16FA06F8D2 /* TodayView.swift */,
+			);
+			path = Today;
+			sourceTree = "<group>";
+		};
+		37737757CEF3983ADA7A60AB /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				54506AD899EBB4593796C520 /* Capture */,
+				B51DA2025556FF01C93B4A22 /* Decks */,
+				2770B69EA9EEB6D724ED3B54 /* Onboarding */,
+				23D42F09FBF8CCFA1FF46E0F /* Review */,
+				CEDCBD456F243AD7537C30F2 /* Settings */,
+				5FC2980807BD060CE9A43A62 /* Stats */,
+				37112E6D9854C1E693F6AA42 /* Today */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		3CA550CF41A69BEEF553A3BF /* App */ = {
+			isa = PBXGroup;
+			children = (
+				7D1815B3EB1508F3BED353BD /* AppState.swift */,
+				16278B140AD8DE458882895B /* KeychainStore.swift */,
+				82581381AD6AC6E10D3D734B /* RemApp.swift */,
+				38E2DD644390DD61851BB031 /* RemStore.swift */,
+				A84A243D48ABBD2F8C18E812 /* RootTabView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		47EF0477C99E3AA3DF4BDDA7 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A1D83B33D3DD6D4646C9D8E7 /* AuthenticationServices.framework */,
+				E7C4717F9816E2B76DD12439 /* RemCore.xcframework */,
+				6564B229B20BA26BC37F4291 /* Security.framework */,
+				E2AEDEFBEE449696BAAEA397 /* UserNotifications.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		54506AD899EBB4593796C520 /* Capture */ = {
+			isa = PBXGroup;
+			children = (
+				D1025E01C7EF0E39CBDA2F19 /* QuickCaptureSheet.swift */,
+			);
+			path = Capture;
+			sourceTree = "<group>";
+		};
+		5CA07EEF1809832DBF64E212 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A0621EFAD1B2EA7FDF89398A /* RemApp.app */,
+				523C20E8C6C0E5941D8ABA9D /* RemAppTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5FC2980807BD060CE9A43A62 /* Stats */ = {
+			isa = PBXGroup;
+			children = (
+				EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */,
+			);
+			path = Stats;
+			sourceTree = "<group>";
+		};
+		67368321CC746AE59269C5EE /* RemAppTests */ = {
+			isa = PBXGroup;
+			children = (
+				B297A224C7F01BD19A9EB8D7 /* RemAppTests.swift */,
+			);
+			path = RemAppTests;
+			sourceTree = "<group>";
+		};
+		69129F51316EB3ACA3A0BD4D /* RemApp */ = {
+			isa = PBXGroup;
+			children = (
+				3CA550CF41A69BEEF553A3BF /* App */,
+				37737757CEF3983ADA7A60AB /* Features */,
+				167DC8B530CC826D559084B1 /* Generated */,
+				B44BFB3363CB95F65395A2CD /* Resources */,
+				C0B5D51284B8679AB6F6CDE7 /* Theme */,
+			);
+			path = RemApp;
+			sourceTree = "<group>";
+		};
+		B44BFB3363CB95F65395A2CD /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				B9D0EEF3129F4028DB95E9EE /* Assets.xcassets */,
+				B61826F3FB259AB3054EB2B6 /* Info.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		B51DA2025556FF01C93B4A22 /* Decks */ = {
+			isa = PBXGroup;
+			children = (
+				DAC30A16A1E8B9680802B58F /* DeckDetailView.swift */,
+				DA01A89644F04D2536A7AC3D /* DecksView.swift */,
+				872ED05E3BF79C8E15E1BFD3 /* NewDeckSheet.swift */,
+			);
+			path = Decks;
+			sourceTree = "<group>";
+		};
+		C0B5D51284B8679AB6F6CDE7 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				4ABC582F7419B4F3FEFD0AA8 /* RemTokens.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		CEDCBD456F243AD7537C30F2 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				826924FAB93A7D776261FB18 /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0222BDDF4A59AE4F1D2B36AF /* RemApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9CB316C346DC75D3509C8777 /* Build configuration list for PBXNativeTarget "RemApp" */;
+			buildPhases = (
+				436B393564C906FDA624EEA8 /* Sources */,
+				C225C43EDA6A56F55C038076 /* Resources */,
+				DBE2BB3B3D6E3783CFDCF1C2 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RemApp;
+			packageProductDependencies = (
+			);
+			productName = RemApp;
+			productReference = A0621EFAD1B2EA7FDF89398A /* RemApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+		4BBE1B15DB541D4559861E96 /* RemAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A0C00DC6963318172D44FF32 /* Build configuration list for PBXNativeTarget "RemAppTests" */;
+			buildPhases = (
+				D21E8D81D19B6B5A5BF4827E /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				07258A385D68B92D6E086A45 /* PBXTargetDependency */,
+			);
+			name = RemAppTests;
+			packageProductDependencies = (
+			);
+			productName = RemAppTests;
+			productReference = 523C20E8C6C0E5941D8ABA9D /* RemAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		ED0DA921D2FD6756829C23AA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					0222BDDF4A59AE4F1D2B36AF = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					4BBE1B15DB541D4559861E96 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 237BF387CC48504380642C8A /* Build configuration list for PBXProject "Rem" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 1268541518B13678734FF027;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5CA07EEF1809832DBF64E212 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0222BDDF4A59AE4F1D2B36AF /* RemApp */,
+				4BBE1B15DB541D4559861E96 /* RemAppTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C225C43EDA6A56F55C038076 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A57945E5CB8DD6A384A314C9 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		436B393564C906FDA624EEA8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				11463BFEC7C471AC6282A1FB /* AppState.swift in Sources */,
+				F705E41584E290A7FC6DFF96 /* DeckDetailView.swift in Sources */,
+				B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */,
+				81401AD06D3E3EC74CE48206 /* FirstRunView.swift in Sources */,
+				6F25913452E569E6029713EE /* KeychainStore.swift in Sources */,
+				07359559E477945E46C39210 /* NewDeckSheet.swift in Sources */,
+				026A1F86F2FDF2DF243503D2 /* QuickCaptureSheet.swift in Sources */,
+				F111BE04364058F56DA1EAC7 /* RemApp.swift in Sources */,
+				D98E184FBE92A160FD24DD8B /* RemStore.swift in Sources */,
+				8CF14AAF03B1A4832A829AF3 /* RemTokens.swift in Sources */,
+				B55EBD4B3D524BD59F1A46B2 /* ReviewScreen.swift in Sources */,
+				FDF6ECD3BE9DDA2776C2A7BE /* RootTabView.swift in Sources */,
+				5F55AE7919E11A6C0BBDD818 /* SettingsView.swift in Sources */,
+				1C57FC6B61E61725F7433B5E /* StatsView.swift in Sources */,
+				7847E21ADEB515B1E9B67B67 /* TodayView.swift in Sources */,
+				0DDAD341758AB938466D3415 /* rem_ffi.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D21E8D81D19B6B5A5BF4827E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A0D4DA45C4654480420C62C6 /* RemAppTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		07258A385D68B92D6E086A45 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0222BDDF4A59AE4F1D2B36AF /* RemApp */;
+			targetProxy = B1B3764BDBF48BC55C80B3F0 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2620B8775A789710527336EC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		6737ED295DD5FE02D64515F8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Frameworks\"",
+				);
+				INFOPLIST_FILE = RemApp/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsqlite3",
+					"-framework",
+					SystemConfiguration,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.shettyh.rem;
+				PRODUCT_NAME = rem;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		758FDC3D6812C301748A558C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.10;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		7B59C5F8725AC7708B3488F7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.shettyh.rem.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/rem.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/rem";
+			};
+			name = Debug;
+		};
+		D17BC2B8D25199279A497677 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.shettyh.rem.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/rem.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/rem";
+			};
+			name = Release;
+		};
+		D6180836E2B37F66560E0222 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Frameworks\"",
+				);
+				INFOPLIST_FILE = RemApp/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lsqlite3",
+					"-framework",
+					SystemConfiguration,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.shettyh.rem;
+				PRODUCT_NAME = rem;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		237BF387CC48504380642C8A /* Build configuration list for PBXProject "Rem" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2620B8775A789710527336EC /* Debug */,
+				758FDC3D6812C301748A558C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9CB316C346DC75D3509C8777 /* Build configuration list for PBXNativeTarget "RemApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D6180836E2B37F66560E0222 /* Debug */,
+				6737ED295DD5FE02D64515F8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A0C00DC6963318172D44FF32 /* Build configuration list for PBXNativeTarget "RemAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7B59C5F8725AC7708B3488F7 /* Debug */,
+				D17BC2B8D25199279A497677 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = ED0DA921D2FD6756829C23AA /* Project object */;
+}

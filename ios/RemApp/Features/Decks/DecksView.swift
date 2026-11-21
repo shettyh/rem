@@ -1,0 +1,131 @@
+import SwiftUI
+
+struct DecksView: View {
+    @Bindable var appState: AppState
+    @State private var searchText: String = ""
+
+    private var filteredDecks: [DeckSummaryDto] {
+        let summaries = appState.todaySummary?.decks ?? []
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return summaries }
+        return summaries.filter { $0.name.lowercased().contains(query) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Decks")
+                        .font(.system(size: 28, weight: .bold))
+                        .tracking(-0.6)
+                        .foregroundStyle(RemColor.text)
+
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14))
+                            .foregroundStyle(RemColor.muted)
+                        TextField("Search decks…", text: $searchText)
+                            .font(.system(size: 14))
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        if !searchText.isEmpty {
+                            Button {
+                                searchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(RemColor.faint)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(RemColor.bgInset)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(RemColor.border, lineWidth: 1)
+                    )
+
+                    if filteredDecks.isEmpty {
+                        RemCardSurface(padding: 20) {
+                            VStack(spacing: 6) {
+                                Text(searchText.isEmpty ? "No decks yet" : "No matching decks")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(RemColor.text)
+                                Text(searchText.isEmpty
+                                     ? "Create a deck below to organize your cards."
+                                     : "Try another search term.")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(RemColor.muted)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(filteredDecks.enumerated()), id: \.element.id) { idx, deck in
+                                NavigationLink(value: deck.id) {
+                                    HStack(spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            HStack(spacing: 8) {
+                                                Circle()
+                                                    .fill(Color(hexString: deck.color))
+                                                    .frame(width: 8, height: 8)
+                                                Text(deck.name)
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .foregroundStyle(RemColor.text)
+                                                    .lineLimit(1)
+                                            }
+                                            let pct = Int((deck.desiredRetention * 100).rounded())
+                                            Text("\(deck.totalCards) \(deck.totalCards == 1 ? "card" : "cards") · FSRS-6 (\(pct)%)")
+                                                .font(.system(size: 12))
+                                                .foregroundStyle(RemColor.muted)
+                                        }
+                                        Spacer()
+                                        HStack(spacing: 8) {
+                                            RemPillBadge(
+                                                text: "\(deck.dueCount) due",
+                                                tone: deck.dueCount > 0 ? .accent : .neutral
+                                            )
+                                            Image(systemName: "chevron.right")
+                                                .font(.system(size: 12, weight: .semibold))
+                                                .foregroundStyle(RemColor.faint)
+                                        }
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 13)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+
+                                if idx < filteredDecks.count - 1 {
+                                    Divider().overlay(RemColor.border)
+                                }
+                            }
+                        }
+                        .background(RemColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous)
+                                .strokeBorder(RemColor.border, lineWidth: 1)
+                        )
+                    }
+
+                    Button {
+                        appState.showNewDeckSheet = true
+                    } label: {
+                        Label("Create new deck", systemImage: "plus")
+                    }
+                    .buttonStyle(RemSecondaryButtonStyle())
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 10)
+                .padding(.bottom, 104)
+            }
+            .background(RemColor.bg)
+            .navigationBarHidden(true)
+            .navigationDestination(for: String.self) { deckId in
+                DeckDetailView(appState: appState, deckId: deckId)
+            }
+        }
+    }
+}
