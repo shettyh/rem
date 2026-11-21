@@ -5,19 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="rem is local-first spaced repetition for building durable understanding of codebases, systems, and any topic with source-grounded cards proposed by AI agents and approved by you."
+      content="rem is local-first spaced repetition across desktop, terminal, and iPhone — with source-grounded cards proposed by AI agents, FSRS-6 scheduling, and optional Cloud sync."
     />
     <meta name="theme-color" content="#f8f7f4" />
     <meta property="og:title" content="rem — build understanding that lasts" />
     <meta
       property="og:description"
-      content="Turn a codebase, research, or any topic into source-grounded recall prompts that stick."
+      content="Turn a codebase, research, or any topic into source-grounded recall prompts. Study on desktop, terminal, and iPhone."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://shettyh.github.io/rem/" />
     <meta
       property="og:image"
-      content="https://shettyh.github.io/rem/assets/rem-draft-approval.png"
+      content="https://shettyh.github.io/rem/assets/rem-today.png"
     />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" type="image/png" href="./assets/favicon.png" />
@@ -36,6 +36,7 @@
         </a>
         <div class="nav-links">
           <a href="#workflow">How it works</a>
+          <a href="#showcase">App tour</a>
           <a href="#features">Features</a>
           <a href="#install">Install</a>
           <a href="https://rem-sync.shettyh.fyi/cloud">Cloud</a>
@@ -52,11 +53,12 @@
     <main id="main">
       <section class="hero shell" id="top">
         <div class="hero-copy">
-          <p class="eyebrow"><span></span> Local-first learning with AI agents</p>
+          <p class="eyebrow"><span></span> Desktop · Terminal · iPhone</p>
           <h1>Understand any system. <em>Remember what matters.</em></h1>
           <p class="hero-lede">
             Use your agent to turn a codebase, research, or any topic into source-grounded recall
-            prompts. You choose what enters your study plan; FSRS helps it stick.
+            prompts. You approve what enters your study plan; FSRS-6 keeps it sharp across desktop,
+            terminal, and iPhone.
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/shettyh/rem/releases/latest">
@@ -65,16 +67,16 @@
                 <path d="M8 2v8m0 0 3-3m-3 3L5 7M3 13h10" />
               </svg>
             </a>
-            <a class="button button-secondary" href="#install">Install the CLI</a>
+            <a class="button button-secondary" href="#showcase">Explore the app tour</a>
           </div>
           <ul class="hero-facts" aria-label="Product highlights">
             <li>
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
-              No account
+              Local-first SQLite
             </li>
             <li>
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
-              Your data stays local
+              Optional Cloud sync
             </li>
             <li>
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
@@ -83,38 +85,54 @@
           </ul>
         </div>
 
-        <div class="hero-visual" aria-label="The rem draft approval screen">
+        <div class="hero-visual" aria-label="rem on macOS desktop and iPhone showing Today">
           <div class="orbit orbit-one"></div>
           <div class="orbit orbit-two"></div>
-          <div class="app-window">
+
+          <div class="app-window hero-desktop">
             <div class="window-bar" aria-hidden="true">
               <span class="traffic red"></span><span class="traffic yellow"></span
               ><span class="traffic green"></span>
-              <span class="window-title">rem · Drafts</span>
+              <span class="window-title">rem · Today</span>
             </div>
             <picture>
-              <source media="(prefers-reduced-motion: reduce)" srcset="./assets/rem-draft-approval.png" />
-              <source type="image/webp" srcset="./assets/rem-draft-approval.webp" />
+              <source type="image/webp" srcset="./assets/rem-today.webp" />
               <img
-                src="./assets/rem-draft-approval.png"
-                width="1152"
-                height="720"
-                alt="A rem draft showing the question, proposed answer, rationale, sources, and accept or reject controls"
+                src="./assets/rem-today.png"
+                width="1200"
+                height="750"
+                alt="rem desktop Today screen showing 14 cards due across 3 decks with deck progress rings and collapsible sidebar"
               />
             </picture>
           </div>
-          <div class="approval-card" aria-hidden="true">
-            <span class="approval-icon">
+
+          <div class="phone-frame hero-phone">
+            <div class="phone-island" aria-hidden="true"></div>
+            <div class="phone-screen">
+              <picture>
+                <source type="image/webp" srcset="./assets/rem-ios-today.webp" />
+                <img
+                  src="./assets/rem-ios-today.png"
+                  width="804"
+                  height="1748"
+                  alt="rem iOS companion Today screen showing the same 14 cards due, 10-day streak, 3 decks, and bottom quick capture dock"
+                />
+              </picture>
+            </div>
+          </div>
+
+          <div class="sync-pill" aria-hidden="true">
+            <span class="sync-pill-icon">
               <svg viewBox="0 0 18 18"><path d="m4 9 3 3 7-7" /></svg>
             </span>
-            <span><strong>Human approved</strong><small>Ready to schedule</small></span>
+            <span><strong>Shared Rust FSRS-6</strong><small>Desktop · iPhone · CLI</small></span>
           </div>
         </div>
       </section>
 
       <section class="trust-strip" aria-label="Core technologies">
         <div class="shell trust-list">
-          <span>Built for focused recall</span>
+          <span>One shared Rust core</span>
           <span class="trust-divider"></span>
           <strong>FSRS-6</strong>
           <span class="trust-divider"></span>
@@ -123,6 +141,8 @@
           <strong>SQLite</strong>
           <span class="trust-divider"></span>
           <strong>Tauri</strong>
+          <span class="trust-divider"></span>
+          <strong>SwiftUI</strong>
           <span class="trust-divider"></span>
           <strong>Cloud Sync</strong>
         </div>
@@ -170,116 +190,465 @@
             <span class="step-icon">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-13v5l3 2M8 2v3M16 2v3" /></svg>
             </span>
-            <h3>Remember on time</h3>
-            <p>FSRS-6 schedules each review to build durable recall efficiently.</p>
+            <h3>Study anywhere</h3>
+            <p>
+              FSRS-6 schedules each review identically across the desktop app, terminal, and iPhone.
+            </p>
           </li>
         </ol>
       </section>
 
-      <section class="section product-section">
-        <div class="shell product-row">
-          <div class="product-copy">
-            <p class="eyebrow">Calm daily ritual</p>
-            <h2>Open rem, see what’s due,<br /><em>start in one keystroke.</em></h2>
-            <p>
-              Today keeps your review queue clear and inviting—estimated session length, deck
-              progress, and one-click Study actions without dashboard clutter.
-            </p>
-            <ul class="check-list">
-              <li><span>✓</span> Estimated session duration before you begin</li>
-              <li><span>✓</span> One-click Study per deck or Enter for all due cards</li>
-              <li><span>✓</span> Quiet light and dark themes with adjustable card text size</li>
-            </ul>
-          </div>
-          <figure class="product-shot light-shot">
-            <picture>
-              <source type="image/webp" srcset="./assets/rem-today.webp" />
-              <img
-                src="./assets/rem-today.png"
-                width="1152"
-                height="720"
-                alt="The rem Today screen showing due counts, estimated time, decks, and Study controls"
-              />
-            </picture>
-          </figure>
-        </div>
+      <section class="section showcase-section" id="showcase" aria-labelledby="showcase-heading">
+        <div class="shell">
+          <div class="showcase-top">
+            <div class="showcase-intro">
+              <p class="eyebrow">Desktop + iPhone + Terminal</p>
+              <h2 id="showcase-heading">One calm engine.<br /><em>Everywhere you study.</em></h2>
+            </div>
 
-        <div class="shell product-row product-row-reverse">
-          <div class="product-copy">
-            <p class="eyebrow">Focused recall</p>
-            <h2>Distraction-free review<br />for <em>rich Markdown cards.</em></h2>
-            <p>
-              Navigation folds away during review so your focus stays on the prompt, syntax-highlighted
-              code, images, and FSRS interval previews.
-            </p>
-            <ul class="check-list">
-              <li><span>✓</span> Syntax-highlighted code blocks, quotes, and tables</li>
-              <li><span>✓</span> Fast keyboard grading (1–4) with live interval hints</li>
-              <li><span>✓</span> Jump to edit any card mid-session with E</li>
-            </ul>
-          </div>
-          <figure class="product-shot terminal-shot">
-            <picture>
-              <source type="image/webp" srcset="./assets/rem-review-dark.webp" />
-              <img
-                src="./assets/rem-review-dark.png"
-                width="1152"
-                height="720"
-                alt="Focused dark-mode review in rem with syntax-highlighted TypeScript code and FSRS grading controls"
-              />
-            </picture>
-          </figure>
-        </div>
+            <div class="showcase-controls">
+              <div class="slide-tabs" role="tablist" aria-label="Product screens">
+                <button
+                  type="button"
+                  role="tab"
+                  class="slide-tab is-active"
+                  id="tab-today"
+                  aria-selected="true"
+                  aria-controls="slide-today"
+                  data-slide="0"
+                >
+                  <span>01</span> Today
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  class="slide-tab"
+                  id="tab-review"
+                  aria-selected="false"
+                  aria-controls="slide-review"
+                  data-slide="1"
+                >
+                  <span>02</span> Review
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  class="slide-tab"
+                  id="tab-capture"
+                  aria-selected="false"
+                  aria-controls="slide-capture"
+                  data-slide="2"
+                >
+                  <span>03</span> Capture
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  class="slide-tab"
+                  id="tab-stats"
+                  aria-selected="false"
+                  aria-controls="slide-stats"
+                  data-slide="3"
+                >
+                  <span>04</span> Stats
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  class="slide-tab"
+                  id="tab-terminal"
+                  aria-selected="false"
+                  aria-controls="slide-terminal"
+                  data-slide="4"
+                >
+                  <span>05</span> Terminal
+                </button>
+              </div>
 
-        <div class="shell product-row">
-          <div class="product-copy">
-            <p class="eyebrow">One review engine</p>
-            <h2>Study at your desk<br />or <em>stay in the terminal.</em></h2>
-            <p>
-              Desktop and terminal reviews use the same Rust StudySession. Card selection,
-              scheduling, daily limits, and history cannot drift apart.
-            </p>
-            <ul class="check-list">
-              <li><span>✓</span> Rich Markdown with code and images</li>
-              <li><span>✓</span> Fast, keyboard-first grading</li>
-              <li><span>✓</span> Preview the next FSRS intervals</li>
-            </ul>
+              <div class="slide-nav">
+                <span class="slide-counter" aria-live="polite">
+                  <strong data-slide-current>01</strong> / <span>05</span>
+                </span>
+                <button
+                  type="button"
+                  class="slide-arrow"
+                  data-slide-prev
+                  aria-label="Previous slide"
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M10 3.5 5.5 8 10 12.5" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="slide-arrow"
+                  data-slide-next
+                  aria-label="Next slide"
+                >
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M6 3.5 10.5 8 6 12.5" />
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
-          <figure class="product-shot terminal-shot">
-            <img
-              src="./assets/rem-terminal-study.png"
-              width="1036"
-              height="661"
-              alt="A Markdown card being reviewed with rem study in the terminal"
-            />
-          </figure>
-        </div>
 
-        <div class="shell product-row product-row-reverse">
-          <div class="product-copy">
-            <p class="eyebrow">Actionable insight</p>
-            <h2>Watch your recall<br />and <em>rhythm compound.</em></h2>
-            <p>
-              Track review activity, recall rate, streaks, grade distribution, and upcoming 7-day
-              workload across all decks or any single topic.
-            </p>
-            <ul class="check-list">
-              <li><span>✓</span> Interactive daily activity and recall breakdown</li>
-              <li><span>✓</span> Filter by deck and 7, 30, or 90-day window</li>
-              <li><span>✓</span> Upcoming workload forecast to pace your study</li>
-            </ul>
+          <div class="showcase-deck" data-showcase tabindex="0" aria-roledescription="carousel" aria-label="rem desktop and iPhone interface showcase">
+            <div class="mobile-surface-toggle" role="group" aria-label="Device view">
+              <button type="button" class="surface-btn is-active" data-surface="desktop">Desktop</button>
+              <button type="button" class="surface-btn" data-surface="phone">iPhone</button>
+            </div>
+
+            <div class="slides-viewport">
+              <!-- Slide 01: Today -->
+              <article
+                class="slide is-active"
+                id="slide-today"
+                role="tabpanel"
+                aria-labelledby="tab-today"
+                data-slide-panel="0"
+              >
+                <div class="slide-copy">
+                  <p class="slide-tag">01 · Calm daily ritual</p>
+                  <h3>Open rem, see what’s due,<br /><em>start in one tap or keystroke.</em></h3>
+                  <p>
+                    Today keeps your queue inviting on both Mac and iPhone — estimated session time,
+                    deck progress rings, collapsible icon-rail sidebar, and instant cross-deck study.
+                  </p>
+                  <ul class="check-list">
+                    <li><span>✓</span> Estimated duration &amp; live due counts before you begin</li>
+                    <li><span>✓</span> Press Enter on desktop or tap Start review on iPhone</li>
+                    <li><span>✓</span> Identical Quiet Paper aesthetic in light and dark themes</li>
+                  </ul>
+                  <div class="surface-badges">
+                    <span class="surface-badge">Desktop · Tauri</span>
+                    <span class="surface-badge">iPhone · SwiftUI</span>
+                  </div>
+                </div>
+
+                <div class="slide-stage">
+                  <div class="stage-glow"></div>
+                  <div class="stage-desktop">
+                    <div class="window-bar" aria-hidden="true">
+                      <span class="traffic red"></span><span class="traffic yellow"></span
+                      ><span class="traffic green"></span>
+                      <span class="window-title">rem · Today</span>
+                    </div>
+                    <picture>
+                      <source type="image/webp" srcset="./assets/rem-today.webp" />
+                      <img
+                        src="./assets/rem-today.png"
+                        width="1200"
+                        height="750"
+                        alt="rem desktop Today screen with collapsible sidebar, 14 cards due, and deck progress rings"
+                      />
+                    </picture>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="stage-phone phone-frame"
+                    data-phone-spotlight
+                    aria-label="Inspect iPhone Today screen"
+                  >
+                    <span class="phone-island" aria-hidden="true"></span>
+                    <span class="phone-screen">
+                      <picture>
+                        <source type="image/webp" srcset="./assets/rem-ios-today.webp" />
+                        <img
+                          src="./assets/rem-ios-today.png"
+                          width="804"
+                          height="1748"
+                          alt="rem iPhone Today screen showing 14 cards due, 10d streak, and deck list"
+                        />
+                      </picture>
+                    </span>
+                  </button>
+                </div>
+              </article>
+
+              <!-- Slide 02: Focused Review (Dark) -->
+              <article
+                class="slide"
+                id="slide-review"
+                role="tabpanel"
+                aria-labelledby="tab-review"
+                data-slide-panel="1"
+                aria-hidden="true"
+              >
+                <div class="slide-copy">
+                  <p class="slide-tag">02 · Focused recall</p>
+                  <h3>Distraction-free review<br />for <em>rich Markdown cards.</em></h3>
+                  <p>
+                    Navigation folds away during review on both desktop and iPhone so attention stays
+                    on the prompt, syntax-highlighted code, images, and FSRS-6 interval previews.
+                  </p>
+                  <ul class="check-list">
+                    <li><span>✓</span> Syntax-highlighted code blocks, quotes, and offline images</li>
+                    <li><span>✓</span> Keyboard 1–4 on desktop, haptic 4-button dock on iPhone</li>
+                    <li><span>✓</span> Undo last grade or edit any card right mid-session</li>
+                  </ul>
+                  <div class="surface-badges">
+                    <span class="surface-badge is-dark">Dark mode</span>
+                    <span class="surface-badge">Shared StudySession</span>
+                  </div>
+                </div>
+
+                <div class="slide-stage is-dark-stage">
+                  <div class="stage-glow"></div>
+                  <div class="stage-desktop is-dark-window">
+                    <div class="window-bar window-bar-dark" aria-hidden="true">
+                      <span class="traffic red"></span><span class="traffic yellow"></span
+                      ><span class="traffic green"></span>
+                      <span class="window-title">rem · TypeScript Review</span>
+                    </div>
+                    <picture>
+                      <source type="image/webp" srcset="./assets/rem-review-dark.webp" />
+                      <img
+                        src="./assets/rem-review-dark.png"
+                        width="1200"
+                        height="750"
+                        alt="Dark-mode desktop review of a TypeScript satisfies card with syntax highlighting and FSRS grading intervals"
+                      />
+                    </picture>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="stage-phone phone-frame is-dark-phone"
+                    data-phone-spotlight
+                    aria-label="Inspect iPhone dark-mode Review screen"
+                  >
+                    <span class="phone-island" aria-hidden="true"></span>
+                    <span class="phone-screen">
+                      <picture>
+                        <source type="image/webp" srcset="./assets/rem-ios-review-dark.webp" />
+                        <img
+                          src="./assets/rem-ios-review-dark.png"
+                          width="804"
+                          height="1748"
+                          alt="Dark-mode iPhone review of the same TypeScript satisfies card with syntax-highlighted code and 4-button FSRS-6 grade dock"
+                        />
+                      </picture>
+                    </span>
+                  </button>
+                </div>
+              </article>
+
+              <!-- Slide 03: Capture & Draft Approval -->
+              <article
+                class="slide"
+                id="slide-capture"
+                role="tabpanel"
+                aria-labelledby="tab-capture"
+                data-slide-panel="2"
+                aria-hidden="true"
+              >
+                <div class="slide-copy">
+                  <p class="slide-tag">03 · Capture &amp; approval</p>
+                  <h3>Approve agent drafts.<br /><em>Capture ideas on the go.</em></h3>
+                  <p>
+                    Triage source-grounded AI agent proposals in the desktop Drafts inbox before
+                    they ever enter your schedule, or tap <strong>+</strong> on iPhone to capture a
+                    Markdown card in seconds.
+                  </p>
+                  <ul class="check-list">
+                    <li><span>✓</span> Front-first draft triage with rationale and file provenance</li>
+                    <li><span>✓</span> Paper-canvas iPhone editor with live Preview &amp; Photos</li>
+                    <li><span>✓</span> Unapproved drafts stay strictly local until accepted</li>
+                  </ul>
+                  <div class="surface-badges">
+                    <span class="surface-badge">Desktop Drafts Inbox</span>
+                    <span class="surface-badge">iPhone Quick Capture</span>
+                  </div>
+                </div>
+
+                <div class="slide-stage">
+                  <div class="stage-glow"></div>
+                  <div class="stage-desktop">
+                    <div class="window-bar" aria-hidden="true">
+                      <span class="traffic red"></span><span class="traffic yellow"></span
+                      ><span class="traffic green"></span>
+                      <span class="window-title">rem · Drafts</span>
+                    </div>
+                    <picture>
+                      <source type="image/webp" srcset="./assets/rem-draft-approval.webp" />
+                      <img
+                        src="./assets/rem-draft-approval.png"
+                        width="1344"
+                        height="840"
+                        alt="rem desktop Drafts inbox showing an agent proposal with rationale, source path, and Accept or Reject controls"
+                      />
+                    </picture>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="stage-phone phone-frame"
+                    data-phone-spotlight
+                    aria-label="Inspect iPhone Quick Capture editor"
+                  >
+                    <span class="phone-island" aria-hidden="true"></span>
+                    <span class="phone-screen">
+                      <picture>
+                        <source type="image/webp" srcset="./assets/rem-ios-capture.webp" />
+                        <img
+                          src="./assets/rem-ios-capture.png"
+                          width="804"
+                          height="1748"
+                          alt="rem iPhone Quick Capture paper-canvas Markdown editor with deck picker and tag chips"
+                        />
+                      </picture>
+                    </span>
+                  </button>
+                </div>
+              </article>
+
+              <!-- Slide 04: Stats -->
+              <article
+                class="slide"
+                id="slide-stats"
+                role="tabpanel"
+                aria-labelledby="tab-stats"
+                data-slide-panel="3"
+                aria-hidden="true"
+              >
+                <div class="slide-copy">
+                  <p class="slide-tag">04 · Actionable insight</p>
+                  <h3>Watch your recall<br />and <em>rhythm compound.</em></h3>
+                  <p>
+                    Track daily review activity, recall rate, active streaks, grade distribution,
+                    and per-deck performance across 7, 30, or 90-day windows — synced across devices.
+                  </p>
+                  <ul class="check-list">
+                    <li><span>✓</span> Filter globally or focus on any individual deck</li>
+                    <li><span>✓</span> 7D, 30D, and 90D activity and recall trends</li>
+                    <li><span>✓</span> Optional daily iOS reminders only when cards are due</li>
+                  </ul>
+                  <div class="surface-badges">
+                    <span class="surface-badge">Desktop Stats</span>
+                    <span class="surface-badge">iPhone Stats</span>
+                  </div>
+                </div>
+
+                <div class="slide-stage">
+                  <div class="stage-glow"></div>
+                  <div class="stage-desktop">
+                    <div class="window-bar" aria-hidden="true">
+                      <span class="traffic red"></span><span class="traffic yellow"></span
+                      ><span class="traffic green"></span>
+                      <span class="window-title">rem · Stats</span>
+                    </div>
+                    <picture>
+                      <source type="image/webp" srcset="./assets/rem-stats.webp" />
+                      <img
+                        src="./assets/rem-stats.png"
+                        width="1200"
+                        height="750"
+                        alt="rem desktop Stats screen showing 99 reviews, 90% recall rate, 10-day streak, 30-day activity bars, and deck breakdown"
+                      />
+                    </picture>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="stage-phone phone-frame"
+                    data-phone-spotlight
+                    aria-label="Inspect iPhone Stats screen"
+                  >
+                    <span class="phone-island" aria-hidden="true"></span>
+                    <span class="phone-screen">
+                      <picture>
+                        <source type="image/webp" srcset="./assets/rem-ios-stats.webp" />
+                        <img
+                          src="./assets/rem-ios-stats.png"
+                          width="804"
+                          height="1748"
+                          alt="rem iPhone Stats screen showing matching 99 reviews, 90% recall rate, 10-day streak, and grade distribution"
+                        />
+                      </picture>
+                    </span>
+                  </button>
+                </div>
+              </article>
+
+              <!-- Slide 05: Terminal + Sync -->
+              <article
+                class="slide"
+                id="slide-terminal"
+                role="tabpanel"
+                aria-labelledby="tab-terminal"
+                data-slide-panel="4"
+                aria-hidden="true"
+              >
+                <div class="slide-copy">
+                  <p class="slide-tag">05 · One review engine</p>
+                  <h3>Stay in the terminal.<br /><em>Pick up on your phone.</em></h3>
+                  <p>
+                    <code>rem study</code> drives the exact same Rust <code>StudySession</code> as
+                    the desktop and iPhone apps. Grade a few cards in your shell, sync incrementally,
+                    and finish the rest away from your desk.
+                  </p>
+                  <ul class="check-list">
+                    <li><span>✓</span> Rich terminal Markdown with FSRS interval previews</li>
+                    <li><span>✓</span> Scriptable CLI &amp; JSON batches for coding agents</li>
+                    <li><span>✓</span> HLC-based Cloud Sync keeps every device converged</li>
+                  </ul>
+                  <div class="surface-badges">
+                    <span class="surface-badge is-dark">rem study TUI</span>
+                    <span class="surface-badge">Cloud Sync · HLC</span>
+                  </div>
+                </div>
+
+                <div class="slide-stage is-dark-stage">
+                  <div class="stage-glow"></div>
+                  <div class="stage-desktop is-dark-window">
+                    <img
+                      src="./assets/rem-terminal-study.png"
+                      width="1036"
+                      height="661"
+                      alt="A Markdown card being reviewed with rem study in the terminal with FSRS grading choices"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    class="stage-phone phone-frame is-dark-phone"
+                    data-phone-spotlight
+                    aria-label="Inspect iPhone Review synced with terminal study"
+                  >
+                    <span class="phone-island" aria-hidden="true"></span>
+                    <span class="phone-screen">
+                      <picture>
+                        <source type="image/webp" srcset="./assets/rem-ios-review-dark.webp" />
+                        <img
+                          src="./assets/rem-ios-review-dark.png"
+                          width="804"
+                          height="1748"
+                          alt="rem iPhone dark-mode review using the same FSRS-6 StudySession as rem study"
+                        />
+                      </picture>
+                    </span>
+                  </button>
+                </div>
+              </article>
+            </div>
+
+            <div class="showcase-footer">
+              <div class="slide-dots" aria-hidden="true">
+                <button type="button" class="slide-dot is-active" data-slide="0" tabindex="-1"></button>
+                <button type="button" class="slide-dot" data-slide="1" tabindex="-1"></button>
+                <button type="button" class="slide-dot" data-slide="2" tabindex="-1"></button>
+                <button type="button" class="slide-dot" data-slide="3" tabindex="-1"></button>
+                <button type="button" class="slide-dot" data-slide="4" tabindex="-1"></button>
+              </div>
+              <p class="stage-hint">
+                <span>Click the iPhone to spotlight</span>
+                <span aria-hidden="true">·</span>
+                <span>Use <kbd>←</kbd> <kbd>→</kbd> or swipe to browse slides</span>
+              </p>
+            </div>
           </div>
-          <figure class="product-shot light-shot">
-            <picture>
-              <source type="image/webp" srcset="./assets/rem-stats.webp" />
-              <img
-                src="./assets/rem-stats.png"
-                width="1152"
-                height="720"
-                alt="The rem Stats dashboard showing reviews, recall rate, streak, grade distribution, and deck breakdown"
-              />
-            </picture>
-          </figure>
         </div>
       </section>
 
@@ -294,14 +663,14 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 7v5c0 4.5 3.2 7.7 8 9 4.8-1.3 8-4.5 8-9V7l-8-4Zm-3 9 2 2 4-4" /></svg>
             </span>
             <h3>Local by default</h3>
-            <p>Your decks, cards, assets, and complete review history live on your device.</p>
+            <p>Your decks, cards, assets, and complete review history live on your device in SQLite.</p>
           </article>
           <article>
             <span class="feature-icon">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-14v5l4 2" /></svg>
             </span>
-            <h3>Modern scheduling</h3>
-            <p>FSRS-6 adapts to your memory with configurable retention and learning steps.</p>
+            <h3>FSRS-6 in Rust</h3>
+            <p>Modern scheduling with configurable retention, learning steps, daily limits, and weight optimization.</p>
           </article>
           <article>
             <span class="feature-icon">
@@ -309,16 +678,19 @@
             </span>
             <h3>Agent-first CLI</h3>
             <p>
-              Create source-grounded drafts from codebases, research, and other material with Codex,
-              Claude Code, pi, or your own scripts.
+              Create source-grounded drafts from codebases and research with Codex, Claude Code, pi,
+              or your own scripts.
             </p>
           </article>
           <article>
             <span class="feature-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13H5zM8 9h8M8 13h8M8 17h5" /></svg>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M10.5 18.5h3" /></svg>
             </span>
-            <h3>Rich Markdown</h3>
-            <p>Write naturally with code highlighting, images, GIFs, links, lists, and tags.</p>
+            <h3>Native iOS companion</h3>
+            <p>
+              SwiftUI iPhone app backed by the same Rust core via UniFFI — offline review, Quick
+              Capture with Photos, stats, and daily reminders.
+            </p>
           </article>
           <article>
             <span class="feature-icon">
@@ -326,17 +698,17 @@
             </span>
             <h3>Optional Cloud sync</h3>
             <p>
-              Sync decks, reviews, and media across devices via
+              Sync decks, reviews, and media across desktop, CLI, and iPhone via
               <a class="inline-link" href="https://rem-sync.shettyh.fyi/cloud">rem Cloud</a> or
               your own self-hosted Cloudflare Worker.
             </p>
           </article>
           <article>
             <span class="feature-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m5 10V5m6 14v-7m5 7V3" /></svg>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13H5zM8 9h8M8 13h8M8 17h5" /></svg>
             </span>
-            <h3>Actionable statistics</h3>
-            <p>Track recall, activity, streaks, grade distribution, and deck performance.</p>
+            <h3>Rich Markdown &amp; backups</h3>
+            <p>Syntax-highlighted code, images, GIFs, tags, and full-fidelity portable JSON backups.</p>
           </article>
         </div>
       </section>
@@ -347,8 +719,8 @@
             <p class="eyebrow">Start remembering</p>
             <h2>Native where you study.<br /><em>Simple where you capture.</em></h2>
             <p>
-              Install the desktop app and CLI together on macOS or Linux, or download the package
-              for your platform from GitHub Releases.
+              Install the desktop app and CLI together on macOS or Linux, download Windows packages
+              from GitHub Releases, or build the SwiftUI iOS companion from source.
             </p>
             <a class="button button-primary" href="https://github.com/shettyh/rem/releases/latest">
               View all downloads
@@ -360,7 +732,7 @@
             <div class="command-card">
               <div class="command-label">
                 <span>macOS &amp; Linux</span>
-                <span>App + CLI</span>
+                <span>Desktop App + CLI</span>
               </div>
               <code><span>$</span> curl -fsSL https://raw.githubusercontent.com/shettyh/rem/main/install.sh | sh</code>
             </div>
@@ -371,10 +743,17 @@
               </div>
               <code><span>$</span> npx skills add shettyh/rem --skill rem-card-capture --global</code>
             </div>
+            <div class="command-card">
+              <div class="command-label">
+                <span>iPhone companion</span>
+                <span>iOS 17+ · Xcode 16+</span>
+              </div>
+              <code><span>$</span> bash tools/build-ios-xcframework.sh --debug &amp;&amp; open ios/Rem.xcodeproj</code>
+            </div>
             <p class="install-note">
-              Windows installers and a standalone CLI zip are available from Releases. Current
-              macOS and Windows builds are unsigned; see the
-              <a href="https://github.com/shettyh/rem#unsigned-build-notice">launch instructions</a>.
+              Windows installers and a standalone CLI zip are available from Releases. See the
+              <a href="https://github.com/shettyh/rem#unsigned-build-notice">launch instructions</a>
+              and <a href="https://github.com/shettyh/rem/blob/main/ios/README.md">iOS build guide</a>.
             </p>
           </div>
         </div>
@@ -397,15 +776,17 @@
           <img src="./assets/favicon.png" width="30" height="30" alt="" />
           <span>rem</span>
         </a>
-        <p>Local-first spaced repetition for durable memory.</p>
+        <p>Local-first spaced repetition across desktop, terminal, and iPhone.</p>
         <div class="footer-links">
           <a href="https://rem-sync.shettyh.fyi/cloud">Cloud sync</a>
           <a href="https://github.com/shettyh/rem/blob/main/docs/cli.md">CLI docs</a>
-          <a href="https://github.com/shettyh/rem/blob/main/docs/ROADMAP.md">Roadmap</a>
+          <a href="https://github.com/shettyh/rem/blob/main/ios/README.md">iOS app</a>
           <a href="https://github.com/shettyh/rem/releases">Releases</a>
           <a href="https://github.com/shettyh/rem/blob/main/LICENSE">Apache-2.0</a>
         </div>
       </div>
     </footer>
+
+    <script src="./showcase.js" defer></script>
   </body>
 </html>
