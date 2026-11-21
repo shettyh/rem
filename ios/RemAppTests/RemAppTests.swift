@@ -96,4 +96,45 @@ final class RemAppTests: XCTestCase {
         let highlighted = CodeHighlighter.highlight("const x = 'hi' // note", language: "ts")
         XCTAssertEqual(String(highlighted.characters), "const x = 'hi' // note")
     }
+
+    func testOAuthCallbackParsingValidatesStateAndExtractsCode() throws {
+        let valid = URL(string: "rem://auth/callback?code=abc123&state=xyz789")!
+        XCTAssertEqual(
+            try AuthSessionManager.parseOAuthCallback(url: valid, expectedState: "xyz789"),
+            "abc123"
+        )
+
+        let badState = URL(string: "rem://auth/callback?code=abc123&state=wrong")!
+        XCTAssertThrowsError(try AuthSessionManager.parseOAuthCallback(url: badState, expectedState: "xyz789"))
+
+        let providerErr = URL(string: "rem://auth/callback?error=access_denied&state=xyz789")!
+        XCTAssertThrowsError(try AuthSessionManager.parseOAuthCallback(url: providerErr, expectedState: "xyz789"))
+    }
+
+    func testBackupExportAndPerDeckStats() async throws {
+        let (dir, store) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let now: Int64 = 1_763_720_000_000
+        let deck = try await store.createDeck(name: "TypeScript", color: "#d97914", nowMs: now)
+        _ = try await store.createCard(
+            deckId: deck.id,
+            front: "What does satisfies do?",
+            back: "Validates without widening.",
+            tags: ["ts"],
+            nowMs: now
+        )
+        let session = try await store.startStudy(deckId: deck.id, nowMs: now + 10)
+        _ = try session.reveal(nowMs: now + 20)
+        _ = try session.grade(grade: .easy, nowMs: now + 30)
+
+        let stats = try await store.getStats(deckId: nil, days: 30, nowMs: now + 50)
+        XCTAssertEqual(stats.reviews, 1)
+        XCTAssertEqual(stats.byDeck.count, 1)
+        XCTAssertEqual(stats.byDeck.first?.deckName, "TypeScript")
+
+        let backupJson = try await store.exportBackupJson()
+        XCTAssertTrue(backupJson.contains("TypeScript"))
+        XCTAssertTrue(backupJson.contains("What does satisfies do?"))
+    }
 }

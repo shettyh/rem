@@ -58,6 +58,7 @@ struct FirstRunView: View {
 
                 Button("Using a self-hosted server?") {
                     appState.hasDismissedOnboarding = true
+                    appState.expandCustomServerInSettings = true
                     appState.selectedTab = .settings
                 }
                 .font(.system(size: 13, weight: .medium))

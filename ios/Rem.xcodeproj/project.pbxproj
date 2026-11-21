@@ -21,6 +21,7 @@
 		8CF14AAF03B1A4832A829AF3 /* RemTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ABC582F7419B4F3FEFD0AA8 /* RemTokens.swift */; };
 		9586A4D03F68B7E927B2FC07 /* AuthenticationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1D83B33D3DD6D4646C9D8E7 /* AuthenticationServices.framework */; };
 		A0D4DA45C4654480420C62C6 /* RemAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B297A224C7F01BD19A9EB8D7 /* RemAppTests.swift */; };
+		A303DE9CD5611F4B4A760926 /* ReminderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D0289A5C08D311C5739C02D /* ReminderManager.swift */; };
 		A57945E5CB8DD6A384A314C9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B9D0EEF3129F4028DB95E9EE /* Assets.xcassets */; };
 		B55EBD4B3D524BD59F1A46B2 /* ReviewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */; };
 		B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA01A89644F04D2536A7AC3D /* DecksView.swift */; };
@@ -33,6 +34,7 @@
 		F705E41584E290A7FC6DFF96 /* DeckDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC30A16A1E8B9680802B58F /* DeckDetailView.swift */; };
 		F886E6947EB0096CB8F11598 /* ReviewMenuSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BC6D748FA17C66ACFB88297 /* ReviewMenuSheet.swift */; };
 		FA82F87A75D3E2E76B8583A7 /* RemCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E7C4717F9816E2B76DD12439 /* RemCore.xcframework */; };
+		FBDCF55221BFF338F38F94DB /* AuthSessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63FD9975AC3D5F1809A91781 /* AuthSessionManager.swift */; };
 		FDF6ECD3BE9DDA2776C2A7BE /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A84A243D48ABBD2F8C18E812 /* RootTabView.swift */; };
 /* End PBXBuildFile section */
 
@@ -53,7 +55,9 @@
 		39DE67B932E46F12BFE3E215 /* FirstRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunView.swift; sourceTree = "<group>"; };
 		4ABC582F7419B4F3FEFD0AA8 /* RemTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemTokens.swift; sourceTree = "<group>"; };
 		523C20E8C6C0E5941D8ABA9D /* RemAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RemAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		63FD9975AC3D5F1809A91781 /* AuthSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionManager.swift; sourceTree = "<group>"; };
 		6564B229B20BA26BC37F4291 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		6D0289A5C08D311C5739C02D /* ReminderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderManager.swift; sourceTree = "<group>"; };
 		7D1815B3EB1508F3BED353BD /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		82581381AD6AC6E10D3D734B /* RemApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemApp.swift; sourceTree = "<group>"; };
 		826924FAB93A7D776261FB18 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -251,6 +255,8 @@
 		CEDCBD456F243AD7537C30F2 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				63FD9975AC3D5F1809A91781 /* AuthSessionManager.swift */,
+				6D0289A5C08D311C5739C02D /* ReminderManager.swift */,
 				826924FAB93A7D776261FB18 /* SettingsView.swift */,
 			);
 			path = Settings;
@@ -363,6 +369,7 @@
 			files = (
 				11463BFEC7C471AC6282A1FB /* AppState.swift in Sources */,
 				D993148BD033563EA25808C0 /* AssetImageCache.swift in Sources */,
+				FBDCF55221BFF338F38F94DB /* AuthSessionManager.swift in Sources */,
 				F705E41584E290A7FC6DFF96 /* DeckDetailView.swift in Sources */,
 				B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */,
 				81401AD06D3E3EC74CE48206 /* FirstRunView.swift in Sources */,
@@ -375,6 +382,7 @@
 				D3DCCF33397A1A676DCD1378 /* RemMarkdownView.swift in Sources */,
 				D98E184FBE92A160FD24DD8B /* RemStore.swift in Sources */,
 				8CF14AAF03B1A4832A829AF3 /* RemTokens.swift in Sources */,
+				A303DE9CD5611F4B4A760926 /* ReminderManager.swift in Sources */,
 				F886E6947EB0096CB8F11598 /* ReviewMenuSheet.swift in Sources */,
 				B55EBD4B3D524BD59F1A46B2 /* ReviewScreen.swift in Sources */,
 				FDF6ECD3BE9DDA2776C2A7BE /* RootTabView.swift in Sources */,
