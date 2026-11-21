@@ -66,7 +66,7 @@ describe('CardEditorPage', () => {
     await expect.poll(async () => (await storage.listCards(deck.id)).length).toBe(1)
     await expect.element(screen.getByText('Card saved.', { exact: false })).toBeVisible()
     await expect.element(screen.getByText('New card')).toBeVisible()
-    expect(front.textContent?.trim()).toBe('')
+    await expect.poll(() => front.textContent?.trim()).toBe('')
   })
 
   it('groups front and back into one surface with a flat toolbar', async () => {
