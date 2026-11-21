@@ -220,6 +220,9 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
   padding: 7px 0;
   gap: 0;
 }
+.sidebar.is-collapsed:not(.is-peeking) .side-sync-btn {
+  width: 100%;
+}
 
 .side-nav {
   padding: 0 10px;
@@ -375,6 +378,63 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
 }
 .side-settings.is-active .nav-icon {
   opacity: 1;
+}
+
+.side-sync-btn {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.side-sync-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--surface-inset);
+}
+.side-sync-btn:disabled {
+  cursor: default;
+}
+.side-sync-icon {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.side-sync-btn.is-syncing .side-sync-icon {
+  animation: syncSpin 1s linear infinite;
+}
+.side-sync-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--good);
+}
+.side-sync-btn.is-pending .side-sync-dot,
+.side-sync-btn.is-syncing .side-sync-dot {
+  background: var(--hard);
+}
+.side-sync-btn.is-error .side-sync-dot {
+  background: var(--danger);
+}
+@keyframes syncSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .theme-toggle {
@@ -2007,6 +2067,58 @@ select.text-input,
   background: color-mix(in srgb, var(--good) 13%, transparent);
   color: var(--good);
 }
+.settings-badge.is-error {
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
+  color: var(--danger);
+}
+.settings-sync-note {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-inset);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.settings-sync-setup {
+  padding: 18px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-inset);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.settings-sync-url-form,
+.settings-sync-token-form {
+  display: flex;
+  flex-direction: column;
+}
+.settings-sync-url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-sync-url-row .text-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 11px;
+  font-size: 13px;
+}
+.settings-sync-hint {
+  margin: 6px 0 0;
+  color: var(--faint);
+  font-size: 12px;
+}
+.settings-sync-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.settings-sync-oauth-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .settings-action-row {
   display: flex;
   align-items: center;
@@ -2163,7 +2275,8 @@ select.text-input,
   .today-inner,
   .settings-body,
   .review-card,
-  .reveal-enter {
+  .reveal-enter,
+  .side-sync-btn.is-syncing .side-sync-icon {
     animation: none;
   }
   .review-progress span {

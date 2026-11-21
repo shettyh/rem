@@ -7,11 +7,23 @@ use rem_core::CollectionError;
 pub enum SyncError {
     Collection(CollectionError),
     NotConfigured(String),
+    NotAuthenticated(String),
+    AccountMismatch {
+        bound_server_url: String,
+        bound_account_id: String,
+        incoming_server_url: String,
+        incoming_account_id: String,
+    },
     Unauthorized,
     PayloadTooLarge(String),
-    Http { status: u16, message: String },
+    Http {
+        status: u16,
+        message: String,
+    },
     Transport(String),
     InvalidResponse(String),
+    CredentialStore(String),
+    OAuth(String),
 }
 
 impl fmt::Display for SyncError {
@@ -21,6 +33,18 @@ impl fmt::Display for SyncError {
             Self::NotConfigured(reason) => {
                 write!(formatter, "cloud sync is not configured: {reason}")
             }
+            Self::NotAuthenticated(reason) => {
+                write!(formatter, "not signed in to cloud sync: {reason}")
+            }
+            Self::AccountMismatch {
+                bound_server_url,
+                bound_account_id,
+                incoming_server_url,
+                incoming_account_id,
+            } => write!(
+                formatter,
+                "collection is already bound to account {bound_account_id} on {bound_server_url}; cannot switch to {incoming_account_id} on {incoming_server_url} without resetting sync binding"
+            ),
             Self::Unauthorized => {
                 write!(formatter, "sync authentication failed (401 Unauthorized)")
             }
@@ -34,6 +58,10 @@ impl fmt::Display for SyncError {
             Self::InvalidResponse(message) => {
                 write!(formatter, "invalid response from sync server: {message}")
             }
+            Self::CredentialStore(message) => {
+                write!(formatter, "credential storage error: {message}")
+            }
+            Self::OAuth(message) => write!(formatter, "sign-in failed: {message}"),
         }
     }
 }

@@ -6,8 +6,15 @@ const DEFAULT_SYNC_LIMIT = 500
 const MAX_PUSH_BATCH = 500
 
 export class UserSyncDO extends DurableObject<Env> {
+  private schemaReady = false
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
+    this.ensureSchema()
+  }
+
+  private ensureSchema(): void {
+    if (this.schemaReady) return
     this.ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS ops (
         seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,9 +31,11 @@ export class UserSyncDO extends DurableObject<Env> {
         uploaded_at INTEGER NOT NULL
       );
     `)
+    this.schemaReady = true
   }
 
   async sync(req: SyncRequest): Promise<SyncResponse> {
+    this.ensureSchema()
     if (typeof req.deviceId !== 'string' || req.deviceId.trim().length === 0 || req.deviceId.length > 64) {
       throw new Error('invalid deviceId')
     }
@@ -105,6 +114,7 @@ export class UserSyncDO extends DurableObject<Env> {
   }
 
   async missingAssets(hashes: string[]): Promise<string[]> {
+    this.ensureSchema()
     const missing: string[] = []
     const seen = new Set<string>()
     for (const hash of hashes) {
@@ -125,6 +135,7 @@ export class UserSyncDO extends DurableObject<Env> {
     sizeBytes: number,
     maxQuotaBytes: number,
   ): Promise<QuotaCheckResult> {
+    this.ensureSchema()
     return this.ctx.storage.transactionSync(() => {
       const existing = this.ctx.storage.sql
         .exec<{ hash: string }>('SELECT hash FROM assets WHERE hash = ?', hash)
@@ -148,6 +159,7 @@ export class UserSyncDO extends DurableObject<Env> {
     mime: string,
     maxQuotaBytes: number,
   ): Promise<QuotaCheckResult> {
+    this.ensureSchema()
     const now = Date.now()
     return this.ctx.storage.transactionSync(() => {
       const existing = this.ctx.storage.sql
@@ -175,5 +187,6 @@ export class UserSyncDO extends DurableObject<Env> {
 
   async deleteAllData(): Promise<void> {
     await this.ctx.storage.deleteAll()
+    this.schemaReady = false
   }
 }

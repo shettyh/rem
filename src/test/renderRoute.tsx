@@ -3,7 +3,9 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { render } from 'vitest-browser-react'
 import { Layout } from '../ui/Layout'
 import { StorageProvider } from '../data/StorageContext'
+import { SyncProvider } from '../data/SyncContext'
 import type { Storage } from '../data/Storage'
+import type { SyncClient } from '../data/SyncClient'
 
 /**
  * Mount a page element at `path` (visited via `entry`) under the real Layout and a
@@ -11,6 +13,8 @@ import type { Storage } from '../data/Storage'
  */
 export function renderRoute(opts: {
   storage: Storage
+  /** Optional sync client override for testing cloud sync states. */
+  syncClient?: SyncClient
   /** Route pattern, e.g. '/decks/:deckId'. */
   path: string
   /** URL actually visited, e.g. '/decks/abc'. */
@@ -35,7 +39,9 @@ export function renderRoute(opts: {
   return render(
     <div data-testid="screen">
       <StorageProvider storage={opts.storage}>
-        <RouterProvider router={router} />
+        <SyncProvider client={opts.syncClient} autoSync={false}>
+          <RouterProvider router={router} />
+        </SyncProvider>
       </StorageProvider>
     </div>,
   )
