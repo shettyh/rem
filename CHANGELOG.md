@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.1 (2026-11-21)
+
+## What's Changed
+* docs(site): redesign site with Desktop + iPhone slide showcase and streamline README by @shettyh in https://github.com/shettyh/rem/pull/188
+* fix(ci): split GitHub Pages build and deploy jobs by @shettyh in https://github.com/shettyh/rem/pull/190
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.17.0...v0.17.1
+
 ## 0.17.0 (2026-11-21)
 
 ## What's Changed
