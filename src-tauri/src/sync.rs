@@ -6,7 +6,7 @@ use rem_sync::{
     connect_collection, delete_cloud_account, open_system_browser, run_loopback_oauth, sign_out,
     sync_authenticated, verify_dev_token, AuthClient, AuthProviders, CredentialStore,
     HttpAuthClient, KeyringCredentialStore, OAuthProvider, StoredCredentials, SyncError,
-    DEFAULT_OAUTH_TIMEOUT,
+    DEFAULT_CLOUD_SERVER_URL, DEFAULT_OAUTH_TIMEOUT,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -27,6 +27,7 @@ pub enum SyncActivity {
 pub struct SyncStatusSnapshot {
     pub mode: SyncMode,
     pub activity: SyncActivity,
+    pub default_server_url: String,
     pub server_url: Option<String>,
     pub account_id: Option<String>,
     pub email: Option<String>,
@@ -37,6 +38,8 @@ pub struct SyncStatusSnapshot {
     pub pending_outbox: u64,
     pub last_synced_at: Option<i64>,
     pub last_error: Option<String>,
+    pub subscription_required: bool,
+    pub upgrade_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -64,6 +67,8 @@ struct SyncRuntimeState {
     activity: Option<SyncActivity>,
     last_synced_at: Option<i64>,
     last_error: Option<String>,
+    subscription_required: bool,
+    upgrade_url: Option<String>,
     cached_email: Option<String>,
     cached_provider: Option<String>,
     pending_switch: Option<(String, StoredCredentials)>,
@@ -105,6 +110,7 @@ impl SyncManager {
         Ok(SyncStatusSnapshot {
             mode: state.mode,
             activity,
+            default_server_url: DEFAULT_CLOUD_SERVER_URL.to_owned(),
             server_url: state.server_url,
             account_id: state.account_id,
             email: stored
@@ -121,6 +127,8 @@ impl SyncManager {
             pending_outbox,
             last_synced_at: rt.last_synced_at,
             last_error: rt.last_error.clone(),
+            subscription_required: rt.subscription_required,
+            upgrade_url: rt.upgrade_url.clone(),
         })
     }
 
@@ -128,6 +136,18 @@ impl SyncManager {
         if let Ok(mut rt) = self.runtime.lock() {
             rt.activity = Some(activity);
             rt.last_error = last_error;
+            if activity == SyncActivity::Syncing {
+                rt.subscription_required = false;
+            }
+        }
+    }
+
+    fn record_subscription_required(&self, message: String, upgrade_url: Option<String>) {
+        if let Ok(mut rt) = self.runtime.lock() {
+            rt.activity = Some(SyncActivity::Idle);
+            rt.last_error = Some(message);
+            rt.subscription_required = true;
+            rt.upgrade_url = upgrade_url;
         }
     }
 
@@ -136,6 +156,8 @@ impl SyncManager {
             rt.activity = Some(SyncActivity::Idle);
             rt.last_synced_at = Some(now);
             rt.last_error = None;
+            rt.subscription_required = false;
+            rt.upgrade_url = None;
         }
     }
 
@@ -143,6 +165,8 @@ impl SyncManager {
         if let Ok(mut rt) = self.runtime.lock() {
             rt.activity = Some(SyncActivity::Idle);
             rt.last_error = None;
+            rt.subscription_required = false;
+            rt.upgrade_url = None;
             rt.cached_email = None;
             rt.cached_provider = None;
             rt.pending_switch = None;
@@ -200,6 +224,16 @@ fn run_sync_locked(
             let snap = manager.snapshot(collection)?;
             emit_status(app, &snap);
             Ok(snap)
+        }
+        Err(SyncError::SubscriptionRequired {
+            message,
+            upgrade_url,
+        }) => {
+            manager.record_subscription_required(message.clone(), upgrade_url);
+            if let Ok(snap) = manager.snapshot(collection) {
+                emit_status(app, &snap);
+            }
+            Err(message)
         }
         Err(err) => {
             let msg = err.to_string();

@@ -106,6 +106,7 @@ export function SyncProvider({
         client.supported &&
         initial.mode === 'cloud' &&
         initial.signedIn &&
+        !initial.subscriptionRequired &&
         !didStartupSyncRef.current
       ) {
         didStartupSyncRef.current = true
@@ -138,7 +139,7 @@ export function SyncProvider({
     const scheduleLocalSync = () => {
       if (skipLocalNotifyRef.current) return
       const current = statusRef.current
-      if (!current || current.mode !== 'cloud' || !current.signedIn) return
+      if (!current || current.mode !== 'cloud' || !current.signedIn || current.subscriptionRequired) return
       if (debounceTimer !== null) window.clearTimeout(debounceTimer)
       debounceTimer = window.setTimeout(() => {
         debounceTimer = null
@@ -150,7 +151,7 @@ export function SyncProvider({
 
     const onWake = () => {
       const current = statusRef.current
-      if (!current || current.mode !== 'cloud' || !current.signedIn) return
+      if (!current || current.mode !== 'cloud' || !current.signedIn || current.subscriptionRequired) return
       if (Date.now() - lastAutoSyncAtRef.current < FOCUS_SYNC_THROTTLE_MS) return
       void triggerSync(true)
     }
@@ -159,7 +160,7 @@ export function SyncProvider({
     window.addEventListener('online', onWake)
     const interval = window.setInterval(() => {
       const current = statusRef.current
-      if (!current || current.mode !== 'cloud' || !current.signedIn) return
+      if (!current || current.mode !== 'cloud' || !current.signedIn || current.subscriptionRequired) return
       void triggerSync(true)
     }, PERIODIC_SYNC_MS)
 

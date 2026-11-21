@@ -61,5 +61,9 @@ npx wrangler secret put APPLE_CLIENT_ID
 npx wrangler secret put APPLE_TEAM_ID
 npx wrangler secret put APPLE_KEY_ID
 npx wrangler secret put APPLE_PRIVATE_KEY
+# Optional: gate sync/R2 access behind subscriptions or an email allowlist (default: open for self-hosting)
+npx wrangler secret put REQUIRE_SUBSCRIPTION # set to "true" to enforce entitlements (HTTP 402 otherwise)
+npx wrangler secret put ALLOWED_EMAILS       # optional comma-separated emails always allowed to sync
+npx wrangler secret put UPGRADE_URL          # optional pricing/checkout URL shown when HTTP 402 is returned
 npm run deploy
 ```

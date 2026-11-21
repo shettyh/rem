@@ -41,6 +41,8 @@ impl AuthClient for MockAuthClient {
             google: true,
             apple: true,
             dev_token: true,
+            subscription_required: false,
+            upgrade_url: None,
         })
     }
 
@@ -91,6 +93,10 @@ impl AuthClient for MockAuthClient {
                 email: None,
                 providers: vec!["dev_token".into()],
                 auth_method: "dev_token".into(),
+                sync_enabled: true,
+                subscription_required: false,
+                subscription_status: None,
+                upgrade_url: None,
             })
         } else {
             Err(SyncError::Unauthorized)

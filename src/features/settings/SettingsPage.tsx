@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useStorage } from '../../data/StorageContext'
 import { useSync } from '../../data/SyncContext'
-import type {
-  AuthProviders,
-  OAuthProvider,
-  SignInOutcome,
-  SyncMode,
+import {
+  DEFAULT_CLOUD_SERVER_URL,
+  type AuthProviders,
+  type OAuthProvider,
+  type SignInOutcome,
+  type SyncMode,
 } from '../../data/SyncClient'
 import { useStorageQuery } from '../../data/useStorageQuery'
 import { ConfirmDialog } from '../../ui/ConfirmDialog'
@@ -75,10 +76,15 @@ export function SettingsPage() {
 
   // Cloud sync UI state
   const [desiredMode, setDesiredMode] = useState<SyncMode>('local')
+  const [useCustomServer, setUseCustomServer] = useState(false)
   const [serverUrl, setServerUrl] = useState('')
   const [checkedServerUrl, setCheckedServerUrl] = useState<string | null>(null)
   const [providers, setProviders] = useState<AuthProviders | null>(null)
   const [checkingServer, setCheckingServer] = useState(false)
+  const [hostedProviders, setHostedProviders] = useState<AuthProviders | null>(null)
+  const [hostedCheckedUrl, setHostedCheckedUrl] = useState<string | null>(null)
+  const [checkingHosted, setCheckingHosted] = useState(false)
+  const [hostedError, setHostedError] = useState<string | null>(null)
   const [devToken, setDevToken] = useState('')
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
@@ -86,16 +92,70 @@ export function SettingsPage() {
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
 
   const syncStatus = sync.status
+  const defaultServerUrl = (syncStatus?.defaultServerUrl ?? DEFAULT_CLOUD_SERVER_URL).replace(
+    /\/+$/,
+    '',
+  )
+  const isCloudConnected = Boolean(syncStatus?.mode === 'cloud' && syncStatus.signedIn)
+  const effectiveMode: SyncMode = isCloudConnected ? 'cloud' : desiredMode
 
   useEffect(() => {
     if (!syncStatus) return
     if (syncStatus.mode === 'cloud') {
       setDesiredMode('cloud')
     }
-    if (syncStatus.serverUrl && !serverUrl) {
-      setServerUrl(syncStatus.serverUrl)
+    if (syncStatus.serverUrl) {
+      const boundNormalized = syncStatus.serverUrl.replace(/\/+$/, '')
+      if (boundNormalized !== defaultServerUrl) {
+        setUseCustomServer(true)
+        if (!serverUrl) setServerUrl(boundNormalized)
+      }
     }
-  }, [syncStatus, serverUrl])
+  }, [syncStatus, defaultServerUrl, serverUrl])
+
+  const fetchProviders = sync.fetchProviders
+  useEffect(() => {
+    if (
+      effectiveMode !== 'cloud' ||
+      !sync.supported ||
+      isCloudConnected ||
+      useCustomServer ||
+      hostedCheckedUrl === defaultServerUrl
+    ) {
+      return
+    }
+    let cancelled = false
+    setCheckingHosted(true)
+    setHostedError(null)
+    void fetchProviders(defaultServerUrl)
+      .then((found) => {
+        if (cancelled) return
+        setHostedProviders(found)
+        setHostedCheckedUrl(defaultServerUrl)
+        setCheckingHosted(false)
+        if (!found.google && !found.apple) {
+          setHostedError('rem Cloud sign-in is not currently available.')
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setHostedProviders(null)
+        setHostedCheckedUrl(defaultServerUrl)
+        setCheckingHosted(false)
+        setHostedError(err instanceof Error ? err.message : String(err))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    effectiveMode,
+    sync.supported,
+    fetchProviders,
+    isCloudConnected,
+    useCustomServer,
+    hostedCheckedUrl,
+    defaultServerUrl,
+  ])
 
   function updateCardTextSize(next: CardTextSize) {
     applyCardTextSize(next)
@@ -165,13 +225,17 @@ export function SettingsPage() {
     setDevToken('')
     if (outcome.synced) {
       setSyncMessage('Connected and synced.')
+    } else if (outcome.snapshot.subscriptionRequired) {
+      setSyncMessage(null)
+      setSyncError(null)
     } else if (outcome.syncError) {
       setSyncError(`Connected, but initial sync failed: ${outcome.syncError}`)
     }
   }
 
-  async function handleOAuthSignIn(provider: OAuthProvider) {
-    const trimmed = serverUrl.trim().replace(/\/+$/, '')
+  async function handleOAuthSignIn(provider: OAuthProvider, targetServerUrl?: string) {
+    const raw = targetServerUrl ?? (useCustomServer ? serverUrl : defaultServerUrl)
+    const trimmed = raw.trim().replace(/\/+$/, '')
     if (!trimmed) {
       setSyncError('Enter a sync server URL first.')
       return
@@ -317,16 +381,18 @@ export function SettingsPage() {
     else await runImport(parsed)
   }
 
-  const isCloudConnected = Boolean(syncStatus?.mode === 'cloud' && syncStatus.signedIn)
-  const effectiveMode: SyncMode = isCloudConnected ? 'cloud' : desiredMode
   const serverMatchesChecked = checkedServerUrl !== null && checkedServerUrl === serverUrl.trim().replace(/\/+$/, '')
+  const isDefaultConnectedServer =
+    syncStatus?.serverUrl?.replace(/\/+$/, '') === defaultServerUrl
 
   const badgeLabel = isCloudConnected
     ? syncStatus?.activity === 'syncing'
       ? 'Syncing'
-      : syncStatus?.activity === 'error'
-        ? 'Error'
-        : 'Active'
+      : syncStatus?.subscriptionRequired
+        ? 'Plan required'
+        : syncStatus?.activity === 'error'
+          ? 'Error'
+          : 'Active'
     : effectiveMode === 'cloud'
       ? 'Setup'
       : 'Active'
@@ -334,7 +400,7 @@ export function SettingsPage() {
   const badgeClass =
     badgeLabel === 'Error'
       ? 'settings-badge is-error'
-      : badgeLabel === 'Setup'
+      : badgeLabel === 'Setup' || badgeLabel === 'Plan required'
         ? 'settings-badge'
         : 'settings-badge is-active'
 
@@ -359,7 +425,7 @@ export function SettingsPage() {
                   {isCloudConnected
                     ? `Signed in as ${syncStatus?.email ?? syncStatus?.accountId} via ${formatProvider(syncStatus?.provider ?? null)}.`
                     : effectiveMode === 'cloud'
-                      ? 'Connect a rem sync server to keep decks, reviews, and media synced across devices.'
+                      ? 'Sync decks, reviews, and media across desktop, CLI, and mobile with rem Cloud.'
                       : 'Decks, review history, and media are stored privately in rem’s app data.'}
                 </p>
               </div>
@@ -382,11 +448,90 @@ export function SettingsPage() {
               </div>
             )}
 
-            {effectiveMode === 'cloud' && sync.supported && !isCloudConnected && (
+            {effectiveMode === 'cloud' && sync.supported && !isCloudConnected && !useCustomServer && (
+              <div className="settings-sync-setup">
+                <div className="settings-sync-hosted">
+                  <p className="settings-sync-hosted-copy">
+                    {hostedProviders?.subscriptionRequired
+                      ? 'rem Cloud is an optional paid sync add-on. Local storage and self-hosting remain free.'
+                      : 'Sign in to connect this device to rem Cloud.'}
+                  </p>
+
+                  {checkingHosted && (
+                    <p className="settings-sync-hint">Checking rem Cloud sign-in options…</p>
+                  )}
+
+                  {!checkingHosted && hostedError && (
+                    <div className="settings-inline-actions">
+                      <p className="settings-error" role="alert">
+                        {hostedError}
+                      </p>
+                      <button
+                        className="btn btn-sm"
+                        type="button"
+                        onClick={() => setHostedCheckedUrl(null)}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+
+                  {!checkingHosted && hostedProviders && (hostedProviders.apple || hostedProviders.google) && (
+                    <div className="settings-sync-oauth-buttons">
+                      {hostedProviders.apple && (
+                        <button
+                          className="btn btn-sm"
+                          type="button"
+                          disabled={sync.busy}
+                          onClick={() => void handleOAuthSignIn('apple', defaultServerUrl)}
+                        >
+                          {sync.busy ? 'Waiting for browser…' : 'Sign in with Apple'}
+                        </button>
+                      )}
+                      {hostedProviders.google && (
+                        <button
+                          className="btn btn-primary btn-sm"
+                          type="button"
+                          disabled={sync.busy}
+                          onClick={() => void handleOAuthSignIn('google', defaultServerUrl)}
+                        >
+                          {sync.busy ? 'Waiting for browser…' : 'Sign in with Google'}
+                        </button>
+                      )}
+                      {hostedProviders.subscriptionRequired && hostedProviders.upgradeUrl && (
+                        <a
+                          className="btn btn-ghost btn-sm"
+                          href={hostedProviders.upgradeUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Get rem Cloud
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="settings-sync-mode-switch">
+                  <button
+                    className="settings-sync-text-btn"
+                    type="button"
+                    onClick={() => {
+                      setSyncError(null)
+                      setUseCustomServer(true)
+                    }}
+                  >
+                    Use a self-hosted server
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {effectiveMode === 'cloud' && sync.supported && !isCloudConnected && useCustomServer && (
               <div className="settings-sync-setup">
                 <form className="settings-sync-url-form" onSubmit={(e) => void handleCheckServer(e)}>
                   <label className="field-label" htmlFor="sync-server-url">
-                    Sync server URL
+                    Self-hosted sync server URL
                   </label>
                   <div className="settings-sync-url-row">
                     <input
@@ -407,7 +552,7 @@ export function SettingsPage() {
                     </button>
                   </div>
                   <p className="settings-sync-hint">
-                    Point rem at your hosted or self-hosted Cloudflare Worker sync server.
+                    Deploy the open-source Cloudflare Worker from the rem repository and enter its URL here.
                   </p>
                 </form>
 
@@ -469,16 +614,52 @@ export function SettingsPage() {
                     )}
                   </div>
                 )}
+
+                <div className="settings-sync-mode-switch">
+                  <button
+                    className="settings-sync-text-btn"
+                    type="button"
+                    onClick={() => {
+                      setSyncError(null)
+                      setUseCustomServer(false)
+                    }}
+                  >
+                    Use rem Cloud instead
+                  </button>
+                </div>
               </div>
             )}
 
             {isCloudConnected && syncStatus && (
               <>
+                {syncStatus.subscriptionRequired && (
+                  <div className="settings-sync-note settings-sync-plan-note" role="status">
+                    <div>
+                      <strong>rem Cloud subscription required</strong>
+                      <p>
+                        Sync is paused for this account until an active rem Cloud plan is enabled.
+                        Your local cards remain safe on this device.
+                      </p>
+                    </div>
+                    {syncStatus.upgradeUrl && (
+                      <a
+                        className="btn btn-primary btn-sm"
+                        href={syncStatus.upgradeUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Get rem Cloud
+                      </a>
+                    )}
+                  </div>
+                )}
+
                 <div className="settings-action-row">
                   <div className="settings-action-copy">
                     <strong>Sync status</strong>
                     <span>
-                      {syncStatus.serverUrl} · Last synced: {formatSyncTime(syncStatus.lastSyncedAt)}
+                      {isDefaultConnectedServer ? 'rem Cloud' : syncStatus.serverUrl} · Last synced:{' '}
+                      {formatSyncTime(syncStatus.lastSyncedAt)}
                       {syncStatus.pendingOutbox > 0
                         ? ` · ${syncStatus.pendingOutbox} pending`
                         : ''}
@@ -491,7 +672,11 @@ export function SettingsPage() {
                       disabled={sync.busy || syncStatus.activity === 'syncing'}
                       onClick={() => void handleSyncNow()}
                     >
-                      {syncStatus.activity === 'syncing' ? 'Syncing…' : 'Sync now'}
+                      {syncStatus.activity === 'syncing'
+                        ? 'Syncing…'
+                        : syncStatus.subscriptionRequired
+                          ? 'Retry sync'
+                          : 'Sync now'}
                     </button>
                     <button
                       className="btn btn-ghost btn-sm"
@@ -524,9 +709,9 @@ export function SettingsPage() {
               </>
             )}
 
-            {(syncError || syncStatus?.lastError || syncMessage) && (
+            {(syncError || (!syncStatus?.subscriptionRequired && syncStatus?.lastError) || syncMessage) && (
               <div className="settings-feedback">
-                {(syncError || syncStatus?.lastError) && (
+                {(syncError || (!syncStatus?.subscriptionRequired && syncStatus?.lastError)) && (
                   <p className="settings-error" role="alert">
                     {syncError ?? syncStatus?.lastError}
                   </p>

@@ -1,5 +1,11 @@
 //! Shared HTTPS sync client, OAuth/Keychain auth, and asset uploader for `rem` desktop, CLI, and mobile.
 
+/// Default hosted `rem Cloud` sync server URL. Override at compile time via `REM_DEFAULT_SYNC_URL`.
+pub const DEFAULT_CLOUD_SERVER_URL: &str = match option_env!("REM_DEFAULT_SYNC_URL") {
+    Some(url) => url,
+    None => "https://rem-sync.shettyh.fyi",
+};
+
 mod auth_client;
 mod client;
 mod credentials;

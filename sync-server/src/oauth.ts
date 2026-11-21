@@ -16,6 +16,7 @@ import type {
   Env,
   LogoutRequest,
   OAuthProvider,
+  SubscriptionStatus,
   TokenExchangeRequest,
   TokenRefreshRequest,
 } from './types'
@@ -57,11 +58,32 @@ export function isAppleConfigured(env: Env): boolean {
   )
 }
 
+export function isSubscriptionRequired(env: Env): boolean {
+  return env.REQUIRE_SUBSCRIPTION?.trim().toLowerCase() === 'true'
+}
+
+export function getUpgradeUrl(env: Env): string | null {
+  const trimmed = env.UPGRADE_URL?.trim()
+  return trimmed && trimmed.length > 0 ? trimmed : null
+}
+
+function isEmailAllowlisted(env: Env, email: string | null): boolean {
+  if (!email || !env.ALLOWED_EMAILS) return false
+  const target = email.trim().toLowerCase()
+  if (!target) return false
+  return env.ALLOWED_EMAILS.split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.length > 0)
+    .includes(target)
+}
+
 export function getAuthProviders(env: Env): AuthProvidersResponse {
   return {
     google: isGoogleConfigured(env),
     apple: isAppleConfigured(env),
     devToken: Boolean(env.DEV_AUTH_TOKEN && env.DEV_AUTH_TOKEN.length > 0),
+    subscriptionRequired: isSubscriptionRequired(env),
+    upgradeUrl: getUpgradeUrl(env),
   }
 }
 
@@ -513,17 +535,110 @@ export async function handleLogout(request: Request, env: Env): Promise<Response
   return jsonResponse({ ok: true })
 }
 
+export interface SyncEntitlement {
+  syncEnabled: boolean
+  subscriptionRequired: boolean
+  subscriptionStatus: SubscriptionStatus
+  upgradeUrl: string | null
+}
+
+function parseSubscriptionStatus(raw: string | null | undefined): SubscriptionStatus {
+  switch (raw) {
+    case 'active':
+    case 'trialing':
+    case 'past_due':
+    case 'canceled':
+    case 'allowlisted':
+      return raw
+    default:
+      return 'none'
+  }
+}
+
+export async function checkSyncEntitlement(
+  env: Env,
+  userId: string,
+  authMethod: 'jwt' | 'dev_token',
+): Promise<SyncEntitlement> {
+  const required = isSubscriptionRequired(env)
+  const upgradeUrl = getUpgradeUrl(env)
+  if (!required) {
+    return {
+      syncEnabled: true,
+      subscriptionRequired: false,
+      subscriptionStatus: 'none',
+      upgradeUrl,
+    }
+  }
+  if (authMethod === 'dev_token') {
+    return {
+      syncEnabled: true,
+      subscriptionRequired: true,
+      subscriptionStatus: 'allowlisted',
+      upgradeUrl,
+    }
+  }
+  if (!env.DB) {
+    return {
+      syncEnabled: false,
+      subscriptionRequired: true,
+      subscriptionStatus: 'none',
+      upgradeUrl,
+    }
+  }
+
+  const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?1')
+    .bind(userId)
+    .first<{ email: string | null }>()
+  if (isEmailAllowlisted(env, user?.email ?? null)) {
+    return {
+      syncEnabled: true,
+      subscriptionRequired: true,
+      subscriptionStatus: 'allowlisted',
+      upgradeUrl,
+    }
+  }
+
+  let row: { status: string; current_period_end: number | null } | null = null
+  try {
+    row = await env.DB.prepare(
+      'SELECT status, current_period_end FROM user_entitlements WHERE user_id = ?1',
+    )
+      .bind(userId)
+      .first<{ status: string; current_period_end: number | null }>()
+  } catch {
+    // Fail closed if the entitlements migration has not been applied yet.
+    row = null
+  }
+
+  const status = parseSubscriptionStatus(row?.status)
+  const periodValid =
+    row?.current_period_end === null ||
+    row?.current_period_end === undefined ||
+    row.current_period_end > Date.now()
+  const active = (status === 'active' || status === 'trialing') && periodValid
+
+  return {
+    syncEnabled: active,
+    subscriptionRequired: true,
+    subscriptionStatus: status,
+    upgradeUrl,
+  }
+}
+
 export async function getAccountInfo(
   env: Env,
   userId: string,
   authMethod: 'jwt' | 'dev_token',
 ): Promise<AccountInfo> {
+  const entitlement = await checkSyncEntitlement(env, userId, authMethod)
   if (authMethod === 'dev_token' || !env.DB) {
     return {
       id: userId,
       email: null,
       providers: authMethod === 'dev_token' ? ['dev_token'] : [],
       authMethod,
+      ...entitlement,
     }
   }
 
@@ -541,6 +656,7 @@ export async function getAccountInfo(
     email: user?.email ?? null,
     providers: identities.results.map((r) => r.provider),
     authMethod,
+    ...entitlement,
   }
 }
 
@@ -562,6 +678,11 @@ export async function deleteAccountData(env: Env, userId: string): Promise<void>
 
   // 3. Delete all auth/account rows in D1.
   if (env.DB) {
+    try {
+      await env.DB.prepare('DELETE FROM user_entitlements WHERE user_id = ?1').bind(userId).run()
+    } catch {
+      // Ignore if entitlements table has not been migrated yet.
+    }
     await env.DB.batch([
       env.DB.prepare('DELETE FROM oauth_codes WHERE user_id = ?1').bind(userId),
       env.DB.prepare('DELETE FROM refresh_tokens WHERE user_id = ?1').bind(userId),

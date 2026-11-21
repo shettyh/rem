@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import migrationSql from '../migrations/0001_auth.sql?raw'
+import entitlementsMigrationSql from '../migrations/0002_entitlements.sql?raw'
 import worker from '../src/index'
 import type { Env } from '../src/types'
 
@@ -93,12 +94,14 @@ async function signEs256Jwt(
 }
 
 async function applyAuthMigration() {
-  const statements = migrationSql
-    .split(';')
-    .map((s: string) => s.trim())
-    .filter((s: string) => s.length > 0)
-  for (const sql of statements) {
-    await TEST_ENV.DB!.prepare(sql).run()
+  for (const raw of [migrationSql, entitlementsMigrationSql]) {
+    const statements = raw
+      .split(';')
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 0)
+    for (const sql of statements) {
+      await TEST_ENV.DB!.prepare(sql).run()
+    }
   }
 }
 
@@ -213,6 +216,8 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       google: true,
       apple: false,
       devToken: true,
+      subscriptionRequired: false,
+      upgradeUrl: null,
     })
 
     const challenge = await pkceChallenge('verifier_0123456789abcdefghijklmnopqrstuvwxyz_12345')
@@ -241,6 +246,10 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       email: 'alice@example.com',
       providers: ['google'],
       authMethod: 'jwt',
+      syncEnabled: true,
+      subscriptionRequired: false,
+      subscriptionStatus: 'none',
+      upgradeUrl: null,
     })
 
     const devAccountResp = await callWorker('https://sync.example.com/v1/account', {
@@ -252,6 +261,10 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       email: null,
       providers: ['dev_token'],
       authMethod: 'dev_token',
+      syncEnabled: true,
+      subscriptionRequired: false,
+      subscriptionStatus: 'none',
+      upgradeUrl: null,
     })
 
     // Refresh rotates the refresh token and issues a valid new access token.
@@ -484,5 +497,117 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       ackedOpIds: [],
       ops: [],
     })
+  })
+
+  it('blocks unpaid users with 402 when REQUIRE_SUBSCRIPTION is true, while allowing allowlisted and subscribed users', async () => {
+    const gatedEnv: Env = {
+      ...TEST_ENV,
+      REQUIRE_SUBSCRIPTION: 'true',
+      ALLOWED_EMAILS: 'vip@example.com, owner@example.com',
+      UPGRADE_URL: 'https://shettyh.fyi/rem-cloud',
+    }
+
+    const providers = await callWorker('https://sync.example.com/v1/auth/providers', undefined, gatedEnv)
+    expect(await providers.json()).toEqual({
+      google: true,
+      apple: false,
+      devToken: true,
+      subscriptionRequired: true,
+      upgradeUrl: 'https://shettyh.fyi/rem-cloud',
+    })
+
+    const unpaid = await completeGoogleLogin({
+      sub: 'google-sub-unpaid',
+      email: 'unpaid@example.com',
+    })
+    const allowlisted = await completeGoogleLogin({
+      sub: 'google-sub-vip',
+      email: 'VIP@example.com',
+    })
+
+    // Unpaid user can inspect their account, but sync & asset routes return 402.
+    const unpaidAccount = await callWorker(
+      'https://sync.example.com/v1/account',
+      { headers: { Authorization: `Bearer ${unpaid.accessToken}` } },
+      gatedEnv,
+    )
+    expect(unpaidAccount.status).toBe(200)
+    expect(await unpaidAccount.json()).toMatchObject({
+      id: unpaid.account.id,
+      syncEnabled: false,
+      subscriptionRequired: true,
+      subscriptionStatus: 'none',
+      upgradeUrl: 'https://shettyh.fyi/rem-cloud',
+    })
+
+    const blockedSync = await callWorker(
+      'https://sync.example.com/v1/sync',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${unpaid.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ deviceId: 'dev-u', sinceSeq: 0, ops: [] }),
+      },
+      gatedEnv,
+    )
+    expect(blockedSync.status).toBe(402)
+    expect(await blockedSync.json()).toMatchObject({
+      error: 'subscription_required',
+      upgradeUrl: 'https://shettyh.fyi/rem-cloud',
+    })
+
+    const assetHash = await sha256Hex(new TextEncoder().encode('blocked-asset'))
+    const blockedAsset = await callWorker(
+      `https://sync.example.com/v1/assets/${assetHash}`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${unpaid.accessToken}`,
+          'Content-Type': 'image/png',
+        },
+        body: 'blocked-asset',
+      },
+      gatedEnv,
+    )
+    expect(blockedAsset.status).toBe(402)
+
+    // Allowlisted user can sync immediately.
+    const vipSync = await callWorker(
+      'https://sync.example.com/v1/sync',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${allowlisted.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ deviceId: 'dev-vip', sinceSeq: 0, ops: [] }),
+      },
+      gatedEnv,
+    )
+    expect(vipSync.status).toBe(200)
+
+    // Granting an active entitlement in D1 immediately unblocks the previously unpaid user.
+    await TEST_ENV.DB!.prepare(
+      `INSERT INTO user_entitlements(user_id, status, plan, provider, current_period_end, updated_at)
+       VALUES (?1, 'active', 'cloud', 'manual', ?2, ?3)`,
+    )
+      .bind(unpaid.account.id, Date.now() + 86_400_000, Date.now())
+      .run()
+
+    const unblockedSync = await callWorker(
+      'https://sync.example.com/v1/sync',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${unpaid.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ deviceId: 'dev-u', sinceSeq: 0, ops: [] }),
+      },
+      gatedEnv,
+    )
+    expect(unblockedSync.status).toBe(200)
   })
 })

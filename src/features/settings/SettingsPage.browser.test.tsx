@@ -5,12 +5,13 @@ import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
 import { serializeBackup, type DeckBackup } from '../../data/backup'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
-import type {
-  AuthProviders,
-  OAuthProvider,
-  SignInOutcome,
-  SyncClient,
-  SyncStatus,
+import {
+  DEFAULT_CLOUD_SERVER_URL,
+  type AuthProviders,
+  type OAuthProvider,
+  type SignInOutcome,
+  type SyncClient,
+  type SyncStatus,
 } from '../../data/SyncClient'
 import packageInfo from '../../../package.json'
 
@@ -31,6 +32,7 @@ function makeMockSyncClient(
   let current: SyncStatus = {
     mode: 'local',
     activity: 'idle',
+    defaultServerUrl: DEFAULT_CLOUD_SERVER_URL,
     serverUrl: null,
     accountId: null,
     email: null,
@@ -41,6 +43,8 @@ function makeMockSyncClient(
     pendingOutbox: 0,
     lastSyncedAt: null,
     lastError: null,
+    subscriptionRequired: false,
+    upgradeUrl: null,
     ...initial,
   }
   const listeners = new Set<(s: SyncStatus) => void>()
@@ -59,7 +63,13 @@ function makeMockSyncClient(
     supported: true,
     getStatus: vi.fn(async () => current),
     fetchProviders: vi.fn(
-      async (): Promise<AuthProviders> => ({ google: true, apple: true, devToken: true }),
+      async (): Promise<AuthProviders> => ({
+        google: true,
+        apple: true,
+        devToken: true,
+        subscriptionRequired: true,
+        upgradeUrl: 'https://shettyh.fyi/rem-cloud',
+      }),
     ),
     signInOAuth: vi.fn(async (serverUrl: string, provider: OAuthProvider): Promise<SignInOutcome> => {
       const next: SyncStatus = {
@@ -212,7 +222,7 @@ test('defaults sidebar hover auto-expand to on and persists toggling', async () 
   expect(localStorage.getItem('rem-sidebar-hover-expand')).toBe('false')
 })
 
-test('supports cloud sync setup, OAuth sign-in, sidebar status indicator, sign-out, and account deletion', async () => {
+test('defaults cloud sync to hosted rem Cloud without asking for a URL, with self-hosted option behind toggle', async () => {
   const storage = freshStorage()
   const syncClient = makeMockSyncClient()
   renderSettings(storage, syncClient)
@@ -221,21 +231,28 @@ test('supports cloud sync setup, OAuth sign-in, sidebar status indicator, sign-o
   await expect.element(page.getByRole('button', { name: 'Cloud sync' })).toBeVisible()
   await expect.element(page.getByRole('button', { name: /Cloud synced/ })).not.toBeInTheDocument()
 
-  // Switch to Cloud sync -> server URL starts empty.
+  // Switch to Cloud sync -> goes straight to hosted OAuth without showing a server URL input.
   await page.getByRole('button', { name: 'Cloud sync' }).click()
-  const urlInput = page.getByLabelText('Sync server URL')
-  await expect.element(urlInput).toHaveValue('')
-  await urlInput.fill('https://sync.example.com')
-  await page.getByRole('button', { name: 'Continue' }).click()
-
-  // All three advertised providers appear.
   await expect.element(page.getByRole('button', { name: 'Sign in with Apple' })).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible()
-  await expect.element(page.getByLabelText('Self-hosted / personal token')).toBeVisible()
+  await expect.element(page.getByLabelText('Self-hosted sync server URL')).not.toBeInTheDocument()
+  await expect.element(page.getByLabelText('Self-hosted / personal token')).not.toBeInTheDocument()
+  expect(syncClient.fetchProviders).toHaveBeenCalledWith(DEFAULT_CLOUD_SERVER_URL)
 
-  // Sign in with Google -> shows connected state and sidebar sync indicator.
+  // Self-hosted disclosure reveals URL + personal token setup and can toggle back.
+  await page.getByRole('button', { name: 'Use a self-hosted server' }).click()
+  const urlInput = page.getByLabelText('Self-hosted sync server URL')
+  await expect.element(urlInput).toBeVisible()
+  await urlInput.fill('https://sync.example.com')
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await expect.element(page.getByLabelText('Self-hosted / personal token')).toBeVisible()
+  await page.getByRole('button', { name: 'Use rem Cloud instead' }).click()
+
+  // Sign in with Google on default hosted rem Cloud -> shows connected state and sidebar sync indicator.
   await page.getByRole('button', { name: 'Sign in with Google' }).click()
+  expect(syncClient.signInOAuth).toHaveBeenCalledWith(DEFAULT_CLOUD_SERVER_URL, 'google')
   await expect.element(page.getByText('alice@example.com', { exact: false })).toBeVisible()
+  await expect.element(page.getByText('rem Cloud · Last synced', { exact: false })).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Sync now' })).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Cloud synced — click to sync now' })).toBeVisible()
 
@@ -249,6 +266,27 @@ test('supports cloud sync setup, OAuth sign-in, sidebar status indicator, sign-o
   await page.getByRole('button', { name: 'Delete cloud account' }).click()
   expect(syncClient.deleteAccount).toHaveBeenCalledTimes(1)
   await expect.element(page.getByText('Cloud account and remote data deleted', { exact: false })).toBeVisible()
+})
+
+test('shows subscription notice calmly when server returns subscriptionRequired', async () => {
+  const storage = freshStorage()
+  const syncClient = makeMockSyncClient({
+    mode: 'cloud',
+    serverUrl: DEFAULT_CLOUD_SERVER_URL,
+    accountId: 'usr_unpaid',
+    email: 'unpaid@example.com',
+    provider: 'google',
+    signedIn: true,
+    subscriptionRequired: true,
+    upgradeUrl: 'https://shettyh.fyi/rem-cloud',
+    lastError: 'Cloud sync requires an active rem Cloud subscription.',
+  })
+  renderSettings(storage, syncClient)
+
+  await expect.element(page.getByText('Plan required')).toBeVisible()
+  await expect.element(page.getByText('rem Cloud subscription required')).toBeVisible()
+  await expect.element(page.getByRole('link', { name: 'Get rem Cloud' })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Retry sync' })).toBeVisible()
 })
 
 test('prompts before switching a collection bound to another sync account', async () => {
