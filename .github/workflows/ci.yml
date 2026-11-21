@@ -43,6 +43,29 @@ jobs:
       - name: Build
         run: npm run build
 
+  sync-server:
+    name: Sync Server (Cloudflare Workers)
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: sync-server
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sync-server/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (vitest-pool-workers)
+        run: npm test
+
   rust:
     name: Rust (fmt · clippy · test)
     runs-on: ubuntu-22.04

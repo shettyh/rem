@@ -1,6 +1,6 @@
 [workspace]
-members = [".", "crates/rem-core", "crates/rem-cli"]
-default-members = [".", "crates/rem-core", "crates/rem-cli"]
+members = [".", "crates/rem-core", "crates/rem-cli", "crates/rem-sync"]
+default-members = [".", "crates/rem-core", "crates/rem-cli", "crates/rem-sync"]
 resolver = "2"
 
 [package]
