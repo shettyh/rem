@@ -143,7 +143,7 @@ final class AppState {
             }
             await rescheduleReminder()
         } catch {
-            showToast(error.localizedDescription)
+            showToast(error.remDisplayMessage)
         }
         self.isLoading = false
     }
@@ -161,10 +161,10 @@ final class AppState {
                 showToast("Synced with rem Cloud")
             }
         } catch {
-            lastSyncError = error.localizedDescription
+            lastSyncError = error.remDisplayMessage
             await refreshAll()
             if !silent {
-                showToast("Sync paused: \(error.localizedDescription)")
+                showToast("Sync paused: \(error.remDisplayMessage)")
             }
         }
         isSyncing = false
@@ -209,7 +209,7 @@ final class AppState {
                 incomingAccountId: incomingAccountId
             )
         } catch {
-            showToast(error.localizedDescription)
+            showToast(error.remDisplayMessage)
         }
     }
 
@@ -234,7 +234,7 @@ final class AppState {
         } catch OAuthFlowError.cancelled {
             return
         } catch {
-            showToast(error.localizedDescription)
+            showToast(error.remDisplayMessage)
         }
     }
 
@@ -265,7 +265,7 @@ final class AppState {
             await refreshAll()
             showToast("Signed out · local cards kept")
         } catch {
-            showToast(error.localizedDescription)
+            showToast(error.remDisplayMessage)
         }
     }
 
@@ -277,7 +277,7 @@ final class AppState {
             await refreshAll()
             showToast("Cloud account deleted · local cards kept")
         } catch {
-            showToast(error.localizedDescription)
+            showToast(error.remDisplayMessage)
         }
     }
 

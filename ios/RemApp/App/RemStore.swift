@@ -153,3 +153,28 @@ actor RemStore {
         try client.deleteCloudAccount(nowMs: nowMs)
     }
 }
+
+extension Error {
+    /// Clean human-readable message for UI surfaces (avoids UniFFI's default `String(reflecting:)` enum dump).
+    var remDisplayMessage: String {
+        if let ffi = self as? RemFfiError {
+            switch ffi {
+            case .Storage(let message),
+                 .InvalidInput(let message),
+                 .NotFound(let message),
+                 .Conflict(let message),
+                 .NotConfigured(let message),
+                 .NotAuthenticated(let message),
+                 .Network(let message),
+                 .CredentialStore(let message),
+                 .Sync(let message):
+                return message
+            case .AccountMismatch(let boundServerUrl, let boundAccountId, _, _):
+                return "This device is bound to another account (\(boundAccountId.prefix(8))…) on \(boundServerUrl)."
+            case .SubscriptionRequired(let message, _):
+                return message
+            }
+        }
+        return localizedDescription
+    }
+}
