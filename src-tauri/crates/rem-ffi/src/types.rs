@@ -1,0 +1,367 @@
+use std::fmt;
+
+use rem_core::{CollectionError, Grade, LeechAction, SyncMode};
+use rem_sync::{OAuthProvider, SyncError};
+
+#[derive(Debug, uniffi::Error)]
+pub enum RemFfiError {
+    Storage {
+        message: String,
+    },
+    InvalidInput {
+        message: String,
+    },
+    NotFound {
+        message: String,
+    },
+    Conflict {
+        message: String,
+    },
+    NotConfigured {
+        message: String,
+    },
+    NotAuthenticated {
+        message: String,
+    },
+    AccountMismatch {
+        bound_server_url: String,
+        bound_account_id: String,
+        incoming_server_url: String,
+        incoming_account_id: String,
+    },
+    SubscriptionRequired {
+        message: String,
+        upgrade_url: Option<String>,
+    },
+    Network {
+        message: String,
+    },
+    CredentialStore {
+        message: String,
+    },
+    Sync {
+        message: String,
+    },
+}
+
+impl fmt::Display for RemFfiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Storage { message }
+            | Self::InvalidInput { message }
+            | Self::NotFound { message }
+            | Self::Conflict { message }
+            | Self::NotConfigured { message }
+            | Self::NotAuthenticated { message }
+            | Self::Network { message }
+            | Self::CredentialStore { message }
+            | Self::Sync { message } => write!(f, "{message}"),
+            Self::AccountMismatch {
+                bound_server_url,
+                bound_account_id,
+                incoming_server_url,
+                incoming_account_id,
+            } => write!(
+                f,
+                "collection is already bound to account {bound_account_id} on {bound_server_url}; cannot switch to {incoming_account_id} on {incoming_server_url} without resetting sync binding"
+            ),
+            Self::SubscriptionRequired { message, .. } => write!(f, "{message}"),
+        }
+    }
+}
+
+impl std::error::Error for RemFfiError {}
+
+impl From<CollectionError> for RemFfiError {
+    fn from(err: CollectionError) -> Self {
+        match err {
+            CollectionError::InvalidInput(message) => Self::InvalidInput { message },
+            CollectionError::NotFound { .. } => Self::NotFound {
+                message: err.to_string(),
+            },
+            CollectionError::Conflict { .. } => Self::Conflict {
+                message: err.to_string(),
+            },
+            other => Self::Storage {
+                message: other.to_string(),
+            },
+        }
+    }
+}
+
+impl From<SyncError> for RemFfiError {
+    fn from(err: SyncError) -> Self {
+        match err {
+            SyncError::Collection(inner) => Self::from(inner),
+            SyncError::NotConfigured(message) => Self::NotConfigured { message },
+            SyncError::NotAuthenticated(message) => Self::NotAuthenticated { message },
+            SyncError::Unauthorized => Self::NotAuthenticated {
+                message: "Session expired. Please sign in again.".into(),
+            },
+            SyncError::AccountMismatch {
+                bound_server_url,
+                bound_account_id,
+                incoming_server_url,
+                incoming_account_id,
+            } => Self::AccountMismatch {
+                bound_server_url,
+                bound_account_id,
+                incoming_server_url,
+                incoming_account_id,
+            },
+            SyncError::SubscriptionRequired {
+                message,
+                upgrade_url,
+            } => Self::SubscriptionRequired {
+                message,
+                upgrade_url,
+            },
+            SyncError::Transport(message) => Self::Network { message },
+            SyncError::CredentialStore(message) => Self::CredentialStore { message },
+            other => Self::Sync {
+                message: other.to_string(),
+            },
+        }
+    }
+}
+
+impl From<uniffi::UnexpectedUniFFICallbackError> for RemFfiError {
+    fn from(err: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::CredentialStore {
+            message: err.reason,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum GradeDto {
+    Again,
+    Hard,
+    Good,
+    Easy,
+}
+
+impl From<GradeDto> for Grade {
+    fn from(value: GradeDto) -> Self {
+        match value {
+            GradeDto::Again => Self::Again,
+            GradeDto::Hard => Self::Hard,
+            GradeDto::Good => Self::Good,
+            GradeDto::Easy => Self::Easy,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum LeechNoticeDto {
+    Tagged,
+    Suspended,
+}
+
+impl From<LeechAction> for LeechNoticeDto {
+    fn from(value: LeechAction) -> Self {
+        match value {
+            LeechAction::Tag => Self::Tagged,
+            LeechAction::Suspend => Self::Suspended,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum SyncModeDto {
+    Local,
+    Cloud,
+}
+
+impl From<SyncMode> for SyncModeDto {
+    fn from(value: SyncMode) -> Self {
+        match value {
+            SyncMode::Local => Self::Local,
+            SyncMode::Cloud => Self::Cloud,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum OAuthProviderDto {
+    Apple,
+    Google,
+}
+
+impl From<OAuthProviderDto> for OAuthProvider {
+    fn from(value: OAuthProviderDto) -> Self {
+        match value {
+            OAuthProviderDto::Apple => Self::Apple,
+            OAuthProviderDto::Google => Self::Google,
+        }
+    }
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct DeckDto {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub desired_retention: f64,
+    pub new_per_day: u32,
+    pub max_reviews: u32,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct DeckSummaryDto {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub total_cards: u32,
+    pub due_count: u32,
+    pub new_due_count: u32,
+    pub mastered_ratio: f64,
+    pub desired_retention: f64,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TodaySummaryDto {
+    pub total_due: u32,
+    pub new_due: u32,
+    pub review_due: u32,
+    pub estimated_minutes: u32,
+    pub reviewed_today: u32,
+    pub recall_today_percent: Option<u32>,
+    pub current_streak_days: u32,
+    pub decks: Vec<DeckSummaryDto>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct CardDto {
+    pub id: String,
+    pub deck_id: String,
+    pub front: String,
+    pub back: String,
+    pub tags: Vec<String>,
+    pub suspended: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub due: i64,
+    pub state: u8,
+    pub reps: u32,
+    pub lapses: u32,
+    pub asset_hashes: Vec<String>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AssetDataDto {
+    pub hash: String,
+    pub mime: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct GradeIntervalsDto {
+    pub again: String,
+    pub hard: String,
+    pub good: String,
+    pub easy: String,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StudyViewDto {
+    pub current: Option<CardDto>,
+    pub deck_name: Option<String>,
+    pub revealed: bool,
+    pub intervals: Option<GradeIntervalsDto>,
+    pub reviewed: u32,
+    pub remaining: u32,
+    pub can_undo: bool,
+    pub leech_notice: Option<LeechNoticeDto>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StudyGradeOutcomeDto {
+    pub conflict_card_id: Option<String>,
+    pub view: StudyViewDto,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct DailyActivityDto {
+    pub day: String,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct DeckStatsDto {
+    pub deck_id: String,
+    pub deck_name: String,
+    pub deck_color: String,
+    pub reviews: u32,
+    pub recall_rate_percent: Option<u32>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StatsDto {
+    pub reviews: u32,
+    pub recall_rate_percent: Option<u32>,
+    pub current_streak_days: u32,
+    pub active_days: u32,
+    pub daily_activity: Vec<DailyActivityDto>,
+    pub again_count: u32,
+    pub hard_count: u32,
+    pub good_count: u32,
+    pub easy_count: u32,
+    pub by_deck: Vec<DeckStatsDto>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StorageSummaryDto {
+    pub total_decks: u32,
+    pub total_cards: u32,
+    pub asset_count: u64,
+    pub asset_bytes: u64,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct AuthProvidersDto {
+    pub apple: bool,
+    pub google: bool,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct OAuthStartDto {
+    pub authorize_url: String,
+    pub state: String,
+    pub pkce_verifier: String,
+    pub redirect_uri: String,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct ConnectResultDto {
+    pub account_id: String,
+    pub email: Option<String>,
+    pub provider: String,
+    pub server_url: String,
+    pub enqueued_bootstrap_ops: u32,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SyncStatusDto {
+    pub mode: SyncModeDto,
+    pub signed_in: bool,
+    pub server_url: Option<String>,
+    pub default_server_url: String,
+    pub account_id: Option<String>,
+    pub email: Option<String>,
+    pub provider: Option<String>,
+    pub pending_outbox_count: u64,
+    pub last_seq: u64,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct SyncReportDto {
+    pub uploaded_assets: u32,
+    pub pushed_ops: u32,
+    pub pulled_ops: u32,
+    pub applied_ops: u32,
+    pub downloaded_assets: u32,
+    pub latest_seq: u64,
+}

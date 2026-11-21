@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::SyncError;
 use crate::protocol::AuthTokenResponse;
 
+#[cfg(feature = "keyring")]
 const KEYRING_SERVICE: &str = "com.shettyh.rem.sync";
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,9 +140,11 @@ fn keyring_account_key(server_url: &str, account_id: &str) -> String {
 }
 
 /// OS Keychain credential store backed by `keyring` (macOS Keychain, Linux Secret Service, Windows Credential Manager).
+#[cfg(feature = "keyring")]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct KeyringCredentialStore;
 
+#[cfg(feature = "keyring")]
 impl KeyringCredentialStore {
     fn entry(server_url: &str, account_id: &str) -> Result<keyring::Entry, SyncError> {
         let user = keyring_account_key(server_url, account_id);
@@ -150,6 +153,7 @@ impl KeyringCredentialStore {
     }
 }
 
+#[cfg(feature = "keyring")]
 impl CredentialStore for KeyringCredentialStore {
     fn load(
         &self,

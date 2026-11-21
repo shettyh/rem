@@ -23,9 +23,10 @@ pub use client::{
     sync_collection, sync_collection_with_options, sync_with_http, SyncOptions, SyncReport,
     DEFAULT_OUTBOX_BATCH_SIZE, DEFAULT_PULL_LIMIT,
 };
+#[cfg(feature = "keyring")]
+pub use credentials::KeyringCredentialStore;
 pub use credentials::{
-    normalize_server_url, CredentialStore, KeyringCredentialStore, MemoryCredentialStore,
-    StoredCredentials,
+    normalize_server_url, CredentialStore, MemoryCredentialStore, StoredCredentials,
 };
 pub use error::SyncError;
 pub use protocol::{
