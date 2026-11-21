@@ -1,0 +1,163 @@
+import { authenticateRequest } from './auth'
+import type { Env, MissingAssetsRequest, SyncRequest } from './types'
+import { UserSyncDO } from './userSyncDo'
+
+export { UserSyncDO }
+
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/
+const DEFAULT_MAX_ASSET_BYTES = 10 * 1024 * 1024
+const DEFAULT_MAX_USER_QUOTA_BYTES = 500 * 1024 * 1024
+const MAX_MISSING_HASHES = 500
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  const arr = new Uint8Array(digest)
+  let hex = ''
+  for (let i = 0; i < arr.length; i++) {
+    hex += arr[i].toString(16).padStart(2, '0')
+  }
+  return hex
+}
+
+function assetR2Key(userId: string, hash: string): string {
+  return `users/${userId}/assets/${hash}`
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url)
+
+    if (request.method === 'GET' && url.pathname === '/health') {
+      return jsonResponse({ ok: true })
+    }
+
+    const auth = await authenticateRequest(request, env)
+    if (!auth) {
+      return jsonResponse({ error: 'unauthorized' }, 401)
+    }
+
+    const stub = env.USER_SYNC.get(env.USER_SYNC.idFromName(auth.userId))
+
+    if (request.method === 'POST' && url.pathname === '/v1/sync') {
+      let body: SyncRequest
+      try {
+        body = (await request.json()) as SyncRequest
+      } catch {
+        return jsonResponse({ error: 'invalid_json' }, 400)
+      }
+      try {
+        const result = await stub.sync(body)
+        return jsonResponse(result)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'invalid sync request'
+        return jsonResponse({ error: 'invalid_request', message }, 400)
+      }
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/assets/missing') {
+      let body: MissingAssetsRequest
+      try {
+        body = (await request.json()) as MissingAssetsRequest
+      } catch {
+        return jsonResponse({ error: 'invalid_json' }, 400)
+      }
+      if (
+        !body ||
+        !Array.isArray(body.hashes) ||
+        body.hashes.length > MAX_MISSING_HASHES ||
+        !body.hashes.every((h) => typeof h === 'string' && SHA256_HEX_RE.test(h))
+      ) {
+        return jsonResponse({ error: 'invalid_hashes' }, 400)
+      }
+      const missing = await stub.missingAssets(body.hashes)
+      return jsonResponse({ missing })
+    }
+
+    const assetMatch = /^\/v1\/assets\/([0-9a-f]{64})$/.exec(url.pathname)
+    if (assetMatch) {
+      const hash = assetMatch[1]
+
+      if (request.method === 'PUT') {
+        const maxAssetBytes = parsePositiveInt(env.MAX_ASSET_BYTES, DEFAULT_MAX_ASSET_BYTES)
+        const maxUserQuotaBytes = parsePositiveInt(
+          env.MAX_USER_QUOTA_BYTES,
+          DEFAULT_MAX_USER_QUOTA_BYTES,
+        )
+
+        const contentLengthHeader = request.headers.get('Content-Length')
+        if (contentLengthHeader) {
+          const declaredLen = Number.parseInt(contentLengthHeader, 10)
+          if (Number.isFinite(declaredLen) && declaredLen > maxAssetBytes) {
+            return jsonResponse({ error: 'asset_too_large' }, 413)
+          }
+        }
+
+        const bytes = await request.arrayBuffer()
+        if (bytes.byteLength === 0) {
+          return jsonResponse({ error: 'empty_asset' }, 400)
+        }
+        if (bytes.byteLength > maxAssetBytes) {
+          return jsonResponse({ error: 'asset_too_large' }, 413)
+        }
+
+        const computed = await sha256Hex(bytes)
+        if (computed !== hash) {
+          return jsonResponse({ error: 'hash_mismatch' }, 400)
+        }
+
+        const mime = (request.headers.get('Content-Type') ?? 'application/octet-stream')
+          .split(';')[0]
+          .trim() || 'application/octet-stream'
+
+        const precheck = await stub.checkAssetQuota(hash, bytes.byteLength, maxUserQuotaBytes)
+        if (precheck.status === 'quota_exceeded') {
+          return jsonResponse({ error: 'quota_exceeded' }, 413)
+        }
+        if (precheck.status === 'already_present') {
+          return jsonResponse({ hash, sizeBytes: bytes.byteLength, mime })
+        }
+
+        await env.ASSETS.put(assetR2Key(auth.userId, hash), bytes, {
+          httpMetadata: { contentType: mime },
+        })
+        const recorded = await stub.recordAsset(hash, bytes.byteLength, mime, maxUserQuotaBytes)
+        if (recorded.status === 'quota_exceeded') {
+          await env.ASSETS.delete(assetR2Key(auth.userId, hash))
+          return jsonResponse({ error: 'quota_exceeded' }, 413)
+        }
+
+        return jsonResponse({ hash, sizeBytes: bytes.byteLength, mime })
+      }
+
+      if (request.method === 'GET') {
+        const object = await env.ASSETS.get(assetR2Key(auth.userId, hash))
+        if (!object) {
+          return jsonResponse({ error: 'not_found' }, 404)
+        }
+        const headers = new Headers()
+        headers.set('Content-Type', object.httpMetadata?.contentType ?? 'application/octet-stream')
+        headers.set('Cache-Control', 'private, max-age=31536000, immutable')
+        headers.set('Content-Length', String(object.size))
+        if (object.httpEtag) {
+          headers.set('ETag', object.httpEtag)
+        }
+        return new Response(object.body, { status: 200, headers })
+      }
+    }
+
+    return jsonResponse({ error: 'not_found' }, 404)
+  },
+} satisfies ExportedHandler<Env>
