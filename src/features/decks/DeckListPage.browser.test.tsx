@@ -59,3 +59,17 @@ test('Today stays within the minimum supported window width', async () => {
   const content = document.querySelector<HTMLElement>('.content')!
   expect(content.scrollWidth).toBe(content.clientWidth)
 })
+
+test('renders studied progress as an inline ring beside deck metadata instead of an underline bar', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Rust')
+  const card = await storage.createCard(deck.id, 'Main', 'fn main() {}')
+  await storage.updateCard(card.id, {
+    scheduling: { ...card.scheduling, state: 2, reps: 1, due: Date.now() + 86_400_000 * 5 },
+  })
+  await renderRoute({ storage, entry: '/', path: '/', element: <DeckListPage /> })
+
+  await expect.element(page.getByText('1 / 1 studied')).toBeVisible()
+  expect(document.querySelector('.deck-list-progress')).toBeNull()
+  expect(document.querySelector('.deck-progress-ring.is-complete')).toBeTruthy()
+})

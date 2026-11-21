@@ -42,6 +42,7 @@
 
   /* shell metrics */
   --sidebar-w: 264px;
+  --sidebar-rail-w: 60px;
   --titlebar-h: 38px;       /* drag strip / traffic-light inset on macOS */
   --page-header-h: 48px;    /* routed-screen toolbar */
 

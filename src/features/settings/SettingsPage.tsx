@@ -8,6 +8,10 @@ import {
   getStoredCardTextSize,
   type CardTextSize,
 } from '../../ui/cardTextSize'
+import {
+  getSidebarHoverExpand,
+  setSidebarHoverExpand,
+} from '../../ui/sidebarPrefs'
 import { SyncSection } from './SyncSection'
 import packageInfo from '../../../package.json'
 import {
@@ -42,10 +46,18 @@ export function SettingsPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cardTextSize, setCardTextSize] = useState<CardTextSize>(() => getStoredCardTextSize())
+  const [sidebarHoverExpand, setSidebarHoverExpandState] = useState<boolean>(() =>
+    getSidebarHoverExpand(),
+  )
 
   function updateCardTextSize(next: CardTextSize) {
     applyCardTextSize(next)
     setCardTextSize(next)
+  }
+
+  function updateSidebarHoverExpand(enabled: boolean) {
+    setSidebarHoverExpand(enabled)
+    setSidebarHoverExpandState(enabled)
   }
 
   const list = decks ?? []
@@ -226,8 +238,8 @@ export function SettingsPage() {
 
         <section className="settings-group" aria-labelledby="reading-heading">
           <div className="settings-group-heading">
-            <h2 id="reading-heading">Reading</h2>
-            <p>Tune study and card-editor typography to your screen.</p>
+            <h2 id="reading-heading">Reading &amp; interface</h2>
+            <p>Tune study typography and navigation behavior to your screen.</p>
           </div>
 
           <div className="settings-panel">
@@ -246,6 +258,18 @@ export function SettingsPage() {
                 ]}
               />
             </div>
+
+            <label className="settings-toggle-row settings-toggle-row--divided">
+              <span>
+                <strong>Auto-expand collapsed sidebar on hover</strong>
+                <small>Float the full sidebar over content when hovering the collapsed icon rail.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={sidebarHoverExpand}
+                onChange={(e) => updateSidebarHoverExpand(e.target.checked)}
+              />
+            </label>
           </div>
         </section>
 

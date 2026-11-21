@@ -239,4 +239,45 @@ describe('CardEditorPage', () => {
       'grammar',
     ])
   })
+
+  it('opens the heading dropdown cleanly outside the horizontally scrollable toolbar', async () => {
+    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const deck = await storage.createDeck('Rust')
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
+
+    const front = screen.container.querySelector('[aria-label="Front"]') as HTMLElement
+    front.focus()
+    await userEvent.type(front, 'Heading test')
+
+    const trigger = screen.getByRole('button', { name: 'Text style' })
+    await userEvent.click(trigger)
+    const menu = screen.getByRole('listbox')
+    await expect.element(menu).toBeVisible()
+    expect(getComputedStyle(menu.element()).position).toBe('fixed')
+    expect(menu.element().getBoundingClientRect().height).toBeGreaterThan(80)
+
+    await userEvent.click(screen.getByRole('option', { name: /Heading 1/ }))
+    await expect.element(trigger).toHaveTextContent('H1')
+  })
+
+  it('supports interactive tag chips and deck tag suggestions', async () => {
+    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const deck = await storage.createDeck('Rust')
+    await storage.createCard(deck.id, 'Existing', 'Answer', ['ownership', 'cargo'])
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
+
+    const front = screen.container.querySelector('[aria-label="Front"]') as HTMLElement
+    front.focus()
+    await userEvent.type(front, 'Move semantics')
+
+    await expect.element(screen.getByRole('button', { name: '+ ownership' })).toBeVisible()
+    await userEvent.click(screen.getByRole('button', { name: '+ ownership' }))
+    await userEvent.type(screen.getByRole('textbox', { name: 'Tags', exact: true }), 'basics{Enter}')
+    await expect.element(screen.getByRole('button', { name: 'Remove tag basics' })).toBeVisible()
+
+    await userEvent.click(screen.getByText('Save card'))
+    await expect.poll(async () => (await storage.listCards(deck.id)).length).toBe(2)
+    const saved = (await storage.listCards(deck.id)).find((c) => c.front.includes('Move semantics'))
+    expect(saved?.tags).toEqual(['ownership', 'basics'])
+  })
 })

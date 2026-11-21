@@ -4,10 +4,10 @@ import { parseAssetSrc, buildAssetSrc, type ImageAlign } from './imageSrc'
 
 /** Block types offered by the heading dropdown. */
 const BLOCKS = [
-  { id: 'p', label: 'Normal text', short: 'Normal' },
-  { id: 'h1', label: 'Heading 1', short: 'H1' },
-  { id: 'h2', label: 'Heading 2', short: 'H2' },
-  { id: 'h3', label: 'Heading 3', short: 'H3' },
+  { id: 'p', label: 'Normal text', short: 'Normal', hint: '' },
+  { id: 'h1', label: 'Heading 1', short: 'H1', hint: '#' },
+  { id: 'h2', label: 'Heading 2', short: 'H2', hint: '##' },
+  { id: 'h3', label: 'Heading 3', short: 'H3', hint: '###' },
 ] as const
 type BlockId = (typeof BLOCKS)[number]['id']
 
@@ -59,6 +59,7 @@ function Tool({ label, active, disabled, onRun, children }: {
 
 function HeadingMenu({ editor }: { editor: Editor | null }) {
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -66,14 +67,25 @@ function HeadingMenu({ editor }: { editor: Editor | null }) {
     const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setOpen(false)
+        editor?.commands.focus()
+      }
+    }
+    const onViewportChange = () => setOpen(false)
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
+    window.addEventListener('resize', onViewportChange)
+    window.addEventListener('scroll', onViewportChange, true)
     return () => {
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onViewportChange)
+      window.removeEventListener('scroll', onViewportChange, true)
     }
-  }, [open])
+  }, [open, editor])
 
   const current: BlockId = !editor
     ? 'p'
@@ -84,6 +96,17 @@ function HeadingMenu({ editor }: { editor: Editor | null }) {
         : editor.isActive('heading', { level: 3 })
           ? 'h3'
           : 'p'
+
+  function toggleMenu() {
+    if (!open && ref.current) {
+      const rect = ref.current.getBoundingClientRect()
+      setPos({
+        top: rect.bottom + 6,
+        left: Math.max(12, Math.min(rect.left, window.innerWidth - 200)),
+      })
+    }
+    setOpen((v) => !v)
+  }
 
   function apply(id: BlockId) {
     setOpen(false)
@@ -105,7 +128,7 @@ function HeadingMenu({ editor }: { editor: Editor | null }) {
         aria-label="Text style"
         disabled={!editor}
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggleMenu}
       >
         <span>{label}</span>
         <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden="true">
@@ -114,7 +137,11 @@ function HeadingMenu({ editor }: { editor: Editor | null }) {
         </svg>
       </button>
       {open && (
-        <div className="md-head-menu" role="listbox">
+        <div
+          className="md-head-menu"
+          role="listbox"
+          style={pos ? { top: pos.top, left: pos.left } : undefined}
+        >
           {BLOCKS.map((b) => (
             <button
               key={b.id}
@@ -125,7 +152,8 @@ function HeadingMenu({ editor }: { editor: Editor | null }) {
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => apply(b.id)}
             >
-              {b.label}
+              <span>{b.label}</span>
+              {b.hint && <span className="md-head-hint">{b.hint}</span>}
             </button>
           ))}
         </div>

@@ -127,3 +127,33 @@ test('searches cards and lets the user clear active filters', async () => {
   await page.getByRole('button', { name: 'Clear filters' }).click()
   await expect.element(page.getByText('Hola', { exact: true })).toBeVisible()
 })
+
+test('shows caught-up pill beside title, code snippet preview, and status filter pills', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Rust')
+  const card = await storage.createCard(
+    deck.id,
+    'Main program',
+    '```rust\nfn main() {\n  println!("hi");\n}\n```',
+  )
+  await storage.updateCard(card.id, {
+    scheduling: { ...card.scheduling, reps: 2, due: Date.now() + 86_400_000 * 10 },
+  })
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId',
+    entry: `/decks/${deck.id}`,
+    element: <DeckDetailPage />,
+  })
+
+  await expect.element(page.getByText('Caught up')).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Custom study' })).toBeVisible()
+  await expect.element(page.getByText('fn main() {')).toBeVisible()
+  await expect.element(page.getByText('rust', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Suspend' }).click()
+  await expect.element(page.getByText('suspended')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Suspended', exact: true }).click()
+  await expect.element(page.getByText('Main program')).toBeVisible()
+})
