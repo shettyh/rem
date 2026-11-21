@@ -101,11 +101,12 @@ the important part.
    local embedding model (transformers.js).
 
 **Sync & multi-device**
-- ✅ **Cloud sync (Cloudflare Workers + Durable Objects + R2)** — **shipped (Slices 1–3; legacy Git sync retired)**:
+- ✅ **Cloud sync & iOS Companion (Slices 1–4; legacy Git sync retired)** — **shipped**:
   `rem-core` schema v3 with HLCs and transactional outbox, shared `rem-sync` Rust client, open-source
-  `sync-server/` Worker with Google/Apple OAuth + OS Keychain, desktop UI, and `rem sync` CLI. Supports
-  hosted `rem Cloud` or self-hosting. Slice 4 (iPhone companion) is next. See
-  `docs/superpowers/specs/2026-11-21-cloudflare-cloud-sync-and-mobile-design.md`.
+  `sync-server/` Worker with Google/Apple OAuth + OS Keychain, desktop UI, `rem sync` CLI, and the
+  native SwiftUI iOS companion app (`ios/` + `rem-ffi` UniFFI bridge). Supports hosted `rem Cloud` or
+  self-hosting. See `docs/superpowers/specs/2026-11-21-cloudflare-cloud-sync-and-mobile-design.md` and
+  `docs/superpowers/specs/2026-11-21-ios-companion-design.md`.
 
 **Longer-term (generative, opt-in)**
 6. **AI card generation from uploads** (#5) — `CardGenerator` interface; BYO-key cloud first,
