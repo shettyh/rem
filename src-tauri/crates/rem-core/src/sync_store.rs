@@ -48,9 +48,8 @@ impl Collection {
             .connection
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
-        let mut statement = connection.prepare(
-            "SELECT id, kind, deleted_at FROM tombstones ORDER BY deleted_at, rowid",
-        )?;
+        let mut statement = connection
+            .prepare("SELECT id, kind, deleted_at FROM tombstones ORDER BY deleted_at, rowid")?;
         let tombstones = statement
             .query_map([], tombstone_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
