@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.17.0 (2026-11-21)
+
+## What's Changed
+* feat(ios): add native SwiftUI iOS companion app with shared Rust core (Slice 4) by @shettyh in https://github.com/shettyh/rem/pull/184
+* feat(ux): polish iOS and desktop UI copy, decks, card editor, and auth gate by @shettyh in https://github.com/shettyh/rem/pull/186
+* docs: refresh vision and roadmap for Cloud Sync and iOS companion v1 by @shettyh in https://github.com/shettyh/rem/pull/187
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.16.0...v0.17.0
+
 ## 0.16.0 (2026-11-21)
 
 ## What's Changed
