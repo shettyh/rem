@@ -17,7 +17,7 @@ struct ReviewMenuSheet: View {
                     if hasCurrentCard {
                         menuRow(
                             title: "Edit card",
-                            detail: "Markdown",
+                            detail: "",
                             action: {
                                 dismiss()
                                 onEdit()

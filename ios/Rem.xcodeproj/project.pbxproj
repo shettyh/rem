@@ -13,6 +13,7 @@
 		11463BFEC7C471AC6282A1FB /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1815B3EB1508F3BED353BD /* AppState.swift */; };
 		1C57FC6B61E61725F7433B5E /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */; };
 		2B9E2665163134C4960129C2 /* MarkdownBlockParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5ADA201F3DEEC39FFA0FB76 /* MarkdownBlockParser.swift */; };
+		5D4E3D368F9CB8D48637E559 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 492A290EEEEE6A290D56073D /* MarkdownTextEditor.swift */; };
 		5F55AE7919E11A6C0BBDD818 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826924FAB93A7D776261FB18 /* SettingsView.swift */; };
 		6F25913452E569E6029713EE /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16278B140AD8DE458882895B /* KeychainStore.swift */; };
 		7556F594E668E98E3AD6A61C /* ImageLightboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E11D38FDBD7F3BF4C3891B /* ImageLightboxView.swift */; };
@@ -53,6 +54,7 @@
 		18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewScreen.swift; sourceTree = "<group>"; };
 		38E2DD644390DD61851BB031 /* RemStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemStore.swift; sourceTree = "<group>"; };
 		39DE67B932E46F12BFE3E215 /* FirstRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunView.swift; sourceTree = "<group>"; };
+		492A290EEEEE6A290D56073D /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
 		4ABC582F7419B4F3FEFD0AA8 /* RemTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemTokens.swift; sourceTree = "<group>"; };
 		523C20E8C6C0E5941D8ABA9D /* RemAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RemAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		63FD9975AC3D5F1809A91781 /* AuthSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionManager.swift; sourceTree = "<group>"; };
@@ -182,6 +184,7 @@
 		54506AD899EBB4593796C520 /* Capture */ = {
 			isa = PBXGroup;
 			children = (
+				492A290EEEEE6A290D56073D /* MarkdownTextEditor.swift */,
 				D1025E01C7EF0E39CBDA2F19 /* QuickCaptureSheet.swift */,
 			);
 			path = Capture;
@@ -376,6 +379,7 @@
 				7556F594E668E98E3AD6A61C /* ImageLightboxView.swift in Sources */,
 				6F25913452E569E6029713EE /* KeychainStore.swift in Sources */,
 				2B9E2665163134C4960129C2 /* MarkdownBlockParser.swift in Sources */,
+				5D4E3D368F9CB8D48637E559 /* MarkdownTextEditor.swift in Sources */,
 				07359559E477945E46C39210 /* NewDeckSheet.swift in Sources */,
 				026A1F86F2FDF2DF243503D2 /* QuickCaptureSheet.swift in Sources */,
 				F111BE04364058F56DA1EAC7 /* RemApp.swift in Sources */,
@@ -573,6 +577,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -590,6 +595,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

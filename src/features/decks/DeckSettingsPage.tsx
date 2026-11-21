@@ -124,14 +124,6 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
             <div className="ds-rule" />
             <div className="ds-row">
               <div>
-                <div className="ds-row-title">Scheduler</div>
-                <div className="ds-row-sub">FSRS adapts intervals to your recall.</div>
-              </div>
-              <span className="algo-chip">FSRS</span>
-            </div>
-            <div className="ds-rule" />
-            <div className="ds-row">
-              <div>
                 <div className="ds-row-title">Desired retention</div>
                 <div className="ds-row-sub">Target recall probability. Higher values schedule more frequent reviews.</div>
               </div>
@@ -148,17 +140,17 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
             <div className="ds-rule" />
             <div className="ds-row">
               <div>
-                <div className="ds-row-title">FSRS parameters</div>
+                <div className="ds-row-title">Personalized scheduling</div>
                 <div className="ds-row-sub">
-                  {settings.fsrsWeights ? 'Optimized parameters' : 'Default parameters'}
+                  {settings.fsrsWeights ? 'Personalized schedule' : 'Default schedule'}
                 </div>
                 <div className="ds-row-sub">
-                  {reviewLogs.length} recorded FSRS review{reviewLogs.length === 1 ? '' : 's'}
+                  {reviewLogs.length} recorded review{reviewLogs.length === 1 ? '' : 's'}
                 </div>
                 {!canOptimize && (
                   <div className="ds-row-sub">Optimize after reviewing a card on a later day.</div>
                 )}
-                {optimizerError && <div className="ds-row-sub ds-error" role="alert">Couldn&#39;t optimize parameters. Try again.</div>}
+                {optimizerError && <div className="ds-row-sub ds-error" role="alert">Couldn&#39;t optimize schedule. Try again.</div>}
               </div>
               <div className="row">
                 {settings.fsrsWeights && (

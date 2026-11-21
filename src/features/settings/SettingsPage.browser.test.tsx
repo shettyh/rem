@@ -236,17 +236,18 @@ test('defaults cloud sync to hosted rem Cloud without asking for a URL, with sel
   await page.getByRole('button', { name: 'Cloud sync' }).click()
   await expect.element(page.getByRole('button', { name: 'Sign in with Apple' })).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible()
-  await expect.element(page.getByLabelText('Self-hosted sync server URL')).not.toBeInTheDocument()
-  await expect.element(page.getByLabelText('Self-hosted / personal token')).not.toBeInTheDocument()
+  await expect.element(page.getByLabelText('Custom sync server URL')).not.toBeInTheDocument()
+  await expect.element(page.getByLabelText('Personal access token')).not.toBeInTheDocument()
   expect(syncClient.fetchProviders).toHaveBeenCalledWith(DEFAULT_CLOUD_SERVER_URL)
 
-  // Self-hosted disclosure reveals URL + personal token setup and can toggle back.
-  await page.getByRole('button', { name: 'Use a self-hosted server' }).click()
-  const urlInput = page.getByLabelText('Self-hosted sync server URL')
+  // Custom server disclosure reveals URL + personal token setup and subtle docs link.
+  await page.getByRole('button', { name: 'Use a custom server' }).click()
+  const urlInput = page.getByLabelText('Custom sync server URL')
   await expect.element(urlInput).toBeVisible()
+  await expect.element(page.getByRole('link', { name: 'Setup guide ↗' })).toBeVisible()
   await urlInput.fill('https://sync.example.com')
   await page.getByRole('button', { name: 'Continue' }).click()
-  await expect.element(page.getByLabelText('Self-hosted / personal token')).toBeVisible()
+  await expect.element(page.getByLabelText('Personal access token')).toBeVisible()
   await page.getByRole('button', { name: 'Use rem Cloud instead' }).click()
 
   // Sign in with Google on default hosted rem Cloud -> shows connected state and sidebar sync indicator.
@@ -291,6 +292,28 @@ test('shows subscription notice calmly when server returns subscriptionRequired'
   await upgradeBtn.click()
   expect(syncClient.openExternalUrl).toHaveBeenCalledWith('https://rem-sync.shettyh.fyi/cloud')
   await expect.element(page.getByRole('button', { name: 'Retry sync' })).toBeVisible()
+})
+
+test('shows calm early-access state when non-allowlisted account signs in without upgradeUrl', async () => {
+  const storage = freshStorage()
+  const syncClient = makeMockSyncClient({
+    mode: 'cloud',
+    serverUrl: DEFAULT_CLOUD_SERVER_URL,
+    accountId: 'usr_waitlist',
+    email: 'alex@example.com',
+    provider: 'google',
+    signedIn: true,
+    subscriptionRequired: true,
+    upgradeUrl: null,
+    lastError: 'Cloud sync requires an active rem Cloud subscription.',
+  })
+  renderSettings(storage, syncClient)
+
+  await expect.element(page.getByText('Early access')).toBeVisible()
+  await expect.element(page.getByText('Cloud sync is in early access')).toBeVisible()
+  await expect.element(page.getByText("alex@example.com isn't on the early-access list yet", { exact: false })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Try another account' })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Stay local' })).toBeVisible()
 })
 
 test('prompts before switching a collection bound to another sync account', async () => {

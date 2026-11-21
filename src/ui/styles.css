@@ -2119,6 +2119,23 @@ select.text-input,
   flex-wrap: wrap;
   gap: 8px;
 }
+.btn-oauth {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.oauth-icon {
+  flex: none;
+  display: block;
+}
+.settings-sync-guide-link {
+  color: var(--faint);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.settings-sync-guide-link:hover {
+  color: var(--muted);
+}
 .settings-sync-hosted {
   display: flex;
   flex-direction: column;

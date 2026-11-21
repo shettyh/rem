@@ -200,7 +200,9 @@ export function Sidebar({
                 sync.status.activity === 'syncing'
                   ? 'Cloud sync in progress'
                   : sync.status.subscriptionRequired
-                    ? 'rem Cloud subscription required — open settings'
+                    ? sync.status.upgradeUrl
+                      ? 'rem Cloud subscription required — open settings'
+                      : 'Cloud sync is in early access — open settings'
                     : sync.status.activity === 'error' || sync.status.lastError
                       ? 'Cloud sync error — open settings'
                       : !sync.status.signedIn
@@ -213,7 +215,9 @@ export function Sidebar({
                 sync.status.activity === 'syncing'
                   ? 'Syncing…'
                   : sync.status.subscriptionRequired
-                    ? 'rem Cloud subscription required — open Settings'
+                    ? sync.status.upgradeUrl
+                      ? 'rem Cloud subscription required — open Settings'
+                      : 'Cloud sync is in early access — open Settings'
                     : sync.status.lastError
                       ? `Sync error: ${sync.status.lastError}`
                       : !sync.status.signedIn

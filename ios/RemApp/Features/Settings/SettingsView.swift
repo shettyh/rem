@@ -19,7 +19,7 @@ struct SettingsView: View {
 
                 cloudSyncSection
                 readingAndHabitSection
-                localStorageSection
+                yourDataSection
             }
             .padding(.horizontal, 18)
             .padding(.top, 10)
@@ -67,9 +67,7 @@ struct SettingsView: View {
                 appState.pendingAccountSwitch = nil
             }
         } message: {
-            if let mismatch = appState.pendingAccountSwitch {
-                Text("This device is currently bound to another account (\(mismatch.boundAccountId.prefix(8))…). Resetting sync binding keeps your local cards and connects the new account.")
-            }
+            Text("This iPhone is currently linked to another cloud account. Switching keeps your local cards and connects the new account.")
         }
         .sheet(isPresented: Binding(
             get: { shareBackupURL != nil },
@@ -86,185 +84,300 @@ struct SettingsView: View {
     private var cloudSyncSection: some View {
         let isSignedIn = appState.syncStatus?.signedIn == true
         return section("CLOUD SYNC") {
-            if isSignedIn {
-                VStack(spacing: 0) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("rem Cloud")
-                                .font(.system(size: 14.5, weight: .semibold))
-                                .foregroundStyle(RemColor.text)
-                            Text(signedInSubtitle)
-                                .font(.system(size: 12))
-                                .foregroundStyle(RemColor.muted)
-                            if let err = appState.lastSyncError {
-                                Text(err)
-                                    .font(.system(size: 11.5))
-                                    .foregroundStyle(RemColor.again)
-                                    .padding(.top, 2)
-                            }
-                        }
-                        Spacer()
-                        statusBadge
+            if isSignedIn && appState.syncAccessRestricted {
+                restrictedAccessCard
+            } else if isSignedIn {
+                signedInCard
+            } else {
+                signedOutCard
+            }
+        }
+    }
+
+    private var restrictedAccessCard: some View {
+        let identity = appState.syncStatus?.email ?? "Your account"
+        let hasUpgradeUrl = appState.syncUpgradeUrl.flatMap { URL(string: $0) } != nil
+        return VStack(spacing: 0) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("rem Cloud")
+                        .font(.system(size: 14.5, weight: .semibold))
+                        .foregroundStyle(RemColor.text)
+                    Text(identity)
+                        .font(.system(size: 12))
+                        .foregroundStyle(RemColor.muted)
+                }
+                Spacer()
+                RemPillBadge(
+                    text: hasUpgradeUrl ? "Plan required" : "Early access",
+                    tone: .neutral
+                )
+            }
+            .padding(14)
+
+            Divider().overlay(RemColor.border)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(hasUpgradeUrl ? "rem Cloud plan required" : "Cloud sync is in early access")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(RemColor.text)
+
+                Text(hasUpgradeUrl
+                     ? "\(identity) doesn't have an active rem Cloud plan yet. Your decks remain safely stored on this iPhone, and you can keep studying offline anytime."
+                     : "\(identity) isn't on the early-access list yet. Your decks remain safely stored on this iPhone, and you can keep studying offline anytime.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(RemColor.muted)
+                    .lineSpacing(2)
+
+                if let urlString = appState.syncUpgradeUrl, let url = URL(string: urlString) {
+                    Link(destination: url) {
+                        Text("Get rem Cloud")
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(RemColor.onAccent)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(RemColor.accent)
+                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     }
-                    .padding(14)
+                    .padding(.top, 2)
+                }
 
-                    Divider().overlay(RemColor.border)
-
+                HStack(spacing: 8) {
                     Button {
-                        Task { await appState.syncNow(silent: false) }
+                        Task { await appState.signOut(silent: true) }
                     } label: {
-                        HStack {
-                            Text("Sync now")
-                                .font(.system(size: 14))
-                                .foregroundStyle(RemColor.text)
-                            Spacer()
-                            if appState.isSyncing {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Text(appState.lastSyncError != nil ? "Retry" : "Run")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(RemColor.accent)
-                            }
-                        }
-                        .padding(14)
-                        .contentShape(Rectangle())
-                    }
-                    .disabled(appState.isSyncing)
-
-                    Divider().overlay(RemColor.border)
-
-                    HStack {
-                        Text("Server")
-                            .font(.system(size: 14))
+                        Text("Try another account")
+                            .font(.system(size: 12.5, weight: .semibold))
                             .foregroundStyle(RemColor.text)
-                        Spacer()
-                        Text(displayServerName)
-                            .font(.system(size: 12.5, design: .monospaced))
-                            .foregroundStyle(RemColor.muted)
-                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 9)
+                            .background(RemColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .strokeBorder(RemColor.borderStrong, lineWidth: 1)
+                            )
                     }
-                    .padding(14)
-
-                    Divider().overlay(RemColor.border)
 
                     Button {
                         Task { await appState.signOut() }
                     } label: {
-                        HStack {
-                            Text("Sign out (keep local cards)")
-                                .font(.system(size: 14))
-                                .foregroundStyle(RemColor.text)
-                            Spacer()
-                        }
-                        .padding(14)
-                        .contentShape(Rectangle())
-                    }
-
-                    Divider().overlay(RemColor.border)
-
-                    Button(role: .destructive) {
-                        showDeleteAccountConfirm = true
-                    } label: {
-                        HStack {
-                            Text("Delete cloud account")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(RemColor.danger)
-                            Spacer()
-                        }
-                        .padding(14)
-                        .contentShape(Rectangle())
+                        Text("Stay local")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(RemColor.muted)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 9)
+                            .background(RemColor.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .strokeBorder(RemColor.border, lineWidth: 1)
+                            )
                     }
                 }
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Local-only mode")
-                            .font(.system(size: 14.5, weight: .semibold))
-                            .foregroundStyle(RemColor.text)
-                        Text("Your decks stay strictly on this iPhone. Sign in to sync decks, FSRS schedules, and images across Mac, CLI, and iPhone.")
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(RemColor.muted)
-                            .lineSpacing(2)
-                    }
+                .padding(.top, 2)
+            }
+            .padding(13)
+            .background(RemColor.bgInset)
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(RemColor.border, lineWidth: 1)
+            )
+            .padding(14)
+        }
+    }
 
-                    Button {
-                        Task {
-                            await appState.signIn(
-                                provider: .apple,
-                                customServerUrl: useCustomServer ? customServerUrl : nil
-                            )
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "apple.logo")
-                            Text(appState.isAuthenticating ? "Signing in…" : "Continue with Apple")
-                        }
+    private var signedInCard: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("rem Cloud")
                         .font(.system(size: 14.5, weight: .semibold))
-                        .foregroundStyle(RemColor.bg)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12.5)
-                        .background(RemColor.text)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .foregroundStyle(RemColor.text)
+                    Text(signedInSubtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(RemColor.muted)
+                    if let err = appState.lastSyncError {
+                        Text(err)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(RemColor.again)
+                            .padding(.top, 2)
                     }
-                    .disabled(appState.isAuthenticating)
+                }
+                Spacer()
+                statusBadge
+            }
+            .padding(14)
 
-                    Button {
-                        Task {
-                            await appState.signIn(
-                                provider: .google,
-                                customServerUrl: useCustomServer ? customServerUrl : nil
-                            )
-                        }
-                    } label: {
-                        Text(appState.isAuthenticating ? "Signing in…" : "Continue with Google")
-                    }
-                    .buttonStyle(RemSecondaryButtonStyle())
-                    .disabled(appState.isAuthenticating)
+            Divider().overlay(RemColor.border)
 
-                    Divider().overlay(RemColor.border)
-
-                    Button {
-                        withAnimation(.easeOut(duration: 0.16)) {
-                            useCustomServer.toggle()
-                        }
-                    } label: {
-                        HStack {
-                            Text("Self-hosted server URL")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(RemColor.muted)
-                            Spacer()
-                            Image(systemName: useCustomServer ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(RemColor.faint)
-                        }
-                    }
-
-                    if useCustomServer {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Point the standard app at your own Cloudflare Worker:")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(RemColor.muted)
-                            TextField(
-                                appState.syncStatus?.defaultServerUrl ?? "https://rem-sync.shettyh.fyi",
-                                text: $customServerUrl
-                            )
-                            .font(.system(size: 12.5, design: .monospaced))
-                            .keyboardType(.URL)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .padding(10)
-                            .background(RemColor.bgInset)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .strokeBorder(RemColor.borderStrong, lineWidth: 1)
-                            )
-                        }
+            Button {
+                Task { await appState.syncNow(silent: false) }
+            } label: {
+                HStack {
+                    Text("Sync now")
+                        .font(.system(size: 14))
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    if appState.isSyncing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text(appState.lastSyncError != nil ? "Retry" : "Run")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(RemColor.accent)
                     }
                 }
                 .padding(14)
+                .contentShape(Rectangle())
+            }
+            .disabled(appState.isSyncing)
+
+            Divider().overlay(RemColor.border)
+
+            HStack {
+                Text("Server")
+                    .font(.system(size: 14))
+                    .foregroundStyle(RemColor.text)
+                Spacer()
+                Text(displayServerName)
+                    .font(.system(size: 12.5, design: displayServerName == "rem Cloud" ? .default : .monospaced))
+                    .foregroundStyle(RemColor.muted)
+                    .lineLimit(1)
+            }
+            .padding(14)
+
+            Divider().overlay(RemColor.border)
+
+            Button {
+                Task { await appState.signOut() }
+            } label: {
+                HStack {
+                    Text("Sign out (keep local cards)")
+                        .font(.system(size: 14))
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                }
+                .padding(14)
+                .contentShape(Rectangle())
+            }
+
+            Divider().overlay(RemColor.border)
+
+            Button(role: .destructive) {
+                showDeleteAccountConfirm = true
+            } label: {
+                HStack {
+                    Text("Delete cloud account")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(RemColor.danger)
+                    Spacer()
+                }
+                .padding(14)
+                .contentShape(Rectangle())
             }
         }
+    }
+
+    private var signedOutCard: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Local-only mode")
+                    .font(.system(size: 14.5, weight: .semibold))
+                    .foregroundStyle(RemColor.text)
+                Text("Your decks stay on this iPhone. Sign in to sync decks, study progress, and images across your devices.")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(RemColor.muted)
+                    .lineSpacing(2)
+            }
+
+            Button {
+                Task {
+                    await appState.signIn(
+                        provider: .apple,
+                        customServerUrl: useCustomServer ? customServerUrl : nil
+                    )
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "apple.logo")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(appState.isAuthenticating ? "Signing in…" : "Continue with Apple")
+                }
+                .font(.system(size: 14.5, weight: .semibold))
+                .foregroundStyle(RemColor.bg)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(RemColor.text)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .disabled(appState.isAuthenticating)
+
+            Button {
+                Task {
+                    await appState.signIn(
+                        provider: .google,
+                        customServerUrl: useCustomServer ? customServerUrl : nil
+                    )
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    GoogleLogoMark(size: 16)
+                    Text(appState.isAuthenticating ? "Signing in…" : "Continue with Google")
+                }
+            }
+            .buttonStyle(RemSecondaryButtonStyle())
+            .disabled(appState.isAuthenticating)
+
+            Divider().overlay(RemColor.border)
+                .padding(.top, 2)
+
+            Button {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    useCustomServer.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("Custom server")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(RemColor.faint)
+                    Spacer()
+                    Image(systemName: useCustomServer ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(RemColor.faint)
+                }
+            }
+
+            if useCustomServer {
+                VStack(alignment: .leading, spacing: 7) {
+                    TextField(
+                        "https://sync.example.com",
+                        text: $customServerUrl
+                    )
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(10)
+                    .background(RemColor.bgInset)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(RemColor.borderStrong, lineWidth: 1)
+                    )
+
+                    HStack(spacing: 4) {
+                        Text("Connect to your own server.")
+                            .foregroundStyle(RemColor.faint)
+                        Link("Setup guide ↗", destination: RemDocs.selfHostingGuideURL)
+                            .foregroundStyle(RemColor.faint)
+                            .underline()
+                    }
+                    .font(.system(size: 11.5))
+                }
+            }
+        }
+        .padding(14)
     }
 
     private var readingAndHabitSection: some View {
@@ -346,12 +459,12 @@ struct SettingsView: View {
         }
     }
 
-    private var localStorageSection: some View {
-        section("LOCAL STORAGE") {
+    private var yourDataSection: some View {
+        section("YOUR DATA") {
             VStack(spacing: 0) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("SQLite & offline images")
+                        Text("On this iPhone")
                             .font(.system(size: 14))
                             .foregroundStyle(RemColor.text)
                         Text(storageSubtitle)
@@ -370,7 +483,7 @@ struct SettingsView: View {
                     }
                 } label: {
                     HStack {
-                        Text("Export JSON backup")
+                        Text("Export backup")
                             .font(.system(size: 14))
                             .foregroundStyle(RemColor.text)
                         Spacer()
@@ -407,10 +520,10 @@ struct SettingsView: View {
     private var statusBadge: some View {
         let pending = appState.syncStatus?.pendingOutboxCount ?? 0
         if appState.lastSyncError != nil {
-            return RemPillBadge(text: pending > 0 ? "Queued" : "Error", tone: pending > 0 ? .hard : .again)
+            return RemPillBadge(text: pending > 0 ? "Pending" : "Error", tone: pending > 0 ? .hard : .again)
         }
         if pending > 0 {
-            return RemPillBadge(text: "\(pending) queued", tone: .hard)
+            return RemPillBadge(text: "\(pending) pending", tone: .hard)
         }
         return RemPillBadge(text: "Synced", tone: .good)
     }
@@ -426,7 +539,8 @@ struct SettingsView: View {
         }()
         let identity = status.email ?? "Signed in with \(providerLabel)"
         if status.pendingOutboxCount > 0 {
-            return "\(identity) · \(status.pendingOutboxCount) ops queued"
+            let changeWord = status.pendingOutboxCount == 1 ? "change" : "changes"
+            return "\(identity) · \(status.pendingOutboxCount) \(changeWord) waiting to sync"
         }
         if let last = appState.lastSyncedAt {
             let formatter = RelativeDateTimeFormatter()
@@ -448,8 +562,14 @@ struct SettingsView: View {
 
     private var storageSubtitle: String {
         guard let summary = appState.storageSummary else { return "Calculating…" }
+        let cardWord = summary.totalCards == 1 ? "card" : "cards"
+        let imageWord = summary.assetCount == 1 ? "image" : "images"
         let mb = Double(summary.assetBytes) / 1_048_576.0
-        return "\(summary.totalCards) cards · \(summary.assetCount) cached assets · \(String(format: "%.2f", mb)) MB"
+        let sizeText = mb < 0.1 && summary.assetBytes > 0 ? "< 0.1 MB" : String(format: "%.1f MB", mb)
+        if summary.assetCount == 0 {
+            return "\(summary.totalCards) \(cardWord)"
+        }
+        return "\(summary.totalCards) \(cardWord) · \(summary.assetCount) \(imageWord) · \(sizeText)"
     }
 }
 

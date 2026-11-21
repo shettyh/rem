@@ -30,6 +30,27 @@ import {
   type DeckBackup,
 } from '../../data/backup'
 
+const SELF_HOSTING_GUIDE_URL = 'https://shettyh.github.io/rem/'
+
+function AppleMark() {
+  return (
+    <svg className="oauth-icon" width="14" height="14" viewBox="0 0 170 170" fill="currentColor" aria-hidden="true">
+      <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.13-1.9-14.34-6.08-3.69-3.03-7.61-7.82-11.77-14.37-5.93-9.36-10.72-20.11-14.38-32.26-3.66-12.15-5.49-23.85-5.49-35.09 0-13.15 3.29-24.08 9.88-32.78 6.59-8.7 15.05-13.21 25.39-13.53 4.14 0 9.6 1.48 16.41 4.43 6.81 2.95 11.18 4.45 13.11 4.5 1.45 0 6.3-1.74 14.56-5.21 8.26-3.47 15.22-4.91 20.89-4.33 15.44 1.25 27.04 7.34 34.78 18.29-13.81 8.38-20.61 20.11-20.41 35.2.2 11.75 4.41 21.52 12.64 29.31 3.74 3.55 8.01 6.3 12.82 8.24-1.03 3.01-2.12 5.92-3.28 8.71zM119.22 31.01c0 9.18-3.35 17.75-10.04 25.71-8.06 9.42-17.81 14.87-28.39 14.01-.14-1.1-.21-2.27-.21-3.51 0-8.82 3.83-18.25 10.63-25.95 3.39-3.89 7.71-7.12 12.95-9.7 5.24-2.58 10.21-4 14.92-4.25.09 1.27.14 2.5.14 3.69z" />
+    </svg>
+  )
+}
+
+function GoogleMark() {
+  return (
+    <svg className="oauth-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.55-.2-2.27H12v4.3h6.45a5.52 5.52 0 0 1-2.39 3.62v3h3.87c2.26-2.08 3.56-5.15 3.56-8.65z" />
+      <path fill="#34A853" d="M12 24c3.24 0 5.95-1.07 7.93-2.91l-3.87-3c-1.07.72-2.44 1.15-4.06 1.15-3.12 0-5.77-2.11-6.72-4.95H1.28v3.1A12 12 0 0 0 12 24z" />
+      <path fill="#FBBC05" d="M5.28 14.29A7.2 7.2 0 0 1 4.9 12c0-.8.14-1.57.38-2.29V6.61H1.28A12 12 0 0 0 0 12c0 1.94.46 3.77 1.28 5.39l4-3.1z" />
+      <path fill="#EA4335" d="M12 4.76c1.76 0 3.34.61 4.58 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.28 6.61l4 3.1c.95-2.84 3.6-4.95 6.72-4.95z" />
+    </svg>
+  )
+}
+
 function downloadJson(json: string, filename: string) {
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }))
   const a = document.createElement('a')
@@ -394,11 +415,15 @@ export function SettingsPage() {
   const isDefaultConnectedServer =
     syncStatus?.serverUrl?.replace(/\/+$/, '') === defaultServerUrl
 
+  const isEarlyAccessRestricted = Boolean(syncStatus?.subscriptionRequired && !syncStatus?.upgradeUrl)
+
   const badgeLabel = isCloudConnected
     ? syncStatus?.activity === 'syncing'
       ? 'Syncing'
       : syncStatus?.subscriptionRequired
-        ? 'Plan required'
+        ? isEarlyAccessRestricted
+          ? 'Early access'
+          : 'Plan required'
         : syncStatus?.activity === 'error'
           ? 'Error'
           : 'Active'
@@ -409,7 +434,7 @@ export function SettingsPage() {
   const badgeClass =
     badgeLabel === 'Error'
       ? 'settings-badge is-error'
-      : badgeLabel === 'Setup' || badgeLabel === 'Plan required'
+      : badgeLabel === 'Setup' || badgeLabel === 'Plan required' || badgeLabel === 'Early access'
         ? 'settings-badge'
         : 'settings-badge is-active'
 
@@ -432,10 +457,10 @@ export function SettingsPage() {
                 </div>
                 <p>
                   {isCloudConnected
-                    ? `Signed in as ${syncStatus?.email ?? syncStatus?.accountId} via ${formatProvider(syncStatus?.provider ?? null)}.`
+                    ? `Signed in as ${syncStatus?.email ?? formatProvider(syncStatus?.provider ?? null)} via ${formatProvider(syncStatus?.provider ?? null)}.`
                     : effectiveMode === 'cloud'
-                      ? 'Sync decks, reviews, and media across desktop, CLI, and mobile with rem Cloud.'
-                      : 'Decks, review history, and media are stored privately in rem’s app data.'}
+                      ? 'Sync decks, study progress, and images across all your devices with rem Cloud.'
+                      : 'Decks, study progress, and images are stored privately on this device.'}
                 </p>
               </div>
               {sync.supported && (
@@ -452,7 +477,7 @@ export function SettingsPage() {
 
             {effectiveMode === 'local' && syncStatus?.accountId && (
               <div className="settings-sync-note">
-                Cloud sync is paused for <strong>{syncStatus.email ?? syncStatus.accountId}</strong>.
+                Cloud sync is paused{syncStatus.email ? <> for <strong>{syncStatus.email}</strong></> : null}.
                 Switch to Cloud sync to sign back in.
               </div>
             )}
@@ -461,8 +486,8 @@ export function SettingsPage() {
               <div className="settings-sync-setup">
                 <div className="settings-sync-hosted">
                   <p className="settings-sync-hosted-copy">
-                    {hostedProviders?.subscriptionRequired
-                      ? 'rem Cloud is an optional paid sync add-on. Local storage and self-hosting remain free.'
+                    {hostedProviders?.subscriptionRequired && hostedProviders.upgradeUrl
+                      ? 'rem Cloud is an optional paid sync add-on. Local storage stays free.'
                       : 'Sign in to connect this device to rem Cloud.'}
                   </p>
 
@@ -489,22 +514,24 @@ export function SettingsPage() {
                     <div className="settings-sync-oauth-buttons">
                       {hostedProviders.apple && (
                         <button
-                          className="btn btn-sm"
+                          className="btn btn-sm btn-oauth"
                           type="button"
                           disabled={sync.busy}
                           onClick={() => void handleOAuthSignIn('apple', defaultServerUrl)}
                         >
-                          {sync.busy ? 'Waiting for browser…' : 'Sign in with Apple'}
+                          <AppleMark />
+                          <span>{sync.busy ? 'Waiting for browser…' : 'Sign in with Apple'}</span>
                         </button>
                       )}
                       {hostedProviders.google && (
                         <button
-                          className="btn btn-primary btn-sm"
+                          className="btn btn-sm btn-oauth"
                           type="button"
                           disabled={sync.busy}
                           onClick={() => void handleOAuthSignIn('google', defaultServerUrl)}
                         >
-                          {sync.busy ? 'Waiting for browser…' : 'Sign in with Google'}
+                          <GoogleMark />
+                          <span>{sync.busy ? 'Waiting for browser…' : 'Sign in with Google'}</span>
                         </button>
                       )}
                       {hostedProviders.subscriptionRequired && hostedProviders.upgradeUrl && (
@@ -529,7 +556,7 @@ export function SettingsPage() {
                       setUseCustomServer(true)
                     }}
                   >
-                    Use a self-hosted server
+                    Use a custom server
                   </button>
                 </div>
               </div>
@@ -539,7 +566,7 @@ export function SettingsPage() {
               <div className="settings-sync-setup">
                 <form className="settings-sync-url-form" onSubmit={(e) => void handleCheckServer(e)}>
                   <label className="field-label" htmlFor="sync-server-url">
-                    Self-hosted sync server URL
+                    Custom sync server URL
                   </label>
                   <div className="settings-sync-url-row">
                     <input
@@ -560,7 +587,15 @@ export function SettingsPage() {
                     </button>
                   </div>
                   <p className="settings-sync-hint">
-                    Deploy the open-source Cloudflare Worker from the rem repository and enter its URL here.
+                    Connect to your own sync server.{' '}
+                    <a
+                      className="settings-sync-guide-link"
+                      href={SELF_HOSTING_GUIDE_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Setup guide ↗
+                    </a>
                   </p>
                 </form>
 
@@ -570,22 +605,24 @@ export function SettingsPage() {
                       <div className="settings-sync-oauth-buttons">
                         {providers.apple && (
                           <button
-                            className="btn btn-sm"
+                            className="btn btn-sm btn-oauth"
                             type="button"
                             disabled={sync.busy}
                             onClick={() => void handleOAuthSignIn('apple')}
                           >
-                            {sync.busy ? 'Waiting for browser…' : 'Sign in with Apple'}
+                            <AppleMark />
+                            <span>{sync.busy ? 'Waiting for browser…' : 'Sign in with Apple'}</span>
                           </button>
                         )}
                         {providers.google && (
                           <button
-                            className="btn btn-sm"
+                            className="btn btn-sm btn-oauth"
                             type="button"
                             disabled={sync.busy}
                             onClick={() => void handleOAuthSignIn('google')}
                           >
-                            {sync.busy ? 'Waiting for browser…' : 'Sign in with Google'}
+                            <GoogleMark />
+                            <span>{sync.busy ? 'Waiting for browser…' : 'Sign in with Google'}</span>
                           </button>
                         )}
                       </div>
@@ -597,7 +634,7 @@ export function SettingsPage() {
                         onSubmit={(e) => void handleTokenSignIn(e)}
                       >
                         <label className="field-label" htmlFor="sync-dev-token">
-                          Self-hosted / personal token
+                          Personal access token
                         </label>
                         <div className="settings-sync-url-row">
                           <input
@@ -605,7 +642,7 @@ export function SettingsPage() {
                             className="text-input"
                             type="password"
                             autoComplete="off"
-                            placeholder="token or token:userId"
+                            placeholder="Paste your access token"
                             value={devToken}
                             onChange={(e) => setDevToken(e.target.value)}
                             disabled={sync.busy}
@@ -643,13 +680,18 @@ export function SettingsPage() {
                 {syncStatus.subscriptionRequired && (
                   <div className="settings-sync-note settings-sync-plan-note" role="status">
                     <div>
-                      <strong>rem Cloud subscription required</strong>
+                      <strong>
+                        {isEarlyAccessRestricted
+                          ? 'Cloud sync is in early access'
+                          : 'rem Cloud subscription required'}
+                      </strong>
                       <p>
-                        Sync is paused for this account until an active rem Cloud plan is enabled.
-                        Your local cards remain safe on this device.
+                        {isEarlyAccessRestricted
+                          ? `${syncStatus.email ?? 'This account'} isn't on the early-access list yet. Your decks stay safely stored on this device, and you can keep studying offline anytime.`
+                          : 'Sync is paused for this account until an active rem Cloud plan is enabled. Your local cards remain safe on this device.'}
                       </p>
                     </div>
-                    {syncStatus.upgradeUrl && (
+                    {syncStatus.upgradeUrl ? (
                       <button
                         className="btn btn-primary btn-sm"
                         type="button"
@@ -657,62 +699,88 @@ export function SettingsPage() {
                       >
                         Get rem Cloud
                       </button>
+                    ) : (
+                      <div className="settings-inline-actions">
+                        <button
+                          className="btn btn-sm"
+                          type="button"
+                          disabled={sync.busy}
+                          onClick={async () => {
+                            await handleSignOut()
+                            setDesiredMode('cloud')
+                          }}
+                        >
+                          Try another account
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          type="button"
+                          disabled={sync.busy}
+                          onClick={() => void handleSignOut()}
+                        >
+                          Stay local
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
 
-                <div className="settings-action-row">
-                  <div className="settings-action-copy">
-                    <strong>Sync status</strong>
-                    <span>
-                      {isDefaultConnectedServer ? 'rem Cloud' : syncStatus.serverUrl} · Last synced:{' '}
-                      {formatSyncTime(syncStatus.lastSyncedAt)}
-                      {syncStatus.pendingOutbox > 0
-                        ? ` · ${syncStatus.pendingOutbox} pending`
-                        : ''}
-                    </span>
-                  </div>
-                  <div className="settings-inline-actions">
-                    <button
-                      className="btn btn-sm"
-                      type="button"
-                      disabled={sync.busy || syncStatus.activity === 'syncing'}
-                      onClick={() => void handleSyncNow()}
-                    >
-                      {syncStatus.activity === 'syncing'
-                        ? 'Syncing…'
-                        : syncStatus.subscriptionRequired
-                          ? 'Retry sync'
-                          : 'Sync now'}
-                    </button>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      type="button"
-                      disabled={sync.busy}
-                      onClick={() => void handleSignOut()}
-                    >
-                      Sign out
-                    </button>
-                  </div>
-                </div>
+                {!isEarlyAccessRestricted && (
+                  <>
+                    <div className="settings-action-row">
+                      <div className="settings-action-copy">
+                        <strong>Sync status</strong>
+                        <span>
+                          {isDefaultConnectedServer ? 'rem Cloud' : syncStatus.serverUrl} · Last synced:{' '}
+                          {formatSyncTime(syncStatus.lastSyncedAt)}
+                          {syncStatus.pendingOutbox > 0
+                            ? ` · ${syncStatus.pendingOutbox} pending`
+                            : ''}
+                        </span>
+                      </div>
+                      <div className="settings-inline-actions">
+                        <button
+                          className="btn btn-sm"
+                          type="button"
+                          disabled={sync.busy || syncStatus.activity === 'syncing'}
+                          onClick={() => void handleSyncNow()}
+                        >
+                          {syncStatus.activity === 'syncing'
+                            ? 'Syncing…'
+                            : syncStatus.subscriptionRequired
+                              ? 'Retry sync'
+                              : 'Sync now'}
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          type="button"
+                          disabled={sync.busy}
+                          onClick={() => void handleSignOut()}
+                        >
+                          Sign out
+                        </button>
+                      </div>
+                    </div>
 
-                <div className="settings-action-row">
-                  <div className="settings-action-copy">
-                    <strong>Delete cloud account</strong>
-                    <span>
-                      Permanently remove your synced data and media from the server. Local cards stay
-                      on this device.
-                    </span>
-                  </div>
-                  <button
-                    className="btn btn-danger-outline btn-sm"
-                    type="button"
-                    disabled={sync.busy}
-                    onClick={() => setConfirmDeleteAccount(true)}
-                  >
-                    Delete cloud account…
-                  </button>
-                </div>
+                    <div className="settings-action-row">
+                      <div className="settings-action-copy">
+                        <strong>Delete cloud account</strong>
+                        <span>
+                          Permanently remove your synced data and media from the server. Local cards stay
+                          on this device.
+                        </span>
+                      </div>
+                      <button
+                        className="btn btn-danger-outline btn-sm"
+                        type="button"
+                        disabled={sync.busy}
+                        onClick={() => setConfirmDeleteAccount(true)}
+                      >
+                        Delete cloud account…
+                      </button>
+                    </div>
+                  </>
+                )}
               </>
             )}
 
@@ -734,7 +802,7 @@ export function SettingsPage() {
             <div className="settings-action-row">
               <div className="settings-action-copy">
                 <strong>Export backup</strong>
-                <span>Save a portable JSON copy of all decks or choose specific decks.</span>
+                <span>Save a backup copy of all decks or choose specific decks.</span>
               </div>
               <div className="settings-inline-actions">
                 <button
@@ -794,7 +862,7 @@ export function SettingsPage() {
             <div className="settings-action-row">
               <div className="settings-action-copy">
                 <strong>Import backup</strong>
-                <span>Restore a rem JSON backup. Same-named decks require confirmation.</span>
+                <span>Restore a rem backup file. Same-named decks require confirmation.</span>
               </div>
               <button className="btn btn-ghost btn-sm" type="button" onClick={() => importInput.current?.click()}>
                 Import backup…
@@ -879,7 +947,7 @@ export function SettingsPage() {
       {mismatch && (
         <ConfirmDialog
           title="Switch cloud sync account?"
-          description={`This collection is already linked to ${mismatch.boundAccountId} (${mismatch.boundServerUrl}). Switching to ${mismatch.incomingEmail ?? mismatch.incomingAccountId} (${mismatch.incomingServerUrl}) will reset local sync history and sync your local decks to the new account. Your local cards will not be deleted.`}
+          description={`This device is already linked to another cloud account. Switching to ${mismatch.incomingEmail ?? 'the new account'} will reset local sync history and sync your local decks to it. Your local cards will not be deleted.`}
           confirmLabel="Switch account"
           danger
           onConfirm={() => void handleConfirmAccountSwitch()}

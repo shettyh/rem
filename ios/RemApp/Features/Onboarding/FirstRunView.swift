@@ -16,7 +16,7 @@ struct FirstRunView: View {
                 .foregroundStyle(RemColor.text)
                 .padding(.bottom, 10)
 
-            Text("Calm, local-first spaced repetition with FSRS-6 scheduling. Study offline anytime—sync across Mac, CLI, and iPhone whenever you want.")
+            Text("Calm, adaptive spaced repetition. Study offline anytime—sync across your devices whenever you want.")
                 .font(.system(size: 15))
                 .lineSpacing(3)
                 .foregroundStyle(RemColor.muted)
@@ -24,13 +24,13 @@ struct FirstRunView: View {
 
             VStack(spacing: 0) {
                 featureRow(
-                    title: "Private SQLite on device",
-                    subtitle: "No account required to create decks and review."
+                    title: "Private & offline by default",
+                    subtitle: "Your cards live on this iPhone. No account required."
                 )
                 Divider().overlay(RemColor.border)
                 featureRow(
-                    title: "Optional rem Cloud sync",
-                    subtitle: "Instant sync with desktop, CLI, and offline images."
+                    title: "Optional cloud sync",
+                    subtitle: "Keep decks, progress, and images in sync across Mac and iPhone."
                 )
             }
             .background(RemColor.surface)
@@ -49,21 +49,12 @@ struct FirstRunView: View {
                 }
                 .buttonStyle(RemPrimaryButtonStyle())
 
-                Button("Start locally without an account") {
+                Button("Start without an account") {
                     appState.hasDismissedOnboarding = true
                     appState.selectedTab = .today
                     appState.showNewDeckSheet = true
                 }
                 .buttonStyle(RemSecondaryButtonStyle())
-
-                Button("Using a self-hosted server?") {
-                    appState.hasDismissedOnboarding = true
-                    appState.expandCustomServerInSettings = true
-                    appState.selectedTab = .settings
-                }
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(RemColor.muted)
-                .padding(.top, 4)
             }
             .padding(.bottom, 20)
         }

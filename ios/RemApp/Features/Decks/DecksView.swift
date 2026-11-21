@@ -64,36 +64,7 @@ struct DecksView: View {
                         VStack(spacing: 0) {
                             ForEach(Array(filteredDecks.enumerated()), id: \.element.id) { idx, deck in
                                 NavigationLink(value: deck.id) {
-                                    HStack(spacing: 10) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            HStack(spacing: 8) {
-                                                Circle()
-                                                    .fill(Color(hexString: deck.color))
-                                                    .frame(width: 8, height: 8)
-                                                Text(deck.name)
-                                                    .font(.system(size: 15, weight: .semibold))
-                                                    .foregroundStyle(RemColor.text)
-                                                    .lineLimit(1)
-                                            }
-                                            let pct = Int((deck.desiredRetention * 100).rounded())
-                                            Text("\(deck.totalCards) \(deck.totalCards == 1 ? "card" : "cards") · FSRS-6 (\(pct)%)")
-                                                .font(.system(size: 12))
-                                                .foregroundStyle(RemColor.muted)
-                                        }
-                                        Spacer()
-                                        HStack(spacing: 8) {
-                                            RemPillBadge(
-                                                text: "\(deck.dueCount) due",
-                                                tone: deck.dueCount > 0 ? .accent : .neutral
-                                            )
-                                            Image(systemName: "chevron.right")
-                                                .font(.system(size: 12, weight: .semibold))
-                                                .foregroundStyle(RemColor.faint)
-                                        }
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 13)
-                                    .contentShape(Rectangle())
+                                    DeckSummaryRow(deck: deck)
                                 }
                                 .buttonStyle(.plain)
 
