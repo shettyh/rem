@@ -137,4 +137,43 @@ final class RemAppTests: XCTestCase {
         XCTAssertTrue(backupJson.contains("TypeScript"))
         XCTAssertTrue(backupJson.contains("What does satisfies do?"))
     }
+
+    func testMarkdownFormatterWrapsSelectionAndRemovesAssets() {
+        let wrappedBold = MarkdownFormatter.apply(
+            .bold,
+            to: "Hello hash ring world",
+            selectedRange: NSRange(location: 6, length: 9)
+        )
+        XCTAssertEqual(wrappedBold.text, "Hello **hash ring** world")
+        XCTAssertEqual(wrappedBold.selectedRange, NSRange(location: 19, length: 0))
+
+        let emptyItalic = MarkdownFormatter.apply(
+            .italic,
+            to: "Note: ",
+            selectedRange: NSRange(location: 6, length: 0)
+        )
+        XCTAssertEqual(emptyItalic.text, "Note: *text*")
+        XCTAssertEqual(emptyItalic.selectedRange, NSRange(location: 7, length: 4))
+
+        let code = MarkdownFormatter.apply(
+            .inlineCode,
+            to: "Use map here",
+            selectedRange: NSRange(location: 4, length: 3)
+        )
+        XCTAssertEqual(code.text, "Use `map` here")
+
+        let bullet = MarkdownFormatter.apply(
+            .bulletList,
+            to: "First\nSecond",
+            selectedRange: NSRange(location: 0, length: 12)
+        )
+        XCTAssertEqual(bullet.text, "- First\n- Second")
+
+        let hash = String(repeating: "f", count: 64)
+        let stripped = MarkdownFormatter.removeAssetReference(
+            hash: hash,
+            from: "Answer text\n![](asset:\(hash))\n"
+        )
+        XCTAssertEqual(stripped, "Answer text")
+    }
 }

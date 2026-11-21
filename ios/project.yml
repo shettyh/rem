@@ -68,5 +68,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shettyh.rem.tests
+        GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/rem.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/rem"
         BUNDLE_LOADER: "$(TEST_HOST)"

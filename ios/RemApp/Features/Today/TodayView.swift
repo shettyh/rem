@@ -213,7 +213,7 @@ struct DeckSummaryRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Circle()
                         .fill(Color(hexString: deck.color))
@@ -224,29 +224,15 @@ struct DeckSummaryRow: View {
                         .lineLimit(1)
                 }
 
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule()
-                            .fill(RemColor.border)
-                        Capsule()
-                            .fill(RemColor.muted.opacity(0.55))
-                            .frame(width: max(0, geo.size.width * CGFloat(deck.masteredRatio)))
-                    }
-                }
-                .frame(width: 74, height: 3.5)
+                Text(subtitleText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(RemColor.muted)
             }
 
             Spacer()
 
             HStack(spacing: 8) {
-                Text("\(deck.dueCount) due")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(deck.dueCount > 0 ? RemColor.text : RemColor.muted)
-                if deck.newDueCount > 0 {
-                    Text("\(deck.newDueCount) new")
-                        .font(.system(size: 12))
-                        .foregroundStyle(RemColor.muted)
-                }
+                statusPill
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(RemColor.faint)
@@ -256,6 +242,24 @@ struct DeckSummaryRow: View {
         .padding(.vertical, 13)
         .contentShape(Rectangle())
     }
+
+    private var subtitleText: String {
+        let countLabel = "\(deck.totalCards) \(deck.totalCards == 1 ? "card" : "cards")"
+        if deck.newDueCount > 0 {
+            return "\(countLabel) · \(deck.newDueCount) new"
+        }
+        return countLabel
+    }
+
+    private var statusPill: some View {
+        if deck.dueCount > 0 {
+            return RemPillBadge(text: "\(deck.dueCount) due", tone: .accent)
+        }
+        if deck.totalCards > 0 {
+            return RemPillBadge(text: "✓ Done", tone: .good)
+        }
+        return RemPillBadge(text: "Empty", tone: .neutral)
+    }
 }
 
 struct SyncStatusChip: View {
@@ -263,7 +267,7 @@ struct SyncStatusChip: View {
 
     var body: some View {
         Button {
-            if appState.syncStatus?.signedIn == true {
+            if appState.syncStatus?.signedIn == true && !appState.syncAccessRestricted {
                 Task { await appState.syncNow(silent: false) }
             } else {
                 appState.selectedTab = .settings
@@ -300,24 +304,25 @@ struct SyncStatusChip: View {
 
     private var labelText: String {
         if appState.isSyncing { return "Syncing…" }
-        if !isCloud { return "Local only" }
+        if !isCloud || appState.syncAccessRestricted { return "Local only" }
         if appState.lastSyncError != nil {
-            return pendingCount > 0 ? "Offline · \(pendingCount) queued" : "Sync error · Retry"
+            return pendingCount > 0 ? "Offline · \(pendingCount) pending" : "Sync error · Retry"
         }
         if pendingCount > 0 {
-            return "\(pendingCount) queued"
+            return "\(pendingCount) pending"
         }
         return "Synced"
     }
 
     private var dotColor: Color {
-        if !isCloud { return RemColor.faint }
+        if !isCloud || appState.syncAccessRestricted { return RemColor.faint }
         if appState.lastSyncError != nil { return pendingCount > 0 ? RemColor.hard : RemColor.again }
         if pendingCount > 0 { return RemColor.hard }
         return RemColor.good
     }
 
     private var textColor: Color {
+        if appState.syncAccessRestricted { return RemColor.muted }
         if appState.lastSyncError != nil {
             return pendingCount > 0 ? RemColor.hard : RemColor.again
         }
@@ -325,6 +330,7 @@ struct SyncStatusChip: View {
     }
 
     private var bgColor: Color {
+        if appState.syncAccessRestricted { return RemColor.bgInset }
         if appState.lastSyncError != nil {
             return pendingCount > 0 ? RemColor.hardBg : RemColor.againBg
         }
@@ -332,6 +338,7 @@ struct SyncStatusChip: View {
     }
 
     private var borderColor: Color {
+        if appState.syncAccessRestricted { return RemColor.border }
         if appState.lastSyncError != nil {
             return (pendingCount > 0 ? RemColor.hard : RemColor.again).opacity(0.3)
         }

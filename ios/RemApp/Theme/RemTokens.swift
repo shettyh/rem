@@ -162,6 +162,76 @@ enum RemRadius {
     static let lg: CGFloat = 14
 }
 
+enum RemDocs {
+    static let selfHostingGuideURL = URL(string: "https://shettyh.github.io/rem/")!
+}
+
+/// Official 4-color Google "G" mark drawn as crisp vector paths for Sign-In buttons.
+struct GoogleLogoMark: View {
+    var size: CGFloat = 16
+
+    var body: some View {
+        Canvas { context, canvasSize in
+            let scale = min(canvasSize.width, canvasSize.height) / 24.0
+            let transform = CGAffineTransform(scaleX: scale, y: scale)
+
+            // Blue
+            var blue = Path()
+            blue.move(to: CGPoint(x: 23.49, y: 12.27))
+            blue.addCurve(to: CGPoint(x: 23.29, y: 10.0), control1: CGPoint(x: 23.49, y: 11.48), control2: CGPoint(x: 23.42, y: 10.72))
+            blue.addLine(to: CGPoint(x: 12.0, y: 10.0))
+            blue.addLine(to: CGPoint(x: 12.0, y: 14.3))
+            blue.addLine(to: CGPoint(x: 18.45, y: 14.3))
+            blue.addCurve(to: CGPoint(x: 16.06, y: 17.92), control1: CGPoint(x: 18.17, y: 15.8), control2: CGPoint(x: 17.32, y: 17.07))
+            blue.addLine(to: CGPoint(x: 16.06, y: 20.92))
+            blue.addLine(to: CGPoint(x: 19.93, y: 20.92))
+            blue.addCurve(to: CGPoint(x: 23.49, y: 12.27), control1: CGPoint(x: 22.19, y: 18.84), control2: CGPoint(x: 23.49, y: 15.77))
+            blue.closeSubpath()
+            context.fill(blue.applying(transform), with: .color(Color(hexString: "4285F4")))
+
+            // Green
+            var green = Path()
+            green.move(to: CGPoint(x: 12.0, y: 24.0))
+            green.addCurve(to: CGPoint(x: 19.93, y: 21.09), control1: CGPoint(x: 15.24, y: 24.0), control2: CGPoint(x: 17.95, y: 22.93))
+            green.addLine(to: CGPoint(x: 16.06, y: 18.09))
+            green.addCurve(to: CGPoint(x: 12.0, y: 19.24), control1: CGPoint(x: 14.99, y: 18.81), control2: CGPoint(x: 13.62, y: 19.24))
+            green.addCurve(to: CGPoint(x: 5.28, y: 14.29), control1: CGPoint(x: 8.88, y: 19.24), control2: CGPoint(x: 6.23, y: 17.13))
+            green.addLine(to: CGPoint(x: 1.28, y: 14.29))
+            green.addLine(to: CGPoint(x: 1.28, y: 17.39))
+            green.addCurve(to: CGPoint(x: 12.0, y: 24.0), control1: CGPoint(x: 3.25, y: 21.31), control2: CGPoint(x: 7.31, y: 24.0))
+            green.closeSubpath()
+            context.fill(green.applying(transform), with: .color(Color(hexString: "34A853")))
+
+            // Yellow
+            var yellow = Path()
+            yellow.move(to: CGPoint(x: 5.28, y: 14.29))
+            yellow.addCurve(to: CGPoint(x: 4.9, y: 12.0), control1: CGPoint(x: 5.04, y: 13.57), control2: CGPoint(x: 4.9, y: 12.8))
+            yellow.addCurve(to: CGPoint(x: 5.28, y: 9.71), control1: CGPoint(x: 4.9, y: 11.2), control2: CGPoint(x: 5.04, y: 10.43))
+            yellow.addLine(to: CGPoint(x: 5.28, y: 6.61))
+            yellow.addLine(to: CGPoint(x: 1.28, y: 6.61))
+            yellow.addCurve(to: CGPoint(x: 0.0, y: 12.0), control1: CGPoint(x: 0.46, y: 8.23), control2: CGPoint(x: 0.0, y: 10.06))
+            yellow.addCurve(to: CGPoint(x: 1.28, y: 17.39), control1: CGPoint(x: 0.0, y: 13.94), control2: CGPoint(x: 0.46, y: 15.77))
+            yellow.addLine(to: CGPoint(x: 5.28, y: 14.29))
+            yellow.closeSubpath()
+            context.fill(yellow.applying(transform), with: .color(Color(hexString: "FBBC05")))
+
+            // Red
+            var red = Path()
+            red.move(to: CGPoint(x: 12.0, y: 4.76))
+            red.addCurve(to: CGPoint(x: 16.58, y: 6.56), control1: CGPoint(x: 13.76, y: 4.76), control2: CGPoint(x: 15.34, y: 5.37))
+            red.addLine(to: CGPoint(x: 20.02, y: 3.12))
+            red.addCurve(to: CGPoint(x: 12.0, y: 0.0), control1: CGPoint(x: 17.95, y: 1.19), control2: CGPoint(x: 15.24, y: 0.0))
+            red.addCurve(to: CGPoint(x: 1.28, y: 6.61), control1: CGPoint(x: 7.31, y: 0.0), control2: CGPoint(x: 3.25, y: 2.69))
+            red.addLine(to: CGPoint(x: 5.28, y: 9.71))
+            red.addCurve(to: CGPoint(x: 12.0, y: 4.76), control1: CGPoint(x: 6.23, y: 6.87), control2: CGPoint(x: 8.88, y: 4.76))
+            red.closeSubpath()
+            context.fill(red.applying(transform), with: .color(Color(hexString: "EA4335")))
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
 struct RemLogoBadge: View {
     var size: CGFloat = 28
 

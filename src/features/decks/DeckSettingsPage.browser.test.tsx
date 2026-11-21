@@ -22,8 +22,8 @@ test('renders the General section and persists a rename on blur', async () => {
 
   await expect.element(page.getByText('Deck options')).toBeVisible()
   await expect.element(page.getByText('Color', { exact: true })).not.toBeInTheDocument()
-  await expect.element(page.getByText('Default parameters')).toBeVisible()
-  await expect.element(page.getByText('0 recorded FSRS reviews')).toBeVisible()
+  await expect.element(page.getByText('Default schedule')).toBeVisible()
+  await expect.element(page.getByText('0 recorded reviews')).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Optimize' })).toBeDisabled()
   const name = page.getByLabelText('Deck name')
   await name.fill('Español')
@@ -132,14 +132,14 @@ test('optimizes and resets per-deck FSRS parameters from delayed review history'
     element: <DeckSettingsPage />,
   })
 
-  await expect.element(page.getByText('2 recorded FSRS reviews')).toBeVisible()
+  await expect.element(page.getByText('2 recorded reviews')).toBeVisible()
   await page.getByRole('button', { name: 'Optimize' }).click()
   await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.fsrsWeights).toEqual([...DEFAULT_FSRS_WEIGHTS])
-  await expect.element(page.getByText('Optimized parameters')).toBeVisible()
+  await expect.element(page.getByText('Personalized schedule')).toBeVisible()
 
   await page.getByRole('button', { name: 'Reset' }).click()
   await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.fsrsWeights).toBeNull()
-  await expect.element(page.getByText('Default parameters')).toBeVisible()
+  await expect.element(page.getByText('Default schedule')).toBeVisible()
 })
 
 test('guards the optimizer action while training is in flight', async () => {
@@ -162,7 +162,7 @@ test('guards the optimizer action while training is in flight', async () => {
   await page.getByRole('button', { name: 'Optimize' }).click()
   await expect.element(page.getByRole('button', { name: 'Optimizing…' })).toBeDisabled()
   finish([...DEFAULT_FSRS_WEIGHTS])
-  await expect.element(page.getByText('Optimized parameters')).toBeVisible()
+  await expect.element(page.getByText('Personalized schedule')).toBeVisible()
 })
 
 test('shows a recoverable optimizer error', async () => {
@@ -180,7 +180,7 @@ test('shows a recoverable optimizer error', async () => {
   })
 
   await page.getByRole('button', { name: 'Optimize' }).click()
-  await expect.element(page.getByRole('alert')).toMatchTextContent("Couldn't optimize parameters")
+  await expect.element(page.getByRole('alert')).toMatchTextContent("Couldn't optimize schedule")
   await expect.element(page.getByRole('button', { name: 'Optimize' })).toBeEnabled()
 })
 

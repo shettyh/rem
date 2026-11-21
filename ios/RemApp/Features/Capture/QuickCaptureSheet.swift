@@ -1,6 +1,8 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 
+/// Unified paper-canvas card editor with an in-place morphing keyboard accessory bar (Concept A).
 struct QuickCaptureSheet: View {
     @Bindable var appState: AppState
     let initialDeckId: String?
@@ -20,12 +22,17 @@ struct QuickCaptureSheet: View {
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var attachedAssetHashes: [String] = []
 
-    @FocusState private var focusedField: CaptureField?
+    @State private var activeEditorField: ActiveEditorField? = nil
+    @State private var hasTextSelection: Bool = false
+    @State private var manualFormatMode: Bool = false
+    @FocusState private var isTagFieldFocused: Bool
 
-    enum CaptureField {
+    @State private var frontController = MarkdownFieldController()
+    @State private var backController = MarkdownFieldController()
+
+    enum ActiveEditorField {
         case front
         case back
-        case tag
     }
 
     private var isEditing: Bool { editingCard != nil }
@@ -40,235 +47,236 @@ struct QuickCaptureSheet: View {
         appState.decks.first { $0.id == selectedDeckId }
     }
 
+    private var showKeyboardBar: Bool {
+        !isPreview && (activeEditorField != nil || isTagFieldFocused)
+    }
+
+    private var isFormatBarMode: Bool {
+        activeEditorField != nil && (manualFormatMode || hasTextSelection)
+    }
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            if isEditing, let deck = selectedDeck {
-                                HStack(spacing: 7) {
-                                    Circle()
-                                        .fill(Color(hexString: deck.color))
-                                        .frame(width: 8, height: 8)
-                                    Text(deck.name)
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(RemColor.text)
-                                }
-                                .padding(.horizontal, 11)
-                                .padding(.vertical, 7)
-                                .background(RemColor.bgInset)
-                                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                        .strokeBorder(RemColor.border, lineWidth: 1)
-                                )
-                            } else {
-                                Menu {
-                                    ForEach(appState.decks, id: \.id) { deck in
-                                        Button {
-                                            selectedDeckId = deck.id
-                                        } label: {
-                                            Label(deck.name, systemImage: deck.id == selectedDeckId ? "checkmark" : "")
-                                        }
-                                    }
-                                } label: {
-                                    HStack(spacing: 7) {
-                                        Circle()
-                                            .fill(Color(hexString: selectedDeck?.color ?? "#5a47e8"))
-                                            .frame(width: 8, height: 8)
-                                        Text(selectedDeck?.name ?? "Select deck")
-                                            .font(.system(size: 13, weight: .semibold))
-                                            .foregroundStyle(RemColor.text)
-                                            .lineLimit(1)
-                                        Image(systemName: "chevron.down")
-                                            .font(.system(size: 10, weight: .semibold))
-                                            .foregroundStyle(RemColor.muted)
-                                    }
-                                    .padding(.horizontal, 11)
-                                    .padding(.vertical, 7)
-                                    .background(RemColor.bgInset)
-                                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                            .strokeBorder(RemColor.border, lineWidth: 1)
-                                    )
-                                }
-                            }
+        VStack(spacing: 0) {
+            sheetHeader
 
-                            Spacer()
-
-                            Picker("Mode", selection: $isPreview) {
-                                Text("Write").tag(false)
-                                Text("Preview").tag(true)
-                            }
-                            .pickerStyle(.segmented)
-                            .frame(width: 146)
-                        }
-
-                        if isPreview {
-                            previewCard
-                        } else {
-                            editorFields
-                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if isPreview {
+                        previewCanvas
+                    } else {
+                        paperCanvas
                     }
-                    .padding(16)
                 }
-
-                if !isPreview {
-                    markdownToolbar
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+                .padding(.bottom, 28)
+            }
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .background(RemColor.bg)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showKeyboardBar {
+                morphingKeyboardBar
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.16), value: showKeyboardBar)
+        .animation(.easeOut(duration: 0.15), value: isFormatBarMode)
+        .onAppear {
+            if let card = editingCard {
+                selectedDeckId = card.deckId
+                front = card.front
+                back = card.back
+                tags = card.tags
+                attachedAssetHashes = card.assetHashes
+            } else {
+                selectedDeckId = initialDeckId ?? appState.decks.first?.id ?? ""
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    frontController.focus()
                 }
             }
-            .background(RemColor.bg)
-            .navigationTitle(isEditing ? "Edit card" : "New card")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+        }
+        .onChange(of: selectedPhotoItem) { _, item in
+            guard let item else { return }
+            Task { await attachPhoto(item) }
+        }
+        .alert("Delete card?", isPresented: $showDeleteConfirm) {
+            Button("Delete", role: .destructive) {
+                Task { await deleteCard() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the card and its review history.")
+        }
+    }
+
+    // MARK: - Header
+
+    private var sheetHeader: some View {
+        HStack {
+            Button("Cancel") {
+                dismissKeyboard()
+                dismiss()
+            }
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(RemColor.muted)
+
+            Spacer()
+
+            deckPickerPill
+
+            Spacer()
+
+            Button {
+                Task { await save() }
+            } label: {
+                Text(isSaving ? "Saving…" : "Save")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(canSave ? RemColor.onAccent : RemColor.faint)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6.5)
+                    .background(canSave ? RemColor.accent : RemColor.bgInset)
+                    .clipShape(Capsule())
+            }
+            .disabled(!canSave)
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+    }
+
+    @ViewBuilder
+    private var deckPickerPill: some View {
+        if isEditing, let deck = selectedDeck {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Color(hexString: deck.color))
+                    .frame(width: 7, height: 7)
+                Text(deck.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(RemColor.text)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 11)
+            .padding(.vertical, 5.5)
+            .background(RemColor.bgInset)
+            .clipShape(Capsule())
+            .overlay(Capsule().strokeBorder(RemColor.border, lineWidth: 1))
+        } else {
+            Menu {
+                ForEach(appState.decks, id: \.id) { deck in
+                    Button {
+                        selectedDeckId = deck.id
+                    } label: {
+                        Label(deck.name, systemImage: deck.id == selectedDeckId ? "checkmark" : "")
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color(hexString: selectedDeck?.color ?? "#5a47e8"))
+                        .frame(width: 7, height: 7)
+                    Text(selectedDeck?.name ?? "Select deck")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(RemColor.text)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9.5, weight: .bold))
                         .foregroundStyle(RemColor.muted)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task { await save() }
-                    }
-                    .fontWeight(.semibold)
-                    .foregroundStyle(canSave ? RemColor.accent : RemColor.faint)
-                    .disabled(!canSave)
-                }
-            }
-            .onAppear {
-                if let card = editingCard {
-                    selectedDeckId = card.deckId
-                    front = card.front
-                    back = card.back
-                    tags = card.tags
-                    attachedAssetHashes = card.assetHashes
-                } else {
-                    selectedDeckId = initialDeckId ?? appState.decks.first?.id ?? ""
-                    focusedField = .front
-                }
-            }
-            .onChange(of: selectedPhotoItem) { _, item in
-                guard let item else { return }
-                Task { await attachPhoto(item) }
-            }
-            .alert("Delete card?", isPresented: $showDeleteConfirm) {
-                Button("Delete", role: .destructive) {
-                    Task { await deleteCard() }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This permanently deletes the card and its scheduling history.")
+                .padding(.horizontal, 11)
+                .padding(.vertical, 5.5)
+                .background(RemColor.bgInset)
+                .clipShape(Capsule())
+                .overlay(Capsule().strokeBorder(RemColor.border, lineWidth: 1))
             }
         }
     }
 
-    private var editorFields: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
+    // MARK: - Unified Paper Canvas
+
+    private var paperCanvas: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
                 Text("QUESTION")
                     .font(.system(size: 10.5, weight: .bold))
                     .tracking(0.8)
                     .foregroundStyle(RemColor.faint)
-
-                TextField("What do you want to remember?", text: $front, axis: .vertical)
-                    .font(.system(size: 15))
-                    .lineLimit(3...8)
-                    .focused($focusedField, equals: .front)
+                Spacer()
+                previewTogglePill
             }
-            .padding(13)
-            .background(RemColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(RemColor.border, lineWidth: 1)
+            .padding(.bottom, 8)
+
+            AutoSizingMarkdownTextView(
+                text: $front,
+                placeholder: "What do you want to remember?",
+                font: .systemFont(ofSize: 19, weight: .semibold),
+                minHeight: 54,
+                controller: frontController,
+                onFocusChange: { focused in
+                    if focused {
+                        activeEditorField = .front
+                    } else if activeEditorField == .front {
+                        activeEditorField = nil
+                        hasTextSelection = false
+                        manualFormatMode = false
+                    }
+                },
+                onSelectionChange: { range in
+                    if activeEditorField == .front {
+                        hasTextSelection = range.length > 0
+                    }
+                }
             )
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("ANSWER")
-                    .font(.system(size: 10.5, weight: .bold))
-                    .tracking(0.8)
-                    .foregroundStyle(RemColor.faint)
+            Divider()
+                .overlay(RemColor.border)
+                .padding(.vertical, 16)
 
-                TextField("Write a concise recall answer (Markdown supported)…", text: $back, axis: .vertical)
-                    .font(.system(size: 15))
-                    .lineLimit(5...14)
-                    .focused($focusedField, equals: .back)
-            }
-            .padding(13)
-            .background(RemColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(RemColor.border, lineWidth: 1)
+            Text("ANSWER")
+                .font(.system(size: 10.5, weight: .bold))
+                .tracking(0.8)
+                .foregroundStyle(RemColor.faint)
+                .padding(.bottom, 8)
+
+            AutoSizingMarkdownTextView(
+                text: $back,
+                placeholder: "Write a concise recall answer…",
+                font: .systemFont(ofSize: 15.5, weight: .regular),
+                minHeight: 110,
+                controller: backController,
+                onFocusChange: { focused in
+                    if focused {
+                        activeEditorField = .back
+                    } else if activeEditorField == .back {
+                        activeEditorField = nil
+                        hasTextSelection = false
+                        manualFormatMode = false
+                    }
+                },
+                onSelectionChange: { range in
+                    if activeEditorField == .back {
+                        hasTextSelection = range.length > 0
+                    }
+                }
             )
 
             if !attachedAssetHashes.isEmpty {
-                VStack(spacing: 6) {
-                    ForEach(attachedAssetHashes, id: \.self) { hash in
-                        HStack(spacing: 8) {
-                            Image(systemName: "photo")
-                                .font(.system(size: 12))
-                                .foregroundStyle(RemColor.muted)
-                            Text("asset:\(hash.prefix(12))…")
-                                .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(RemColor.text)
-                            Spacer()
-                            Text("Attached")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(RemColor.good)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(RemColor.bgInset)
-                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(tags, id: \.self) { tag in
-                            HStack(spacing: 4) {
-                                Text("#\(tag)")
-                                    .font(.system(size: 12, weight: .medium))
-                                Button {
-                                    tags.removeAll { $0 == tag }
-                                } label: {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 9, weight: .bold))
-                                }
+                    HStack(spacing: 10) {
+                        ForEach(attachedAssetHashes, id: \.self) { hash in
+                            CaptureAssetThumbnail(hash: hash, store: appState.store) {
+                                removeAttachment(hash: hash)
                             }
-                            .foregroundStyle(RemColor.muted)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(RemColor.bgInset)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().strokeBorder(RemColor.border, lineWidth: 1))
                         }
-
-                        HStack(spacing: 4) {
-                            Text("#")
-                                .foregroundStyle(RemColor.faint)
-                            TextField("add tag", text: $newTagText)
-                                .font(.system(size: 12.5))
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
-                                .focused($focusedField, equals: .tag)
-                                .onSubmit { commitTag() }
-                                .frame(minWidth: 72)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(RemColor.surface)
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule().strokeBorder(RemColor.borderStrong, style: StrokeStyle(lineWidth: 1, dash: [3]))
-                        )
                     }
+                    .padding(.vertical, 2)
                 }
+                .padding(.top, 14)
             }
+
+            tagsRow
+                .padding(.top, 18)
 
             if isEditing {
                 Button(role: .destructive) {
@@ -280,114 +288,294 @@ struct QuickCaptureSheet: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                 }
-                .padding(.top, 6)
+                .padding(.top, 20)
             }
         }
     }
 
-    private var previewCard: some View {
-        RemCardSurface(padding: 18) {
-            VStack(alignment: .leading, spacing: 12) {
+    private var previewTogglePill: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.14)) {
+                isPreview.toggle()
+            }
+            if isPreview {
+                dismissKeyboard()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: isPreview ? "pencil" : "eye")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(isPreview ? "Edit" : "Preview")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(isPreview ? RemColor.accent : RemColor.muted)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4.5)
+            .background(isPreview ? RemColor.accentTint : RemColor.surface)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .strokeBorder(isPreview ? Color.clear : RemColor.border, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var tagsRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(tags, id: \.self) { tag in
+                    HStack(spacing: 4) {
+                        Text("#\(tag)")
+                            .font(.system(size: 12, weight: .medium))
+                        Button {
+                            tags.removeAll { $0 == tag }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8.5, weight: .bold))
+                        }
+                    }
+                    .foregroundStyle(RemColor.muted)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4.5)
+                    .background(RemColor.bgInset)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().strokeBorder(RemColor.border, lineWidth: 1))
+                }
+
+                HStack(spacing: 2) {
+                    Text(newTagText.isEmpty ? "+" : "#")
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(RemColor.faint)
+                    TextField("add tag", text: $newTagText)
+                        .font(.system(size: 12.5))
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($isTagFieldFocused)
+                        .onSubmit { commitTag() }
+                        .frame(minWidth: 64)
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4.5)
+            }
+        }
+    }
+
+    private var previewCanvas: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
                 Text("QUESTION")
                     .font(.system(size: 10.5, weight: .bold))
                     .tracking(0.8)
                     .foregroundStyle(RemColor.faint)
-                RemMarkdownView(
-                    markdown: front.isEmpty ? "_Empty question_" : front,
-                    store: appState.store,
-                    baseFontSize: appState.cardTextSize.revealedQuestionSize,
-                    codeFontSize: appState.cardTextSize.codeSize,
-                    textColor: RemColor.text,
-                    baseWeight: .medium
-                )
-
-                Divider().overlay(RemColor.border).padding(.vertical, 4)
-
-                Text("ANSWER")
-                    .font(.system(size: 10.5, weight: .bold))
-                    .tracking(0.8)
-                    .foregroundStyle(RemColor.faint)
-                RemMarkdownView(
-                    markdown: back.isEmpty ? "_No answer yet_" : back,
-                    store: appState.store,
-                    baseFontSize: appState.cardTextSize.answerSize,
-                    codeFontSize: appState.cardTextSize.codeSize,
-                    textColor: RemColor.text
-                )
+                Spacer()
+                previewTogglePill
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 10)
+
+            RemMarkdownView(
+                markdown: front.isEmpty ? "_Empty question_" : front,
+                store: appState.store,
+                baseFontSize: appState.cardTextSize.revealedQuestionSize,
+                codeFontSize: appState.cardTextSize.codeSize,
+                textColor: RemColor.text,
+                baseWeight: .semibold
+            )
+
+            Divider()
+                .overlay(RemColor.border)
+                .padding(.vertical, 16)
+
+            Text("ANSWER")
+                .font(.system(size: 10.5, weight: .bold))
+                .tracking(0.8)
+                .foregroundStyle(RemColor.faint)
+                .padding(.bottom, 10)
+
+            RemMarkdownView(
+                markdown: back.isEmpty ? "_No answer yet_" : back,
+                store: appState.store,
+                baseFontSize: appState.cardTextSize.answerSize,
+                codeFontSize: appState.cardTextSize.codeSize,
+                textColor: RemColor.text
+            )
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var markdownToolbar: some View {
+    // MARK: - Single-Row Morphing Keyboard Bar (44pt)
+
+    private var morphingKeyboardBar: some View {
         VStack(spacing: 0) {
             Divider().overlay(RemColor.border)
-            HStack(spacing: 6) {
-                toolbarButton("B", bold: true) { insertSnippet("**bold**") }
-                toolbarButton("I", italic: true) { insertSnippet("*italic*") }
-                toolbarButton("`code`", mono: true) { insertSnippet("`code`") }
-                toolbarButton("```", mono: true) { insertSnippet("\n```\n\n```") }
-
-                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "photo")
-                        Text("Photo")
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(RemColor.muted)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 6)
-                    .background(RemColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .strokeBorder(RemColor.border, lineWidth: 1)
-                    )
+            HStack(spacing: 4) {
+                if isFormatBarMode {
+                    formatBarContent
+                } else {
+                    typingBarContent
                 }
-
-                Spacer()
-
-                Text("Normal card")
-                    .font(.system(size: 11))
-                    .foregroundStyle(RemColor.faint)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 10)
+            .frame(height: 44)
             .background(RemColor.chrome)
         }
     }
 
-    private func toolbarButton(
-        _ title: String,
-        bold: Bool = false,
-        italic: Bool = false,
-        mono: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(mono
-                      ? .system(size: 11.5, weight: .semibold, design: .monospaced)
-                      : .system(size: 12.5, weight: bold ? .bold : .semibold))
-                .italic(italic)
+    @ViewBuilder
+    private var typingBarContent: some View {
+        PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+            Image(systemName: "photo")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(RemColor.text)
+                .frame(width: 36, height: 34)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Attach photo")
+
+        Button {
+            isTagFieldFocused = true
+        } label: {
+            Text("#")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(isTagFieldFocused ? RemColor.accent : RemColor.text)
+                .frame(width: 34, height: 34)
+                .background(isTagFieldFocused ? RemColor.accentTint : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .accessibilityLabel("Add tag")
+
+        if activeEditorField != nil {
+            Button {
+                manualFormatMode = true
+            } label: {
+                Text("Aa")
+                    .font(.system(size: 14.5, weight: .semibold))
+                    .foregroundStyle(RemColor.text)
+                    .frame(width: 36, height: 34)
+            }
+            .accessibilityLabel("Format text")
+        }
+
+        Spacer()
+
+        if activeEditorField == .front {
+            Button {
+                backController.focus()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 10.5, weight: .bold))
+                    Text("Answer")
+                        .font(.system(size: 12.5, weight: .semibold))
+                }
+                .foregroundStyle(RemColor.text)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 5.5)
+                .background(RemColor.bgInset)
+                .clipShape(Capsule())
+                .overlay(Capsule().strokeBorder(RemColor.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        } else if activeEditorField == .back || isTagFieldFocused {
+            Button {
+                frontController.focus()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 10.5, weight: .bold))
+                    Text("Question")
+                        .font(.system(size: 12.5, weight: .semibold))
+                }
+                .foregroundStyle(RemColor.text)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 5.5)
+                .background(RemColor.bgInset)
+                .clipShape(Capsule())
+                .overlay(Capsule().strokeBorder(RemColor.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
+
+        Button {
+            dismissKeyboard()
+        } label: {
+            Image(systemName: "keyboard.chevron.compact.down")
+                .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(RemColor.muted)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-                .background(RemColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .strokeBorder(RemColor.border, lineWidth: 1)
-                )
+                .frame(width: 36, height: 34)
+        }
+        .accessibilityLabel("Hide keyboard")
+    }
+
+    @ViewBuilder
+    private var formatBarContent: some View {
+        formatIconButton(systemName: "bold", label: "Bold") {
+            applyFormat(.bold)
+        }
+        formatIconButton(systemName: "italic", label: "Italic") {
+            applyFormat(.italic)
+        }
+        formatIconButton(systemName: "chevron.left.forwardslash.chevron.right", label: "Inline code") {
+            applyFormat(.inlineCode)
+        }
+        formatIconButton(systemName: "curlybraces", label: "Code block") {
+            applyFormat(.codeBlock)
+        }
+        formatIconButton(systemName: "list.bullet", label: "Bullet list") {
+            applyFormat(.bulletList)
+        }
+
+        Spacer()
+
+        Button {
+            manualFormatMode = false
+            hasTextSelection = false
+        } label: {
+            Text("Done")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(RemColor.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(RemColor.accentTint)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func formatIconButton(systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(RemColor.text)
+                .frame(width: 36, height: 34)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    // MARK: - Actions
+
+    private func applyFormat(_ action: MarkdownFormatAction) {
+        let hadSelection = hasTextSelection
+        if activeEditorField == .front {
+            frontController.apply(action, binding: $front)
+        } else {
+            backController.apply(action, binding: $back)
+        }
+        if hadSelection {
+            manualFormatMode = false
+            hasTextSelection = false
         }
     }
 
-    private func insertSnippet(_ snippet: String) {
-        if focusedField == .front {
-            front += (front.isEmpty || front.hasSuffix(" ") || front.hasSuffix("\n") ? "" : " ") + snippet
-        } else {
-            back += (back.isEmpty || back.hasSuffix(" ") || back.hasSuffix("\n") ? "" : " ") + snippet
-        }
+    private func dismissKeyboard() {
+        frontController.blur()
+        backController.blur()
+        isTagFieldFocused = false
+        activeEditorField = nil
+        manualFormatMode = false
+        hasTextSelection = false
     }
 
     private func commitTag() {
@@ -414,7 +602,7 @@ struct QuickCaptureSheet: View {
                 attachedAssetHashes.append(hash)
             }
             let markdown = "\n![](asset:\(hash))\n"
-            if focusedField == .front {
+            if activeEditorField == .front {
                 front += markdown
             } else {
                 back += markdown
@@ -423,6 +611,12 @@ struct QuickCaptureSheet: View {
         } catch {
             appState.showToast("Could not attach photo: \(error.localizedDescription)")
         }
+    }
+
+    private func removeAttachment(hash: String) {
+        attachedAssetHashes.removeAll { $0 == hash }
+        front = MarkdownFormatter.removeAssetReference(hash: hash, from: front)
+        back = MarkdownFormatter.removeAssetReference(hash: hash, from: back)
     }
 
     private func save() async {
@@ -449,7 +643,7 @@ struct QuickCaptureSheet: View {
                 )
                 await appState.refreshAll()
                 onSaved?()
-                let isCloud = appState.syncStatus?.signedIn == true
+                let isCloud = appState.syncStatus?.signedIn == true && !appState.syncAccessRestricted
                 appState.showToast(isCloud ? "Card saved · syncing" : "Card saved")
             }
             Task { await appState.syncNow(silent: true) }
@@ -471,6 +665,56 @@ struct QuickCaptureSheet: View {
             dismiss()
         } catch {
             appState.showToast(error.localizedDescription)
+        }
+    }
+}
+
+/// Real photo thumbnail tile shown inside `QuickCaptureSheet` instead of raw `asset:<hash>` text.
+private struct CaptureAssetThumbnail: View {
+    let hash: String
+    let store: RemStore
+    let onRemove: () -> Void
+
+    @State private var loaded: CachedAssetImage?
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let loaded {
+                    Image(uiImage: loaded.image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        RemColor.bgInset
+                        Image(systemName: "photo")
+                            .font(.system(size: 18))
+                            .foregroundStyle(RemColor.faint)
+                    }
+                }
+            }
+            .frame(width: 66, height: 66)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(RemColor.borderStrong, lineWidth: 1)
+            )
+
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Color.white)
+                    .frame(width: 19, height: 19)
+                    .background(Color.black.opacity(0.65))
+                    .clipShape(Circle())
+            }
+            .offset(x: 4, y: -4)
+            .accessibilityLabel("Remove photo")
+        }
+        .padding(.top, 4)
+        .padding(.trailing, 4)
+        .task(id: hash) {
+            loaded = await AssetImageCache.shared.load(hash: hash, store: store)
         }
     }
 }

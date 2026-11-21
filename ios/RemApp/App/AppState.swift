@@ -40,6 +40,8 @@ final class AppState {
     var isAuthenticating: Bool = false
     var lastSyncedAt: Date?
     var lastSyncError: String?
+    var syncAccessRestricted: Bool = false
+    var syncUpgradeUrl: String?
     var toastMessage: String?
 
     var pendingAccountSwitch: PendingAccountSwitch?
@@ -79,6 +81,8 @@ final class AppState {
         static let reminderEnabled = "rem.ios.reminderEnabled"
         static let reminderHour = "rem.ios.reminderHour"
         static let reminderMinute = "rem.ios.reminderMinute"
+        static let restrictedAccountId = "rem.ios.restrictedAccountId"
+        static let restrictedUpgradeUrl = "rem.ios.restrictedUpgradeUrl"
     }
 
     private var toastTask: Task<Void, Never>?
@@ -138,6 +142,16 @@ final class AppState {
             self.decks = fetchedDecks
             self.syncStatus = status
             self.storageSummary = storage
+            let defaults = UserDefaults.standard
+            if status.signedIn,
+               let accountId = status.accountId,
+               defaults.string(forKey: Keys.restrictedAccountId) == accountId {
+                self.syncAccessRestricted = true
+                self.syncUpgradeUrl = defaults.string(forKey: Keys.restrictedUpgradeUrl)
+            } else if !status.signedIn {
+                self.syncAccessRestricted = false
+                self.syncUpgradeUrl = nil
+            }
             if !fetchedDecks.isEmpty || status.signedIn {
                 self.hasDismissedOnboarding = true
             }
@@ -150,16 +164,22 @@ final class AppState {
 
     func syncNow(silent: Bool = false) async {
         guard let status = syncStatus, status.mode == .cloud, status.signedIn else { return }
+        if syncAccessRestricted && silent { return }
         guard !isSyncing else { return }
         isSyncing = true
         lastSyncError = nil
         do {
             _ = try await store.syncNow()
             lastSyncedAt = Date()
+            setSyncAccessRestricted(false, upgradeUrl: nil)
             await refreshAll()
             if !silent {
                 showToast("Synced with rem Cloud")
             }
+        } catch let RemFfiError.SubscriptionRequired(_, upgradeUrl) {
+            lastSyncError = nil
+            setSyncAccessRestricted(true, upgradeUrl: upgradeUrl)
+            await refreshAll()
         } catch {
             lastSyncError = error.remDisplayMessage
             await refreshAll()
@@ -168,6 +188,23 @@ final class AppState {
             }
         }
         isSyncing = false
+    }
+
+    private func setSyncAccessRestricted(_ restricted: Bool, upgradeUrl: String?) {
+        syncAccessRestricted = restricted
+        syncUpgradeUrl = upgradeUrl
+        let defaults = UserDefaults.standard
+        if restricted, let accountId = syncStatus?.accountId {
+            defaults.set(accountId, forKey: Keys.restrictedAccountId)
+            if let upgradeUrl, !upgradeUrl.isEmpty {
+                defaults.set(upgradeUrl, forKey: Keys.restrictedUpgradeUrl)
+            } else {
+                defaults.removeObject(forKey: Keys.restrictedUpgradeUrl)
+            }
+        } else {
+            defaults.removeObject(forKey: Keys.restrictedAccountId)
+            defaults.removeObject(forKey: Keys.restrictedUpgradeUrl)
+        }
     }
 
     // MARK: - Cloud OAuth & Account Lifecycle
@@ -252,18 +289,24 @@ final class AppState {
         )
         hasDismissedOnboarding = true
         lastSyncError = nil
+        setSyncAccessRestricted(false, upgradeUrl: nil)
         await refreshAll()
-        showToast("Signed in · syncing collection")
         await syncNow(silent: true)
+        if !syncAccessRestricted && lastSyncError == nil {
+            showToast("Signed in · synced")
+        }
     }
 
-    func signOut() async {
+    func signOut(silent: Bool = false) async {
         do {
             try await store.signOut()
             lastSyncError = nil
             lastSyncedAt = nil
+            setSyncAccessRestricted(false, upgradeUrl: nil)
             await refreshAll()
-            showToast("Signed out · local cards kept")
+            if !silent {
+                showToast("Signed out · local cards kept")
+            }
         } catch {
             showToast(error.remDisplayMessage)
         }
@@ -274,6 +317,7 @@ final class AppState {
             try await store.deleteCloudAccount()
             lastSyncError = nil
             lastSyncedAt = nil
+            setSyncAccessRestricted(false, upgradeUrl: nil)
             await refreshAll()
             showToast("Cloud account deleted · local cards kept")
         } catch {

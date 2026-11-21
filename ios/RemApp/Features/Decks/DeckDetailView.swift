@@ -83,8 +83,10 @@ struct DeckDetailView: View {
                         .foregroundStyle(RemColor.text)
 
                     if let summary = deckSummary {
-                        let pct = Int((summary.desiredRetention * 100).rounded())
-                        Text("\(cards.count) \(cards.count == 1 ? "card" : "cards") · \(summary.dueCount) due · FSRS-6 (\(pct)%)")
+                        let cardLabel = "\(cards.count) \(cards.count == 1 ? "card" : "cards")"
+                        let newPart = summary.newDueCount > 0 ? " · \(summary.newDueCount) new" : ""
+                        let duePart = summary.dueCount > 0 ? " · \(summary.dueCount) due" : (cards.isEmpty ? "" : " · All caught up")
+                        Text("\(cardLabel)\(duePart)\(newPart)")
                             .font(.system(size: 13))
                             .foregroundStyle(RemColor.muted)
                     }
