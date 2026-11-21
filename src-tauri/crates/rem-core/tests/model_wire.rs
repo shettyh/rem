@@ -1,7 +1,7 @@
 use rem_core::{
-    ApplyMergeResult, Asset, Card, CardDraft, CardPatch, DailyStat, DbOps, Deck, DeckBackup,
-    DeckSettings, DraftDecision, DraftProposalOutcome, DraftResolution, FsrsState, ImportResult,
-    RepoSnapshot, StudyGradeOutcome, StudyRequest, StudyView,
+    Asset, Card, CardDraft, CardPatch, DailyStat, Deck, DeckBackup, DeckSettings, DraftDecision,
+    DraftProposalOutcome, DraftResolution, FsrsState, ImportResult, StudyGradeOutcome,
+    StudyRequest, StudyView,
 };
 use serde_json::{json, Value};
 
@@ -138,35 +138,6 @@ fn study_models_use_the_tauri_wire_shape() {
 }
 
 #[test]
-fn sync_snapshot_matches_the_typescript_wire_shape() {
-    let snapshot_json = json!({
-        "decks": [],
-        "cards": [],
-        "reviewLogs": [{
-            "id": "review-1",
-            "deckId": "deck-1",
-            "cardId": "card-1",
-            "reviewedAt": 200,
-            "grade": "good"
-        }],
-        "tombstones": [{
-            "id": "card-old",
-            "kind": "card",
-            "deletedAt": 210
-        }],
-        "assets": [{
-            "hash": "abc123",
-            "mime": "image/png",
-            "bytes": [1, 2, 3]
-        }]
-    });
-
-    let snapshot: RepoSnapshot = serde_json::from_value(snapshot_json.clone()).unwrap();
-    let encoded: Value = serde_json::to_value(snapshot).unwrap();
-    assert_eq!(encoded, snapshot_json);
-}
-
-#[test]
 fn backup_import_matches_the_typescript_wire_shape() {
     let backup_json = json!({
         "name": "Rust",
@@ -216,33 +187,6 @@ fn backup_import_matches_the_typescript_wire_shape() {
 }
 
 #[test]
-fn sync_operations_match_the_typescript_wire_shape() {
-    let operations_json = json!({
-        "upsertDecks": [],
-        "upsertCards": [],
-        "upsertReviewLogs": [],
-        "deleteReviewLogIds": ["review-old"],
-        "deleteDeckIds": ["deck-old"],
-        "deleteCardIds": ["card-old"],
-        "tombstones": [{
-            "id": "card-old",
-            "kind": "card",
-            "deletedAt": 300
-        }],
-        "upsertAssets": [{
-            "hash": "abc123",
-            "mime": "image/png",
-            "bytes": [1, 2, 3]
-        }],
-        "deleteAssetHashes": ["deadbeef"]
-    });
-
-    let operations: DbOps = serde_json::from_value(operations_json.clone()).unwrap();
-    let encoded: Value = serde_json::to_value(operations).unwrap();
-    assert_eq!(encoded, operations_json);
-}
-
-#[test]
 fn a_new_fsrs_card_is_due_immediately_with_no_memory() {
     let state = FsrsState::initial(1_700_000_000_000);
 
@@ -281,17 +225,6 @@ fn default_deck_settings_match_the_desktop_defaults() {
             "maximumInterval": 36500,
             "fsrsWeights": null
         })
-    );
-}
-
-#[test]
-fn merge_result_uses_camel_case_for_tauri() {
-    assert_eq!(
-        serde_json::to_value(ApplyMergeResult::Stale {
-            current_revision: 2,
-        })
-        .unwrap(),
-        json!({ "status": "stale", "currentRevision": 2 })
     );
 }
 

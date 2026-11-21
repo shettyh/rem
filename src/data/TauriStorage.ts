@@ -20,16 +20,12 @@ import type {
 } from '../domain/models'
 import type { DeckBackup } from './backup'
 import type {
-  ApplyMergeResult,
   CardPatch,
   DeckPatch,
   ImportResult,
   ReviewCommit,
   Storage,
-  VersionedRepoSnapshot,
 } from './Storage'
-import type { DbOps } from './sync/merge'
-import type { AssetBlob, RepoSnapshot } from './sync/snapshot'
 
 export type StorageInvoke = <T>(
   command: string,
@@ -37,13 +33,6 @@ export type StorageInvoke = <T>(
 ) => Promise<T>
 
 type NativeAsset = Omit<Asset, 'bytes'> & { bytes: number[] }
-type NativeAssetBlob = Omit<AssetBlob, 'bytes'> & { bytes: number[] }
-type NativeSnapshot = Omit<RepoSnapshot, 'assets'> & { assets: NativeAssetBlob[] }
-
-type NativeVersionedSnapshot = {
-  snapshot: NativeSnapshot
-  revision: number
-}
 
 /** Native production adapter. All persistence rules remain in rem-core. */
 export class TauriStorage implements Storage {
@@ -214,30 +203,6 @@ export class TauriStorage implements Storage {
     return result
   }
 
-  async exportSnapshot(): Promise<VersionedRepoSnapshot> {
-    const result = await this.call<NativeVersionedSnapshot>('storage_export_snapshot')
-    return {
-      revision: result.revision,
-      snapshot: {
-        ...result.snapshot,
-        assets: result.snapshot.assets.map(fromNativeAssetBlob),
-      },
-    }
-  }
-
-  async applyMerge(ops: DbOps, expectedRevision: number): Promise<ApplyMergeResult> {
-    const result = await this.call<ApplyMergeResult>('storage_apply_merge', {
-      operations: {
-        ...ops,
-        upsertAssets: ops.upsertAssets.map(toNativeAssetBlob),
-      },
-      expectedRevision,
-      now: this.now(),
-    })
-    if (result.status === 'applied') this.notify()
-    return result
-  }
-
   async putAsset(bytes: Uint8Array, mime: string): Promise<Asset> {
     const asset = await this.call<NativeAsset>('storage_put_asset', {
       bytes: Array.from(bytes),
@@ -265,12 +230,4 @@ export class TauriStorage implements Storage {
 
 function fromNativeAsset(asset: NativeAsset): Asset {
   return { ...asset, bytes: new Uint8Array(asset.bytes) }
-}
-
-function fromNativeAssetBlob(asset: NativeAssetBlob): AssetBlob {
-  return { ...asset, bytes: new Uint8Array(asset.bytes) }
-}
-
-function toNativeAssetBlob(asset: AssetBlob): NativeAssetBlob {
-  return { ...asset, bytes: Array.from(asset.bytes) }
 }

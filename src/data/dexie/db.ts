@@ -150,8 +150,8 @@ export class RemDB extends Dexie {
           if (d.settings && d.settings.fsrsWeights === undefined) d.settings.fsrsWeights = null
         })
       })
-    // v12: local card proposals awaiting human approval. Drafts are excluded
-    // from logical snapshots and therefore never enter backup or Git sync.
+    // v12: local card proposals awaiting human approval. Drafts stay local
+    // and never enter backup or sync.
     this.version(12).stores({
       decks: 'id, createdAt',
       cards: 'id, deckId, createdAt',

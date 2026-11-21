@@ -1,5 +1,4 @@
 mod fsrs_sched;
-mod git;
 mod storage;
 mod study;
 
@@ -9,15 +8,6 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            git::git_is_cloned,
-            git::git_clone,
-            git::git_set_remote_url,
-            git::git_fetch_reset,
-            git::git_read_files,
-            git::git_write_files,
-            git::git_read_assets,
-            git::git_write_assets,
-            git::git_commit_push,
             fsrs_sched::fsrs_next_states,
             fsrs_sched::fsrs_optimize,
             study::study_start,
@@ -44,8 +34,6 @@ pub fn run() {
             storage::storage_count_due,
             storage::storage_get_daily_stat,
             storage::storage_import_decks,
-            storage::storage_export_snapshot,
-            storage::storage_apply_merge,
             storage::storage_put_asset,
             storage::storage_get_asset,
             storage::storage_sweep_orphan_assets,
@@ -58,8 +46,6 @@ pub fn run() {
             app.manage(collection);
             app.manage(study::StudySessions::default());
 
-            let repo_dir = app.path().app_data_dir()?.join("repo");
-            app.manage(git::GitRepo::new(repo_dir));
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

@@ -20,23 +20,12 @@ import type {
   StudyView,
 } from '../domain/models'
 import type { DeckBackup } from './backup'
-import type { RepoSnapshot } from './sync/snapshot'
-import type { DbOps } from './sync/merge'
 
 /** Outcome of an import: deck names added fresh vs. names that replaced existing decks. */
 export interface ImportResult {
   added: string[]
   replaced: string[]
 }
-
-export interface VersionedRepoSnapshot {
-  snapshot: RepoSnapshot
-  revision: number
-}
-
-export type ApplyMergeResult =
-  | { status: 'applied'; revision: number }
-  | { status: 'stale'; currentRevision: number }
 
 /** Fields of a card that can be patched after creation. */
 export interface CardPatch {
@@ -121,11 +110,6 @@ export interface Storage {
   /** Insert decks+cards; any existing deck whose name matches an incoming deck
    *  is removed first (replace-by-name). IDs are regenerated. */
   importDecks(decks: DeckBackup[]): Promise<ImportResult>
-
-  /** Full point-in-time snapshot and the local revision observed with it. */
-  exportSnapshot(): Promise<VersionedRepoSnapshot>
-  /** Apply a merge only if the local store is still at `expectedRevision`. */
-  applyMerge(ops: DbOps, expectedRevision: number): Promise<ApplyMergeResult>
 
   // Assets (images/GIFs embedded in card markdown as asset:<hash>)
   putAsset(bytes: Uint8Array, mime: string): Promise<Asset>

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import type { Deck } from '../domain/models'
-import type { DbOps } from './sync/merge'
 import { TauriStorage, type StorageInvoke } from './TauriStorage'
 
 const deck: Deck = {
@@ -36,18 +35,6 @@ function fakeInvoke(
     return respond(command, args) as T
   }
   return { invoke, calls }
-}
-
-const emptyOps: DbOps = {
-  upsertDecks: [],
-  upsertCards: [],
-  upsertReviewLogs: [],
-  deleteReviewLogIds: [],
-  deleteDeckIds: [],
-  deleteCardIds: [],
-  tombstones: [],
-  upsertAssets: [],
-  deleteAssetHashes: [],
 }
 
 describe('TauriStorage', () => {
@@ -194,52 +181,5 @@ describe('TauriStorage', () => {
 
     expect(created.bytes).toEqual(new Uint8Array([1, 2, 3]))
     expect(loaded?.bytes).toEqual(new Uint8Array([1, 2, 3]))
-  })
-
-  it('applies a merge against the revision observed during export', async () => {
-    const fake = fakeInvoke((command, args) => {
-      if (command === 'storage_export_snapshot') {
-        return {
-          snapshot: { decks: [], cards: [], reviewLogs: [], tombstones: [], assets: [] },
-          revision: 7,
-        }
-      }
-      if (command === 'storage_apply_merge') {
-        expect(args).toEqual({ operations: emptyOps, expectedRevision: 7, now: 123 })
-        return { status: 'applied', revision: 8 }
-      }
-      throw new Error(`unexpected command ${command}`)
-    })
-    const storage = new TauriStorage(fake.invoke, () => 123)
-
-    const exported = await storage.exportSnapshot()
-    expect(exported.revision).toBe(7)
-    await expect(storage.applyMerge(emptyOps, exported.revision)).resolves.toEqual({
-      status: 'applied',
-      revision: 8,
-    })
-  })
-
-  it('returns a stale merge result without notifying', async () => {
-    const fake = fakeInvoke((command) => {
-      if (command === 'storage_export_snapshot') {
-        return {
-          snapshot: { decks: [], cards: [], reviewLogs: [], tombstones: [], assets: [] },
-          revision: 7,
-        }
-      }
-      if (command === 'storage_apply_merge') return { status: 'stale', currentRevision: 8 }
-      throw new Error(`unexpected command ${command}`)
-    })
-    const storage = new TauriStorage(fake.invoke, () => 123)
-    let notifications = 0
-    storage.subscribe(() => notifications++)
-
-    const exported = await storage.exportSnapshot()
-    await expect(storage.applyMerge(emptyOps, exported.revision)).resolves.toEqual({
-      status: 'stale',
-      currentRevision: 8,
-    })
-    expect(notifications).toBe(0)
   })
 })

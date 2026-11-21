@@ -310,42 +310,6 @@ pub struct Tombstone {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AssetBlob {
-    pub hash: Id,
-    pub mime: String,
-    pub bytes: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RepoSnapshot {
-    pub decks: Vec<Deck>,
-    pub cards: Vec<Card>,
-    pub review_logs: Vec<ReviewLog>,
-    pub tombstones: Vec<Tombstone>,
-    pub assets: Vec<AssetBlob>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VersionedSnapshot {
-    pub snapshot: RepoSnapshot,
-    pub revision: u64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    tag = "status",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
-pub enum ApplyMergeResult {
-    Applied { revision: u64 },
-    Stale { current_revision: u64 },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ReviewBackup {
     pub reviewed_at: i64,
     pub grade: Grade,
@@ -375,20 +339,6 @@ pub struct DeckBackup {
     pub color: Option<String>,
     pub settings: DeckSettings,
     pub cards: Vec<CardBackup>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DbOps {
-    pub upsert_decks: Vec<Deck>,
-    pub upsert_cards: Vec<Card>,
-    pub upsert_review_logs: Vec<ReviewLog>,
-    pub delete_review_log_ids: Vec<Id>,
-    pub delete_deck_ids: Vec<Id>,
-    pub delete_card_ids: Vec<Id>,
-    pub tombstones: Vec<Tombstone>,
-    pub upsert_assets: Vec<AssetBlob>,
-    pub delete_asset_hashes: Vec<Id>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

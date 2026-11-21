@@ -12,7 +12,6 @@ import {
   getSidebarHoverExpand,
   setSidebarHoverExpand,
 } from '../../ui/sidebarPrefs'
-import { SyncSection } from './SyncSection'
 import packageInfo from '../../../package.json'
 import {
   collectBackup,
@@ -271,14 +270,6 @@ export function SettingsPage() {
               />
             </label>
           </div>
-        </section>
-
-        <section className="settings-group" aria-labelledby="sync-heading">
-          <div className="settings-group-heading">
-            <h2 id="sync-heading">Sync</h2>
-            <p>Optional ways to keep the local collection synchronized across devices.</p>
-          </div>
-          <SyncSection />
         </section>
 
         <p className="settings-version">rem version {packageInfo.version}</p>

@@ -50,12 +50,7 @@ fn proposing_a_draft_keeps_it_out_of_scheduling_and_sync() {
     assert_eq!(created.revision, 0);
     assert_eq!(collection.list_drafts().unwrap(), vec![created.clone()]);
     assert_eq!(collection.count_due(&deck.id, 1_000).unwrap(), 0);
-    assert!(collection
-        .export_snapshot()
-        .unwrap()
-        .snapshot
-        .cards
-        .is_empty());
+    assert!(collection.list_cards(&deck.id).unwrap().is_empty());
     assert_eq!(collection.sync_revision().unwrap(), revision);
 }
 
