@@ -316,6 +316,15 @@ export function SettingsPage() {
     }
   }
 
+  async function handleOpenUpgradeUrl(url: string) {
+    setSyncError(null)
+    try {
+      await sync.openExternalUrl(url)
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function handleDeleteAccount() {
     setConfirmDeleteAccount(false)
     setSyncError(null)
@@ -499,14 +508,13 @@ export function SettingsPage() {
                         </button>
                       )}
                       {hostedProviders.subscriptionRequired && hostedProviders.upgradeUrl && (
-                        <a
+                        <button
                           className="btn btn-ghost btn-sm"
-                          href={hostedProviders.upgradeUrl}
-                          target="_blank"
-                          rel="noreferrer"
+                          type="button"
+                          onClick={() => void handleOpenUpgradeUrl(hostedProviders.upgradeUrl!)}
                         >
                           Get rem Cloud
-                        </a>
+                        </button>
                       )}
                     </div>
                   )}
@@ -642,14 +650,13 @@ export function SettingsPage() {
                       </p>
                     </div>
                     {syncStatus.upgradeUrl && (
-                      <a
+                      <button
                         className="btn btn-primary btn-sm"
-                        href={syncStatus.upgradeUrl}
-                        target="_blank"
-                        rel="noreferrer"
+                        type="button"
+                        onClick={() => void handleOpenUpgradeUrl(syncStatus.upgradeUrl!)}
                       >
                         Get rem Cloud
-                      </a>
+                      </button>
                     )}
                   </div>
                 )}

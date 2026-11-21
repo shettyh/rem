@@ -122,6 +122,13 @@ export interface LogoutRequest {
   refreshToken: string
 }
 
+export interface WaitlistRequest {
+  email: string
+  note?: string
+  /** Optional honeypot field; non-empty values are silently ignored. */
+  website?: string
+}
+
 export interface AuthTokenResponse {
   accessToken: string
   expiresIn: number

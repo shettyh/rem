@@ -1,6 +1,6 @@
 # rem
 
-**Local-first spaced repetition for durable understanding, with agent-friendly CLI capture, FSRS-6 scheduling, Markdown cards, and optional Git sync.**
+**Local-first spaced repetition for durable understanding, with agent-friendly CLI capture, FSRS-6 scheduling, Markdown cards, and optional Cloud sync.**
 
 [![CI](https://github.com/shettyh/rem/actions/workflows/ci.yml/badge.svg)](https://github.com/shettyh/rem/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/shettyh/rem)](https://github.com/shettyh/rem/releases/latest)
@@ -77,7 +77,7 @@ The terminal UI renders Markdown, previews the next FSRS intervals, and writes r
 - **Actionable statistics** — review activity, recall rate, streaks, grade distribution, and per-deck breakdowns.
 - **Portable data** — import and export full-fidelity JSON backups.
 - **Agent-first CLI capture** — agents turn codebases, research, and other source material into source-grounded drafts for human approval; trusted workflows can still create Markdown cards directly.
-- **Optional Git sync** — sync through any Git remote using your existing system credentials; rem does not store an access token.
+- **Optional Cloud sync** — sync decks, reviews, and media across devices using hosted [rem Cloud](https://rem-sync.shettyh.fyi/cloud) or your own self-hosted open-source [Cloudflare Worker](sync-server/README.md).
 - **Calm desktop design** — quiet light and dark themes keep reviews focused and primary actions clear.
 
 ## Installation
@@ -124,7 +124,7 @@ xattr -dr com.apple.quarantine /Applications/rem.app
 2. Add cards with a front, back, and optional tags or images.
 3. Start a review and reveal each answer with <kbd>Space</kbd>.
 4. Grade your recall with the on-screen controls or keyboard shortcuts.
-5. Optionally configure backups and Git sync from **Settings**.
+5. Optionally configure JSON backups or Cloud sync from **Settings**.
 
 Cards and approval-gated drafts can also be captured while the app is closed:
 
@@ -140,9 +140,9 @@ Open **Drafts** in the desktop sidebar to try each proposed question, inspect it
 
 ## Data and sync
 
-rem stores local data in SQLite through its native Rust layer. JSON backup files preserve decks, cards, scheduling state, and review history. Unapproved drafts stay local and are excluded from backup and Git sync.
+rem stores local data in SQLite through its native Rust layer. JSON backup files preserve decks, cards, scheduling state, and review history. Unapproved drafts stay local and are excluded from backup and cloud sync.
 
-Git sync is optional. When enabled, rem shells out to your system `git`, uses its existing credentials, and synchronizes a human-inspectable file-per-deck repository. Records are merged with last-writer-wins semantics, while tombstones propagate deletions between machines. CLI capture is local and joins Git only on the desktop app's next sync.
+Cloud sync is optional and local-first by default (`Local only` vs. `Cloud sync` in **Settings**). When enabled, mutations are recorded in a transactional SQLite outbox with hybrid logical clocks (HLCs) and synced incrementally across desktop and CLI (`rem sync`). You can sign in to hosted [rem Cloud](https://rem-sync.shettyh.fyi/cloud) (Google or Apple OAuth, with tokens stored only in your OS Keychain) or deploy the Apache-2.0 [`sync-server/`](sync-server/README.md) on your own Cloudflare account and point `rem` at your server URL.
 
 ## Development
 
@@ -151,7 +151,6 @@ Git sync is optional. When enabled, rem shells out to your system `git`, uses it
 - [Node.js 22](https://nodejs.org)
 - [Rust stable](https://www.rust-lang.org/tools/install)
 - The [Tauri v2 platform prerequisites](https://v2.tauri.app/start/prerequisites/)
-- Git, if you want to test sync
 
 ### Run locally
 
@@ -175,6 +174,7 @@ Use `npm run app:dev`, not `npm run dev`. The latter starts only the internal Vi
 | `npm run build` | Type-check and build the frontend webview |
 | `cd src-tauri && cargo test` | Run Rust tests |
 | `cd src-tauri && cargo run -p rem-cli -- --help` | Run the CLI from source |
+| `cd sync-server && npm test` | Run Cloudflare Workers sync server tests |
 
 Browser tests require Playwright's Chromium binary:
 
@@ -200,15 +200,16 @@ rem keeps domain logic and infrastructure behind small interfaces so that produc
 
 ```text
 src/
-  app/         application entry point, routes, and auto-sync
+  app/         application entry point and routes
   domain/      card/deck models and the Scheduler interface
-  data/        Storage interface, native adapter, test persistence, backup, and Git sync
-  features/    decks, cards, review, settings, and statistics
+  data/        Storage interface, native adapter, test persistence, backup, and Cloud sync client
+  features/    decks, cards, drafts, review, settings, and statistics
   ui/          app shell, shared components, themes, and design tokens
-src-tauri/     native shell, shared SQLite core, terminal CLI, Rust FSRS-6, and Git bridge
+src-tauri/     native shell, rem-core (SQLite + FSRS-6 + sync engine), rem-sync client, and rem-cli
+sync-server/   open-source Cloudflare Workers + Durable Objects + D1 + R2 sync backend
 ```
 
-The frontend uses React, TypeScript, and Vite. Tauri v2 provides the native shell. The shared Rust `rem-core` crate owns SQLite, FSRS-6 calculation and optimization, and the complete `StudySession` state machine used by both the desktop review adapter and `rem study` terminal UI.
+The frontend uses React, TypeScript, and Vite. Tauri v2 provides the native shell. The shared Rust `rem-core` crate owns SQLite, FSRS-6 calculation and optimization, the transactional sync outbox, and the complete `StudySession` state machine used by both the desktop review adapter and `rem study` terminal UI; `rem-sync` owns HTTPS sync, asset upload/download, and OAuth/Keychain sessions for both desktop and CLI.
 
 ## Contributing
 

@@ -1,6 +1,6 @@
 # rem — Current State & Future Vision
 
-_Last reviewed: 2026-08-09 · based on `v0.8.0` plus the agent-first learning-loop work_
+_Last reviewed: 2026-11-21 · based on `v0.15.0` plus Cloud sync (Slices 1–3) and hosted `rem Cloud` entitlement gating_
 
 This document is the canonical product snapshot for future planning. Dated files under
 `docs/superpowers/` record the decisions and implementation history behind individual slices;
@@ -62,7 +62,7 @@ commands. The browser build is an internal webview/test adapter, not a supported
 - Agent proposals are stored as a separate `CardDraft` domain value with rationale, opaque source
   locators, producer, timestamps, and optimistic revision.
 - Pending drafts have no scheduling state, due date, review history, or suspension state. They do not
-  affect counts, stats, backup, Git sync, or the synchronized collection revision.
+  affect counts, stats, backup, or cloud sync.
 - The desktop **Drafts** inbox is front-first: the human tries the question, reveals the proposed
   answer and provenance, edits content/tags/deck, then accepts or rejects it.
 - Acceptance atomically creates a normal due card through the collection rules and removes the
@@ -80,7 +80,7 @@ commands. The browser build is an internal webview/test adapter, not a supported
 - Formatting toolbar for headings, emphasis, lists, links, inline code, and fenced code blocks.
 - Syntax-highlighted code when editing and reviewing.
 - Image and GIF ingestion through file picker, paste, or drag-and-drop.
-- Content-addressed binary assets render in cards and travel through backup and Git sync.
+- Content-addressed binary assets render in cards and travel through backup and cloud sync (via R2).
 - User-defined tags, tag chips, and per-deck tag filtering.
 - Create, edit, delete, suspend, and restore cards.
 
@@ -113,15 +113,20 @@ commands. The browser build is an internal webview/test adapter, not a supported
 
 - Native desktop and CLI operations use SQLite through `rem-core`; the TypeScript `Storage`
   interface keeps React independent of native commands, and Dexie remains a browser-test adapter.
-- SQLite schema v2 contains local-only drafts and per-card optimistic `local_revision` values.
+- SQLite schema v3 contains local-only drafts, per-card optimistic `local_revision` values,
+  per-domain Hybrid Logical Clocks (HLCs), and local `sync_meta` / `sync_outbox` / `synced_assets`
+  bookkeeping tables.
 - Deck-scoped JSON export/import preserves scheduling and review history, with confirmation before a
   same-named deck is replaced.
-- Optional Git-backed sync uses the user's system `git` and existing credentials; rem stores no
-  access token.
-- Per-record last-writer-wins merge, tombstones, and synchronized content-addressed assets are
-  implemented.
-- Unapproved drafts and local revisions are intentionally excluded from backup and Git sync.
-- Manual sync from Settings and automatic sync hooks are available.
+- Legacy Git sync has been removed in favor of optional Cloud sync (`Local only` vs. `Cloud sync`).
+  The shared `rem-sync` crate talks to the open-source Cloudflare Workers + SQLite Durable Objects +
+  D1 + R2 backend in `sync-server/` (either hosted `rem Cloud` or a self-hosted deployment).
+- Google and Apple OAuth (PKCE + short-lived JWTs + rotating refresh tokens) store credentials in
+  the OS Keychain; commutative per-domain HLC merges and tombstones resolve concurrent edits and
+  reviews automatically without halting conflict dialogs.
+- Unapproved drafts and local daily-cap counters are intentionally excluded from backup and cloud sync.
+- Manual sync from Settings, automatic sync triggers (startup, debounced writes, focus/online,
+  periodic), account deletion, and `rem sync` CLI commands are implemented.
 
 ### Desktop experience and delivery
 
@@ -168,12 +173,9 @@ These are real gaps in the resulting product, not features already delivered.
 | Review options | **Show answer timer** is stored but not rendered. |
 | Related-card burying | The setting is stored but cannot be correctly enforced without a note/template/sibling model. |
 | Organization | Decks are flat; namespaces, nested decks, and folders do not exist. |
-| Navigation | The desktop sidebar cannot be collapsed. |
-| Sync confidence | Automated coverage exists, but the documented real two-machine conflict/deletion smoke test is outstanding. |
-| Extensibility | Git is the only user-facing sync backend; there is no backend selector or second provider. |
-| Mobile | iOS artifacts exist, but there is no designed or supported mobile application. |
+| Cloud sync v1.1 | Server-side op compaction (`/v1/bootstrap`), real-time WebSocket pokes, and automated billing webhooks are deferred beyond initial early access. |
+| Mobile | Slice 4 (iPhone companion sharing `rem-core` + `rem-sync`) has not started yet. |
 | Distribution | macOS is ad-hoc signed rather than notarized; Windows has no Authenticode signature. |
-| Release | `v0.8.0` predates the draft inbox, shared study module, and terminal study loop; these changes need a release after merge. |
 
 ## Future direction
 
@@ -243,9 +245,8 @@ An MCP adapter is justified only when a real client cannot invoke the local CLI 
 - Automatically accepting or scheduling agent-generated content.
 - Treating proposal count as a success metric; zero good proposals remains valid.
 - Bundling an agent runtime/model provider before the public CLI proves insufficient.
-- Supporting the browser as a reduced product while core behavior depends on Rust and system Git.
+- Supporting the browser as a reduced product while core behavior depends on Rust and local SQLite.
 - Building multiple storage/sync abstractions before a second real implementation exists.
-- Expanding to mobile before desktop delivery and sync are dependable.
 
 ## Planning rule
 
