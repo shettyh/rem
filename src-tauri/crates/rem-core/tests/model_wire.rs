@@ -1,7 +1,7 @@
 use rem_core::{
     Asset, Card, CardDraft, CardPatch, DailyStat, Deck, DeckBackup, DeckSettings, DraftDecision,
-    DraftProposalOutcome, DraftResolution, FsrsState, ImportResult, StudyGradeOutcome,
-    StudyRequest, StudyView,
+    DraftProposalOutcome, DraftResolution, FsrsState, Grade, ImportResult, StudyGradeOutcome,
+    StudyRequest, StudyView, SyncOp,
 };
 use serde_json::{json, Value};
 
@@ -268,4 +268,89 @@ fn auxiliary_persistence_models_match_the_typescript_wire_shapes() {
     assert_eq!(serde_json::to_value(asset).unwrap(), asset_json);
     assert_eq!(serde_json::to_value(stat).unwrap(), stat_json);
     assert_eq!(serde_json::to_value(result).unwrap(), result_json);
+}
+
+#[test]
+fn sync_ops_match_the_cloud_wire_contract() {
+    let hlc = "1732165200000-0000-a1b2c3d4";
+    let ops = vec![
+        (
+            SyncOp::DeckUpsert {
+                id: "deck-1".into(),
+                name: "Rust".into(),
+                color: "#2fa86b".into(),
+                settings: DeckSettings::default(),
+                created_at: 100,
+                hlc: hlc.into(),
+            },
+            "deckUpsert",
+        ),
+        (
+            SyncOp::DeckDelete {
+                id: "deck-1".into(),
+                hlc: hlc.into(),
+            },
+            "deckDelete",
+        ),
+        (
+            SyncOp::CardCreate {
+                id: "card-1".into(),
+                deck_id: "deck-1".into(),
+                front: "Q".into(),
+                back: "A".into(),
+                tags: vec!["rust".into()],
+                created_at: 100,
+                initial_due: 100,
+                hlc: hlc.into(),
+            },
+            "cardCreate",
+        ),
+        (
+            SyncOp::CardContentPatch {
+                id: "card-1".into(),
+                front: "Q2".into(),
+                back: "A2".into(),
+                tags: vec!["rust".into()],
+                hlc: hlc.into(),
+            },
+            "cardContentPatch",
+        ),
+        (
+            SyncOp::CardSuspendPatch {
+                id: "card-1".into(),
+                suspended: true,
+                hlc: hlc.into(),
+            },
+            "cardSuspendPatch",
+        ),
+        (
+            SyncOp::CardReview {
+                card_id: "card-1".into(),
+                deck_id: "deck-1".into(),
+                reviewed_at: 200,
+                grade: Some(Grade::Good),
+                scheduling: FsrsState::initial(200),
+                last_again_at: None,
+                leech_suspended: false,
+                leech_tag_added: false,
+                review_log_id: Some("log-1".into()),
+                hlc: hlc.into(),
+            },
+            "cardReview",
+        ),
+        (
+            SyncOp::CardDelete {
+                id: "card-1".into(),
+                hlc: hlc.into(),
+            },
+            "cardDelete",
+        ),
+    ];
+
+    for (op, expected_type) in ops {
+        let encoded = serde_json::to_value(&op).unwrap();
+        assert_eq!(encoded["type"], expected_type);
+        let decoded: SyncOp = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded, op);
+    }
 }

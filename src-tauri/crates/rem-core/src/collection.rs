@@ -6,9 +6,10 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use directories::ProjectDirs;
-use rusqlite::{Connection, Transaction, TransactionBehavior};
+use rusqlite::{params, Connection, Transaction, TransactionBehavior};
+use uuid::Uuid;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
@@ -148,7 +149,8 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
             updated_at INTEGER NOT NULL,
             color TEXT NOT NULL,
             scheduler_kind TEXT NOT NULL CHECK (scheduler_kind = 'fsrs'),
-            settings_json TEXT NOT NULL
+            settings_json TEXT NOT NULL,
+            hlc TEXT NOT NULL DEFAULT ''
         );
 
         CREATE TABLE cards (
@@ -163,7 +165,10 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
             last_again_at INTEGER,
             scheduling_json TEXT NOT NULL,
             due INTEGER NOT NULL,
-            local_revision INTEGER NOT NULL DEFAULT 0 CHECK (local_revision >= 0)
+            local_revision INTEGER NOT NULL DEFAULT 0 CHECK (local_revision >= 0),
+            content_hlc TEXT NOT NULL DEFAULT '',
+            suspended_hlc TEXT NOT NULL DEFAULT '',
+            scheduling_hlc TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX cards_deck_created ON cards(deck_id, created_at);
         CREATE INDEX cards_deck_due ON cards(deck_id, due);
@@ -188,7 +193,8 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
         CREATE TABLE tombstones (
             id TEXT PRIMARY KEY,
             kind TEXT NOT NULL CHECK (kind IN ('deck', 'card')),
-            deleted_at INTEGER NOT NULL
+            deleted_at INTEGER NOT NULL,
+            hlc TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX tombstones_deleted ON tombstones(deleted_at);
 
@@ -217,10 +223,28 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
         CREATE INDEX card_drafts_created ON card_drafts(created_at);
         CREATE INDEX card_drafts_deck_created ON card_drafts(deck_id, created_at);
 
+        CREATE TABLE sync_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
+        CREATE TABLE sync_outbox (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            op_id TEXT UNIQUE NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE synced_assets (
+            hash TEXT PRIMARY KEY,
+            uploaded_at INTEGER NOT NULL
+        );
+
         INSERT INTO metadata(key, value) VALUES ('sync_revision', 0);
-        PRAGMA user_version = 2;
+        PRAGMA user_version = 3;
         ",
     )?;
+    seed_sync_meta(&transaction)?;
     transaction.commit()
 }
 
@@ -252,5 +276,57 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), rusqlite::Error> {
             ",
         )?;
     }
+    if version < 3 {
+        transaction.execute_batch(
+            "
+            ALTER TABLE decks ADD COLUMN hlc TEXT NOT NULL DEFAULT '';
+            ALTER TABLE cards ADD COLUMN content_hlc TEXT NOT NULL DEFAULT '';
+            ALTER TABLE cards ADD COLUMN suspended_hlc TEXT NOT NULL DEFAULT '';
+            ALTER TABLE cards ADD COLUMN scheduling_hlc TEXT NOT NULL DEFAULT '';
+            ALTER TABLE tombstones ADD COLUMN hlc TEXT NOT NULL DEFAULT '';
+
+            CREATE TABLE sync_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            CREATE TABLE sync_outbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                op_id TEXT UNIQUE NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE synced_assets (
+                hash TEXT PRIMARY KEY,
+                uploaded_at INTEGER NOT NULL
+            );
+
+            PRAGMA user_version = 3;
+            ",
+        )?;
+        seed_sync_meta(&transaction)?;
+    }
     transaction.commit()
+}
+
+fn seed_sync_meta(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {
+    let device_id = generate_device_id();
+    for (key, value) in [
+        ("sync_mode", "local"),
+        ("device_id", device_id.as_str()),
+        ("last_seq", "0"),
+        ("last_hlc", ""),
+    ] {
+        transaction.execute(
+            "INSERT OR IGNORE INTO sync_meta(key, value) VALUES (?1, ?2)",
+            params![key, value],
+        )?;
+    }
+    Ok(())
+}
+
+pub(crate) fn generate_device_id() -> String {
+    let simple = Uuid::new_v4().simple().to_string();
+    simple[..8].to_owned()
 }
