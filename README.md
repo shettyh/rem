@@ -70,13 +70,9 @@ The [Skills CLI](https://github.com/vercel-labs/skills) detects supported agents
 
 The native SwiftUI iPhone app lives in [`ios/`](ios/README.md) (iOS 17+, Xcode 16+). TestFlight and App Store distribution are planned; for now, build and run it locally on Simulator or your iPhone using the steps in [`ios/README.md`](ios/README.md).
 
-### Unsigned build notice
+### Code signing
 
-Current macOS and Windows builds are not notarized or code-signed with paid platform certificates. On macOS, right-click **rem** and choose **Open**, or clear quarantine after moving the app to `/Applications`:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/rem.app
-```
+macOS desktop releases (`.dmg`) and CLI archives are signed with an Apple Developer ID certificate and notarized with Apple. Windows installers and CLI binaries are currently unsigned (SmartScreen may prompt on first run).
 
 ## Getting started
 
@@ -154,6 +150,8 @@ Releases are gated by a Release Please pull request:
 5. The workflow publishes the release only after every app and CLI build succeeds. A failed build leaves the release as a draft so it cannot become `latest` accidentally.
 
 Do not edit versions or create release tags manually. `feat` commits produce minor releases, `fix` commits produce patch releases, and breaking changes produce major releases. The repository must allow GitHub Actions to create pull requests under **Settings → Actions → General → Workflow permissions**.
+
+macOS release signing and notarization require six repository secrets under **Settings → Secrets and variables → Actions**: `APPLE_CERTIFICATE` (base64-encoded `.p12`), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_ISSUER`, and `APPLE_API_KEY_PRIVATE_KEY` (contents of `AuthKey_<KEY_ID>.p8`).
 
 ## Architecture
 

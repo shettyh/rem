@@ -50,6 +50,7 @@
       "icons/icon.ico"
     ],
     "macOS": {
+      "hardenedRuntime": true,
       "signingIdentity": "-"
     },
     "android": {
