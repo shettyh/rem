@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -18,12 +18,9 @@ permissions:
   id-token: write
 
 jobs:
-  deploy:
-    name: Deploy GitHub Pages
+  build:
+    name: Build website artifact
     runs-on: ubuntu-22.04
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
 
@@ -34,6 +31,14 @@ jobs:
         with:
           path: site
 
+  deploy:
+    name: Deploy GitHub Pages
+    needs: build
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy website
         id: deployment
         uses: actions/deploy-pages@v5
