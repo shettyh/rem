@@ -1,5 +1,6 @@
 import { authenticateRequest, sha256HexBytes } from './auth'
 import {
+  checkSyncEntitlement,
   deleteAccountData,
   getAccountInfo,
   getAuthProviders,
@@ -86,6 +87,18 @@ export default {
         await deleteAccountData(env, auth.userId)
         return jsonResponse({ deleted: true })
       }
+    }
+
+    const entitlement = await checkSyncEntitlement(env, auth.userId, auth.authMethod)
+    if (!entitlement.syncEnabled) {
+      return jsonResponse(
+        {
+          error: 'subscription_required',
+          message: 'Cloud sync requires an active rem Cloud subscription.',
+          upgradeUrl: entitlement.upgradeUrl,
+        },
+        402,
+      )
     }
 
     const stub = env.USER_SYNC.get(env.USER_SYNC.idFromName(auth.userId))

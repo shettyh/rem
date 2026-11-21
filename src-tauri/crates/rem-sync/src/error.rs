@@ -15,6 +15,10 @@ pub enum SyncError {
         incoming_account_id: String,
     },
     Unauthorized,
+    SubscriptionRequired {
+        message: String,
+        upgrade_url: Option<String>,
+    },
     PayloadTooLarge(String),
     Http {
         status: u16,
@@ -48,6 +52,13 @@ impl fmt::Display for SyncError {
             Self::Unauthorized => {
                 write!(formatter, "sync authentication failed (401 Unauthorized)")
             }
+            Self::SubscriptionRequired {
+                message,
+                upgrade_url,
+            } => match upgrade_url {
+                Some(url) => write!(formatter, "{message} ({url})"),
+                None => write!(formatter, "{message}"),
+            },
             Self::PayloadTooLarge(message) => {
                 write!(formatter, "sync upload exceeded limit (413): {message}")
             }

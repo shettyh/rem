@@ -15,6 +15,12 @@ export interface Env {
   MAX_ASSET_BYTES?: string
   /** Maximum total stored asset bytes per user (default 500 MB). */
   MAX_USER_QUOTA_BYTES?: string
+  /** When "true", only subscribed or allowlisted users may sync or access R2 assets (HTTP 402 otherwise). */
+  REQUIRE_SUBSCRIPTION?: string
+  /** Optional comma-separated emails always permitted to sync when REQUIRE_SUBSCRIPTION="true". */
+  ALLOWED_EMAILS?: string
+  /** Optional checkout/pricing URL advertised to users when subscription is required. */
+  UPGRADE_URL?: string
 
   /** Google OAuth 2.0 credentials. */
   GOOGLE_CLIENT_ID?: string
@@ -73,10 +79,20 @@ export type QuotaCheckResult =
   | { status: 'allowed' }
   | { status: 'quota_exceeded' }
 
+export type SubscriptionStatus =
+  | 'none'
+  | 'active'
+  | 'trialing'
+  | 'past_due'
+  | 'canceled'
+  | 'allowlisted'
+
 export interface AuthProvidersResponse {
   google: boolean
   apple: boolean
   devToken: boolean
+  subscriptionRequired: boolean
+  upgradeUrl: string | null
 }
 
 export interface AccountInfo {
@@ -84,6 +100,10 @@ export interface AccountInfo {
   email: string | null
   providers: string[]
   authMethod: 'jwt' | 'dev_token'
+  syncEnabled: boolean
+  subscriptionRequired: boolean
+  subscriptionStatus: SubscriptionStatus
+  upgradeUrl: string | null
 }
 
 export interface TokenExchangeRequest {

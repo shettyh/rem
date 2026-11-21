@@ -2119,6 +2119,48 @@ select.text-input,
   flex-wrap: wrap;
   gap: 8px;
 }
+.settings-sync-hosted {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.settings-sync-hosted-copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.settings-sync-mode-switch {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.settings-sync-text-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.settings-sync-text-btn:hover {
+  color: var(--fg);
+}
+.settings-sync-plan-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.settings-sync-plan-note strong {
+  display: block;
+  color: var(--fg);
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.settings-sync-plan-note p {
+  margin: 0;
+}
 .settings-action-row {
   display: flex;
   align-items: center;

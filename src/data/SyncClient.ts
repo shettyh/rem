@@ -1,6 +1,8 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
+export const DEFAULT_CLOUD_SERVER_URL = 'https://rem-sync.shettyh.fyi'
+
 export type SyncMode = 'local' | 'cloud'
 export type SyncActivity = 'idle' | 'syncing' | 'error'
 export type OAuthProvider = 'google' | 'apple'
@@ -8,6 +10,7 @@ export type OAuthProvider = 'google' | 'apple'
 export interface SyncStatus {
   mode: SyncMode
   activity: SyncActivity
+  defaultServerUrl: string
   serverUrl: string | null
   accountId: string | null
   email: string | null
@@ -18,12 +21,16 @@ export interface SyncStatus {
   pendingOutbox: number
   lastSyncedAt: number | null
   lastError: string | null
+  subscriptionRequired: boolean
+  upgradeUrl: string | null
 }
 
 export interface AuthProviders {
   google: boolean
   apple: boolean
   devToken: boolean
+  subscriptionRequired: boolean
+  upgradeUrl: string | null
 }
 
 export type SignInOutcome =
@@ -134,6 +141,7 @@ export class TauriSyncClient implements SyncClient {
 const DEFAULT_LOCAL_STATUS: SyncStatus = {
   mode: 'local',
   activity: 'idle',
+  defaultServerUrl: DEFAULT_CLOUD_SERVER_URL,
   serverUrl: null,
   accountId: null,
   email: null,
@@ -144,6 +152,8 @@ const DEFAULT_LOCAL_STATUS: SyncStatus = {
   pendingOutbox: 0,
   lastSyncedAt: null,
   lastError: null,
+  subscriptionRequired: false,
+  upgradeUrl: null,
 }
 
 export class LocalOnlySyncClient implements SyncClient {

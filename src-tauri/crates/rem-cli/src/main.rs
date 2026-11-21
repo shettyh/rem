@@ -23,7 +23,7 @@ use rem_core::{
 use rem_sync::{
     connect_collection, open_system_browser, run_loopback_oauth, sign_out, sync_authenticated,
     sync_with_http, verify_dev_token, CredentialStore, KeyringCredentialStore, OAuthProvider,
-    SyncError, SyncReport, DEFAULT_OAUTH_TIMEOUT,
+    SyncError, SyncReport, DEFAULT_CLOUD_SERVER_URL, DEFAULT_OAUTH_TIMEOUT,
 };
 use serde::{Deserialize, Serialize};
 
@@ -110,8 +110,8 @@ impl From<CliOAuthProvider> for OAuthProvider {
 
 #[derive(Args)]
 struct SyncLoginArgs {
-    /// Sync server base URL (e.g. https://sync.example.com).
-    #[arg(long)]
+    /// Sync server base URL (defaults to hosted rem Cloud; set for self-hosted servers).
+    #[arg(long, default_value = DEFAULT_CLOUD_SERVER_URL)]
     server: String,
     /// OAuth provider to use in the browser.
     #[arg(
@@ -1136,6 +1136,7 @@ impl From<SyncError> for CliError {
             SyncError::NotAuthenticated(_) => "sync_not_authenticated",
             SyncError::AccountMismatch { .. } => "sync_account_mismatch",
             SyncError::Unauthorized => "sync_unauthorized",
+            SyncError::SubscriptionRequired { .. } => "sync_subscription_required",
             SyncError::OAuth(_) => "sync_oauth_failed",
             _ => "sync_error",
         };

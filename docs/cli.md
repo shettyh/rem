@@ -159,11 +159,12 @@ Directly created cards are due immediately and reach the sync server on the next
 
 ## Cloud sync
 
-Sign in to a hosted or self-hosted `rem-sync-server` using browser OAuth (Google / Apple) or a
-personal/dev bearer token, then sync from the terminal:
+Sign in to hosted `rem Cloud` (default) or a self-hosted `rem-sync-server` using browser OAuth
+(Google / Apple) or a personal/dev bearer token, then sync from the terminal:
 
 ```sh
 rem sync status
+rem sync login --provider google
 rem sync login --server https://sync.example.com --provider google
 rem sync login --server https://sync.example.com --token <personal-token>
 rem sync

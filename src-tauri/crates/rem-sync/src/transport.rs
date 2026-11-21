@@ -131,6 +131,13 @@ impl SyncTransport for HttpTransport {
     }
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubscriptionErrorBody {
+    message: Option<String>,
+    upgrade_url: Option<String>,
+}
+
 fn check_status(
     response: reqwest::blocking::Response,
 ) -> Result<reqwest::blocking::Response, SyncError> {
@@ -141,6 +148,21 @@ fn check_status(
     let body = response.text().unwrap_or_default();
     match status {
         StatusCode::UNAUTHORIZED => Err(SyncError::Unauthorized),
+        StatusCode::PAYMENT_REQUIRED => {
+            let parsed = serde_json::from_str::<SubscriptionErrorBody>(&body).ok();
+            let message = parsed
+                .as_ref()
+                .and_then(|p| p.message.clone())
+                .filter(|m| !m.trim().is_empty())
+                .unwrap_or_else(|| "Cloud sync requires an active rem Cloud subscription.".into());
+            let upgrade_url = parsed
+                .and_then(|p| p.upgrade_url)
+                .filter(|u| !u.trim().is_empty());
+            Err(SyncError::SubscriptionRequired {
+                message,
+                upgrade_url,
+            })
+        }
         StatusCode::PAYLOAD_TOO_LARGE => Err(SyncError::PayloadTooLarge(body)),
         _ => Err(SyncError::Http {
             status: status.as_u16(),

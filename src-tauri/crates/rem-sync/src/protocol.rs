@@ -60,12 +60,20 @@ impl OAuthProvider {
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthProviders {
     pub google: bool,
     pub apple: bool,
     pub dev_token: bool,
+    #[serde(default)]
+    pub subscription_required: bool,
+    #[serde(default)]
+    pub upgrade_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,6 +100,14 @@ pub struct AccountProfile {
     pub email: Option<String>,
     pub providers: Vec<String>,
     pub auth_method: String,
+    #[serde(default = "default_true")]
+    pub sync_enabled: bool,
+    #[serde(default)]
+    pub subscription_required: bool,
+    #[serde(default)]
+    pub subscription_status: Option<String>,
+    #[serde(default)]
+    pub upgrade_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

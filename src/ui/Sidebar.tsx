@@ -188,37 +188,43 @@ export function Sidebar({
               className={`side-sync-btn is-${
                 sync.status.activity === 'syncing'
                   ? 'syncing'
-                  : sync.status.activity === 'error' || sync.status.lastError
-                    ? 'error'
-                    : !sync.status.signedIn || sync.status.pendingOutbox > 0
-                      ? 'pending'
-                      : 'synced'
+                  : sync.status.subscriptionRequired
+                    ? 'pending'
+                    : sync.status.activity === 'error' || sync.status.lastError
+                      ? 'error'
+                      : !sync.status.signedIn || sync.status.pendingOutbox > 0
+                        ? 'pending'
+                        : 'synced'
               }`}
               aria-label={
                 sync.status.activity === 'syncing'
                   ? 'Cloud sync in progress'
-                  : sync.status.activity === 'error' || sync.status.lastError
-                    ? 'Cloud sync error — open settings'
-                    : !sync.status.signedIn
-                      ? 'Cloud sync signed out — open settings'
-                      : sync.status.pendingOutbox > 0
-                        ? `Cloud sync: ${sync.status.pendingOutbox} pending — click to sync`
-                        : 'Cloud synced — click to sync now'
+                  : sync.status.subscriptionRequired
+                    ? 'rem Cloud subscription required — open settings'
+                    : sync.status.activity === 'error' || sync.status.lastError
+                      ? 'Cloud sync error — open settings'
+                      : !sync.status.signedIn
+                        ? 'Cloud sync signed out — open settings'
+                        : sync.status.pendingOutbox > 0
+                          ? `Cloud sync: ${sync.status.pendingOutbox} pending — click to sync`
+                          : 'Cloud synced — click to sync now'
               }
               title={
                 sync.status.activity === 'syncing'
                   ? 'Syncing…'
-                  : sync.status.lastError
-                    ? `Sync error: ${sync.status.lastError}`
-                    : !sync.status.signedIn
-                      ? 'Signed out — open Settings'
-                      : sync.status.pendingOutbox > 0
-                        ? `${sync.status.pendingOutbox} pending change(s) — click to sync`
-                        : 'Synced — click to sync now'
+                  : sync.status.subscriptionRequired
+                    ? 'rem Cloud subscription required — open Settings'
+                    : sync.status.lastError
+                      ? `Sync error: ${sync.status.lastError}`
+                      : !sync.status.signedIn
+                        ? 'Signed out — open Settings'
+                        : sync.status.pendingOutbox > 0
+                          ? `${sync.status.pendingOutbox} pending change(s) — click to sync`
+                          : 'Synced — click to sync now'
               }
               disabled={sync.status.activity === 'syncing'}
               onClick={() => {
-                if (!sync.status?.signedIn || sync.status.lastError) {
+                if (!sync.status?.signedIn || sync.status.lastError || sync.status.subscriptionRequired) {
                   navigate('/settings')
                 } else {
                   void sync.syncNow().catch(() => {})
