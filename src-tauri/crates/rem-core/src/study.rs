@@ -92,6 +92,12 @@ struct StudyItem {
     force_due: bool,
 }
 
+#[derive(Debug, Clone)]
+struct LastGradeUndo {
+    previous_item: StudyItem,
+    previous_notice: Option<LeechAction>,
+}
+
 #[derive(Debug)]
 pub struct StudySession {
     queue: Vec<StudyItem>,
@@ -101,6 +107,7 @@ pub struct StudySession {
     reviewed: u32,
     preview: bool,
     notice: Option<LeechAction>,
+    last_grade: Option<LastGradeUndo>,
 }
 
 impl StudySession {
@@ -170,9 +177,14 @@ impl StudySession {
             reviewed: 0,
             preview,
             notice: None,
+            last_grade: None,
         };
         session.select_next(now);
         Ok(session)
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.last_grade.is_some()
     }
 
     pub fn view(&self) -> StudyView {
@@ -293,8 +305,10 @@ impl StudySession {
             Err(error) => return Err(error),
         }
 
+        let previous_notice = self.notice;
         self.notice = leech.as_ref().map(|(action, _tags, _suspended)| *action);
         let mut graded = self.current.take().expect("current card checked above");
+        let previous_item = graded.clone();
         graded.card.scheduling = next.clone();
         graded.card.updated_at = now;
         graded.local_revision += 1;
@@ -308,6 +322,10 @@ impl StudySession {
         self.reviewed += 1;
         self.revealed = false;
         self.next_states = None;
+        self.last_grade = Some(LastGradeUndo {
+            previous_item,
+            previous_notice,
+        });
 
         let still_stepping = !graded.card.suspended
             && matches!(next.state, 1 | 3)
@@ -318,6 +336,115 @@ impl StudySession {
         }
         self.select_next(now);
         Ok(StudyGradeOutcome::Graded { view: self.view() })
+    }
+
+    /// Undo the most recent grade committed in this session, restoring the card's prior
+    /// scheduling state in `collection` and re-presenting it as the current card.
+    pub fn undo_last_grade(
+        &mut self,
+        collection: &Collection,
+        now: i64,
+    ) -> Result<StudyView, CollectionError> {
+        let undo = self
+            .last_grade
+            .take()
+            .ok_or_else(|| CollectionError::InvalidInput("no recent grade to undo".into()))?;
+        let prev_card = &undo.previous_item.card;
+        collection.update_card(
+            &prev_card.id,
+            CardPatch {
+                tags: Some(prev_card.tags.clone()),
+                suspended: Some(prev_card.suspended),
+                last_again_at: Some(prev_card.last_again_at),
+                scheduling: Some(prev_card.scheduling.clone()),
+                ..CardPatch::default()
+            },
+            now,
+        )?;
+        let (reloaded_card, reloaded_revision) =
+            load_card_with_revision(collection, &prev_card.id)?.ok_or_else(|| {
+                CollectionError::NotFound {
+                    kind: "card",
+                    id: prev_card.id.clone(),
+                }
+            })?;
+
+        if let Some(current) = self.current.take() {
+            if current.card.id != reloaded_card.id {
+                self.queue.insert(0, current);
+            }
+        }
+        self.queue.retain(|item| item.card.id != reloaded_card.id);
+        self.current = Some(StudyItem {
+            card: reloaded_card,
+            settings: undo.previous_item.settings,
+            local_revision: reloaded_revision,
+            force_due: true,
+        });
+        self.reviewed = self.reviewed.saturating_sub(1);
+        self.revealed = false;
+        self.next_states = None;
+        self.notice = undo.previous_notice;
+        Ok(self.view())
+    }
+
+    /// Suspend the current card in `collection` and advance to the next queued card.
+    pub fn suspend_current(
+        &mut self,
+        collection: &Collection,
+        now: i64,
+    ) -> Result<StudyView, CollectionError> {
+        let current = self.current.as_ref().ok_or_else(|| {
+            CollectionError::InvalidInput("study session has no current card".into())
+        })?;
+        let card_id = current.card.id.clone();
+        collection.update_card(
+            &card_id,
+            CardPatch {
+                suspended: Some(true),
+                ..CardPatch::default()
+            },
+            now,
+        )?;
+        self.queue.retain(|item| item.card.id != card_id);
+        self.discard_current();
+        self.select_next(now);
+        Ok(self.view())
+    }
+
+    /// Reload the current card's content and local revision from `collection` (e.g., after in-review editing).
+    pub fn reload_current(
+        &mut self,
+        collection: &Collection,
+        now: i64,
+    ) -> Result<StudyView, CollectionError> {
+        let Some(current) = self.current.as_mut() else {
+            return Ok(self.view());
+        };
+        let Some((reloaded_card, reloaded_revision)) =
+            load_card_with_revision(collection, &current.card.id)?
+        else {
+            self.discard_current();
+            self.select_next(now);
+            return Ok(self.view());
+        };
+        if reloaded_card.suspended {
+            let card_id = reloaded_card.id.clone();
+            self.queue.retain(|item| item.card.id != card_id);
+            self.discard_current();
+            self.select_next(now);
+            return Ok(self.view());
+        }
+        current.card = reloaded_card;
+        current.local_revision = reloaded_revision;
+        if self.revealed && !self.preview {
+            self.next_states = Some(next_states(
+                &current.card.scheduling,
+                &current.settings,
+                now,
+            )?);
+        }
+        Ok(self.view())
     }
 
     fn complete_current(&mut self) {
@@ -359,6 +486,27 @@ impl StudySession {
         self.revealed = false;
         self.next_states = None;
     }
+}
+
+fn load_card_with_revision(
+    collection: &Collection,
+    card_id: &str,
+) -> Result<Option<(Card, u64)>, CollectionError> {
+    let connection = collection
+        .connection
+        .lock()
+        .map_err(|_| CollectionError::Poisoned)?;
+    let mut statement = connection.prepare(
+        "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
+                suspended, last_again_at, scheduling_json, due, local_revision
+         FROM cards
+         WHERE id = ?1",
+    )?;
+    let mut rows = statement.query([card_id])?;
+    rows.next()?
+        .map(|row| Ok::<_, rusqlite::Error>((card_from_row(row)?, row.get(11)?)))
+        .transpose()
+        .map_err(Into::into)
 }
 
 fn load_active_items(

@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -411,14 +412,24 @@ pub fn open_system_browser(url: &str) -> Result<(), SyncError> {
     #[cfg(target_os = "windows")]
     let status = Command::new("cmd").args(["/C", "start", "", url]).status();
 
-    match status {
-        Ok(exit) if exit.success() => Ok(()),
-        Ok(exit) => Err(SyncError::OAuth(format!(
-            "system browser exited with status {exit}"
-        ))),
-        Err(err) => Err(SyncError::OAuth(format!(
-            "could not launch system browser: {err}"
-        ))),
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+    {
+        match status {
+            Ok(exit) if exit.success() => Ok(()),
+            Ok(exit) => Err(SyncError::OAuth(format!(
+                "system browser exited with status {exit}"
+            ))),
+            Err(err) => Err(SyncError::OAuth(format!(
+                "could not launch system browser: {err}"
+            ))),
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        Err(SyncError::OAuth(
+            "opening system browser directly is not supported on this platform; use native web authentication".into(),
+        ))
     }
 }
 

@@ -48,6 +48,19 @@ impl Collection {
             .map_err(Into::into)
     }
 
+    pub fn asset_stats(&self) -> Result<(u64, u64), CollectionError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| CollectionError::Poisoned)?;
+        let (count, total_bytes): (i64, i64) = connection.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(LENGTH(bytes)), 0) FROM assets",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok((count.max(0) as u64, total_bytes.max(0) as u64))
+    }
+
     pub fn sweep_orphan_assets(&self) -> Result<usize, CollectionError> {
         let mut connection = self
             .connection
