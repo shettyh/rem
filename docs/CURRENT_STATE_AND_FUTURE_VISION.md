@@ -1,6 +1,6 @@
 # rem — Current State & Future Vision
 
-_Last reviewed: 2026-11-21 · based on `v0.15.0` plus Cloud sync (Slices 1–3) and hosted `rem Cloud` entitlement gating_
+_Last reviewed: 2026-11-21 · based on `v0.16.0` plus Cloud Sync (Slices 1–3), hosted `rem Cloud` entitlement gating, and iOS Companion v1 (Slice 4)_
 
 This document is the canonical product snapshot for future planning. Dated files under
 `docs/superpowers/` record the decisions and implementation history behind individual slices;
@@ -21,14 +21,14 @@ human tries, inspects, edits, accepts, or rejects each draft
         ↓
 accepted cards enter normal FSRS scheduling
         ↓
-human studies in the desktop app or terminal
+human studies in the desktop app, terminal, or iPhone
 ```
 
 The product should make five things especially easy:
 
-1. **Capture** a durable card from the app or terminal without interrupting the user's work.
+1. **Capture** a durable card from the desktop app, terminal, or iPhone without interrupting the user's work.
 2. **Turn agent work into learning opportunities** without silently scheduling generated content.
-3. **Review** the right cards in a calm, fast, keyboard-friendly desktop or terminal session.
+3. **Review** the right cards in a calm, fast session across desktop, terminal, and iPhone.
 4. **Understand and tune** the study plan without requiring scheduling expertise.
 5. **Own and move the data** without depending on an account, hosted service, or model provider.
 
@@ -40,18 +40,25 @@ The product should make five things especially easy:
 - **Correct model for the job.** FSRS schedules reviews; an LLM does not.
 - **Provider-neutral agent integration.** A versioned CLI is the public seam. rem does not require or
   embed an agent runtime or model provider.
-- **One review implementation.** Desktop and terminal adapters use the same Rust `StudySession` so
-  scheduling, caps, learning steps, leeches, and concurrency behavior cannot drift.
+- **One review implementation.** Desktop, terminal, and iOS adapters use the same Rust `StudySession`
+  so scheduling, caps, learning steps, leeches, and concurrency behavior cannot drift.
 - **Simple before clever.** Prefer a dependable proposal → approval → study loop over speculative
   automation.
-- **Stable seams.** Scheduling, persistence, sync transport, and agent-facing operations stay behind
-  small intent-level interfaces.
+- **Stable seams.** Scheduling, persistence, sync transport, FFI, and agent-facing operations stay
+  behind small intent-level interfaces.
 
 ## Current state
 
-rem is a local-first Tauri v2 desktop application with a companion `rem` CLI. React, TypeScript, and
-Vite render the desktop webview; Rust owns native persistence, scheduling, study sessions, and CLI
-commands. The browser build is an internal webview/test adapter, not a supported browser product.
+rem is a local-first spaced-repetition suite built around a shared Rust core (`rem-core` and
+`rem-sync`):
+
+- **Desktop app:** Tauri v2 desktop application with React, TypeScript, and Vite rendering the
+  webview; Rust owns native persistence, scheduling, study sessions, and cloud sync. The browser
+  build is an internal webview/test adapter, not a supported browser product.
+- **Terminal CLI:** Companion `rem` CLI for agent/script capture, draft ingestion, cloud sync, and
+  interactive terminal study (`rem study`).
+- **iOS companion:** Native SwiftUI iPhone app (`ios/`) backed by `rem-core` and `rem-sync` via
+  UniFFI (`src-tauri/crates/rem-ffi` packaged as `RemCore.xcframework`).
 
 ### Agent-first capture and draft approval
 
@@ -75,43 +82,63 @@ commands. The browser build is an internal webview/test adapter, not a supported
 
 ### Card editing and assets
 
-- Full-screen add/edit experience using a TipTap WYSIWYG-Markdown editor; Markdown remains the
-  stored source of truth.
+- Desktop full-screen add/edit experience using a TipTap WYSIWYG-Markdown editor; Markdown remains
+  the stored source of truth.
 - Formatting toolbar for headings, emphasis, lists, links, inline code, and fenced code blocks.
-- Syntax-highlighted code when editing and reviewing.
-- Image and GIF ingestion through file picker, paste, or drag-and-drop.
+- Syntax-highlighted code when editing and reviewing (desktop and iOS).
+- Image and GIF ingestion through file picker, paste, drag-and-drop (desktop), and iOS Photos picker.
 - Content-addressed binary assets render in cards and travel through backup and cloud sync (via R2).
 - User-defined tags, tag chips, and per-deck tag filtering.
 - Create, edit, delete, suspend, and restore cards.
 
 ### Decks and study
 
-- Flat deck organization with colors, live due counts, and cross-deck study.
+- Flat deck organization with colors, live due counts, deck progress rings, and cross-deck study.
 - FSRS-6 calculation and optimization live in `rem-core`; SM-2 has been removed.
 - A shared Rust `StudySession` owns due selection, daily caps, learning/relearning steps, FSRS
-  choices, custom study, leeches, review persistence, counters, requeueing, and stale-card conflicts.
-- The desktop review page is a rendering/input adapter over process-local Tauri study sessions.
-- `rem study` reviews all decks; `rem study --deck <id-or-exact-name>` reviews one deck through the
+  choices, custom study, leeches, review persistence, undo snapshots, counters, requeueing, and
+  stale-card conflicts.
+- The desktop review page, `rem study` TUI, and iOS `ReviewScreen` are all thin adapters over the
   same `StudySession` implementation.
-- The interactive TUI supports Space/Enter reveal, 1–4 grading, arrow/j/k scrolling, resize, clean
-  `q` exit, interval previews, progress, completion counts, leech notices, and stale-card messages.
-- Terminal Markdown renders headings, lists, emphasis, links, inline/fenced code, and explicit
-  image/GIF placeholders containing asset hashes.
+- `rem study` reviews all decks; `rem study --deck <id-or-exact-name>` reviews one deck. The
+  interactive TUI supports Space/Enter reveal, 1–4 grading, arrow/j/k scrolling, resize, clean `q`
+  exit, interval previews, progress, completion counts, leech notices, stale-card messages, and
+  explicit image/GIF placeholders containing asset hashes.
 - Custom desktop study modes include study ahead, additional new cards, forgotten cards, and
   non-rescheduling new-card preview.
 - Per-deck controls cover desired retention, learning/relearning steps, new/review limits, insertion
   order, minimum/maximum intervals, leech behavior, and personalized FSRS weights.
 
+### iOS companion app (v1)
+
+- Native SwiftUI iPhone app (`ios/RemApp/`, iOS 17+) following the Quiet Paper Light/Dark visual
+  system matching desktop design tokens.
+- Navigation uses 4 tabs (`Today`, `Decks`, `Stats`, `Settings`) plus a dedicated center `+` Quick
+  Capture button, hiding chrome during full-screen review.
+- **First-run & local-first:** No startup login wall — users can start locally on device SQLite,
+  connect to `rem Cloud`, or configure a self-hosted sync server URL.
+- **Focused review:** Tap-to-reveal + 4-button FSRS-6 grade dock with live intervals, optional
+  haptics, adjustable card text size (`S / M / L`), in-review card editing, undo last grade, card
+  suspension, dark syntax-highlighted code blocks, and offline `asset:<hash>` image/GIF rendering
+  with a pinch-to-zoom lightbox.
+- **Quick capture & deck browsing:** Fast card creation/editing with Write/Preview toggle, Markdown
+  keyboard toolbar, tag editor, iOS Photos image attachment (SHA-256 stored in SQLite), and deck/tag
+  filtering.
+- **Stats, habits & sync:** 7D/30D/90D Stats dashboard with per-deck breakdown, Apple/Google OAuth
+  via `ASWebAuthenticationSession` + iOS Keychain (`FfiCredentialStore`), automatic and pull-to-refresh
+  Cloud Sync, local daily reminders via `UNUserNotificationCenter` (scheduled when due > 0), and
+  JSON backup export via the iOS share sheet.
+
 ### Insight and history
 
 - Review history records FSRS-effective grades.
-- Stats dashboard supports global or per-deck scope, 7/30/90-day ranges, review activity, recall
-  rate, streak, active days, grade distribution, and deck breakdown.
-- Daily-cap counters are local to each machine; review history is included in backup and sync.
+- Stats dashboards (desktop and iOS) support global or per-deck scope, 7/30/90-day ranges, review
+  activity, recall rate, streak, active days, grade distribution, and deck breakdown.
+- Daily-cap counters are local to each device; review history is included in backup and sync.
 
 ### Data, backup, and sync
 
-- Native desktop and CLI operations use SQLite through `rem-core`; the TypeScript `Storage`
+- Native desktop, CLI, and iOS operations use SQLite through `rem-core`; the TypeScript `Storage`
   interface keeps React independent of native commands, and Dexie remains a browser-test adapter.
 - SQLite schema v3 contains local-only drafts, per-card optimistic `local_revision` values,
   per-domain Hybrid Logical Clocks (HLCs), and local `sync_meta` / `sync_outbox` / `synced_assets`
@@ -121,25 +148,31 @@ commands. The browser build is an internal webview/test adapter, not a supported
 - Legacy Git sync has been removed in favor of optional Cloud sync (`Local only` vs. `Cloud sync`).
   The shared `rem-sync` crate talks to the open-source Cloudflare Workers + SQLite Durable Objects +
   D1 + R2 backend in `sync-server/` (either hosted `rem Cloud` or a self-hosted deployment).
+- Hosted `rem Cloud` supports server-side entitlement gating (`REQUIRE_SUBSCRIPTION`), early-access
+  approvals in D1, and a same-origin `/cloud` waitlist page.
 - Google and Apple OAuth (PKCE + short-lived JWTs + rotating refresh tokens) store credentials in
-  the OS Keychain; commutative per-domain HLC merges and tombstones resolve concurrent edits and
-  reviews automatically without halting conflict dialogs.
+  the OS Keychain (desktop `keyring` and iOS Security framework via `rem-ffi`); commutative
+  per-domain HLC merges and tombstones resolve concurrent edits and reviews automatically without
+  halting conflict dialogs.
 - Unapproved drafts and local daily-cap counters are intentionally excluded from backup and cloud sync.
-- Manual sync from Settings, automatic sync triggers (startup, debounced writes, focus/online,
-  periodic), account deletion, and `rem sync` CLI commands are implemented.
+- Manual sync from Settings, automatic sync triggers (startup/foreground, debounced writes,
+  focus/online, periodic, post-review), account deletion, and `rem sync` CLI commands are implemented.
 
 ### Desktop experience and delivery
 
-- Sidebar/content native shell with light and dark themes, custom icons, and native window chrome.
+- Collapsible icon-rail sidebar and native content shell with light and dark themes, dense cards
+  list, custom icons, and native window chrome.
 - Installers build for Apple Silicon and Intel macOS, Linux, and Windows.
 - Release workflows package the unchanged `rem` CLI binary alongside desktop installers.
 - A macOS/Linux curl installer installs both desktop and CLI; Windows publishes a separate CLI zip.
-- CI covers TypeScript/unit tests, real-browser flows, Rust formatting, Clippy, Rust tests, frontend
-  builds, security auditing, and cross-platform installer/CLI builds.
+- CI covers TypeScript/unit tests, real-browser flows, Rust formatting, Clippy, Rust workspace tests,
+  frontend builds, security auditing, and cross-platform desktop/CLI release builds.
 
-## Completed agent-first milestone
+## Completed milestones
 
-The four slices in
+### 1. Agent-first learning loop
+
+All four slices in
 [`2026-08-09-agent-first-learning-loop-design.md`](superpowers/specs/2026-08-09-agent-first-learning-loop-design.md)
 are implemented:
 
@@ -148,16 +181,23 @@ are implemented:
 3. **Shared Rust study module** — complete review behavior and FSRS moved behind `StudySession`.
 4. **`rem study` TUI** — all-deck/single-deck terminal review over the shared module.
 
-Current verification passes:
+### 2. Cloud Sync & iOS Companion
 
-- 345 TypeScript/unit/real-browser tests;
-- frontend typecheck and production build;
-- Rust formatting and workspace Clippy with warnings denied;
-- full Rust workspace tests, including temporary-SQLite study tests and pseudo-terminal CLI tests;
-- `git diff --check`.
+All four slices in
+[`2026-11-21-cloudflare-cloud-sync-and-mobile-design.md`](superpowers/specs/2026-11-21-cloudflare-cloud-sync-and-mobile-design.md)
+and [`2026-11-21-ios-companion-design.md`](superpowers/specs/2026-11-21-ios-companion-design.md)
+are implemented:
 
-The frontend build retains only the existing Vite large-chunk advisory; there is no failing release
-gate known in this worktree.
+1. **`rem-core` sync engine** — SQLite schema v3, HLCs, 7 commutative op types, transactional
+   `sync_outbox`, `apply_remote_ops`, and bootstrap generator.
+2. **Cloudflare `sync-server` + `rem-sync`** — Worker, per-user SQLite `UserSyncDO`, R2 content-addressed
+   asset routes, D1 auth/entitlements, and Rust `rem-sync` client.
+3. **Auth, Desktop UI, CLI sync & Git sync retirement** — Apple + Google OAuth, OS Keychain, hosted
+   `rem Cloud` default + self-hosted server URL, `/cloud` waitlist & entitlement gate, `rem sync` CLI,
+   and clean removal of legacy Git sync.
+4. **Native SwiftUI iOS Companion (v1)** — `rem-ffi` UniFFI crate, `RemCore.xcframework` build script,
+   and full SwiftUI iPhone app covering onboarding, Today, Decks, Review, Quick Capture, Stats,
+   Settings, Cloud OAuth, local reminders, and backup export.
 
 ## Known gaps and incomplete behavior
 
@@ -169,39 +209,48 @@ These are real gaps in the resulting product, not features already delivered.
 | Draft provenance | Rationale/source/producer metadata is not retained on the accepted card. |
 | Duplicate help | Draft/card duplicate checks are exact normalized matches, not semantic suggestions. |
 | Draft portability | Pending drafts are local-only and cannot be triaged from another machine or the TUI. |
-| Habit support | No daily reminders or native notifications. |
+| Habit support | No daily reminders or native notifications on desktop (iOS supports local daily reminders via `UNUserNotificationCenter`). |
 | Review options | **Show answer timer** is stored but not rendered. |
 | Related-card burying | The setting is stored but cannot be correctly enforced without a note/template/sibling model. |
 | Organization | Decks are flat; namespaces, nested decks, and folders do not exist. |
-| Cloud sync v1.1 | Server-side op compaction (`/v1/bootstrap`), real-time WebSocket pokes, and automated billing webhooks are deferred beyond initial early access. |
-| Mobile | Slice 4 (iPhone companion sharing `rem-core` + `rem-sync`) has not started yet. |
-| Distribution | macOS is ad-hoc signed rather than notarized; Windows has no Authenticode signature. |
+| Cloud sync v1.1 | Server-side op compaction (`/v1/bootstrap`), real-time WebSocket pokes, automated billing webhooks, and an optional non-Cloudflare self-host server are deferred beyond initial early access. |
+| iOS companion v1.1 | WidgetKit Home/Lock Screen widgets, Share Sheet capture extension, per-deck FSRS settings/optimizer UI, and Custom Study modes are deferred past v1. |
+| CI & Distribution | iOS builds/tests are not yet wired into GitHub Actions or TestFlight/App Store distribution; macOS is ad-hoc signed rather than notarized; Windows has no Authenticode signature. |
 
 ## Future direction
 
-### Phase 1 — Ship and observe the agent-first loop
+### Phase 1 — Ship, distribute, and validate the multi-device loop
 
-1. Review, merge, and release the completed draft → approval → study milestone.
-2. Smoke-test an installed release: external agent draft, desktop acceptance, desktop/TUI study, and
-   stale-grade protection against one shared collection.
-3. Perform the documented two-machine Git-sync validation, including concurrent edits and deletion
-   propagation.
-4. Observe whether inbox age stays bounded and whether proposals are accepted with small edits.
+1. Cut the next desktop/CLI release including Cloud Sync and the desktop/iOS UX polish pass.
+2. Smoke-test installed releases across all surfaces: external agent draft → desktop acceptance →
+   desktop/TUI study, and physical iPhone ↔ desktop/CLI Cloud Sync convergence (offline grading,
+   photo/asset sync, reconnect, and force-quit recovery).
+3. Wire iOS builds/tests into CI and set up Apple Developer signing for TestFlight / App Store
+   distribution (and macOS notarization / Windows Authenticode signing when ready).
+4. Observe whether draft inbox age stays bounded and whether agent proposals are accepted with small
+   edits.
 
-**Outcome:** the complete local agent/human learning loop is trustworthy in a packaged release.
+**Outcome:** the complete local + multi-device agent/human learning loop is trustworthy in packaged
+releases across desktop, terminal, and iPhone.
 
-### Phase 2 — Improve learning quality and daily use from evidence
+### Phase 2 — Cloud Sync v1.1, iOS v1.1, and daily habit ergonomics
 
-Only add draft feedback features after observing real use:
+Prioritize high-leverage multi-device polish and evidence-backed habit features:
 
-1. Optional rejection reasons and aggregate acceptance/edit-rate summaries.
-2. Accepted-card provenance when it demonstrably helps trust or later quality analysis.
-3. Semantic duplicate suggestions while preserving exact duplicate outcomes as the hard rule.
-4. A TUI draft inbox or `$EDITOR` handoff if terminal-only users need approval away from desktop.
-5. Native reminders, the existing answer-timer setting, and a collapsible sidebar.
+1. **Cloud Sync v1.1:** server-side op compaction (`/v1/bootstrap` + gzipped R2 snapshots),
+   Hibernatable WebSocket real-time pokes, automated billing webhooks (and optional non-Cloudflare
+   VPS/Docker server if self-hosters need it).
+2. **iOS Companion v1.1:** WidgetKit Home/Lock Screen widgets (with App Group SQLite migration),
+   Safari/system Share Sheet capture extension, per-deck FSRS settings & weight optimizer UI, and
+   Custom Study modes.
+3. **Draft quality & desktop habit polish** (only as real usage justifies them):
+   - Optional rejection reasons and aggregate acceptance/edit-rate summaries.
+   - Accepted-card provenance when it demonstrably helps trust or later quality analysis.
+   - A TUI draft inbox or `$EDITOR` handoff if terminal-only users need approval away from desktop.
+   - Desktop native reminders and rendering the stored answer-timer setting.
 
-**Outcome:** agents learn to propose fewer, better prompts and humans can sustain the habit with less
-friction.
+**Outcome:** multi-device sync feels instantaneous, iOS covers power-user daily study and quick
+capture from anywhere, and humans sustain the review habit with less friction.
 
 ### Phase 3 — Strengthen the knowledge model
 
@@ -217,7 +266,7 @@ card/deck experience.
 
 Start with rebuildable local embeddings rather than a scheduler or automatic author:
 
-1. Semantic duplicate suggestions.
+1. Semantic duplicate suggestions (while preserving exact duplicate outcomes as the hard rule).
 2. Search across decks.
 3. Related-card suggestions during review.
 4. Topic-aware interleaving experiments.
