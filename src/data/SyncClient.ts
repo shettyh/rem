@@ -61,6 +61,7 @@ export interface SyncClient {
   syncNow(): Promise<SyncStatus>
   signOut(): Promise<SyncStatus>
   deleteAccount(): Promise<SyncStatus>
+  openExternalUrl(url: string): Promise<void>
   subscribeStatus(listener: (status: SyncStatus) => void): () => void
   subscribeRemoteApplied(listener: (appliedOps: number) => void): () => void
 }
@@ -105,6 +106,10 @@ export class TauriSyncClient implements SyncClient {
 
   deleteAccount(): Promise<SyncStatus> {
     return invoke<SyncStatus>('sync_delete_account')
+  }
+
+  openExternalUrl(url: string): Promise<void> {
+    return invoke<void>('sync_open_external_url', { url })
   }
 
   subscribeStatus(listener: (status: SyncStatus) => void): () => void {
@@ -191,6 +196,10 @@ export class LocalOnlySyncClient implements SyncClient {
 
   async deleteAccount(): Promise<SyncStatus> {
     return { ...DEFAULT_LOCAL_STATUS }
+  }
+
+  async openExternalUrl(url: string): Promise<void> {
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   subscribeStatus(): () => void {

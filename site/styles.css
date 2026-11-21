@@ -892,6 +892,12 @@ h2 em {
   font-size: 12px;
 }
 
+.inline-link {
+  color: var(--purple);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 @media (max-width: 1080px) {
   .hero {
     grid-template-columns: 0.9fr 1.1fr;

@@ -19,6 +19,7 @@ import type {
   SubscriptionStatus,
   TokenExchangeRequest,
   TokenRefreshRequest,
+  WaitlistRequest,
 } from './types'
 
 const ACCESS_TOKEN_TTL_SEC = 15 * 60
@@ -36,7 +37,47 @@ const DEFAULT_APPLE_JWKS_URL = 'https://appleid.apple.com/auth/keys'
 
 const PKCE_CHALLENGE_RE = /^[A-Za-z0-9_-]{43,128}$/
 const PKCE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+const MAX_EMAIL_LENGTH = 254
+const MAX_WAITLIST_NOTE_LENGTH = 280
 const TEXT_ENCODER = new TextEncoder()
+
+export async function handleWaitlistSignup(request: Request, env: Env): Promise<Response> {
+  if (!env.DB) {
+    return jsonResponse({ error: 'waitlist_not_configured' }, 503)
+  }
+
+  let body: WaitlistRequest
+  try {
+    body = (await request.json()) as WaitlistRequest
+  } catch {
+    return jsonResponse({ error: 'invalid_json' }, 400)
+  }
+
+  if (body && typeof body.website === 'string' && body.website.trim().length > 0) {
+    // Honeypot triggered by bot: pretend success without touching D1.
+    return jsonResponse({ ok: true })
+  }
+
+  const rawEmail = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
+  if (!rawEmail || rawEmail.length > MAX_EMAIL_LENGTH || !EMAIL_RE.test(rawEmail)) {
+    return jsonResponse({ error: 'invalid_email', message: 'Enter a valid email address.' }, 400)
+  }
+
+  const rawNote = typeof body?.note === 'string' ? body.note.trim() : ''
+  const note = rawNote.length > 0 ? rawNote.slice(0, MAX_WAITLIST_NOTE_LENGTH) : null
+  const now = Date.now()
+
+  await env.DB.prepare(
+    `INSERT INTO early_access(email, status, note, created_at, updated_at)
+     VALUES (?1, 'waitlist', ?2, ?3, ?3)
+     ON CONFLICT(email) DO NOTHING`,
+  )
+    .bind(rawEmail, note, now)
+    .run()
+
+  return jsonResponse({ ok: true })
+}
 
 export function isGoogleConfigured(env: Env): boolean {
   return Boolean(
@@ -590,12 +631,33 @@ export async function checkSyncEntitlement(
   const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?1')
     .bind(userId)
     .first<{ email: string | null }>()
-  if (isEmailAllowlisted(env, user?.email ?? null)) {
+  const normalizedEmail = user?.email?.trim().toLowerCase() ?? null
+  if (isEmailAllowlisted(env, normalizedEmail)) {
     return {
       syncEnabled: true,
       subscriptionRequired: true,
       subscriptionStatus: 'allowlisted',
       upgradeUrl,
+    }
+  }
+
+  if (normalizedEmail) {
+    try {
+      const earlyAccess = await env.DB.prepare(
+        'SELECT status FROM early_access WHERE email = ?1',
+      )
+        .bind(normalizedEmail)
+        .first<{ status: string }>()
+      if (earlyAccess?.status === 'approved') {
+        return {
+          syncEnabled: true,
+          subscriptionRequired: true,
+          subscriptionStatus: 'allowlisted',
+          upgradeUrl,
+        }
+      }
+    } catch {
+      // Ignore if the early_access migration has not been applied yet.
     }
   }
 

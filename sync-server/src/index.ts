@@ -1,4 +1,5 @@
 import { authenticateRequest, sha256HexBytes } from './auth'
+import { renderCloudPage } from './cloudPage'
 import {
   checkSyncEntitlement,
   deleteAccountData,
@@ -9,6 +10,7 @@ import {
   handleOAuthStart,
   handleTokenExchange,
   handleTokenRefresh,
+  handleWaitlistSignup,
 } from './oauth'
 import type { Env, MissingAssetsRequest, SyncRequest } from './types'
 import { UserSyncDO } from './userSyncDo'
@@ -45,6 +47,10 @@ export default {
       return jsonResponse({ ok: true })
     }
 
+    if (request.method === 'GET' && (url.pathname === '/cloud' || url.pathname === '/cloud/')) {
+      return renderCloudPage()
+    }
+
     // Public auth routes
     if (request.method === 'GET' && url.pathname === '/v1/auth/providers') {
       return jsonResponse(getAuthProviders(env))
@@ -70,6 +76,10 @@ export default {
 
     if (request.method === 'POST' && url.pathname === '/v1/auth/logout') {
       return handleLogout(request, env)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/waitlist') {
+      return handleWaitlistSignup(request, env)
     }
 
     // Authenticated routes

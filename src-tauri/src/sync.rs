@@ -429,6 +429,11 @@ pub async fn sync_sign_out(app: AppHandle) -> Result<SyncStatusSnapshot, String>
 }
 
 #[tauri::command]
+pub fn sync_open_external_url(url: String) -> Result<(), String> {
+    open_system_browser(&url).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub async fn sync_delete_account(app: AppHandle) -> Result<SyncStatusSnapshot, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let collection = app.state::<Collection>();

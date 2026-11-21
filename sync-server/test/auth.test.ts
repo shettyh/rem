@@ -2,6 +2,7 @@ import { env } from 'cloudflare:test'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import migrationSql from '../migrations/0001_auth.sql?raw'
 import entitlementsMigrationSql from '../migrations/0002_entitlements.sql?raw'
+import earlyAccessMigrationSql from '../migrations/0003_early_access.sql?raw'
 import worker from '../src/index'
 import type { Env } from '../src/types'
 
@@ -94,7 +95,7 @@ async function signEs256Jwt(
 }
 
 async function applyAuthMigration() {
-  for (const raw of [migrationSql, entitlementsMigrationSql]) {
+  for (const raw of [migrationSql, entitlementsMigrationSql, earlyAccessMigrationSql]) {
     const statements = raw
       .split(';')
       .map((s: string) => s.trim())
@@ -609,5 +610,128 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       gatedEnv,
     )
     expect(unblockedSync.status).toBe(200)
+  })
+
+  it('serves the /cloud early-access page, records waitlist requests without auto-enabling sync, and unlocks sync once approved in D1', async () => {
+    const gatedEnv: Env = {
+      ...TEST_ENV,
+      REQUIRE_SUBSCRIPTION: 'true',
+      UPGRADE_URL: 'https://rem-sync.shettyh.fyi/cloud',
+    }
+
+    const cloudPage = await callWorker('https://sync.example.com/cloud', undefined, gatedEnv)
+    expect(cloudPage.status).toBe(200)
+    expect(cloudPage.headers.get('Content-Type')).toContain('text/html')
+    const html = await cloudPage.text()
+    expect(html).toContain('waitlist-form')
+    expect(html).toContain('/v1/waitlist')
+
+    const cloudPageSlash = await callWorker('https://sync.example.com/cloud/', undefined, gatedEnv)
+    expect(cloudPageSlash.status).toBe(200)
+
+    const badEmail = await callWorker(
+      'https://sync.example.com/v1/waitlist',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'not-an-email' }),
+      },
+      gatedEnv,
+    )
+    expect(badEmail.status).toBe(400)
+
+    // Honeypot submission pretends success without storing a row.
+    const bot = await callWorker(
+      'https://sync.example.com/v1/waitlist',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'bot@example.com', website: 'https://spam.invalid' }),
+      },
+      gatedEnv,
+    )
+    expect(bot.status).toBe(200)
+    const botRow = await TEST_ENV.DB!.prepare('SELECT email FROM early_access WHERE email = ?1')
+      .bind('bot@example.com')
+      .first()
+    expect(botRow).toBeNull()
+
+    // Genuine waitlist request stores status = 'waitlist' and still requires approval.
+    const signup = await callWorker(
+      'https://sync.example.com/v1/waitlist',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: '  Beta@Example.com ', note: 'macOS + iPhone' }),
+      },
+      gatedEnv,
+    )
+    expect(signup.status).toBe(200)
+    expect(await signup.json()).toEqual({ ok: true })
+
+    const betaUser = await completeGoogleLogin({
+      sub: 'google-sub-beta',
+      email: 'beta@example.com',
+    })
+
+    const stillBlocked = await callWorker(
+      'https://sync.example.com/v1/sync',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${betaUser.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ deviceId: 'dev-beta', sinceSeq: 0, ops: [] }),
+      },
+      gatedEnv,
+    )
+    expect(stillBlocked.status).toBe(402)
+
+    // Approving the email in D1 immediately grants sync access.
+    await TEST_ENV.DB!.prepare(
+      `UPDATE early_access SET status = 'approved', updated_at = ?1 WHERE email = ?2`,
+    )
+      .bind(Date.now(), 'beta@example.com')
+      .run()
+
+    // Re-submitting the same email to the waitlist must not downgrade an approved user.
+    const duplicate = await callWorker(
+      'https://sync.example.com/v1/waitlist',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'beta@example.com' }),
+      },
+      gatedEnv,
+    )
+    expect(duplicate.status).toBe(200)
+
+    const accountResp = await callWorker(
+      'https://sync.example.com/v1/account',
+      { headers: { Authorization: `Bearer ${betaUser.accessToken}` } },
+      gatedEnv,
+    )
+    expect(accountResp.status).toBe(200)
+    expect(await accountResp.json()).toMatchObject({
+      email: 'beta@example.com',
+      syncEnabled: true,
+      subscriptionRequired: true,
+      subscriptionStatus: 'allowlisted',
+    })
+
+    const approvedSync = await callWorker(
+      'https://sync.example.com/v1/sync',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${betaUser.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ deviceId: 'dev-beta', sinceSeq: 0, ops: [] }),
+      },
+      gatedEnv,
+    )
+    expect(approvedSync.status).toBe(200)
   })
 })

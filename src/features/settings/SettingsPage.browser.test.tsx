@@ -68,7 +68,7 @@ function makeMockSyncClient(
         apple: true,
         devToken: true,
         subscriptionRequired: true,
-        upgradeUrl: 'https://shettyh.fyi/rem-cloud',
+        upgradeUrl: 'https://rem-sync.shettyh.fyi/cloud',
       }),
     ),
     signInOAuth: vi.fn(async (serverUrl: string, provider: OAuthProvider): Promise<SignInOutcome> => {
@@ -143,6 +143,7 @@ function makeMockSyncClient(
       emit(next)
       return next
     }),
+    openExternalUrl: vi.fn(async () => {}),
     subscribeStatus: (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -278,14 +279,17 @@ test('shows subscription notice calmly when server returns subscriptionRequired'
     provider: 'google',
     signedIn: true,
     subscriptionRequired: true,
-    upgradeUrl: 'https://shettyh.fyi/rem-cloud',
+    upgradeUrl: 'https://rem-sync.shettyh.fyi/cloud',
     lastError: 'Cloud sync requires an active rem Cloud subscription.',
   })
   renderSettings(storage, syncClient)
 
   await expect.element(page.getByText('Plan required')).toBeVisible()
   await expect.element(page.getByText('rem Cloud subscription required')).toBeVisible()
-  await expect.element(page.getByRole('link', { name: 'Get rem Cloud' })).toBeVisible()
+  const upgradeBtn = page.getByRole('button', { name: 'Get rem Cloud' })
+  await expect.element(upgradeBtn).toBeVisible()
+  await upgradeBtn.click()
+  expect(syncClient.openExternalUrl).toHaveBeenCalledWith('https://rem-sync.shettyh.fyi/cloud')
   await expect.element(page.getByRole('button', { name: 'Retry sync' })).toBeVisible()
 })
 

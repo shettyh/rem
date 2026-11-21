@@ -101,11 +101,11 @@ the important part.
    local embedding model (transformers.js).
 
 **Sync & multi-device**
-- ✅ **Git-backed sync** — **shipped (pending real-world validation)**: rem now also builds as a
-  **Tauri v2 desktop app** that syncs decks/cards across machines via a GitHub repo, shelling out to
-  the **system `git`** with the user's existing credentials (no token stored). Per-record
-  last-writer-wins merge with tombstones, behind the existing `Storage` seam; a `rem-sync`
-  file-per-deck format in the repo. See `docs/superpowers/specs/2026-06-23-github-git-sync-design.md`.
+- ✅ **Cloud sync (Cloudflare Workers + Durable Objects + R2)** — **shipped (Slices 1–3; legacy Git sync retired)**:
+  `rem-core` schema v3 with HLCs and transactional outbox, shared `rem-sync` Rust client, open-source
+  `sync-server/` Worker with Google/Apple OAuth + OS Keychain, desktop UI, and `rem sync` CLI. Supports
+  hosted `rem Cloud` or self-hosting. Slice 4 (iPhone companion) is next. See
+  `docs/superpowers/specs/2026-11-21-cloudflare-cloud-sync-and-mobile-design.md`.
 
 **Longer-term (generative, opt-in)**
 6. **AI card generation from uploads** (#5) — `CardGenerator` interface; BYO-key cloud first,

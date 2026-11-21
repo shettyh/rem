@@ -35,6 +35,7 @@ export interface SyncContextValue {
   syncNow: () => Promise<SyncStatus | null>
   signOut: () => Promise<SyncStatus>
   deleteAccount: () => Promise<SyncStatus>
+  openExternalUrl: (url: string) => Promise<void>
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null)
@@ -243,6 +244,8 @@ export function SyncProvider({
     }
   }, [client, updateStatus])
 
+  const openExternalUrl = useCallback((url: string) => client.openExternalUrl(url), [client])
+
   const value = useMemo<SyncContextValue>(
     () => ({
       supported: client.supported,
@@ -257,6 +260,7 @@ export function SyncProvider({
       syncNow,
       signOut,
       deleteAccount,
+      openExternalUrl,
     }),
     [
       client.supported,
@@ -271,6 +275,7 @@ export function SyncProvider({
       syncNow,
       signOut,
       deleteAccount,
+      openExternalUrl,
     ],
   )
 

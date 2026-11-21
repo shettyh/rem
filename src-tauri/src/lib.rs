@@ -47,6 +47,7 @@ pub fn run() {
             sync::sync_now,
             sync::sync_sign_out,
             sync::sync_delete_account,
+            sync::sync_open_external_url,
         ])
         .setup(|app| {
             let database_path = rem_core::default_database_path()
