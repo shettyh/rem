@@ -63,6 +63,8 @@ export interface ReviewCommit {
 export interface Storage {
   /** Re-run storage-backed UI queries after a mutation through this adapter. */
   subscribe(listener: () => void): () => void
+  /** Notify subscribers after external mutations (e.g., cloud sync pulling remote ops). */
+  notifyExternalChange?(): void
 
   createDeck(name: string, kind?: SchedulerKind): Promise<Deck>
   listDecks(): Promise<Deck[]>

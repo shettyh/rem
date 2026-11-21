@@ -1,14 +1,145 @@
-import { test, expect } from 'vitest'
+import { test, expect, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { SettingsPage } from './SettingsPage'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
 import { serializeBackup, type DeckBackup } from '../../data/backup'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
+import type {
+  AuthProviders,
+  OAuthProvider,
+  SignInOutcome,
+  SyncClient,
+  SyncStatus,
+} from '../../data/SyncClient'
 import packageInfo from '../../../package.json'
 
-function renderSettings(storage: ReturnType<typeof freshStorage>) {
-  return renderRoute({ storage, entry: '/settings', path: '/settings', element: <SettingsPage /> })
+function renderSettings(storage: ReturnType<typeof freshStorage>, syncClient?: SyncClient) {
+  return renderRoute({
+    storage,
+    syncClient,
+    entry: '/settings',
+    path: '/settings',
+    element: <SettingsPage />,
+  })
+}
+
+function makeMockSyncClient(
+  initial: Partial<SyncStatus> = {},
+  overrides: Partial<SyncClient> = {},
+): SyncClient & { current: SyncStatus } {
+  let current: SyncStatus = {
+    mode: 'local',
+    activity: 'idle',
+    serverUrl: null,
+    accountId: null,
+    email: null,
+    provider: null,
+    signedIn: false,
+    deviceId: 'dev-test-1',
+    lastSeq: 0,
+    pendingOutbox: 0,
+    lastSyncedAt: null,
+    lastError: null,
+    ...initial,
+  }
+  const listeners = new Set<(s: SyncStatus) => void>()
+  const emit = (next: SyncStatus) => {
+    current = next
+    for (const l of listeners) l(next)
+  }
+
+  return {
+    get current() {
+      return current
+    },
+    set current(val) {
+      current = val
+    },
+    supported: true,
+    getStatus: vi.fn(async () => current),
+    fetchProviders: vi.fn(
+      async (): Promise<AuthProviders> => ({ google: true, apple: true, devToken: true }),
+    ),
+    signInOAuth: vi.fn(async (serverUrl: string, provider: OAuthProvider): Promise<SignInOutcome> => {
+      const next: SyncStatus = {
+        ...current,
+        mode: 'cloud',
+        serverUrl,
+        accountId: 'usr_alice',
+        email: 'alice@example.com',
+        provider,
+        signedIn: true,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+      }
+      emit(next)
+      return { status: 'connected', snapshot: next, synced: true, syncError: null }
+    }),
+    signInToken: vi.fn(async (serverUrl: string): Promise<SignInOutcome> => {
+      const next: SyncStatus = {
+        ...current,
+        mode: 'cloud',
+        serverUrl,
+        accountId: 'selfhost-1',
+        email: null,
+        provider: 'dev_token',
+        signedIn: true,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+      }
+      emit(next)
+      return { status: 'connected', snapshot: next, synced: true, syncError: null }
+    }),
+    confirmAccountSwitch: vi.fn(async (): Promise<SignInOutcome> => {
+      const next: SyncStatus = {
+        ...current,
+        mode: 'cloud',
+        accountId: 'usr_bob',
+        email: 'bob@example.com',
+        provider: 'google',
+        signedIn: true,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+      }
+      emit(next)
+      return { status: 'connected', snapshot: next, synced: true, syncError: null }
+    }),
+    cancelAccountSwitch: vi.fn(async () => {}),
+    syncNow: vi.fn(async () => {
+      const next: SyncStatus = { ...current, lastSyncedAt: Date.now(), pendingOutbox: 0, lastError: null }
+      emit(next)
+      return next
+    }),
+    signOut: vi.fn(async () => {
+      const next: SyncStatus = { ...current, mode: 'local', signedIn: false, lastError: null }
+      emit(next)
+      return next
+    }),
+    deleteAccount: vi.fn(async () => {
+      const next: SyncStatus = {
+        ...current,
+        mode: 'local',
+        serverUrl: null,
+        accountId: null,
+        email: null,
+        provider: null,
+        signedIn: false,
+        lastSeq: 0,
+        pendingOutbox: 0,
+        lastSyncedAt: null,
+        lastError: null,
+      }
+      emit(next)
+      return next
+    }),
+    subscribeStatus: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    subscribeRemoteApplied: () => () => {},
+    ...overrides,
+  }
 }
 
 test('presents local storage first and keeps per-deck export behind choose decks', async () => {
@@ -48,8 +179,6 @@ test('importing a same-named deck warns, then replaces on confirm', async () => 
   ]
   const file = new File([serializeBackup(incoming, 1000)], 'backup.json', { type: 'application/json' })
 
-  // Locator.upload sets the file on the (real) <input type=file>.
-  // Fallback if unavailable: import { userEvent } from 'vitest/browser'; userEvent.upload(locator, file)
   await page.getByLabelText('Import backup file').upload(file)
 
   await expect.element(page.getByText('will be replaced', { exact: false })).toBeVisible()
@@ -81,4 +210,78 @@ test('defaults sidebar hover auto-expand to on and persists toggling', async () 
   await toggle.click()
   await expect.element(toggle).not.toBeChecked()
   expect(localStorage.getItem('rem-sidebar-hover-expand')).toBe('false')
+})
+
+test('supports cloud sync setup, OAuth sign-in, sidebar status indicator, sign-out, and account deletion', async () => {
+  const storage = freshStorage()
+  const syncClient = makeMockSyncClient()
+  renderSettings(storage, syncClient)
+
+  // Local-only mode by default: no sidebar sync button.
+  await expect.element(page.getByRole('button', { name: 'Cloud sync' })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: /Cloud synced/ })).not.toBeInTheDocument()
+
+  // Switch to Cloud sync -> server URL starts empty.
+  await page.getByRole('button', { name: 'Cloud sync' }).click()
+  const urlInput = page.getByLabelText('Sync server URL')
+  await expect.element(urlInput).toHaveValue('')
+  await urlInput.fill('https://sync.example.com')
+  await page.getByRole('button', { name: 'Continue' }).click()
+
+  // All three advertised providers appear.
+  await expect.element(page.getByRole('button', { name: 'Sign in with Apple' })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Sign in with Google' })).toBeVisible()
+  await expect.element(page.getByLabelText('Self-hosted / personal token')).toBeVisible()
+
+  // Sign in with Google -> shows connected state and sidebar sync indicator.
+  await page.getByRole('button', { name: 'Sign in with Google' }).click()
+  await expect.element(page.getByText('alice@example.com', { exact: false })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Sync now' })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Cloud synced — click to sync now' })).toBeVisible()
+
+  // Manual sync button calls syncNow.
+  await page.getByRole('button', { name: 'Sync now' }).click()
+  expect(syncClient.syncNow).toHaveBeenCalledTimes(1)
+
+  // Delete cloud account requires explicit confirmation.
+  await page.getByRole('button', { name: 'Delete cloud account…' }).click()
+  await expect.element(page.getByRole('heading', { name: 'Delete cloud account?' })).toBeVisible()
+  await page.getByRole('button', { name: 'Delete cloud account' }).click()
+  expect(syncClient.deleteAccount).toHaveBeenCalledTimes(1)
+  await expect.element(page.getByText('Cloud account and remote data deleted', { exact: false })).toBeVisible()
+})
+
+test('prompts before switching a collection bound to another sync account', async () => {
+  const storage = freshStorage()
+  const syncClient = makeMockSyncClient(
+    {
+      mode: 'local',
+      serverUrl: 'https://sync.example.com',
+      accountId: 'usr_alice',
+      email: 'alice@example.com',
+      signedIn: false,
+    },
+    {
+      signInOAuth: vi.fn(async (): Promise<SignInOutcome> => ({
+        status: 'accountMismatch',
+        boundServerUrl: 'https://sync.example.com',
+        boundAccountId: 'usr_alice',
+        incomingServerUrl: 'https://sync.example.com',
+        incomingAccountId: 'usr_bob',
+        incomingEmail: 'bob@example.com',
+        incomingProvider: 'google',
+      })),
+    },
+  )
+  renderSettings(storage, syncClient)
+
+  await expect.element(page.getByText('Cloud sync is paused', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Cloud sync' }).click()
+  await page.getByRole('button', { name: 'Continue' }).click()
+  await page.getByRole('button', { name: 'Sign in with Google' }).click()
+
+  await expect.element(page.getByRole('heading', { name: 'Switch cloud sync account?' })).toBeVisible()
+  await page.getByRole('button', { name: 'Switch account' }).click()
+  expect(syncClient.confirmAccountSwitch).toHaveBeenCalledTimes(1)
+  await expect.element(page.getByText('bob@example.com', { exact: false })).toBeVisible()
 })

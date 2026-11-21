@@ -48,6 +48,10 @@ export class TauriStorage implements Storage {
     return () => this.listeners.delete(listener)
   }
 
+  notifyExternalChange(): void {
+    this.notify()
+  }
+
   async createDeck(name: string, _kind: SchedulerKind = 'fsrs'): Promise<Deck> {
     const deck = await this.call<Deck>('storage_create_deck', { name, now: this.now() })
     this.notify()

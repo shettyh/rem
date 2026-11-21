@@ -721,3 +721,44 @@ fn card_add_by_deck_id_persists_and_retries_as_a_duplicate() {
         json!([{ "id": card_id, "status": "duplicate" }])
     );
 }
+
+#[test]
+fn sync_status_and_local_only_sync_have_stable_output() {
+    let temp = TempDir::new().unwrap();
+    let database = database(&temp);
+
+    let status_out = run(rem(&database).args(["sync", "status", "--output", "json"]));
+    assert!(
+        status_out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status_out.stderr)
+    );
+    let status_json = stdout_json(&status_out);
+    assert_eq!(status_json["version"], 1);
+    assert_eq!(status_json["command"], "sync.status");
+    assert_eq!(status_json["data"]["mode"], "local");
+    assert_eq!(status_json["data"]["signedIn"], false);
+    assert_eq!(status_json["data"]["lastSeq"], 0);
+    assert_eq!(status_json["data"]["pendingOutbox"], 0);
+
+    let sync_out = run(rem(&database).args(["sync", "--output", "json"]));
+    assert_eq!(sync_out.status.code(), Some(6));
+    let sync_err = stdout_json(&sync_out);
+    assert_eq!(sync_err["command"], "sync.run");
+    assert_eq!(sync_err["error"]["code"], "sync_not_configured");
+
+    let logout_out = run(rem(&database).args(["sync", "logout", "--output", "json"]));
+    assert!(
+        logout_out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&logout_out.stderr)
+    );
+    assert_eq!(
+        stdout_json(&logout_out),
+        json!({
+            "version": 1,
+            "command": "sync.logout",
+            "data": { "signedOut": true }
+        })
+    );
+}

@@ -6,6 +6,9 @@ import { playwright } from '@vitest/browser-playwright'
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
+  optimizeDeps: {
+    include: ['@tauri-apps/api/core', '@tauri-apps/api/event'],
+  },
   server: { port: 5173, strictPort: true },
   test: {
     projects: [

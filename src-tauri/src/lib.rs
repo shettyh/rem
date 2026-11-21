@@ -1,6 +1,7 @@
 mod fsrs_sched;
 mod storage;
 mod study;
+mod sync;
 
 use tauri::Manager;
 
@@ -37,6 +38,15 @@ pub fn run() {
             storage::storage_put_asset,
             storage::storage_get_asset,
             storage::storage_sweep_orphan_assets,
+            sync::sync_get_status,
+            sync::sync_fetch_providers,
+            sync::sync_sign_in_oauth,
+            sync::sync_sign_in_token,
+            sync::sync_confirm_account_switch,
+            sync::sync_cancel_account_switch,
+            sync::sync_now,
+            sync::sync_sign_out,
+            sync::sync_delete_account,
         ])
         .setup(|app| {
             let database_path = rem_core::default_database_path()
@@ -45,6 +55,7 @@ pub fn run() {
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
             app.manage(collection);
             app.manage(study::StudySessions::default());
+            app.manage(sync::SyncManager::default());
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(

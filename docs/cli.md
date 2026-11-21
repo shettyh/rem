@@ -1,7 +1,8 @@
 # rem CLI
 
 The `rem` command uses the same local SQLite collection as the desktop app. Commands work while the
-app is closed and do not start Git sync.
+app is closed; when Cloud sync is enabled, local mutations are captured atomically in the outbox and
+can be synced with `rem sync` or automatically by the desktop app.
 
 Agents should propose drafts for human approval. Direct card creation remains available for humans
 and explicitly trusted automation.
@@ -73,7 +74,7 @@ rem draft list
 rem draft list --output json
 ```
 
-Drafts have no scheduling state or due date. They do not affect study counts, stats, backup, or Git
+Drafts have no scheduling state or due date. They do not affect study counts, stats, backup, or cloud
 sync. Open **Drafts** in the desktop sidebar to try the front, reveal the proposal, edit its content
 or target deck, and accept or reject it. Creating or rejecting a draft does not change the
 synchronized collection revision; acceptance creates a normal due card.
@@ -154,7 +155,25 @@ input. Unknown fields are rejected. Exact duplicates have status `duplicate`; us
 `--allow-duplicate` only when a second scheduled copy is intentional. Card batches are atomic and
 support `--dry-run`.
 
-Directly created cards are due immediately and reach Git on the desktop app's next sync.
+Directly created cards are due immediately and reach the sync server on the next `rem sync` or desktop sync.
+
+## Cloud sync
+
+Sign in to a hosted or self-hosted `rem-sync-server` using browser OAuth (Google / Apple) or a
+personal/dev bearer token, then sync from the terminal:
+
+```sh
+rem sync status
+rem sync login --server https://sync.example.com --provider google
+rem sync login --server https://sync.example.com --token <personal-token>
+rem sync
+rem sync logout
+```
+
+Credentials are stored in the OS Keychain and shared with the desktop app (so signing in once works
+for both). For headless scripts or CI, `REM_SYNC_TOKEN` can be set in the environment when running
+`rem sync`. Passing `--reset-binding` to `rem sync login` explicitly unlinks a previous account
+binding if switching accounts (local cards are never deleted).
 
 ## Machine output
 
@@ -236,6 +255,7 @@ Stable exit codes:
 | `3` | Invalid or unreadable input, including starting study without an interactive terminal. |
 | `4` | Missing or ambiguous deck reference. |
 | `5` | Collection/storage failure. |
+| `6` | Cloud sync authentication, configuration, or network failure. |
 
 ## Installation notes
 

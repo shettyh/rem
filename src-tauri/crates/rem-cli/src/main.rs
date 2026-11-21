@@ -18,7 +18,12 @@ use rem_cli::tui::{draw, StudyApp, StudyControl, StudyInput, StudyScope};
 use rem_core::{
     default_database_path, normalize_user_tags, Card, CardDraft, Collection, CollectionError,
     CreateCardsResult, Deck, DraftProposalOutcome, DraftSource, DuplicatePolicy, Grade,
-    NewCardInput, NewDraftInput, ProposalMetadata, ProposalMode, StudyRequest,
+    NewCardInput, NewDraftInput, ProposalMetadata, ProposalMode, StudyRequest, SyncMode,
+};
+use rem_sync::{
+    connect_collection, open_system_browser, run_loopback_oauth, sign_out, sync_authenticated,
+    sync_with_http, verify_dev_token, CredentialStore, KeyringCredentialStore, OAuthProvider,
+    SyncError, SyncReport, DEFAULT_OAUTH_TIMEOUT,
 };
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +31,7 @@ const OUTPUT_VERSION: u8 = 1;
 const EXIT_INPUT: u8 = 3;
 const EXIT_DECK: u8 = 4;
 const EXIT_STORAGE: u8 = 5;
+const EXIT_SYNC: u8 = 6;
 
 #[derive(Parser)]
 #[command(
@@ -48,6 +54,96 @@ enum Command {
     Draft(DraftArgs),
     /// Study due cards in an interactive terminal.
     Study(StudyArgs),
+    /// Synchronize the local collection with a cloud sync server.
+    Sync(SyncArgs),
+}
+
+#[derive(Args)]
+struct SyncArgs {
+    #[command(subcommand)]
+    command: Option<SyncCommand>,
+    /// Select human-readable or versioned machine output (when running `rem sync`).
+    #[arg(long, value_enum, default_value_t)]
+    output: OutputFormat,
+}
+
+#[derive(Subcommand)]
+enum SyncCommand {
+    /// Push pending changes and pull remote updates.
+    Run(SyncRunArgs),
+    /// Show current cloud sync status and pending outbox count.
+    Status(SyncStatusArgs),
+    /// Sign in to a cloud sync server using OAuth or a personal/dev token.
+    Login(SyncLoginArgs),
+    /// Sign out and pause cloud sync (keeps all local cards).
+    Logout(SyncLogoutArgs),
+}
+
+#[derive(Args)]
+struct SyncRunArgs {
+    /// Select human-readable or versioned machine output.
+    #[arg(long, value_enum, default_value_t)]
+    output: OutputFormat,
+}
+
+#[derive(Args)]
+struct SyncStatusArgs {
+    /// Select human-readable or versioned machine output.
+    #[arg(long, value_enum, default_value_t)]
+    output: OutputFormat,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum CliOAuthProvider {
+    Google,
+    Apple,
+}
+
+impl From<CliOAuthProvider> for OAuthProvider {
+    fn from(value: CliOAuthProvider) -> Self {
+        match value {
+            CliOAuthProvider::Google => Self::Google,
+            CliOAuthProvider::Apple => Self::Apple,
+        }
+    }
+}
+
+#[derive(Args)]
+struct SyncLoginArgs {
+    /// Sync server base URL (e.g. https://sync.example.com).
+    #[arg(long)]
+    server: String,
+    /// OAuth provider to use in the browser.
+    #[arg(
+        long,
+        value_enum,
+        conflicts_with = "token",
+        required_unless_present = "token"
+    )]
+    provider: Option<CliOAuthProvider>,
+    /// Self-hosted / personal bearer token (or set REM_SYNC_TOKEN).
+    #[arg(
+        long,
+        conflicts_with = "provider",
+        required_unless_present = "provider"
+    )]
+    token: Option<String>,
+    /// Print the browser sign-in URL instead of automatically launching a browser.
+    #[arg(long)]
+    no_browser: bool,
+    /// Reset an existing sync binding if switching to a different account or server.
+    #[arg(long)]
+    reset_binding: bool,
+    /// Select human-readable or versioned machine output.
+    #[arg(long, value_enum, default_value_t)]
+    output: OutputFormat,
+}
+
+#[derive(Args)]
+struct SyncLogoutArgs {
+    /// Select human-readable or versioned machine output.
+    #[arg(long, value_enum, default_value_t)]
+    output: OutputFormat,
 }
 
 #[derive(Args)]
@@ -297,6 +393,60 @@ struct DraftListData {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncStatusData {
+    mode: SyncMode,
+    server_url: Option<String>,
+    account_id: Option<String>,
+    email: Option<String>,
+    provider: Option<String>,
+    signed_in: bool,
+    device_id: String,
+    last_seq: u64,
+    pending_outbox: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncRunData {
+    uploaded_assets: usize,
+    pushed_ops: usize,
+    pulled_ops: usize,
+    applied_ops: usize,
+    downloaded_assets: usize,
+    latest_seq: u64,
+}
+
+impl From<SyncReport> for SyncRunData {
+    fn from(report: SyncReport) -> Self {
+        Self {
+            uploaded_assets: report.uploaded_assets,
+            pushed_ops: report.pushed_ops,
+            pulled_ops: report.pulled_ops,
+            applied_ops: report.applied_ops,
+            downloaded_assets: report.downloaded_assets,
+            latest_seq: report.latest_seq,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncLoginData {
+    server_url: String,
+    account_id: String,
+    email: Option<String>,
+    provider: String,
+    sync: SyncRunData,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncLogoutData {
+    signed_out: bool,
+}
+
+#[derive(Serialize)]
 struct Success<T> {
     version: u8,
     command: &'static str,
@@ -416,6 +566,10 @@ fn requested_command(args: &[OsString]) -> &'static str {
         (Some(group), Some(command)) if group == "card" && command == "add" => "card.add",
         (Some(group), Some(command)) if group == "draft" && command == "add" => "draft.add",
         (Some(group), Some(command)) if group == "draft" && command == "list" => "draft.list",
+        (Some(group), Some(command)) if group == "sync" && command == "status" => "sync.status",
+        (Some(group), Some(command)) if group == "sync" && command == "login" => "sync.login",
+        (Some(group), Some(command)) if group == "sync" && command == "logout" => "sync.logout",
+        (Some(group), _) if group == "sync" => "sync.run",
         _ => "unknown",
     }
 }
@@ -432,6 +586,22 @@ impl Cli {
                 command: DraftCommand::List(_),
             }) => "draft.list",
             Command::Study(_) => "study",
+            Command::Sync(SyncArgs {
+                command: None | Some(SyncCommand::Run(_)),
+                ..
+            }) => "sync.run",
+            Command::Sync(SyncArgs {
+                command: Some(SyncCommand::Status(_)),
+                ..
+            }) => "sync.status",
+            Command::Sync(SyncArgs {
+                command: Some(SyncCommand::Login(_)),
+                ..
+            }) => "sync.login",
+            Command::Sync(SyncArgs {
+                command: Some(SyncCommand::Logout(_)),
+                ..
+            }) => "sync.logout",
         }
     }
 
@@ -450,6 +620,13 @@ impl Cli {
                 command: DraftCommand::List(args),
             }) => args.output,
             Command::Study(_) => OutputFormat::Text,
+            Command::Sync(args) => match &args.command {
+                None => args.output,
+                Some(SyncCommand::Run(inner)) => inner.output,
+                Some(SyncCommand::Status(inner)) => inner.output,
+                Some(SyncCommand::Login(inner)) => inner.output,
+                Some(SyncCommand::Logout(inner)) => inner.output,
+            },
         }
     }
 }
@@ -471,6 +648,13 @@ fn run(cli: Cli) -> Result<(), CliError> {
             command: DraftCommand::List(args),
         }) => list_drafts(&collection, args.output),
         Command::Study(args) => study(&collection, args),
+        Command::Sync(args) => match args.command {
+            None => run_sync(&collection, args.output),
+            Some(SyncCommand::Run(inner)) => run_sync(&collection, inner.output),
+            Some(SyncCommand::Status(inner)) => show_sync_status(&collection, inner.output),
+            Some(SyncCommand::Login(inner)) => sync_login(&collection, inner),
+            Some(SyncCommand::Logout(inner)) => sync_logout(&collection, inner.output),
+        },
     }
 }
 
@@ -943,4 +1127,185 @@ fn list_drafts(collection: &Collection, output: OutputFormat) -> Result<(), CliE
 fn write_json(value: &impl Serialize) {
     serde_json::to_writer(std::io::stdout(), value).expect("serializing CLI output should succeed");
     println!();
+}
+
+impl From<SyncError> for CliError {
+    fn from(error: SyncError) -> Self {
+        let code = match &error {
+            SyncError::NotConfigured(_) => "sync_not_configured",
+            SyncError::NotAuthenticated(_) => "sync_not_authenticated",
+            SyncError::AccountMismatch { .. } => "sync_account_mismatch",
+            SyncError::Unauthorized => "sync_unauthorized",
+            SyncError::OAuth(_) => "sync_oauth_failed",
+            _ => "sync_error",
+        };
+        let message = match &error {
+            SyncError::AccountMismatch { .. } => {
+                format!("{error} (pass --reset-binding to switch accounts)")
+            }
+            _ => error.to_string(),
+        };
+        Self {
+            code,
+            message,
+            candidates: vec![],
+            exit_code: EXIT_SYNC,
+        }
+    }
+}
+
+fn show_sync_status(collection: &Collection, output: OutputFormat) -> Result<(), CliError> {
+    let state = collection.sync_state()?;
+    let pending_outbox = collection.pending_outbox_count()?;
+    let store = KeyringCredentialStore;
+    let stored = match (&state.server_url, &state.account_id) {
+        (Some(url), Some(account_id)) => store.load(url, account_id).ok().flatten(),
+        _ => None,
+    };
+    let data = SyncStatusData {
+        mode: state.mode,
+        server_url: state.server_url,
+        account_id: state.account_id,
+        email: stored.as_ref().and_then(|c| c.email().map(str::to_owned)),
+        provider: stored.as_ref().map(|c| c.provider().to_owned()),
+        signed_in: stored.is_some()
+            || env::var("REM_SYNC_TOKEN")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false),
+        device_id: state.device_id,
+        last_seq: state.last_seq,
+        pending_outbox,
+    };
+    match output {
+        OutputFormat::Text => {
+            println!(
+                "mode\t{}",
+                match data.mode {
+                    SyncMode::Local => "local",
+                    SyncMode::Cloud => "cloud",
+                }
+            );
+            if let Some(url) = &data.server_url {
+                println!("server\t{url}");
+            }
+            if let Some(account_id) = &data.account_id {
+                println!("account\t{account_id}");
+            }
+            if let Some(email) = &data.email {
+                println!("email\t{email}");
+            }
+            println!("signed_in\t{}", data.signed_in);
+            println!("last_seq\t{}", data.last_seq);
+            println!("pending_outbox\t{}", data.pending_outbox);
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "sync.status",
+            data,
+        }),
+    }
+    Ok(())
+}
+
+fn run_sync(collection: &Collection, output: OutputFormat) -> Result<(), CliError> {
+    let now = now_millis();
+    let report = match env::var("REM_SYNC_TOKEN") {
+        Ok(token) if !token.trim().is_empty() => sync_with_http(collection, token.trim(), now)?,
+        _ => sync_authenticated(collection, &KeyringCredentialStore, now)?,
+    };
+    let data = SyncRunData::from(report);
+    match output {
+        OutputFormat::Text => {
+            println!(
+                "synced\tpushed={}\tpulled={}\tapplied={}\tuploaded_assets={}\tdownloaded_assets={}\tseq={}",
+                data.pushed_ops,
+                data.pulled_ops,
+                data.applied_ops,
+                data.uploaded_assets,
+                data.downloaded_assets,
+                data.latest_seq
+            );
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "sync.run",
+            data,
+        }),
+    }
+    Ok(())
+}
+
+fn sync_login(collection: &Collection, args: SyncLoginArgs) -> Result<(), CliError> {
+    let now = now_millis();
+    let device_id = collection.sync_state()?.device_id;
+    let credentials = if let Some(token) = args.token {
+        verify_dev_token(&args.server, &token)?
+    } else if let Some(provider) = args.provider {
+        let no_browser = args.no_browser;
+        run_loopback_oauth(
+            &args.server,
+            provider.into(),
+            &device_id,
+            now,
+            DEFAULT_OAUTH_TIMEOUT,
+            |url| {
+                eprintln!("Open this URL to sign in to rem:\n  {url}");
+                if !no_browser {
+                    let _ = open_system_browser(url);
+                }
+                Ok(())
+            },
+        )?
+    } else {
+        return Err(input_error(
+            "invalid_input",
+            "provide either --provider or --token".into(),
+        ));
+    };
+
+    let store = KeyringCredentialStore;
+    let connected = connect_collection(
+        collection,
+        &store,
+        &args.server,
+        &credentials,
+        now,
+        args.reset_binding,
+    )?;
+    let report = sync_authenticated(collection, &store, now_millis())?;
+    let sync_data = SyncRunData::from(report);
+
+    match args.output {
+        OutputFormat::Text => {
+            println!(
+                "connected\taccount={}\tserver={}\tseq={}",
+                connected.account_id, connected.server_url, sync_data.latest_seq
+            );
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "sync.login",
+            data: SyncLoginData {
+                server_url: connected.server_url,
+                account_id: connected.account_id,
+                email: connected.email,
+                provider: connected.provider,
+                sync: sync_data,
+            },
+        }),
+    }
+    Ok(())
+}
+
+fn sync_logout(collection: &Collection, output: OutputFormat) -> Result<(), CliError> {
+    sign_out(collection, &KeyringCredentialStore)?;
+    match output {
+        OutputFormat::Text => println!("Signed out. Cloud sync paused; local cards kept."),
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "sync.logout",
+            data: SyncLogoutData { signed_out: true },
+        }),
+    }
+    Ok(())
 }

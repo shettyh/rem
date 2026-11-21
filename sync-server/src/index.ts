@@ -1,4 +1,14 @@
-import { authenticateRequest } from './auth'
+import { authenticateRequest, sha256HexBytes } from './auth'
+import {
+  deleteAccountData,
+  getAccountInfo,
+  getAuthProviders,
+  handleLogout,
+  handleOAuthCallback,
+  handleOAuthStart,
+  handleTokenExchange,
+  handleTokenRefresh,
+} from './oauth'
 import type { Env, MissingAssetsRequest, SyncRequest } from './types'
 import { UserSyncDO } from './userSyncDo'
 
@@ -22,16 +32,6 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  const arr = new Uint8Array(digest)
-  let hex = ''
-  for (let i = 0; i < arr.length; i++) {
-    hex += arr[i].toString(16).padStart(2, '0')
-  }
-  return hex
-}
-
 function assetR2Key(userId: string, hash: string): string {
   return `users/${userId}/assets/${hash}`
 }
@@ -44,9 +44,48 @@ export default {
       return jsonResponse({ ok: true })
     }
 
+    // Public auth routes
+    if (request.method === 'GET' && url.pathname === '/v1/auth/providers') {
+      return jsonResponse(getAuthProviders(env))
+    }
+
+    const oauthStartMatch = /^\/v1\/auth\/([a-z]+)\/start$/.exec(url.pathname)
+    if (oauthStartMatch && request.method === 'GET') {
+      return handleOAuthStart(request, env, oauthStartMatch[1])
+    }
+
+    const oauthCallbackMatch = /^\/v1\/auth\/([a-z]+)\/callback$/.exec(url.pathname)
+    if (oauthCallbackMatch && (request.method === 'GET' || request.method === 'POST')) {
+      return handleOAuthCallback(request, env, oauthCallbackMatch[1])
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/auth/exchange') {
+      return handleTokenExchange(request, env)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/auth/refresh') {
+      return handleTokenRefresh(request, env)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/auth/logout') {
+      return handleLogout(request, env)
+    }
+
+    // Authenticated routes
     const auth = await authenticateRequest(request, env)
     if (!auth) {
       return jsonResponse({ error: 'unauthorized' }, 401)
+    }
+
+    if (url.pathname === '/v1/account') {
+      if (request.method === 'GET') {
+        const info = await getAccountInfo(env, auth.userId, auth.authMethod)
+        return jsonResponse(info)
+      }
+      if (request.method === 'DELETE') {
+        await deleteAccountData(env, auth.userId)
+        return jsonResponse({ deleted: true })
+      }
     }
 
     const stub = env.USER_SYNC.get(env.USER_SYNC.idFromName(auth.userId))
@@ -113,7 +152,7 @@ export default {
           return jsonResponse({ error: 'asset_too_large' }, 413)
         }
 
-        const computed = await sha256Hex(bytes)
+        const computed = await sha256HexBytes(bytes)
         if (computed !== hash) {
           return jsonResponse({ error: 'hash_mismatch' }, 400)
         }
