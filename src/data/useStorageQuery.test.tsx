@@ -45,7 +45,7 @@ describe('useStorageQuery', () => {
     await waitFor(() => expect(screen.getByText('1')).toBeInTheDocument())
   })
 
-  it('invalidates after update, delete, import, and sync mutations', async () => {
+  it('invalidates after update, delete, and import mutations', async () => {
     render(
       <StorageProvider storage={storage}>
         <DeckNames />
@@ -70,20 +70,5 @@ describe('useStorageQuery', () => {
       cards: [],
     }])
     await waitFor(() => expect(screen.getByTestId('names')).toHaveTextContent('Imported'))
-
-    const imported = (await storage.listDecks())[0]
-    const { revision } = await storage.exportSnapshot()
-    await storage.applyMerge({
-      upsertDecks: [{ ...imported, name: 'Synced', updatedAt: imported.updatedAt + 1 }],
-      upsertCards: [],
-      upsertReviewLogs: [],
-      deleteReviewLogIds: [],
-      deleteDeckIds: [],
-      deleteCardIds: [],
-      tombstones: [],
-      upsertAssets: [],
-      deleteAssetHashes: [],
-    }, revision)
-    await waitFor(() => expect(screen.getByTestId('names')).toHaveTextContent('Synced'))
   })
 })

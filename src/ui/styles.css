@@ -2007,10 +2007,6 @@ select.text-input,
   background: color-mix(in srgb, var(--good) 13%, transparent);
   color: var(--good);
 }
-.settings-badge.is-connected {
-  background: var(--accent-soft);
-  color: var(--accent-text);
-}
 .settings-action-row {
   display: flex;
   align-items: center;
@@ -2050,8 +2046,6 @@ select.text-input,
   display: none;
 }
 .settings-deck-picker,
-.settings-setup,
-.settings-connected,
 .settings-feedback {
   border-top: 1px solid var(--border);
 }
@@ -2091,51 +2085,12 @@ select.text-input,
   color: var(--faint);
   margin-bottom: 8px;
 }
-.settings-field-input {
-  width: 100%;
-  margin-bottom: 12px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-.settings-setup {
-  padding: 18px 20px 20px;
-  background: var(--bg-inset);
-}
-.settings-connected {
-  background: var(--bg-inset);
-}
-.settings-remote,
 .settings-toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
   padding: 15px 20px;
-}
-.settings-remote {
-  border-bottom: 1px solid var(--border);
-}
-.settings-remote > span {
-  color: var(--muted);
-  font-size: 12.5px;
-}
-.settings-remote-value {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-.settings-remote code {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.settings-toggle-row {
   cursor: pointer;
 }
 .settings-toggle-row > span {
@@ -2148,12 +2103,6 @@ select.text-input,
   flex: none;
   accent-color: var(--accent);
 }
-.settings-sync-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 20px 18px;
-}
 .settings-status,
 .settings-error {
   margin: 0;
@@ -2165,9 +2114,6 @@ select.text-input,
 }
 .settings-error {
   color: var(--danger);
-}
-.settings-setup .settings-error {
-  margin-top: 12px;
 }
 .settings-feedback {
   padding: 16px 20px;
@@ -2768,8 +2714,6 @@ select.text-input,
   .settings-action-row .settings-inline-actions { width: 100%; }
   .settings-action-row .settings-inline-actions .btn { flex: 1; }
   .check-list { grid-template-columns: 1fr; }
-  .settings-remote { align-items: flex-start; flex-direction: column; gap: 8px; }
-  .settings-remote-value { width: 100%; }
   .card-editor { padding-inline: 18px; padding-bottom: 64px; }
   .draft-inbox { padding: 24px 18px 48px; }
   .draft-fields { grid-template-columns: 1fr; }

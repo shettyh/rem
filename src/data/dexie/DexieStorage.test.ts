@@ -4,7 +4,6 @@ import { RemDB } from './db'
 import { DexieStorage } from './DexieStorage'
 import { MS_PER_DAY } from '../../domain/scheduler'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
-import type { DbOps } from '../sync/merge'
 
 const DB_NAME = 'rem-test'
 let db: RemDB
@@ -19,15 +18,6 @@ beforeEach(async () => {
 afterEach(() => {
   db.close()
 })
-
-async function currentSnapshot() {
-  return (await storage.exportSnapshot()).snapshot
-}
-
-async function applyMerge(ops: DbOps) {
-  const { revision } = await storage.exportSnapshot()
-  return storage.applyMerge(ops, revision)
-}
 
 describe('decks', () => {
   it('creates and lists a deck', async () => {
@@ -121,7 +111,6 @@ describe('cards', () => {
 describe('drafts', () => {
   it('keeps proposals local until atomic acceptance creates an edited due card', async () => {
     const deck = await storage.createDeck('Rust')
-    const before = await storage.exportSnapshot()
     const proposed = await storage.proposeDrafts(
       deck.id,
       [{
@@ -147,7 +136,6 @@ describe('drafts', () => {
     })
     expect(await storage.listDrafts()).toEqual([draft])
     expect(await storage.listCards(deck.id)).toEqual([])
-    expect((await storage.exportSnapshot()).revision).toBe(before.revision)
 
     const accepted = await storage.resolveDraft(draft.id, draft.revision, {
       decision: 'accept',
@@ -166,10 +154,9 @@ describe('drafts', () => {
     expect(accepted.value.scheduling.due).toBeGreaterThanOrEqual(draft.createdAt)
     expect(await storage.listDrafts()).toEqual([])
     expect(await storage.listCards(deck.id)).toEqual([accepted.value])
-    expect((await storage.exportSnapshot()).revision).toBe(before.revision + 1)
   })
 
-  it('keeps a stale draft decision pending and rejects it without advancing sync', async () => {
+  it('keeps a stale draft decision pending and rejects on matching revision', async () => {
     const deck = await storage.createDeck('Rust')
     const proposed = await storage.proposeDrafts(
       deck.id,
@@ -178,7 +165,6 @@ describe('drafts', () => {
     )
     if (proposed.outcomes[0].status !== 'created') throw new Error('expected created draft')
     const draft = proposed.outcomes[0].value
-    const revision = (await storage.exportSnapshot()).revision
 
     await expect(storage.resolveDraft(draft.id, 1, { decision: 'reject' }))
       .rejects.toThrow(`draft changed: ${draft.id}`)
@@ -187,7 +173,6 @@ describe('drafts', () => {
     await expect(storage.resolveDraft(draft.id, 0, { decision: 'reject' }))
       .resolves.toEqual({ status: 'rejected' })
     expect(await storage.listDrafts()).toEqual([])
-    expect((await storage.exportSnapshot()).revision).toBe(revision)
   })
 })
 
@@ -287,22 +272,12 @@ describe('due queue', () => {
   })
 })
 
-describe('sync storage', () => {
-  it('exportSnapshot returns decks, cards, and tombstones', async () => {
-    const deck = await storage.createDeck('S')
-    await storage.createCard(deck.id, 'q', 'a')
-    const snap = await currentSnapshot()
-    expect(snap.decks).toHaveLength(1)
-    expect(snap.cards).toHaveLength(1)
-    expect(snap.tombstones).toHaveLength(0)
-  })
-
+describe('tombstones', () => {
   it('deleteCard writes a card tombstone', async () => {
     const deck = await storage.createDeck('S')
     const c = await storage.createCard(deck.id, 'q', 'a')
     await storage.deleteCard(c.id)
-    const snap = await currentSnapshot()
-    expect(snap.tombstones).toEqual([
+    expect(await storage.db.tombstones.toArray()).toEqual([
       expect.objectContaining({ id: c.id, kind: 'card' }),
     ])
   })
@@ -310,33 +285,9 @@ describe('sync storage', () => {
   it('deleteDeck writes a deck tombstone', async () => {
     const deck = await storage.createDeck('S')
     await storage.deleteDeck(deck.id)
-    const snap = await currentSnapshot()
-    expect(snap.tombstones).toEqual([
+    expect(await storage.db.tombstones.toArray()).toEqual([
       expect.objectContaining({ id: deck.id, kind: 'deck' }),
     ])
-  })
-
-  it('applyMerge upserts and deletes records', async () => {
-    const deck = await storage.createDeck('S')
-    const stale = await storage.createCard(deck.id, 'old', 'old')
-    await applyMerge({
-      upsertDecks: [{ id: deck.id, name: 'S', createdAt: deck.createdAt, updatedAt: deck.updatedAt, color: deck.color, schedulerKind: 'fsrs', settings: DEFAULT_DECK_SETTINGS }],
-      upsertCards: [{
-        id: 'new', deckId: deck.id, front: 'new', back: 'new', createdAt: 1, updatedAt: 2,
-        tags: [], suspended: false, lastAgainAt: null,
-        scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 0, step: 0, lastReview: null, due: 0 },
-      }],
-      upsertReviewLogs: [],
-      deleteReviewLogIds: [],
-      deleteDeckIds: [],
-      deleteCardIds: [stale.id],
-      tombstones: [{ id: stale.id, kind: 'card', deletedAt: 5 }],
-      upsertAssets: [],
-      deleteAssetHashes: [],
-    })
-    expect(await storage.getCard(stale.id)).toBeUndefined()
-    expect(await storage.getCard('new')).toBeTruthy()
-    expect((await currentSnapshot()).tombstones).toHaveLength(1)
   })
 })
 
@@ -441,53 +392,6 @@ describe('assets', () => {
 
     expect(await storage.getAsset(used.hash)).toBeDefined()
     expect(await storage.getAsset(orphan.hash)).toBeUndefined()
-  })
-})
-
-describe('snapshot assets', () => {
-  it('exports stored assets in the snapshot', async () => {
-    const a = await storage.putAsset(new Uint8Array([7]), 'image/gif')
-    const snap = await currentSnapshot()
-    expect(snap.assets.map((x) => x.hash)).toEqual([a.hash])
-    expect(snap.assets[0].mime).toBe('image/gif')
-  })
-
-  it('applyMerge applies a synced deck color/settings change', async () => {
-    const deck = await storage.createDeck('Spanish')
-    const incoming = {
-      id: deck.id,
-      name: 'Spanish',
-      createdAt: deck.createdAt,
-      updatedAt: deck.updatedAt + 1000,
-      color: '#e8638c',
-      schedulerKind: 'fsrs' as const,
-      settings: { ...DEFAULT_DECK_SETTINGS, newPerDay: 99 },
-    }
-    await applyMerge({
-      upsertDecks: [incoming], upsertCards: [], upsertReviewLogs: [], deleteReviewLogIds: [],
-      deleteDeckIds: [], deleteCardIds: [], tombstones: [], upsertAssets: [], deleteAssetHashes: [],
-    })
-    const after = await storage.getDeck(deck.id)
-    expect(after?.color).toBe('#e8638c')
-    expect(after?.settings.newPerDay).toBe(99)
-  })
-
-  it('applyMerge upserts new assets and deletes by hash', async () => {
-    const keep = 'c'.repeat(64)
-    await applyMerge({
-      upsertDecks: [], upsertCards: [], upsertReviewLogs: [], deleteReviewLogIds: [],
-      deleteDeckIds: [], deleteCardIds: [], tombstones: [],
-      upsertAssets: [{ hash: keep, mime: 'image/png', bytes: new Uint8Array([5]) }],
-      deleteAssetHashes: [],
-    })
-    expect((await storage.getAsset(keep))?.bytes).toEqual(new Uint8Array([5]))
-
-    await applyMerge({
-      upsertDecks: [], upsertCards: [], upsertReviewLogs: [], deleteReviewLogIds: [],
-      deleteDeckIds: [], deleteCardIds: [], tombstones: [],
-      upsertAssets: [], deleteAssetHashes: [keep],
-    })
-    expect(await storage.getAsset(keep)).toBeUndefined()
   })
 })
 

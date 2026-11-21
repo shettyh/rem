@@ -25,23 +25,19 @@ import { assetRefs } from '../assetRefs'
 import { getScheduler } from '../../domain/scheduler'
 import { BrowserStudySession } from '../../features/review/browserStudy'
 import type {
-  ApplyMergeResult,
   CardPatch,
   DeckPatch,
   ImportResult,
   ReviewCommit,
   Storage,
-  VersionedRepoSnapshot,
 } from '../Storage'
 import { planImport, type DeckBackup } from '../backup'
-import type { DbOps } from '../sync/merge'
 import type { RemDB } from './db'
 
 /** IndexedDB-backed {@link Storage}, using Dexie. */
 export class DexieStorage implements Storage {
   private readonly listeners = new Set<() => void>()
   private readonly studySessions = new Map<string, BrowserStudySession>()
-  private syncRevision = 0
 
   constructor(readonly db: RemDB) {}
 
@@ -191,7 +187,7 @@ export class DexieStorage implements Storage {
       },
     )
     if (!dryRun && result.outcomes.some((outcome) => outcome.status === 'created')) {
-      this.notify(false)
+      this.notify()
     }
     return result
   }
@@ -247,7 +243,7 @@ export class DexieStorage implements Storage {
         return { status: 'accepted', value: card }
       },
     )
-    this.notify(result.status === 'accepted')
+    this.notify()
     return result
   }
 
@@ -392,57 +388,6 @@ export class DexieStorage implements Storage {
     return result
   }
 
-  async exportSnapshot(): Promise<VersionedRepoSnapshot> {
-    const [decks, cards, reviewLogs, tombstones, assets] = await Promise.all([
-      this.db.decks.toArray(),
-      this.db.cards.toArray(),
-      this.db.reviewLogs.toArray(),
-      this.db.tombstones.toArray(),
-      this.db.assets.toArray(),
-    ])
-    return {
-      revision: this.syncRevision,
-      snapshot: {
-        decks,
-        cards,
-        reviewLogs,
-        tombstones,
-        assets: assets.map(({ hash, mime, bytes }) => ({ hash, mime, bytes })),
-      },
-    }
-  }
-
-  async applyMerge(ops: DbOps, expectedRevision: number): Promise<ApplyMergeResult> {
-    if (expectedRevision !== this.syncRevision) {
-      return { status: 'stale', currentRevision: this.syncRevision }
-    }
-    await this.db.transaction(
-      'rw',
-      [this.db.decks, this.db.cards, this.db.cardDrafts, this.db.reviewLogs, this.db.tombstones,
-        this.db.assets],
-      async () => {
-        if (ops.deleteReviewLogIds.length) await this.db.reviewLogs.bulkDelete(ops.deleteReviewLogIds)
-        if (ops.deleteCardIds.length) await this.db.cards.bulkDelete(ops.deleteCardIds)
-        for (const deckId of ops.deleteDeckIds) {
-          await this.db.cardDrafts.where('deckId').equals(deckId).delete()
-        }
-        if (ops.deleteDeckIds.length) await this.db.decks.bulkDelete(ops.deleteDeckIds)
-        if (ops.deleteAssetHashes.length) await this.db.assets.bulkDelete(ops.deleteAssetHashes)
-        if (ops.upsertDecks.length) await this.db.decks.bulkPut(ops.upsertDecks)
-        if (ops.upsertCards.length) await this.db.cards.bulkPut(ops.upsertCards)
-        if (ops.upsertReviewLogs.length) await this.db.reviewLogs.bulkPut(ops.upsertReviewLogs)
-        if (ops.upsertAssets.length) {
-          await this.db.assets.bulkPut(
-            ops.upsertAssets.map((a) => ({ ...a, createdAt: Date.now() })),
-          )
-        }
-        if (ops.tombstones.length) await this.db.tombstones.bulkPut(ops.tombstones)
-      },
-    )
-    this.notify()
-    return { status: 'applied', revision: this.syncRevision }
-  }
-
   async putAsset(bytes: Uint8Array, mime: string): Promise<Asset> {
     const hash = await hashBytes(bytes)
     const asset = await this.db.transaction('rw', this.db.assets, async () => {
@@ -474,8 +419,7 @@ export class DexieStorage implements Storage {
     return session
   }
 
-  private notify(synchronized = true): void {
-    if (synchronized) this.syncRevision++
+  private notify(): void {
     for (const listener of this.listeners) listener()
   }
 }

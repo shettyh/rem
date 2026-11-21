@@ -1,7 +1,7 @@
 use rem_core::{
-    ApplyMergeResult, Asset, Card, CardDraft, CardPatch, Collection, DbOps, Deck, DeckBackup,
-    DeckPatch, DraftDecision, DraftResolution, ImportResult, NewDraftInput, ProposalMetadata,
-    ProposalMode, ProposeDraftsResult, ReviewCommit, ReviewLog, VersionedSnapshot,
+    Asset, Card, CardDraft, CardPatch, Collection, Deck, DeckBackup, DeckPatch, DraftDecision,
+    DraftResolution, ImportResult, NewDraftInput, ProposalMetadata, ProposalMode,
+    ProposeDraftsResult, ReviewCommit, ReviewLog,
 };
 use serde::Serialize;
 use tauri::State;
@@ -205,25 +205,6 @@ pub fn storage_import_decks(
     now: i64,
 ) -> Result<ImportResult, String> {
     collection.import_decks(decks, now).map_err(message)
-}
-
-#[tauri::command]
-pub fn storage_export_snapshot(
-    collection: State<'_, Collection>,
-) -> Result<VersionedSnapshot, String> {
-    collection.export_snapshot().map_err(message)
-}
-
-#[tauri::command]
-pub fn storage_apply_merge(
-    collection: State<'_, Collection>,
-    operations: DbOps,
-    expected_revision: u64,
-    now: i64,
-) -> Result<ApplyMergeResult, String> {
-    collection
-        .apply_merge(operations, expected_revision, now)
-        .map_err(message)
 }
 
 #[tauri::command]
