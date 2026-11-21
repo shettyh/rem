@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.16.0 (2026-11-21)
+
+## What's Changed
+* chore: remove legacy git sync by @shettyh in https://github.com/shettyh/rem/pull/177
+* feat(core): add cloud sync engine (Slice 1) by @shettyh in https://github.com/shettyh/rem/pull/179
+* feat(sync): add Cloudflare sync-server and rem-sync crate (Slice 2) by @shettyh in https://github.com/shettyh/rem/pull/180
+* feat(sync): add OAuth/Keychain auth, desktop UI, and CLI sync (Slice 3) by @shettyh in https://github.com/shettyh/rem/pull/181
+* feat(sync): default to hosted rem Cloud UX and add server entitlement gate by @shettyh in https://github.com/shettyh/rem/pull/182
+* feat(sync): open upgrade URL natively, add /cloud waitlist, and refresh sync docs by @shettyh in https://github.com/shettyh/rem/pull/183
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.15.0...v0.16.0
+
 ## 0.15.0 (2026-11-21)
 
 ## What's Changed
