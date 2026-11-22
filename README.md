@@ -84,7 +84,7 @@ The [Skills CLI](https://github.com/vercel-labs/skills) detects supported agents
 
 ### iOS companion
 
-The native SwiftUI iPhone app lives in [`ios/`](ios/README.md) (iOS 17+, Xcode 16+). TestFlight and App Store distribution are planned; for now, build and run it locally on Simulator or your iPhone using the steps in [`ios/README.md`](ios/README.md).
+The native SwiftUI iPhone app lives in [`ios/`](ios/README.md) (iOS 17+, Xcode 16+). iOS builds and unit tests run in CI, and versioned releases automatically archive and upload to TestFlight via App Store Connect cloud signing (see [`ios/README.md`](ios/README.md) for local builds and manual TestFlight dispatch).
 
 ### Code signing
 
@@ -162,12 +162,12 @@ Releases are gated by a Release Please pull request:
 1. Give feature and fix pull requests [Conventional Commit](https://www.conventionalcommits.org/) titles and squash-merge them into `main` so each change produces one clean changelog entry.
 2. Release Please opens or updates a `chore: release vX.Y.Z` pull request with the generated changelog and synchronized Node, Rust, and Tauri versions.
 3. Review that pull request and wait for CI to pass. Merge it when the accumulated changes are ready to ship.
-4. The release workflow creates a draft GitHub Release and builds the macOS, Linux, and Windows installers and CLI archives.
-5. The workflow publishes the release only after every app and CLI build succeeds. A failed build leaves the release as a draft so it cannot become `latest` accidentally.
+4. The release workflow creates a draft GitHub Release, builds the macOS, Linux, and Windows installers and CLI archives, and uploads the iOS companion build to TestFlight.
+5. The workflow publishes the desktop release only after every desktop/CLI build succeeds (leaving it as a draft on failure so it cannot become `latest` accidentally) and updates the Homebrew tap Cask.
 
 Do not edit versions or create release tags manually. `feat` commits produce minor releases, `fix` commits produce patch releases, and breaking changes produce major releases. The repository must allow GitHub Actions to create pull requests under **Settings → Actions → General → Workflow permissions**.
 
-macOS release signing and notarization require six repository secrets under **Settings → Secrets and variables → Actions**: `APPLE_CERTIFICATE` (base64-encoded `.p12`), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_ISSUER`, and `APPLE_API_KEY_PRIVATE_KEY` (contents of `AuthKey_<KEY_ID>.p8`).
+macOS release signing/notarization and iOS TestFlight uploads require repository secrets under **Settings → Secrets and variables → Actions**: `APPLE_CERTIFICATE` (base64-encoded Developer ID `.p12`), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_API_KEY`, `APPLE_API_ISSUER`, and `APPLE_API_KEY_PRIVATE_KEY` (contents of `AuthKey_<KEY_ID>.p8`). iOS TestFlight uploads reuse the three `APPLE_API_*` secrets via Xcode Cloud Signing (no separate iOS `.p12` certificate needed).
 
 ## Architecture
 

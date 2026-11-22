@@ -2,8 +2,9 @@ name: Release
 
 # Normal merges update a Release Please PR. Merging that PR creates a draft
 # release, builds every installer (with the `rem` CLI bundled inside), generates
-# the signed Tauri updater manifest (`latest.json`), publishes the release, and
-# updates the `shettyh/homebrew-tap` Cask.
+# the signed Tauri updater manifest (`latest.json`), publishes the release,
+# updates the `shettyh/homebrew-tap` Cask, and uploads the iOS companion build
+# to TestFlight.
 on:
   push:
     branches: [main]
@@ -420,3 +421,11 @@ jobs:
             git commit -m "Update rem cask to v${version}"
             git push
           fi
+
+  ios_testflight:
+    if: needs.release_please.outputs.release_created == 'true'
+    needs: release_please
+    uses: ./.github/workflows/ios-testflight.yml
+    with:
+      tag_name: ${{ needs.release_please.outputs.tag_name }}
+    secrets: inherit
