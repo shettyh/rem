@@ -139,7 +139,7 @@ fn revealed_frame_renders_markdown_and_explicit_asset_placeholder() {
             "\n",
             "\n",
             "────────────────────────────────────────────────────────────────────────────────────────────────\n",
-            "1 Again 1m · 2 Hard 1m · 3 Good 10m · 4 Easy 8d\n",
+            "1 Again 1m · 2 Hard 1m · 3 Good 10m · 4 Easy 2mo\n",
             "↑/↓/j/k scroll · q end session",
         )
     );

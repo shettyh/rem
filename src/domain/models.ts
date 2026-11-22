@@ -30,7 +30,7 @@ export interface DeckSettings {
   showTimer: boolean
   desiredRetention: number
   maximumInterval: number
-  /** Personalized FSRS-6 parameters; null uses the built-in defaults. */
+  /** Personalized FSRS-7 parameters (legacy 21-param FSRS-6 weights also accepted); null uses built-in defaults. */
   fsrsWeights: number[] | null
 }
 
@@ -71,8 +71,10 @@ export type SchedulerKind = 'fsrs'
 /** FSRS per-card scheduling state. */
 export interface FSRSState {
   kind: 'fsrs'
-  /** Memory stability in days. */
+  /** Long-term memory stability in days. */
   stability: number
+  /** Fast memory stability trace used by FSRS-7 (omitted on unreviewed or legacy v6 cards). */
+  stabilityFast?: number
   /** Card difficulty (1–10). */
   difficulty: number
   /** Total reviews so far. */

@@ -93,6 +93,8 @@ pub struct DeckPatch {
 pub struct FsrsState {
     pub kind: SchedulerKind,
     pub stability: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stability_fast: Option<f32>,
     pub difficulty: f32,
     pub reps: u32,
     pub lapses: u32,
@@ -107,6 +109,7 @@ impl FsrsState {
         Self {
             kind: SchedulerKind::Fsrs,
             stability: 0.0,
+            stability_fast: None,
             difficulty: 0.0,
             reps: 0,
             lapses: 0,

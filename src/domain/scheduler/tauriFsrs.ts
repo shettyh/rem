@@ -4,6 +4,7 @@ import type { DeckFsrsParams, Scheduler } from './Scheduler'
 
 interface FsrsStateDto {
   stability: number
+  stabilityFast?: number
   difficulty: number
   reps: number
   lapses: number

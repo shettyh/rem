@@ -192,6 +192,7 @@ function isSchedulingPayload(v: unknown): v is Record<string, unknown> {
   if (v.kind === 'fsrs') {
     return (
       typeof v.stability === 'number' &&
+      (v.stabilityFast === undefined || v.stabilityFast === null || typeof v.stabilityFast === 'number') &&
       typeof v.difficulty === 'number' &&
       typeof v.reps === 'number' &&
       typeof v.lapses === 'number' &&
@@ -212,6 +213,10 @@ function isSchedulingPayload(v: unknown): v is Record<string, unknown> {
 function normalizeScheduling(v: Record<string, unknown>, now: number): SchedulingState {
   // step may be absent in backups written before #3a (JSON is cast, not validated);
   // spread order means an existing v.step wins, a missing one defaults to 0.
-  if (v.kind === 'fsrs') return { step: 0, ...v } as unknown as SchedulingState
+  if (v.kind === 'fsrs') {
+    const normalized: Record<string, unknown> = { step: 0, ...v }
+    if (normalized.stabilityFast === null) delete normalized.stabilityFast
+    return normalized as unknown as SchedulingState
+  }
   return getScheduler().initial(now)
 }

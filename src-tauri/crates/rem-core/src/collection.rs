@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::fs;
@@ -6,10 +7,14 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use directories::ProjectDirs;
+use rusqlite::types::Type;
 use rusqlite::{params, Connection, Transaction, TransactionBehavior};
 use uuid::Uuid;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+use crate::scheduler::{build_fsrs_for_migration, migrate_card_scheduling_to_fsrs7};
+use crate::{DeckSettings, FsrsState, Grade};
+
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
@@ -241,7 +246,7 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
         );
 
         INSERT INTO metadata(key, value) VALUES ('sync_revision', 0);
-        PRAGMA user_version = 3;
+        PRAGMA user_version = 4;
         ",
     )?;
     seed_sync_meta(&transaction)?;
@@ -307,7 +312,85 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), rusqlite::Error> {
         )?;
         seed_sync_meta(&transaction)?;
     }
+    if version < 4 {
+        migrate_v3_to_v4_fsrs7(&transaction)?;
+        transaction.execute_batch("PRAGMA user_version = 4;")?;
+    }
     transaction.commit()
+}
+
+fn migrate_v3_to_v4_fsrs7(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {
+    let deck_models: HashMap<String, fsrs::FSRS> = {
+        let mut statement = transaction.prepare("SELECT id, settings_json FROM decks")?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|(id, settings_json)| {
+                let weights = serde_json::from_str::<DeckSettings>(&settings_json)
+                    .ok()
+                    .and_then(|settings| settings.fsrs_weights);
+                (id, build_fsrs_for_migration(weights.as_deref()))
+            })
+            .collect()
+    };
+
+    let cards: Vec<(String, String, String)> = {
+        let mut statement =
+            transaction.prepare("SELECT id, deck_id, scheduling_json FROM cards")?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+
+    let default_fsrs = build_fsrs_for_migration(None);
+    let mut review_statement = transaction.prepare(
+        "SELECT reviewed_at, grade
+         FROM review_logs
+         WHERE card_id = ?1
+         ORDER BY reviewed_at, rowid",
+    )?;
+    let mut update_statement =
+        transaction.prepare("UPDATE cards SET scheduling_json = ?2 WHERE id = ?1")?;
+
+    for (card_id, deck_id, scheduling_json) in cards {
+        let scheduling: FsrsState = serde_json::from_str(&scheduling_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(2, Type::Text, Box::new(error))
+        })?;
+        if scheduling.reps == 0 || scheduling.stability_fast.is_some() {
+            continue;
+        }
+        let reviews = review_statement
+            .query_map([&card_id], |row| {
+                let reviewed_at: i64 = row.get(0)?;
+                let grade: String = row.get(1)?;
+                let grade = match grade.as_str() {
+                    "again" => Grade::Again,
+                    "hard" => Grade::Hard,
+                    "good" => Grade::Good,
+                    "easy" => Grade::Easy,
+                    _ => {
+                        return Err(rusqlite::Error::FromSqlConversionFailure(
+                            1,
+                            Type::Text,
+                            format!("unsupported grade: {grade}").into(),
+                        ))
+                    }
+                };
+                Ok((reviewed_at, grade))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let fsrs = deck_models.get(&deck_id).unwrap_or(&default_fsrs);
+        let migrated = migrate_card_scheduling_to_fsrs7(fsrs, scheduling, &reviews);
+        let migrated_json = serde_json::to_string(&migrated)
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+        update_statement.execute(params![card_id, migrated_json])?;
+    }
+
+    Ok(())
 }
 
 fn seed_sync_meta(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {

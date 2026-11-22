@@ -10,11 +10,11 @@ export interface FsrsOptimizer {
   optimize(histories: FsrsReviewHistory[], numRelearningSteps: number): Promise<number[]>
 }
 
-/** fsrs-rs 6.6.1 FSRS-6 defaults; also the deterministic browser-test result. */
+/** fsrs-rs 7.0.0 FSRS-7 defaults; also the deterministic browser-test result. */
 export const DEFAULT_FSRS_WEIGHTS = [
-  0.212, 1.2931, 2.3065, 8.2956, 6.4133, 0.8334, 3.0194,
-  0.001, 1.8722, 0.1666, 0.796, 1.4835, 0.0614, 0.2629,
-  1.6483, 0.6014, 1.8729, 0.5425, 0.0912, 0.0658, 0.1542,
+  0.1104, 2.2395, 3.9221, 11.7841, 6.1686, 0.6457, 3.6807, 1.9795, 0.0, 1.3826, 0.7024, 0.5999,
+  0.8146, 0.6398, 1.0, 1.3207, 0.6707, 3.8668, 0.4416, 0.0934, 1.8631, 0.6162, 1.0869, 0.1567,
+  0.0801, 0.2421, 0.9464, 0.1433, 0.7145, 0.0, 0.5667, 0.3734, 0.5333, 0.3048,
 ] as const
 
 const RATINGS: Record<ReviewLog['grade'], number> = {

@@ -24,6 +24,7 @@ export class FakeScheduler implements Scheduler {
     const make = (g: Grade): FSRSState => ({
       kind: 'fsrs',
       stability: state.stability,
+      ...(state.stabilityFast !== undefined ? { stabilityFast: state.stabilityFast } : {}),
       difficulty: state.difficulty,
       reps: state.reps + 1,
       lapses: state.lapses + (g === 'again' && state.state === 2 ? 1 : 0),

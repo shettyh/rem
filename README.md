@@ -1,6 +1,6 @@
 # rem
 
-**Local-first spaced repetition for durable understanding across desktop, terminal, and iPhone — with agent-friendly CLI capture, FSRS-6 scheduling, Markdown cards, and optional Cloud sync.**
+**Local-first spaced repetition for durable understanding across desktop, terminal, and iPhone — with agent-friendly CLI capture, FSRS-7 scheduling, Markdown cards, and optional Cloud sync.**
 
 [![CI](https://github.com/shettyh/rem/actions/workflows/ci.yml/badge.svg)](https://github.com/shettyh/rem/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/shettyh/rem)](https://github.com/shettyh/rem/releases/latest)
@@ -9,7 +9,7 @@
 
 [Website & interactive tour](https://shettyh.github.io/rem/) · [Download](https://github.com/shettyh/rem/releases/latest) · [CLI reference](docs/cli.md) · [iOS companion](ios/README.md)
 
-Use rem to build a durable understanding of the system you are working in—or any topic. Agents can turn code, documentation, research, or other source material into a few source-grounded recall prompts; you decide what enters your study plan, and accepted cards use the same FSRS-6 scheduler whether you review in the desktop app, terminal, or iPhone companion.
+Use rem to build a durable understanding of the system you are working in—or any topic. Agents can turn code, documentation, research, or other source material into a few source-grounded recall prompts; you decide what enters your study plan, and accepted cards use the same FSRS-7 scheduler whether you review in the desktop app, terminal, or iPhone companion.
 
 ```text
 explore a system or topic → agent proposes drafts → you try, edit, and approve → FSRS schedules → study on desktop, terminal, or iPhone
@@ -26,7 +26,7 @@ explore a system or topic → agent proposes drafts → you try, edit, and appro
 ## Features
 
 - **Local-first by default** — decks, cards, assets, and review history live on your device in SQLite.
-- **Modern scheduling** — FSRS-6 runs in Rust, with configurable retention, learning steps, daily limits, and per-deck parameter optimization.
+- **Modern scheduling** — FSRS-7 runs in Rust, with configurable retention, learning steps, daily limits, and per-deck parameter optimization.
 - **Rich Markdown cards** — a WYSIWYG desktop editor and paper-canvas iOS editor with syntax-highlighted code, images and GIFs, links, lists, and tags.
 - **Fast review flow** — study in the desktop app, terminal, or iPhone with keyboard shortcuts or touch grading, four grades, live interval previews, and shared FSRS scheduling.
 - **Native iOS companion** — SwiftUI iPhone app backed by `rem-core` and `rem-sync` via UniFFI, with local-first SQLite, focused review, Quick Capture with Photos, 7D/30D/90D stats, local daily reminders, and Cloud sync.
@@ -166,13 +166,13 @@ src/
   data/        Storage interface, native adapter, test persistence, backup, and Cloud sync client
   features/    decks, cards, drafts, review, settings, and statistics
   ui/          app shell, shared components, themes, and design tokens
-src-tauri/     native shell, rem-core (SQLite + FSRS-6 + sync engine), rem-sync, rem-ffi (UniFFI), and rem-cli
+src-tauri/     native shell, rem-core (SQLite + FSRS-7 + sync engine), rem-sync, rem-ffi (UniFFI), and rem-cli
 ios/           native SwiftUI iOS companion app backed by RemCore.xcframework
 sync-server/   open-source Cloudflare Workers + Durable Objects + D1 + R2 sync backend
 site/          landing page and interactive Desktop + iPhone showcase
 ```
 
-The desktop frontend uses React, TypeScript, and Vite inside a Tauri v2 native shell, and the iPhone companion is built in native SwiftUI (`ios/`). The shared Rust `rem-core` crate owns SQLite, FSRS-6 calculation and optimization, the transactional sync outbox, and the complete `StudySession` state machine used by desktop, `rem study` terminal UI, and iOS (via UniFFI in `rem-ffi`); `rem-sync` owns HTTPS sync, asset upload/download, and OAuth/Keychain sessions across all three surfaces.
+The desktop frontend uses React, TypeScript, and Vite inside a Tauri v2 native shell, and the iPhone companion is built in native SwiftUI (`ios/`). The shared Rust `rem-core` crate owns SQLite, FSRS-7 calculation and optimization, the transactional sync outbox, and the complete `StudySession` state machine used by desktop, `rem study` terminal UI, and iOS (via UniFFI in `rem-ffi`); `rem-sync` owns HTTPS sync, asset upload/download, and OAuth/Keychain sessions across all three surfaces.
 
 ## Contributing
 

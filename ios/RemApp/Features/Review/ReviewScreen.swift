@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Zero-chrome focused review screen driven by shared Rust `RemStudySession` (FSRS-6).
+/// Zero-chrome focused review screen driven by shared Rust `RemStudySession` (FSRS-7).
 struct ReviewScreen: View {
     @Bindable var appState: AppState
     let deckId: String?

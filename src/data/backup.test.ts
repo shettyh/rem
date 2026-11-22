@@ -169,6 +169,26 @@ describe('parseBackup', () => {
     expect(parsed.cards[0].scheduling).toEqual(f)
   })
 
+  it('round-trips FSRS-7 stabilityFast and strips null stabilityFast', () => {
+    const v7 = { kind: 'fsrs', stability: 5, stabilityFast: 4, difficulty: 5, reps: 1, lapses: 0, state: 2, step: 0, lastReview: 1, due: 2 }
+    const withNull = { kind: 'fsrs', stability: 5, stabilityFast: null, difficulty: 5, reps: 1, lapses: 0, state: 2, step: 0, lastReview: 1, due: 2 }
+    const file = JSON.stringify({
+      format: 'rem-backup', version: 1, exportedAt: 1,
+      decks: [{
+        name: 'X',
+        createdAt: 1,
+        schedulerKind: 'fsrs',
+        cards: [
+          { front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: v7 },
+          { front: 'c', back: 'd', createdAt: 1, updatedAt: 1, scheduling: withNull },
+        ],
+      }],
+    })
+    const parsed = parseBackup(file, NOW)[0]
+    expect(parsed.cards[0].scheduling).toEqual(v7)
+    expect(parsed.cards[1].scheduling).not.toHaveProperty('stabilityFast')
+  })
+
   it('backfills a missing step to 0 for fsrs scheduling (pre-#3a backup)', () => {
     const f = { kind: 'fsrs', stability: 5, difficulty: 5, reps: 1, lapses: 0, state: 2, lastReview: 1, due: 2 } // no step
     const file = JSON.stringify({
