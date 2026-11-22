@@ -53,8 +53,18 @@ struct DeckDetailView: View {
                     Spacer()
 
                     Menu {
-                        Button("Delete deck", role: .destructive) {
+                        Button {
+                            appState.openEditDeck(deckId: deckId) {
+                                dismiss()
+                            }
+                        } label: {
+                            Label("Edit deck", systemImage: "slider.horizontal.3")
+                        }
+
+                        Button(role: .destructive) {
                             showDeleteConfirm = true
+                        } label: {
+                            Label("Delete deck", systemImage: "trash")
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -62,6 +72,7 @@ struct DeckDetailView: View {
                             .foregroundStyle(RemColor.muted)
                             .frame(width: 32, height: 32)
                     }
+                    .accessibilityLabel("Deck actions")
 
                     if let due = deckSummary?.dueCount, due > 0 {
                         Button("Study (\(due))") {
@@ -77,10 +88,17 @@ struct DeckDetailView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(deckSummary?.name ?? "Deck")
-                        .font(.system(size: 25, weight: .bold))
-                        .tracking(-0.5)
-                        .foregroundStyle(RemColor.text)
+                    HStack(spacing: 10) {
+                        if let colorHex = deckSummary?.color {
+                            Circle()
+                                .fill(Color(hexString: colorHex))
+                                .frame(width: 10, height: 10)
+                        }
+                        Text(deckSummary?.name ?? "Deck")
+                            .font(.system(size: 25, weight: .bold))
+                            .tracking(-0.5)
+                            .foregroundStyle(RemColor.text)
+                    }
 
                     if let summary = deckSummary {
                         let cardLabel = "\(cards.count) \(cards.count == 1 ? "card" : "cards")"

@@ -127,5 +127,12 @@ struct RootContainerView: View {
         .sheet(isPresented: $appState.showNewDeckSheet) {
             NewDeckSheet(appState: appState)
         }
+        .sheet(item: $appState.editingDeckRequest) { request in
+            DeckOptionsSheet(
+                appState: appState,
+                deckId: request.deckId,
+                onDeleted: request.onDeleted
+            )
+        }
     }
 }

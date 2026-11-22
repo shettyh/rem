@@ -8,8 +8,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use rem_core::{
-    extract_asset_refs, Card, CardBackup, CardPatch, Collection, Deck, DeckBackup, DeckPatch,
-    ReviewBackup, StudyGradeOutcome, StudyRequest, StudySession, StudyView,
+    extract_asset_refs, optimize_fsrs_histories, Card, CardBackup, CardPatch, Collection, Deck,
+    DeckBackup, DeckPatch, DeckSettings, FsrsReviewHistory, FsrsReviewInput, Grade, ReviewBackup,
+    ReviewLog, StudyGradeOutcome, StudyRequest, StudySession, StudyView,
 };
 use rem_sync::{
     build_authorize_url, connect_collection, delete_cloud_account, fetch_account_authenticated,
@@ -21,10 +22,11 @@ use rem_sync::{
 pub use credentials::FfiCredentialStore;
 pub use types::{
     AccountProfileDto, AssetDataDto, AuthProvidersDto, CardDto, ConnectResultDto, DailyActivityDto,
-    DeckDto, DeckStatsDto, DeckSummaryDto, EntitlementInfoDto, EntitlementStateDto, GradeDto,
-    GradeIntervalsDto, LeechNoticeDto, OAuthProviderDto, OAuthStartDto, RemFfiError, StatsDto,
-    StorageSummaryDto, StudyGradeOutcomeDto, StudyViewDto, SyncModeDto, SyncReportDto,
-    SyncStatusDto, TodaySummaryDto,
+    DeckDto, DeckFsrsStatusDto, DeckSettingsDto, DeckSettingsPatchDto, DeckStatsDto,
+    DeckSummaryDto, EntitlementInfoDto, EntitlementStateDto, GradeDto, GradeIntervalsDto,
+    InsertionOrderDto, LeechActionDto, LeechNoticeDto, OAuthProviderDto, OAuthStartDto,
+    RemFfiError, StatsDto, StorageSummaryDto, StudyGradeOutcomeDto, StudyViewDto, SyncModeDto,
+    SyncReportDto, SyncStatusDto, TodaySummaryDto,
 };
 
 use credentials::CredentialStoreBridge;
@@ -73,6 +75,10 @@ impl RemClient {
         Ok(decks.into_iter().map(deck_to_dto).collect())
     }
 
+    pub fn get_deck(&self, id: String) -> Result<Option<DeckDto>, RemFfiError> {
+        Ok(self.collection.get_deck(&id)?.map(deck_to_dto))
+    }
+
     pub fn create_deck(
         &self,
         name: String,
@@ -99,18 +105,124 @@ impl RemClient {
         id: String,
         name: Option<String>,
         color: Option<String>,
+        settings: Option<DeckSettingsPatchDto>,
         now_ms: i64,
-    ) -> Result<(), RemFfiError> {
+    ) -> Result<DeckDto, RemFfiError> {
+        let merged_settings = match settings {
+            Some(patch) => {
+                let existing = self
+                    .collection
+                    .get_deck(&id)?
+                    .ok_or_else(|| RemFfiError::NotFound {
+                        message: format!("deck {id} not found"),
+                    })?;
+                Some(validate_and_merge_deck_settings(&existing.settings, patch)?)
+            }
+            None => None,
+        };
         self.collection.update_deck(
             &id,
             DeckPatch {
                 name,
                 color,
-                settings: None,
+                settings: merged_settings,
             },
             now_ms,
         )?;
-        Ok(())
+        let updated = self
+            .collection
+            .get_deck(&id)?
+            .ok_or_else(|| RemFfiError::NotFound {
+                message: format!("deck {id} not found"),
+            })?;
+        Ok(deck_to_dto(updated))
+    }
+
+    pub fn get_deck_fsrs_status(&self, deck_id: String) -> Result<DeckFsrsStatusDto, RemFfiError> {
+        let deck = self
+            .collection
+            .get_deck(&deck_id)?
+            .ok_or_else(|| RemFfiError::NotFound {
+                message: format!("deck {deck_id} not found"),
+            })?;
+        let logs = self.collection.list_review_logs(&deck_id)?;
+        let histories = build_review_histories(&logs);
+        Ok(DeckFsrsStatusDto {
+            has_personalized_weights: deck.settings.fsrs_weights.is_some(),
+            review_count: logs.len() as u32,
+            can_optimize: has_delayed_review(&histories),
+        })
+    }
+
+    pub fn optimize_deck_fsrs(
+        &self,
+        deck_id: String,
+        now_ms: i64,
+    ) -> Result<DeckDto, RemFfiError> {
+        let deck = self
+            .collection
+            .get_deck(&deck_id)?
+            .ok_or_else(|| RemFfiError::NotFound {
+                message: format!("deck {deck_id} not found"),
+            })?;
+        let logs = self.collection.list_review_logs(&deck_id)?;
+        let histories = build_review_histories(&logs);
+        if !has_delayed_review(&histories) {
+            return Err(RemFfiError::InvalidInput {
+                message: "Optimize after reviewing a card on a later day.".into(),
+            });
+        }
+        let relearn_steps_count = count_valid_steps(&deck.settings.relearn_steps);
+        let weights = optimize_fsrs_histories(histories, relearn_steps_count).map_err(|msg| {
+            RemFfiError::Storage {
+                message: format!("FSRS optimization failed: {msg}"),
+            }
+        })?;
+        let mut next_settings = deck.settings;
+        next_settings.fsrs_weights = Some(weights.into_iter().map(f64::from).collect());
+        self.collection.update_deck(
+            &deck_id,
+            DeckPatch {
+                name: None,
+                color: None,
+                settings: Some(next_settings),
+            },
+            now_ms,
+        )?;
+        let updated = self
+            .collection
+            .get_deck(&deck_id)?
+            .ok_or_else(|| RemFfiError::NotFound {
+                message: format!("deck {deck_id} not found"),
+            })?;
+        Ok(deck_to_dto(updated))
+    }
+
+    pub fn reset_deck_fsrs(&self, deck_id: String, now_ms: i64) -> Result<DeckDto, RemFfiError> {
+        let deck = self
+            .collection
+            .get_deck(&deck_id)?
+            .ok_or_else(|| RemFfiError::NotFound {
+                message: format!("deck {deck_id} not found"),
+            })?;
+        let mut next_settings = deck.settings;
+        next_settings.fsrs_weights = None;
+        self.collection.update_deck(
+            &deck_id,
+            DeckPatch {
+                name: None,
+                color: None,
+                settings: Some(next_settings),
+            },
+            now_ms,
+        )?;
+        let updated = self
+            .collection
+            .get_deck(&deck_id)?
+            .ok_or_else(|| RemFfiError::NotFound {
+                message: format!("deck {deck_id} not found"),
+            })?;
+        Ok(deck_to_dto(updated))
     }
 
     pub fn delete_deck(&self, id: String, now_ms: i64) -> Result<(), RemFfiError> {
@@ -503,7 +615,107 @@ impl RemStudySession {
     }
 }
 
+const MS_PER_DAY: i64 = 86_400_000;
+
+fn validate_and_merge_deck_settings(
+    existing: &DeckSettings,
+    patch: DeckSettingsPatchDto,
+) -> Result<DeckSettings, RemFfiError> {
+    if !patch.desired_retention.is_finite()
+        || !(0.70..=0.99).contains(&patch.desired_retention)
+    {
+        return Err(RemFfiError::InvalidInput {
+            message: "Desired retention must be between 70% and 99%.".into(),
+        });
+    }
+    if patch.minimum_interval < 1 || patch.minimum_interval > 365 {
+        return Err(RemFfiError::InvalidInput {
+            message: "Minimum interval must be between 1 and 365 days.".into(),
+        });
+    }
+    if patch.leech_threshold < 1 || patch.leech_threshold > 99 {
+        return Err(RemFfiError::InvalidInput {
+            message: "Leech threshold must be between 1 and 99.".into(),
+        });
+    }
+    if patch.maximum_interval < 1 {
+        return Err(RemFfiError::InvalidInput {
+            message: "Maximum interval must be at least 1 day.".into(),
+        });
+    }
+    Ok(DeckSettings {
+        new_per_day: patch.new_per_day.min(9999),
+        max_reviews: patch.max_reviews.min(9999),
+        learn_steps: patch.learn_steps.trim().to_owned(),
+        insertion_order: patch.insertion_order.into(),
+        relearn_steps: patch.relearn_steps.trim().to_owned(),
+        minimum_interval: patch.minimum_interval,
+        leech_threshold: patch.leech_threshold,
+        leech_action: patch.leech_action.into(),
+        bury_related: patch.bury_related,
+        show_timer: patch.show_timer,
+        desired_retention: (patch.desired_retention * 100.0).round() / 100.0,
+        maximum_interval: patch.maximum_interval,
+        fsrs_weights: existing.fsrs_weights.clone(),
+    })
+}
+
+fn build_review_histories(logs: &[ReviewLog]) -> Vec<FsrsReviewHistory> {
+    let mut by_card: HashMap<&str, Vec<&ReviewLog>> = HashMap::new();
+    for log in logs {
+        by_card.entry(log.card_id.as_str()).or_default().push(log);
+    }
+    let mut entries: Vec<(&str, Vec<&ReviewLog>)> = by_card.into_iter().collect();
+    entries.sort_by_key(|(a, _)| *a);
+    entries
+        .into_iter()
+        .map(|(_, mut card_logs)| {
+            card_logs.sort_by(|a, b| a.reviewed_at.cmp(&b.reviewed_at).then(a.id.cmp(&b.id)));
+            FsrsReviewHistory {
+                reviews: card_logs
+                    .into_iter()
+                    .map(|log| FsrsReviewInput {
+                        reviewed_at: log.reviewed_at,
+                        rating: match log.grade {
+                            Grade::Again => 1,
+                            Grade::Hard => 2,
+                            Grade::Good => 3,
+                            Grade::Easy => 4,
+                        },
+                    })
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
+fn has_delayed_review(histories: &[FsrsReviewHistory]) -> bool {
+    histories.iter().any(|history| {
+        history
+            .reviews
+            .windows(2)
+            .any(|pair| pair[1].reviewed_at - pair[0].reviewed_at >= MS_PER_DAY)
+    })
+}
+
+fn count_valid_steps(raw: &str) -> usize {
+    raw.split_whitespace()
+        .filter(|token| {
+            let Some(last) = token.chars().last() else {
+                return false;
+            };
+            let number = match last {
+                's' | 'm' | 'h' | 'd' => &token[..token.len() - 1],
+                digit if digit.is_ascii_digit() => *token,
+                _ => return false,
+            };
+            number.parse::<u64>().is_ok()
+        })
+        .count()
+}
+
 fn deck_to_dto(deck: Deck) -> DeckDto {
+    let settings_dto = DeckSettingsDto::from(&deck.settings);
     DeckDto {
         id: deck.id,
         name: deck.name,
@@ -513,6 +725,7 @@ fn deck_to_dto(deck: Deck) -> DeckDto {
         desired_retention: deck.settings.desired_retention,
         new_per_day: deck.settings.new_per_day,
         max_reviews: deck.settings.max_reviews,
+        settings: settings_dto,
     }
 }
 
@@ -726,5 +939,145 @@ mod tests {
         assert!(start.authorize_url.contains("rem%3A%2F%2Fauth%2Fcallback"));
         assert!(!start.pkce_verifier.is_empty());
         assert!(!start.state.is_empty());
+    }
+
+    #[test]
+    fn deck_options_update_validation_and_fsrs_optimizer() {
+        let (_dir, client) = open_test_client();
+        let now = 1_763_720_000_000_i64;
+
+        let deck = client
+            .create_deck("Algorithms".into(), Some("#5a47e8".into()), now)
+            .unwrap();
+        assert_eq!(deck.settings.desired_retention, 0.9);
+        assert_eq!(deck.settings.new_per_day, 20);
+        assert_eq!(deck.settings.max_reviews, 200);
+        assert_eq!(deck.settings.learn_steps, "1m 10m");
+        assert_eq!(deck.settings.insertion_order, InsertionOrderDto::Sequential);
+        assert_eq!(deck.settings.relearn_steps, "10m");
+        assert_eq!(deck.settings.minimum_interval, 1);
+        assert_eq!(deck.settings.leech_threshold, 8);
+        assert_eq!(deck.settings.leech_action, LeechActionDto::Suspend);
+        assert!(!deck.settings.has_personalized_weights);
+
+        // Reject out-of-range retention
+        let bad_patch = DeckSettingsPatchDto {
+            new_per_day: 15,
+            max_reviews: 150,
+            learn_steps: "1m 10m 1d".into(),
+            insertion_order: InsertionOrderDto::Random,
+            relearn_steps: "15m".into(),
+            minimum_interval: 2,
+            leech_threshold: 5,
+            leech_action: LeechActionDto::Tag,
+            bury_related: true,
+            show_timer: false,
+            desired_retention: 0.50,
+            maximum_interval: 36_500,
+        };
+        assert!(matches!(
+            client.update_deck(deck.id.clone(), None, None, Some(bad_patch), now + 10),
+            Err(RemFfiError::InvalidInput { .. })
+        ));
+
+        // Update name, color, and full settings
+        let patch = DeckSettingsPatchDto {
+            new_per_day: 35,
+            max_reviews: 250,
+            learn_steps: "1m 10m 1d".into(),
+            insertion_order: InsertionOrderDto::Random,
+            relearn_steps: "15m".into(),
+            minimum_interval: 2,
+            leech_threshold: 5,
+            leech_action: LeechActionDto::Tag,
+            bury_related: true,
+            show_timer: false,
+            desired_retention: 0.92,
+            maximum_interval: 36_500,
+        };
+        let updated = client
+            .update_deck(
+                deck.id.clone(),
+                Some("Graph Algorithms".into()),
+                Some("#1e9b5e".into()),
+                Some(patch.clone()),
+                now + 20,
+            )
+            .unwrap();
+        assert_eq!(updated.name, "Graph Algorithms");
+        assert_eq!(updated.color, "#1e9b5e");
+        assert_eq!(updated.desired_retention, 0.92);
+        assert_eq!(updated.new_per_day, 35);
+        assert_eq!(updated.max_reviews, 250);
+        assert_eq!(updated.settings.learn_steps, "1m 10m 1d");
+        assert_eq!(updated.settings.insertion_order, InsertionOrderDto::Random);
+        assert_eq!(updated.settings.relearn_steps, "15m");
+        assert_eq!(updated.settings.minimum_interval, 2);
+        assert_eq!(updated.settings.leech_threshold, 5);
+        assert_eq!(updated.settings.leech_action, LeechActionDto::Tag);
+
+        // Reload via get_deck
+        let reloaded = client.get_deck(deck.id.clone()).unwrap().unwrap();
+        assert_eq!(reloaded.name, "Graph Algorithms");
+        assert_eq!(reloaded.settings, updated.settings);
+
+        // FSRS status before reviews
+        let status_empty = client.get_deck_fsrs_status(deck.id.clone()).unwrap();
+        assert_eq!(status_empty.review_count, 0);
+        assert!(!status_empty.can_optimize);
+        assert!(!status_empty.has_personalized_weights);
+        assert!(matches!(
+            client.optimize_deck_fsrs(deck.id.clone(), now + 30),
+            Err(RemFfiError::InvalidInput { .. })
+        ));
+
+        // Create card and review across two different days
+        let card = client
+            .create_card(
+                deck.id.clone(),
+                "Dijkstra complexity?".into(),
+                "O((V + E) log V)".into(),
+                vec![],
+                now + 30,
+            )
+            .unwrap();
+        let s1 = client
+            .start_study(Some(deck.id.clone()), now + 40)
+            .unwrap();
+        s1.reveal(now + 45).unwrap();
+        s1.grade(GradeDto::Easy, now + 50).unwrap();
+
+        let scheduled_due = client.get_card(card.id).unwrap().unwrap().due;
+        let later = scheduled_due.max(now + 2 * MS_PER_DAY) + 1_000;
+        let s2 = client.start_study(Some(deck.id.clone()), later).unwrap();
+        s2.reveal(later + 5).unwrap();
+        s2.grade(GradeDto::Good, later + 10).unwrap();
+
+        let status_ready = client.get_deck_fsrs_status(deck.id.clone()).unwrap();
+        assert_eq!(status_ready.review_count, 2);
+        assert!(status_ready.can_optimize);
+
+        let optimized = client
+            .optimize_deck_fsrs(deck.id.clone(), later + 20)
+            .unwrap();
+        assert!(optimized.settings.has_personalized_weights);
+
+        // Subsequent deck setting edit preserves personalized weights
+        let after_edit = client
+            .update_deck(
+                deck.id.clone(),
+                Some("Graph Algorithms v2".into()),
+                None,
+                Some(patch),
+                later + 30,
+            )
+            .unwrap();
+        assert!(after_edit.settings.has_personalized_weights);
+
+        // Reset clears personalized weights
+        let reset = client
+            .reset_deck_fsrs(deck.id.clone(), later + 40)
+            .unwrap();
+        assert!(!reset.settings.has_personalized_weights);
     }
 }

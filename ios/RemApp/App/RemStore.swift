@@ -37,12 +37,34 @@ actor RemStore {
         try client.listDecks()
     }
 
+    func getDeck(id: String) throws -> DeckDto? {
+        try client.getDeck(id: id)
+    }
+
     func createDeck(name: String, color: String?, nowMs: Int64 = RemStore.nowMs()) throws -> DeckDto {
         try client.createDeck(name: name, color: color, nowMs: nowMs)
     }
 
-    func updateDeck(id: String, name: String?, color: String?, nowMs: Int64 = RemStore.nowMs()) throws {
-        try client.updateDeck(id: id, name: name, color: color, nowMs: nowMs)
+    func updateDeck(
+        id: String,
+        name: String?,
+        color: String?,
+        settings: DeckSettingsPatchDto? = nil,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> DeckDto {
+        try client.updateDeck(id: id, name: name, color: color, settings: settings, nowMs: nowMs)
+    }
+
+    func getDeckFsrsStatus(deckId: String) throws -> DeckFsrsStatusDto {
+        try client.getDeckFsrsStatus(deckId: deckId)
+    }
+
+    func optimizeDeckFsrs(deckId: String, nowMs: Int64 = RemStore.nowMs()) throws -> DeckDto {
+        try client.optimizeDeckFsrs(deckId: deckId, nowMs: nowMs)
+    }
+
+    func resetDeckFsrs(deckId: String, nowMs: Int64 = RemStore.nowMs()) throws -> DeckDto {
+        try client.resetDeckFsrs(deckId: deckId, nowMs: nowMs)
     }
 
     func deleteDeck(id: String, nowMs: Int64 = RemStore.nowMs()) throws {
