@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.20.0 (2026-11-22)
+
+## What's Changed
+* ci(ios): add iOS CI tests and automated TestFlight distribution by @shettyh in https://github.com/shettyh/rem/pull/223
+* fix(ios): set TARGETED_DEVICE_FAMILY=1 on iOS targets for App Store Connect by @shettyh in https://github.com/shettyh/rem/pull/225
+* feat(sync): rem Premium unified entitlements, 30-day free trial, invite codes & Cloud Sync UI (Slice 1) by @shettyh in https://github.com/shettyh/rem/pull/224
+* feat(sync): Polar checkout, customer portal, and webhook billing (Slice 2) by @shettyh in https://github.com/shettyh/rem/pull/227
+* feat(ios,sync): iOS StoreKit 2 IAP & Apple Server Notifications v2 (Slice 3) by @shettyh in https://github.com/shettyh/rem/pull/228
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.19.0...v0.20.0
+
 ## 0.19.0 (2026-11-22)
 
 ## What's Changed
