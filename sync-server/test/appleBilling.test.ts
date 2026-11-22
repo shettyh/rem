@@ -929,6 +929,9 @@ describe('Apple StoreKit 2 JWS verification & App Store Server Notifications v2'
     const privacyHtml = await privacy.text()
     expect(privacyHtml).toContain('Privacy Policy')
     expect(privacyHtml).toContain('Delete cloud account')
+    expect(privacyHtml).not.toContain('/premium')
+    expect(privacyHtml).not.toContain('/cloud')
+    expect(privacyHtml).not.toMatch(/polar/i)
 
     const terms = await callWorker('https://sync.example.com/terms', undefined, appleEnv)
     expect(terms.status).toBe(200)
@@ -936,5 +939,8 @@ describe('Apple StoreKit 2 JWS verification & App Store Server Notifications v2'
     const termsHtml = await terms.text()
     expect(termsHtml).toContain('Terms of Use')
     expect(termsHtml).toContain('stdeula')
+    expect(termsHtml).not.toContain('/premium')
+    expect(termsHtml).not.toContain('/cloud')
+    expect(termsHtml).not.toMatch(/polar/i)
   })
 })

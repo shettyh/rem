@@ -4,6 +4,7 @@ import migrationSql from '../migrations/0001_auth.sql?raw'
 import entitlementsMigrationSql from '../migrations/0002_entitlements.sql?raw'
 import earlyAccessMigrationSql from '../migrations/0003_early_access.sql?raw'
 import trialInvitesBillingMigrationSql from '../migrations/0004_trial_invites_billing.sql?raw'
+import appleRefreshTokenMigrationSql from '../migrations/0005_apple_refresh_token.sql?raw'
 import worker from '../src/index'
 import type { Env } from '../src/types'
 
@@ -101,6 +102,7 @@ async function applyAuthMigration() {
     entitlementsMigrationSql,
     earlyAccessMigrationSql,
     trialInvitesBillingMigrationSql,
+    appleRefreshTokenMigrationSql,
   ]) {
     const statements = raw
       .split(';')
@@ -430,6 +432,121 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       envWithApple,
     )
     expect(badExchange.status).toBe(401)
+  })
+
+  it('stores Apple refresh_token and revokes it with Apple on DELETE /v1/account (Guideline 5.1.1(v))', async () => {
+    const envWithApple: Env = {
+      ...TEST_ENV,
+      APPLE_PRIVATE_KEY: appleClientKey.privatePem,
+    }
+    const redirectUri = 'rem://auth/callback'
+    const verifier = 'apple_revoke_pkce_verifier_0123456789abcdefghijklmnopqrstuvwxyz'
+    const challenge = await pkceChallenge(verifier)
+
+    const startResp = await callWorker(
+      `https://sync.example.com/v1/auth/apple/start?redirect_uri=${encodeURIComponent(redirectUri)}&code_challenge=${challenge}`,
+      undefined,
+      envWithApple,
+    )
+    expect(startResp.status).toBe(302)
+    const appleAuthUrl = new URL(startResp.headers.get('Location')!)
+    const serverState = appleAuthUrl.searchParams.get('state')!
+    const nonce = appleAuthUrl.searchParams.get('nonce')!
+
+    const nowSec = Math.floor(Date.now() / 1000)
+    const appleIdToken = await signEs256Jwt(
+      {
+        iss: 'https://appleid.apple.com',
+        aud: 'com.shettyh.rem.test',
+        sub: 'apple-sub-revoke-test',
+        email: 'revoke-me@privaterelay.appleid.com',
+        nonce,
+        iat: nowSec,
+        exp: nowSec + 300,
+      },
+      appleIdpKey.privateKey,
+    )
+
+    const revokeCalls: URLSearchParams[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const target = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (target === 'https://appleid.apple.com/auth/token') {
+        return new Response(
+          JSON.stringify({
+            id_token: appleIdToken,
+            refresh_token: 'apple_rt_secret_12345',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        )
+      }
+      if (target === 'https://appleid.apple.com/auth/keys') {
+        return new Response(JSON.stringify({ keys: [appleIdpKey.publicJwk] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (target === 'https://appleid.apple.com/auth/revoke') {
+        const body = typeof init?.body === 'string' ? init.body : ''
+        revokeCalls.push(new URLSearchParams(body))
+        return new Response(null, { status: 200 })
+      }
+      throw new Error(`unexpected outbound fetch: ${target}`)
+    })
+
+    const form = new FormData()
+    form.set('code', 'apple-code-revoke')
+    form.set('state', serverState)
+    const cbResp = await callWorker(
+      'https://sync.example.com/v1/auth/apple/callback',
+      { method: 'POST', body: form },
+      envWithApple,
+    )
+    expect(cbResp.status).toBe(302)
+    const oneTimeCode = new URL(cbResp.headers.get('Location')!).searchParams.get('code')!
+
+    const exchangeResp = await callWorker(
+      'https://sync.example.com/v1/auth/exchange',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: oneTimeCode,
+          codeVerifier: verifier,
+          redirectUri,
+          deviceId: 'dev-iphone-1',
+        }),
+      },
+      envWithApple,
+    )
+    expect(exchangeResp.status).toBe(200)
+    const session = (await exchangeResp.json()) as { accessToken: string; account: { id: string } }
+
+    const stored = await TEST_ENV.DB!.prepare(
+      `SELECT provider_refresh_token FROM auth_identities WHERE user_id = ?1 AND provider = 'apple'`,
+    )
+      .bind(session.account.id)
+      .first<{ provider_refresh_token: string | null }>()
+    expect(stored?.provider_refresh_token).toBe('apple_rt_secret_12345')
+
+    const delResp = await callWorker(
+      'https://sync.example.com/v1/account',
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+      },
+      envWithApple,
+    )
+    expect(delResp.status).toBe(200)
+    expect(await delResp.json()).toEqual({ deleted: true })
+
+    expect(revokeCalls).toHaveLength(1)
+    expect(revokeCalls[0].get('client_id')).toBe('com.shettyh.rem.test')
+    expect(revokeCalls[0].get('token')).toBe('apple_rt_secret_12345')
+    expect(revokeCalls[0].get('token_type_hint')).toBe('refresh_token')
+    expect(revokeCalls[0].get('client_secret')?.split('.')).toHaveLength(3)
   })
 
   it('enforces two-user OAuth isolation and purges DO + R2 + D1 on DELETE /v1/account', async () => {

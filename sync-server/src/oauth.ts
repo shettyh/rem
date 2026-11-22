@@ -33,6 +33,7 @@ const DEFAULT_GOOGLE_JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs'
 const DEFAULT_APPLE_AUTH_URL = 'https://appleid.apple.com/auth/authorize'
 const DEFAULT_APPLE_TOKEN_URL = 'https://appleid.apple.com/auth/token'
 const DEFAULT_APPLE_JWKS_URL = 'https://appleid.apple.com/auth/keys'
+const DEFAULT_APPLE_REVOKE_URL = 'https://appleid.apple.com/auth/revoke'
 
 const PKCE_CHALLENGE_RE = /^[A-Za-z0-9_-]{43,128}$/
 const PKCE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/
@@ -272,7 +273,7 @@ export async function handleOAuthCallback(
   }
 
   const callbackUrl = serverCallbackUrl(url, provider)
-  let identity: { sub: string; email: string | null }
+  let identity: { sub: string; email: string | null; refreshToken?: string | null }
   try {
     identity =
       provider === 'google'
@@ -288,7 +289,14 @@ export async function handleOAuthCallback(
   }
 
   const now = Date.now()
-  const userId = await upsertOAuthUser(env.DB, provider, identity.sub, identity.email, now)
+  const userId = await upsertOAuthUser(
+    env.DB,
+    provider,
+    identity.sub,
+    identity.email,
+    now,
+    identity.refreshToken ?? null,
+  )
 
   const oneTimeCode = `rem_code_${randomToken(32)}`
   const codeHash = await sha256HexString(oneTimeCode)
@@ -528,7 +536,10 @@ export async function handleLogout(request: Request, env: Env): Promise<Response
 }
 
 export async function deleteAccountData(env: Env, userId: string): Promise<void> {
-  // 0. Best-effort cancel any active Polar subscription before removing entitlement records.
+  // 0a. Revoke Sign in with Apple token (App Store Review Guideline 5.1.1(v)).
+  await revokeAppleTokensForAccountDeletion(env, userId)
+
+  // 0b. Best-effort cancel any active Polar subscription before removing entitlement records.
   await revokePolarSubscriptionForAccountDeletion(env, userId)
 
   // 1. Delete all user assets in R2.
@@ -600,12 +611,62 @@ async function issueSessionTokens(
   return { accessToken, refreshToken }
 }
 
+async function revokeAppleTokensForAccountDeletion(env: Env, userId: string): Promise<void> {
+  if (!env.DB || !isAppleConfigured(env)) return
+
+  let rows: { provider_refresh_token: string | null }[] = []
+  try {
+    const result = await env.DB.prepare(
+      `SELECT provider_refresh_token FROM auth_identities
+       WHERE user_id = ?1 AND provider = 'apple' AND provider_refresh_token IS NOT NULL`,
+    )
+      .bind(userId)
+      .all<{ provider_refresh_token: string | null }>()
+    rows = result.results ?? []
+  } catch {
+    // Ignore if 0005_apple_refresh_token migration has not been applied yet.
+    return
+  }
+
+  const tokens = rows
+    .map((r) => r.provider_refresh_token?.trim() ?? '')
+    .filter((token) => token.length > 0)
+  if (tokens.length === 0) return
+
+  let clientSecret: string
+  try {
+    clientSecret = await signAppleClientSecret(env)
+  } catch {
+    return
+  }
+
+  const revokeUrl = env.APPLE_REVOKE_URL ?? DEFAULT_APPLE_REVOKE_URL
+  for (const token of tokens) {
+    try {
+      const form = new URLSearchParams({
+        client_id: env.APPLE_CLIENT_ID!,
+        client_secret: clientSecret,
+        token,
+        token_type_hint: 'refresh_token',
+      })
+      await fetch(revokeUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form.toString(),
+      })
+    } catch {
+      // Best-effort revocation so account deletion always completes even if Apple is unreachable.
+    }
+  }
+}
+
 async function upsertOAuthUser(
   db: D1Database,
   provider: OAuthProvider,
   providerSub: string,
   email: string | null,
   now: number,
+  providerRefreshToken: string | null = null,
 ): Promise<string> {
   const existing = await db
     .prepare('SELECT user_id FROM auth_identities WHERE provider = ?1 AND provider_sub = ?2')
@@ -623,6 +684,18 @@ async function upsertOAuthUser(
           .bind(email, existing.user_id),
       ])
     }
+    if (providerRefreshToken) {
+      try {
+        await db
+          .prepare(
+            'UPDATE auth_identities SET provider_refresh_token = ?1 WHERE provider = ?2 AND provider_sub = ?3',
+          )
+          .bind(providerRefreshToken, provider, providerSub)
+          .run()
+      } catch {
+        // Ignore if 0005_apple_refresh_token migration has not been applied yet.
+      }
+    }
     return existing.user_id
   }
 
@@ -638,6 +711,18 @@ async function upsertOAuthUser(
       )
       .bind(provider, providerSub, userId, email, now),
   ])
+  if (providerRefreshToken) {
+    try {
+      await db
+        .prepare(
+          'UPDATE auth_identities SET provider_refresh_token = ?1 WHERE provider = ?2 AND provider_sub = ?3',
+        )
+        .bind(providerRefreshToken, provider, providerSub)
+        .run()
+    } catch {
+      // Ignore if 0005_apple_refresh_token migration has not been applied yet.
+    }
+  }
   return userId
 }
 
@@ -690,7 +775,7 @@ async function exchangeAppleCode(
   callbackUrl: string,
   expectedNonce: string,
   fallbackEmail: string | null,
-): Promise<{ sub: string; email: string | null }> {
+): Promise<{ sub: string; email: string | null; refreshToken: string | null }> {
   const clientSecret = await signAppleClientSecret(env)
   const form = new URLSearchParams({
     code,
@@ -707,7 +792,7 @@ async function exchangeAppleCode(
   if (!resp.ok) {
     throw new Error(`apple token endpoint returned ${resp.status}`)
   }
-  const data = (await resp.json()) as { id_token?: unknown }
+  const data = (await resp.json()) as { id_token?: unknown; refresh_token?: unknown }
   if (typeof data.id_token !== 'string') {
     throw new Error('apple token response missing id_token')
   }
@@ -721,7 +806,11 @@ async function exchangeAppleCode(
   })
   const email =
     typeof claims.email === 'string' && claims.email.length > 0 ? claims.email : fallbackEmail
-  return { sub: String(claims.sub), email }
+  const refreshToken =
+    typeof data.refresh_token === 'string' && data.refresh_token.length > 0
+      ? data.refresh_token
+      : null
+  return { sub: String(claims.sub), email, refreshToken }
 }
 
 async function signAppleClientSecret(env: Env): Promise<string> {

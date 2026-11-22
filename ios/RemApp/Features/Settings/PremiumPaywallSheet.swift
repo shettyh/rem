@@ -42,9 +42,18 @@ struct PremiumPaywallSheet: View {
                                 .foregroundStyle(RemColor.muted)
                         }
                         Spacer()
-                        Text("\(appState.storeKit.displayPrice)/yr")
-                            .font(.system(size: 16.5, weight: .bold))
-                            .foregroundStyle(RemColor.accent)
+                        if let price = appState.storeKit.localizedPrice {
+                            Text("\(price)/yr")
+                                .font(.system(size: 16.5, weight: .bold))
+                                .foregroundStyle(RemColor.accent)
+                        } else if appState.storeKit.isLoadingProduct {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Text("Unavailable")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(RemColor.muted)
+                        }
                     }
                     .padding(14)
                     .background(RemColor.accentTint)
@@ -57,6 +66,10 @@ struct PremiumPaywallSheet: View {
                     // Subscribe CTA
                     Button {
                         Task {
+                            if appState.storeKit.product == nil {
+                                await appState.storeKit.loadProducts()
+                                guard appState.storeKit.product != nil else { return }
+                            }
                             let purchased = await appState.purchasePremiumViaApple()
                             if purchased {
                                 dismiss()
@@ -69,15 +82,15 @@ struct PremiumPaywallSheet: View {
                                     .controlSize(.small)
                                     .tint(RemColor.onAccent)
                             }
-                            Text(
-                                appState.storeKit.isPurchasing
-                                    ? "Completing purchase…"
-                                    : "Upgrade to Premium · \(appState.storeKit.displayPrice)/year"
-                            )
+                            Text(subscribeButtonTitle)
                         }
                     }
                     .buttonStyle(RemPrimaryButtonStyle())
-                    .disabled(appState.storeKit.isPurchasing || appState.storeKit.isRestoring)
+                    .disabled(
+                        appState.storeKit.isPurchasing
+                            || appState.storeKit.isRestoring
+                            || appState.storeKit.isLoadingProduct
+                    )
 
                     if let err = appState.storeKit.lastError, !err.isEmpty {
                         Text(err)
@@ -147,6 +160,19 @@ struct PremiumPaywallSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private var subscribeButtonTitle: String {
+        if appState.storeKit.isPurchasing {
+            return "Completing purchase…"
+        }
+        if appState.storeKit.isLoadingProduct {
+            return "Loading plan…"
+        }
+        if let price = appState.storeKit.localizedPrice {
+            return "Upgrade to Premium · \(price)/year"
+        }
+        return "Retry loading plan"
     }
 
     private func benefitRow(_ text: String) -> some View {

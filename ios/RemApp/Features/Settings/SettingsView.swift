@@ -21,6 +21,7 @@ struct SettingsView: View {
                 cloudSyncSection
                 readingAndHabitSection
                 yourDataSection
+                legalFooterSection
             }
             .padding(.horizontal, 18)
             .padding(.top, 10)
@@ -176,11 +177,14 @@ struct SettingsView: View {
                     }
 
                     if appState.canShowAppleSubscribe {
+                        let upgradeTitle = appState.storeKit.localizedPrice.map {
+                            "Upgrade to Premium — \($0)/year"
+                        } ?? "Upgrade to Premium"
                         if showTrialButton {
                             Button {
                                 showPremiumPaywall = true
                             } label: {
-                                Text("Upgrade to Premium — \(appState.storeKit.displayPrice)/year")
+                                Text(upgradeTitle)
                             }
                             .buttonStyle(RemSecondaryButtonStyle())
                             .disabled(appState.isStartingTrial || appState.storeKit.isPurchasing)
@@ -188,7 +192,7 @@ struct SettingsView: View {
                             Button {
                                 showPremiumPaywall = true
                             } label: {
-                                Text("Upgrade to Premium — \(appState.storeKit.displayPrice)/year")
+                                Text(upgradeTitle)
                             }
                             .buttonStyle(RemPrimaryButtonStyle())
                             .disabled(appState.storeKit.isPurchasing)
@@ -291,12 +295,9 @@ struct SettingsView: View {
                                 Text("Upgrade to rem Premium")
                                     .font(.system(size: 14))
                                     .foregroundStyle(RemColor.text)
-                                Text(
-                                    daysLeft.map { "\($0)d left · \(appState.storeKit.displayPrice)/year" }
-                                        ?? "\(appState.storeKit.displayPrice)/year via App Store"
-                                )
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(RemColor.muted)
+                                Text(upgradeRowSubtitle(daysLeft: daysLeft))
+                                    .font(.system(size: 11.5))
+                                    .foregroundStyle(RemColor.muted)
                             }
                             Spacer()
                             Text("Upgrade")
@@ -604,7 +605,55 @@ struct SettingsView: View {
         }
     }
 
+    private var legalFooterSection: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 12) {
+                Spacer()
+                Link("Privacy Policy", destination: RemDocs.privacyPolicyURL)
+                Text("·").foregroundStyle(RemColor.borderStrong)
+                Link("Terms of Use", destination: RemDocs.termsOfUseURL)
+                Spacer()
+            }
+            .font(.system(size: 12.5, weight: .medium))
+            .foregroundStyle(RemColor.muted)
+
+            if let versionLabel = appVersionLabel {
+                Text(versionLabel)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(RemColor.faint)
+            }
+        }
+        .padding(.top, 4)
+    }
+
     // MARK: - Helpers
+
+    private var appVersionLabel: String? {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String
+        let build = info?["CFBundleVersion"] as? String
+        if let short, let build, !short.isEmpty, !build.isEmpty {
+            return "rem \(short) (\(build))"
+        }
+        if let short, !short.isEmpty {
+            return "rem \(short)"
+        }
+        return nil
+    }
+
+    private func upgradeRowSubtitle(daysLeft: Int?) -> String {
+        let pricePart = appState.storeKit.localizedPrice.map { "\($0)/year" }
+        switch (daysLeft, pricePart) {
+        case let (days?, price?):
+            return "\(days)d left · \(price)"
+        case let (days?, nil):
+            return "\(days)d left · Annual plan via App Store"
+        case let (nil, price?):
+            return "\(price) via App Store"
+        case (nil, nil):
+            return "Annual plan via App Store"
+        }
+    }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 7) {

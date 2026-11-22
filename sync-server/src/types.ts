@@ -56,6 +56,7 @@ export interface Env {
   APPLE_AUTH_URL?: string
   APPLE_TOKEN_URL?: string
   APPLE_JWKS_URL?: string
+  APPLE_REVOKE_URL?: string
 }
 
 export interface SyncOpEnvelope {
