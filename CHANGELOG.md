@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.0 (2026-11-22)
+
+## What's Changed
+* feat(release): bundle rem CLI, add Tauri auto-updater, and automate Homebrew tap by @shettyh in https://github.com/shettyh/rem/pull/221
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.18.0...v0.19.0
+
 ## 0.18.0 (2026-11-22)
 
 ## What's Changed
