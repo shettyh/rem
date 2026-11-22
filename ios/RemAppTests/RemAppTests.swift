@@ -365,8 +365,10 @@ final class RemAppTests: XCTestCase {
         defer { session.clearTransactions() }
 
         let manager = StoreKitManager()
+        XCTAssertNil(manager.localizedPrice)
         await manager.loadProducts()
         XCTAssertEqual(manager.product?.id, StoreKitManager.premiumYearlyProductID)
+        XCTAssertEqual(manager.localizedPrice, "$4.99")
         XCTAssertEqual(manager.displayPrice, "$4.99")
 
         var verifiedJwsList: [String] = []

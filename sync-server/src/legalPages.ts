@@ -91,14 +91,13 @@ function renderLegalDocument(title: string, subtitle: string, bodyHtml: string):
   </head>
   <body>
     <main class="shell">
-      <a class="brand" href="/premium">rem<span class="brand-dot"></span></a>
+      <div class="brand">rem<span class="brand-dot"></span></div>
       <article class="card">
         <h1>${title}</h1>
         <p class="subtitle">${subtitle}</p>
         ${bodyHtml}
       </article>
       <footer>
-        <a href="/premium">rem Premium</a>
         <a href="/privacy">Privacy Policy</a>
         <a href="/terms">Terms of Use</a>
       </footer>
@@ -123,7 +122,7 @@ export function renderPrivacyPage(): Response {
       <ul>
         <li><strong>Account identity:</strong> Your email address and sign-in provider identifier (Apple or Google) so you can sign in across devices.</li>
         <li><strong>Synced study data:</strong> Your decks, cards, review logs, and attached images are stored in an isolated per-user Cloudflare Durable Object and private R2 storage bucket solely to synchronize your devices.</li>
-        <li><strong>Billing &amp; entitlement state:</strong> Subscription status, plan identifier, renewal period end date, and provider transaction identifiers from Apple App Store or Polar. We never store your payment card numbers.</li>
+        <li><strong>Billing &amp; entitlement state:</strong> Subscription status, plan identifier, renewal period end date, and provider transaction identifiers needed to verify your subscription. We never store your payment card numbers.</li>
       </ul>
 
       <h2>No Tracking or Selling Data</h2>
@@ -145,9 +144,9 @@ export function renderTermsPage(): Response {
 
       <h2>Auto-Renewable Subscriptions</h2>
       <ul>
-        <li><strong>rem Premium Annual:</strong> Billed yearly at $4.99/year on the Apple App Store (or localized equivalent) or $5/year on the web via Polar.</li>
-        <li><strong>Auto-renewal:</strong> Subscriptions automatically renew unless canceled at least 24 hours before the end of the current billing period.</li>
-        <li><strong>Managing or canceling:</strong> App Store subscriptions are billed through your Apple Account and can be managed or canceled anytime in iOS Settings &rarr; Apple Account &rarr; Subscriptions. Web subscriptions can be managed anytime via the Customer Portal in Desktop Settings or <a href="/premium">/premium</a>.</li>
+        <li><strong>rem Premium Annual:</strong> Optional annual auto-renewable subscription providing managed Cloud Sync across your devices at the price displayed in the app prior to purchase.</li>
+        <li><strong>Auto-renewal:</strong> Payment is charged to your Apple Account at confirmation of purchase. Subscriptions automatically renew annually unless canceled at least 24 hours before the end of the current billing period.</li>
+        <li><strong>Managing or canceling:</strong> App Store subscriptions can be managed or canceled anytime in iOS Settings &rarr; Apple Account &rarr; Subscriptions.</li>
         <li><strong>Lapse &amp; local data:</strong> If a trial or subscription ends, cloud sync pauses cleanly while all cards and review history stored on your devices remain yours and fully usable offline.</li>
       </ul>
 

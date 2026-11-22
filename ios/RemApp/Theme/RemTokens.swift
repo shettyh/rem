@@ -163,7 +163,7 @@ enum RemRadius {
 }
 
 enum RemDocs {
-    static let selfHostingGuideURL = URL(string: "https://shettyh.github.io/rem/")!
+    static let selfHostingGuideURL = URL(string: "https://github.com/shettyh/rem/blob/main/sync-server/README.md")!
     static let privacyPolicyURL = URL(string: "https://rem-sync.shettyh.fyi/privacy")!
     static let termsOfUseURL = URL(string: "https://rem-sync.shettyh.fyi/terms")!
 }

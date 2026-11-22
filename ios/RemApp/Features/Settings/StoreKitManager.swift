@@ -32,8 +32,13 @@ final class StoreKitManager {
     @ObservationIgnored
     nonisolated(unsafe) private var updatesTask: Task<Void, Never>?
 
+    /// Localized App Store price once `loadProducts()` has resolved (nil until loaded so we never display a hardcoded USD fallback to international users).
+    var localizedPrice: String? {
+        product?.displayPrice
+    }
+
     var displayPrice: String {
-        product?.displayPrice ?? "$4.99"
+        product?.displayPrice ?? ""
     }
 
     deinit {
