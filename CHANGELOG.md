@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.21.0 (2026-11-22)
+
+## What's Changed
+* feat(ios): add deck editing and full FSRS deck options by @shettyh in https://github.com/shettyh/rem/pull/229
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.20.0...v0.21.0
+
 ## 0.20.0 (2026-11-22)
 
 ## What's Changed
