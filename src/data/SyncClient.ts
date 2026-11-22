@@ -86,6 +86,8 @@ export interface SyncClient {
   refreshAccount(): Promise<SyncStatus>
   startTrial(): Promise<SyncStatus>
   redeemInvite(code: string): Promise<SyncStatus>
+  openPolarCheckout(): Promise<void>
+  openPolarPortal(): Promise<void>
   signOut(): Promise<SyncStatus>
   deleteAccount(): Promise<SyncStatus>
   openExternalUrl(url: string): Promise<void>
@@ -137,6 +139,14 @@ export class TauriSyncClient implements SyncClient {
 
   redeemInvite(code: string): Promise<SyncStatus> {
     return invoke<SyncStatus>('sync_redeem_invite', { code })
+  }
+
+  openPolarCheckout(): Promise<void> {
+    return invoke<void>('sync_open_polar_checkout')
+  }
+
+  openPolarPortal(): Promise<void> {
+    return invoke<void>('sync_open_polar_portal')
   }
 
   signOut(): Promise<SyncStatus> {
@@ -239,6 +249,14 @@ export class LocalOnlySyncClient implements SyncClient {
   }
 
   async redeemInvite(): Promise<SyncStatus> {
+    throw new Error('Cloud sync is only available in the desktop app.')
+  }
+
+  async openPolarCheckout(): Promise<void> {
+    throw new Error('Cloud sync is only available in the desktop app.')
+  }
+
+  async openPolarPortal(): Promise<void> {
     throw new Error('Cloud sync is only available in the desktop app.')
   }
 

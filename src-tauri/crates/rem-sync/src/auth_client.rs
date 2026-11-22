@@ -17,7 +17,8 @@ use crate::credentials::{normalize_server_url, StoredCredentials};
 use crate::error::SyncError;
 use crate::protocol::{
     AccountProfile, AuthProviders, AuthTokenResponse, LogoutRequest, OAuthProvider,
-    RedeemInviteRequest, TokenExchangeRequest, TokenRefreshRequest,
+    PolarCheckoutResponse, PolarPortalResponse, RedeemInviteRequest, TokenExchangeRequest,
+    TokenRefreshRequest,
 };
 
 const AUTH_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -41,6 +42,8 @@ pub trait AuthClient {
     fn get_account(&self, bearer_token: &str) -> Result<AccountProfile, SyncError>;
     fn start_trial(&self, bearer_token: &str) -> Result<AccountProfile, SyncError>;
     fn redeem_invite(&self, bearer_token: &str, code: &str) -> Result<AccountProfile, SyncError>;
+    fn create_polar_checkout(&self, bearer_token: &str) -> Result<String, SyncError>;
+    fn create_polar_portal(&self, bearer_token: &str) -> Result<String, SyncError>;
     fn delete_account(&self, bearer_token: &str) -> Result<(), SyncError>;
 }
 
@@ -196,6 +199,34 @@ impl AuthClient for HttpAuthClient {
         response
             .json::<AccountProfile>()
             .map_err(|err| SyncError::InvalidResponse(err.to_string()))
+    }
+
+    fn create_polar_checkout(&self, bearer_token: &str) -> Result<String, SyncError> {
+        let response = self
+            .client
+            .post(self.endpoint("/v1/billing/polar/checkout"))
+            .header(AUTHORIZATION, format!("Bearer {}", bearer_token.trim()))
+            .send()
+            .map_err(|err| SyncError::Transport(err.to_string()))?;
+        let response = check_auth_status(response)?;
+        let parsed = response
+            .json::<PolarCheckoutResponse>()
+            .map_err(|err| SyncError::InvalidResponse(err.to_string()))?;
+        Ok(parsed.checkout_url)
+    }
+
+    fn create_polar_portal(&self, bearer_token: &str) -> Result<String, SyncError> {
+        let response = self
+            .client
+            .post(self.endpoint("/v1/billing/polar/portal"))
+            .header(AUTHORIZATION, format!("Bearer {}", bearer_token.trim()))
+            .send()
+            .map_err(|err| SyncError::Transport(err.to_string()))?;
+        let response = check_auth_status(response)?;
+        let parsed = response
+            .json::<PolarPortalResponse>()
+            .map_err(|err| SyncError::InvalidResponse(err.to_string()))?;
+        Ok(parsed.portal_url)
     }
 
     fn delete_account(&self, bearer_token: &str) -> Result<(), SyncError> {
