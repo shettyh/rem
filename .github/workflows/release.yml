@@ -112,6 +112,7 @@ jobs:
 
           keychain_path="$RUNNER_TEMP/rem-signing.keychain-db"
           cert_path="$RUNNER_TEMP/apple-cert.p12"
+          g2_cert_path="$RUNNER_TEMP/DeveloperIDG2CA.cer"
           mkdir -p "$RUNNER_TEMP/private_keys"
           api_key_path="$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
           keychain_password=$(openssl rand -hex 24)
@@ -120,9 +121,17 @@ jobs:
           printf '%s' "$APPLE_CERTIFICATE" | tr -d '[:space:]' | base64 --decode > "$cert_path"
           chmod 600 "$cert_path"
 
+          curl -fsSL "https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer" -o "$g2_cert_path"
+          printf '%s  %s\n' \
+            "f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a" \
+            "$g2_cert_path" | shasum -a 256 -c -
+
           security create-keychain -p "$keychain_password" "$keychain_path"
           security set-keychain-settings "$keychain_path"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$g2_cert_path" \
+            -t cert \
+            -k "$keychain_path"
           security import "$cert_path" \
             -P "$APPLE_CERTIFICATE_PASSWORD" \
             -A \
@@ -264,7 +273,7 @@ jobs:
             security delete-keychain "$APPLE_KEYCHAIN_PATH" 2>/dev/null || true
           fi
           rm -rf "$RUNNER_TEMP/private_keys"
-          rm -f "$RUNNER_TEMP/apple-cert.p12" "$RUNNER_TEMP"/rem-cli-*.zip
+          rm -f "$RUNNER_TEMP/apple-cert.p12" "$RUNNER_TEMP/DeveloperIDG2CA.cer" "$RUNNER_TEMP"/rem-cli-*.zip
 
   publish:
     if: needs.release_please.outputs.release_created == 'true'
