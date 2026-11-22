@@ -151,12 +151,14 @@ jobs:
           short_ver=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$info_plist")
           build_ver=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$info_plist")
           non_exempt=$(/usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" "$info_plist")
+          device_families=$(/usr/libexec/PlistBuddy -c "Print :UIDeviceFamily" "$info_plist" | tr -d '[:space:]')
 
-          echo "Archived bundle: $bundle_id v$short_ver ($build_ver), ITSAppUsesNonExemptEncryption=$non_exempt"
+          echo "Archived bundle: $bundle_id v$short_ver ($build_ver), ITSAppUsesNonExemptEncryption=$non_exempt, UIDeviceFamily=$device_families"
           test "$bundle_id" = "com.shettyh.rem"
           test "$short_ver" = "$EXPECTED_VERSION"
           test "$build_ver" = "$EXPECTED_BUILD"
           test "$non_exempt" = "false"
+          test "$device_families" = "Array{1}"
 
       - name: Export and upload to TestFlight (Cloud Signing)
         if: ${{ !inputs.dry_run }}

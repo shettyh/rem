@@ -156,5 +156,17 @@ const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
   assert.equal(iconPng.readUInt32BE(16), 1024)
   assert.equal(iconPng.readUInt32BE(20), 1024)
   assert.equal(iconPng[25], 2, 'AppIcon-1024.png must be opaque RGB (PNG color type 2) without alpha')
-  console.log('ok   - iOS Info.plist, PrivacyInfo.xcprivacy, Version.xcconfig, and opaque AppIcon are TestFlight-ready')
+
+  // RemApp is iPhone-only (portrait). XcodeGen defaults iOS targets to TARGETED_DEVICE_FAMILY = "1,2"
+  // unless set at target level, which triggers App Store Connect ITMS-90474 iPad multitasking errors.
+  const pbxproj = fs.readFileSync(
+    path.join(ROOT_DIR, 'ios/Rem.xcodeproj/project.pbxproj'),
+    'utf8',
+  )
+  assert.doesNotMatch(
+    pbxproj,
+    /TARGETED_DEVICE_FAMILY\s*=\s*"?1,2"?/,
+    'RemApp must remain iPhone-only (TARGETED_DEVICE_FAMILY = 1)',
+  )
+  console.log('ok   - iOS Info.plist, PrivacyInfo.xcprivacy, Version.xcconfig, device family, and opaque AppIcon are TestFlight-ready')
 }

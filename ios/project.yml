@@ -55,6 +55,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shettyh.rem
         PRODUCT_NAME: rem
+        TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         OTHER_LDFLAGS:
           - "$(inherited)"
@@ -73,6 +74,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shettyh.rem.tests
+        TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/rem.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/rem"
         BUNDLE_LOADER: "$(TEST_HOST)"
