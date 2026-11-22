@@ -110,12 +110,12 @@ impl RemClient {
     ) -> Result<DeckDto, RemFfiError> {
         let merged_settings = match settings {
             Some(patch) => {
-                let existing = self
-                    .collection
-                    .get_deck(&id)?
-                    .ok_or_else(|| RemFfiError::NotFound {
-                        message: format!("deck {id} not found"),
-                    })?;
+                let existing =
+                    self.collection
+                        .get_deck(&id)?
+                        .ok_or_else(|| RemFfiError::NotFound {
+                            message: format!("deck {id} not found"),
+                        })?;
                 Some(validate_and_merge_deck_settings(&existing.settings, patch)?)
             }
             None => None,
@@ -154,11 +154,7 @@ impl RemClient {
         })
     }
 
-    pub fn optimize_deck_fsrs(
-        &self,
-        deck_id: String,
-        now_ms: i64,
-    ) -> Result<DeckDto, RemFfiError> {
+    pub fn optimize_deck_fsrs(&self, deck_id: String, now_ms: i64) -> Result<DeckDto, RemFfiError> {
         let deck = self
             .collection
             .get_deck(&deck_id)?
@@ -621,9 +617,7 @@ fn validate_and_merge_deck_settings(
     existing: &DeckSettings,
     patch: DeckSettingsPatchDto,
 ) -> Result<DeckSettings, RemFfiError> {
-    if !patch.desired_retention.is_finite()
-        || !(0.70..=0.99).contains(&patch.desired_retention)
-    {
+    if !patch.desired_retention.is_finite() || !(0.70..=0.99).contains(&patch.desired_retention) {
         return Err(RemFfiError::InvalidInput {
             message: "Desired retention must be between 70% and 99%.".into(),
         });
@@ -1041,9 +1035,7 @@ mod tests {
                 now + 30,
             )
             .unwrap();
-        let s1 = client
-            .start_study(Some(deck.id.clone()), now + 40)
-            .unwrap();
+        let s1 = client.start_study(Some(deck.id.clone()), now + 40).unwrap();
         s1.reveal(now + 45).unwrap();
         s1.grade(GradeDto::Easy, now + 50).unwrap();
 
@@ -1075,9 +1067,7 @@ mod tests {
         assert!(after_edit.settings.has_personalized_weights);
 
         // Reset clears personalized weights
-        let reset = client
-            .reset_deck_fsrs(deck.id.clone(), later + 40)
-            .unwrap();
+        let reset = client.reset_deck_fsrs(deck.id.clone(), later + 40).unwrap();
         assert!(!reset.settings.has_personalized_weights);
     }
 }
