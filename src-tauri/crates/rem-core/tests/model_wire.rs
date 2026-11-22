@@ -207,6 +207,39 @@ fn a_new_fsrs_card_is_due_immediately_with_no_memory() {
 }
 
 #[test]
+fn fsrs_state_round_trips_optional_stability_fast_for_v6_and_v7_compatibility() {
+    let v7_json = json!({
+        "kind": "fsrs",
+        "stability": 4.0,
+        "stabilityFast": 3.25,
+        "difficulty": 5.0,
+        "reps": 2,
+        "lapses": 0,
+        "state": 2,
+        "step": 0,
+        "lastReview": 1_700_000_000_000_i64,
+        "due": 1_700_345_600_000_i64
+    });
+    let decoded: FsrsState = serde_json::from_value(v7_json.clone()).unwrap();
+    assert_eq!(decoded.stability_fast, Some(3.25));
+    assert_eq!(serde_json::to_value(&decoded).unwrap(), v7_json);
+
+    let legacy_v6_json = json!({
+        "kind": "fsrs",
+        "stability": 4.0,
+        "difficulty": 5.0,
+        "reps": 2,
+        "lapses": 0,
+        "state": 2,
+        "step": 0,
+        "lastReview": 1_700_000_000_000_i64,
+        "due": 1_700_345_600_000_i64
+    });
+    let legacy: FsrsState = serde_json::from_value(legacy_v6_json).unwrap();
+    assert_eq!(legacy.stability_fast, None);
+}
+
+#[test]
 fn default_deck_settings_match_the_desktop_defaults() {
     assert_eq!(
         serde_json::to_value(DeckSettings::default()).unwrap(),

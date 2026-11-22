@@ -1,11 +1,13 @@
 use fsrs::{
-    compute_parameters, ComputeParametersInput, FSRSItem, FSRSReview, ItemState, MemoryState, FSRS,
+    compute_parameters, ComputeParametersInput, FSRSItem, FSRSReview, ItemState, MemoryState,
+    ModelVersion, FSRS,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{FsrsState, SchedulerKind};
+use crate::{FsrsState, Grade, SchedulerKind};
 
 const MS_PER_DAY: i64 = 86_400_000;
+const FSRS7_FAST_STABILITY_RATIO: f32 = 0.8;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,22 +54,18 @@ pub fn calculate_fsrs_next_states(
     now: i64,
     params: &DeckFsrsParams,
 ) -> Result<FsrsNextStates, String> {
-    let weights: Vec<f32> = params
-        .weights
-        .as_ref()
-        .map(|weights| weights.iter().map(|weight| *weight as f32).collect())
-        .unwrap_or_else(|| fsrs::DEFAULT_PARAMETERS.to_vec());
-    let fsrs = FSRS::new(&weights).map_err(|error| error.to_string())?;
+    let fsrs = build_fsrs(params.weights.as_deref())?;
     let days_elapsed = state
         .last_review
-        .map(|last_review| ((now - last_review).max(0) / MS_PER_DAY) as u32)
-        .unwrap_or(0);
-    let current = (state.reps != 0).then_some(MemoryState {
+        .map(|last_review| elapsed_days(last_review, now))
+        .unwrap_or(0.0);
+    let current = (state.reps != 0).then(|| MemoryState {
         stability: state.stability,
         difficulty: state.difficulty,
+        stability_fast: resolve_stability_fast(state, fsrs.version()),
     });
     let next = fsrs
-        .next_states(current, params.desired_retention as f32, days_elapsed)
+        .next_states_with_elapsed_days(current, params.desired_retention as f32, days_elapsed)
         .map_err(|error| error.to_string())?;
     Ok(FsrsNextStates {
         again: transition(state, &next.again, true, now, params.maximum_interval),
@@ -92,6 +90,95 @@ pub fn optimize_fsrs_histories(
     .map_err(|error| format!("{error:?}"))
 }
 
+pub(crate) fn build_fsrs_for_migration(weights: Option<&[f64]>) -> FSRS {
+    build_fsrs(weights).unwrap_or_default()
+}
+
+pub(crate) fn migrate_card_scheduling_to_fsrs7(
+    fsrs: &FSRS,
+    mut state: FsrsState,
+    reviews: &[(i64, Grade)],
+) -> FsrsState {
+    if state.reps == 0 || state.stability_fast.is_some() {
+        return state;
+    }
+
+    if !reviews.is_empty() {
+        let mut previous = reviews[0].0;
+        let fsrs_reviews: Vec<FSRSReview> = reviews
+            .iter()
+            .enumerate()
+            .map(|(index, &(reviewed_at, grade))| {
+                let delta_t = if index == 0 {
+                    0.0
+                } else {
+                    elapsed_days(previous, reviewed_at)
+                };
+                previous = reviewed_at;
+                FSRSReview {
+                    rating: grade_to_rating(grade),
+                    delta_t,
+                }
+            })
+            .collect();
+        if let Ok(memory) = fsrs.memory_state(
+            FSRSItem {
+                reviews: fsrs_reviews,
+            },
+            None,
+        ) {
+            if memory.stability.is_finite()
+                && memory.difficulty.is_finite()
+                && memory.stability_fast.is_finite()
+            {
+                state.stability = memory.stability;
+                state.difficulty = memory.difficulty;
+                state.stability_fast = Some(memory.stability_fast);
+                return state;
+            }
+        }
+    }
+
+    state.stability_fast = Some(fallback_stability_fast(state.stability, fsrs.version()));
+    state
+}
+
+fn build_fsrs(weights: Option<&[f64]>) -> Result<FSRS, String> {
+    let weights: Vec<f32> = weights
+        .map(|weights| weights.iter().map(|weight| *weight as f32).collect())
+        .unwrap_or_else(|| fsrs::DEFAULT_PARAMETERS.to_vec());
+    FSRS::new(&weights).map_err(|error| error.to_string())
+}
+
+fn elapsed_days(from_ms: i64, to_ms: i64) -> f32 {
+    ((to_ms - from_ms).max(0) as f64 / MS_PER_DAY as f64) as f32
+}
+
+fn fallback_stability_fast(stability: f32, version: ModelVersion) -> f32 {
+    match version {
+        ModelVersion::Fsrs6 => stability,
+        ModelVersion::Fsrs7 => stability * FSRS7_FAST_STABILITY_RATIO,
+    }
+}
+
+fn resolve_stability_fast(state: &FsrsState, version: ModelVersion) -> f32 {
+    match state.stability_fast {
+        Some(stability_fast) if stability_fast.is_finite() && stability_fast > 0.0 => {
+            stability_fast
+        }
+        _ => fallback_stability_fast(state.stability, version),
+    }
+}
+
+fn grade_to_rating(grade: Grade) -> u32 {
+    match grade {
+        Grade::Again => 1,
+        Grade::Hard => 2,
+        Grade::Good => 3,
+        Grade::Easy => 4,
+    }
+}
+
 fn transition(
     previous: &FsrsState,
     item: &ItemState,
@@ -103,6 +190,7 @@ fn transition(
     FsrsState {
         kind: SchedulerKind::Fsrs,
         stability: item.memory.stability,
+        stability_fast: Some(item.memory.stability_fast),
         difficulty: item.memory.difficulty,
         reps: previous.reps + 1,
         lapses: previous.lapses + u32::from(is_again && previous.state == 2),
@@ -133,16 +221,16 @@ fn training_items(histories: Vec<FsrsReviewHistory>) -> Result<(Vec<FSRSItem>, V
             .unwrap_or(0);
         for (index, review) in history.reviews.into_iter().enumerate() {
             let delta_t = if index == 0 {
-                0
+                0.0
             } else {
-                ((review.reviewed_at - previous).max(0) / MS_PER_DAY) as u32
+                elapsed_days(previous, review.reviewed_at)
             };
             previous = review.reviewed_at;
             accumulated.push(FSRSReview {
                 rating: review.rating,
                 delta_t,
             });
-            if accumulated.iter().any(|review| review.delta_t > 0) {
+            if accumulated.iter().any(|review| review.delta_t >= 1.0) {
                 items.push(FSRSItem {
                     reviews: accumulated.clone(),
                 });
@@ -185,6 +273,8 @@ mod tests {
             assert_eq!(state.reps, 1);
             assert_eq!(state.state, 2);
             assert_eq!(state.last_review, Some(NOW));
+            assert!(state.stability > 0.0);
+            assert!(state.stability_fast.is_some_and(|sf| sf > 0.0));
             assert!(state.due >= NOW + MS_PER_DAY);
         }
     }
@@ -215,11 +305,62 @@ mod tests {
     }
 
     #[test]
+    fn fractional_elapsed_days_affect_next_memory_state() {
+        let first = calculate_fsrs_next_states(&new_card(NOW), NOW, &params())
+            .unwrap()
+            .good;
+        let at_half_day =
+            calculate_fsrs_next_states(&first, NOW + MS_PER_DAY / 2, &params()).unwrap();
+        let at_one_and_half_days =
+            calculate_fsrs_next_states(&first, NOW + MS_PER_DAY + MS_PER_DAY / 2, &params())
+                .unwrap();
+        assert!(at_one_and_half_days.good.stability > at_half_day.good.stability);
+    }
+
+    #[test]
+    fn legacy_card_without_stability_fast_falls_back_to_eighty_percent_ratio() {
+        let legacy = FsrsState {
+            stability: 10.0,
+            stability_fast: None,
+            difficulty: 5.0,
+            reps: 2,
+            state: 2,
+            last_review: Some(NOW - 5 * MS_PER_DAY),
+            ..FsrsState::initial(NOW)
+        };
+        let explicit = FsrsState {
+            stability_fast: Some(8.0),
+            ..legacy.clone()
+        };
+        let from_legacy = calculate_fsrs_next_states(&legacy, NOW, &params()).unwrap();
+        let from_explicit = calculate_fsrs_next_states(&explicit, NOW, &params()).unwrap();
+        assert_eq!(from_legacy, from_explicit);
+    }
+
+    #[test]
+    fn legacy_21_param_fsrs6_weights_still_schedule_cleanly() {
+        let fsrs6_weights: Vec<f64> = fsrs::FSRS6_DEFAULT_PARAMETERS
+            .iter()
+            .map(|&value| f64::from(value))
+            .collect();
+        let fsrs6_params = DeckFsrsParams {
+            weights: Some(fsrs6_weights),
+            ..params()
+        };
+        let first = calculate_fsrs_next_states(&new_card(NOW), NOW, &fsrs6_params)
+            .unwrap()
+            .good;
+        assert_eq!(first.stability_fast, Some(first.stability));
+        let second = calculate_fsrs_next_states(&first, first.due, &fsrs6_params).unwrap();
+        assert!(second.good.due > first.due);
+    }
+
+    #[test]
     fn optimizer_builds_chronological_prefixes_and_aligned_card_ids() {
         let histories = vec![
             FsrsReviewHistory {
                 reviews: vec![
-                    review(NOW + 3 * MS_PER_DAY, 3),
+                    review(NOW + 3 * MS_PER_DAY + MS_PER_DAY / 2, 3),
                     review(NOW, 4),
                     review(NOW + 2 * MS_PER_DAY, 1),
                 ],
@@ -236,15 +377,15 @@ mod tests {
             vec![
                 FSRSReview {
                     rating: 4,
-                    delta_t: 0,
+                    delta_t: 0.0,
                 },
                 FSRSReview {
                     rating: 1,
-                    delta_t: 2,
+                    delta_t: 2.0,
                 },
             ]
         );
-        assert_eq!(items[1].reviews.last().unwrap().delta_t, 1);
+        assert_eq!(items[1].reviews.last().unwrap().delta_t, 1.5);
         assert_eq!(items[2].reviews.last().unwrap().rating, 3);
     }
 

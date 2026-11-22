@@ -1,6 +1,6 @@
 # rem iOS Companion
 
-Native SwiftUI iPhone companion app for `rem`, sharing the Rust `rem-core` (SQLite WAL + FSRS-6 `StudySession`) and `rem-sync` (Cloudflare Cloud Sync) crates via UniFFI (`src-tauri/crates/rem-ffi`).
+Native SwiftUI iPhone companion app for `rem`, sharing the Rust `rem-core` (SQLite WAL + FSRS-7 `StudySession`) and `rem-sync` (Cloudflare Cloud Sync) crates via UniFFI (`src-tauri/crates/rem-ffi`).
 
 ## Prerequisites
 

@@ -56,7 +56,7 @@ describe('hasDelayedReview', () => {
   })
 })
 
-it('keeps a complete copy of the pinned FSRS-6 defaults for browser tests', () => {
-  expect(DEFAULT_FSRS_WEIGHTS).toHaveLength(21)
+it('keeps a complete copy of the pinned FSRS-7 defaults for browser tests', () => {
+  expect(DEFAULT_FSRS_WEIGHTS).toHaveLength(34)
   expect(DEFAULT_FSRS_WEIGHTS.every(Number.isFinite)).toBe(true)
 })
