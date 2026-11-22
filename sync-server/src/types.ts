@@ -160,6 +160,14 @@ export interface RedeemInviteRequest {
   code: string
 }
 
+export interface PolarCheckoutResponse {
+  checkoutUrl: string
+}
+
+export interface PolarPortalResponse {
+  portalUrl: string
+}
+
 export interface AuthTokenResponse {
   accessToken: string
   expiresIn: number

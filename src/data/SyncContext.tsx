@@ -36,6 +36,8 @@ export interface SyncContextValue {
   refreshAccount: () => Promise<SyncStatus>
   startTrial: () => Promise<SyncStatus>
   redeemInvite: (code: string) => Promise<SyncStatus>
+  openPolarCheckout: () => Promise<void>
+  openPolarPortal: () => Promise<void>
   fetchProviders: (serverUrl: string) => Promise<AuthProviders>
   signInOAuth: (serverUrl: string, provider: OAuthProvider) => Promise<SignInOutcome>
   signInToken: (serverUrl: string, token: string) => Promise<SignInOutcome>
@@ -68,6 +70,7 @@ export function SyncProvider({
   const skipLocalNotifyRef = useRef(false)
   const lastAutoSyncAtRef = useRef(0)
   const lastFocusRefreshAtRef = useRef(0)
+  const pendingBillingReturnRef = useRef(false)
   const didStartupSyncRef = useRef(false)
 
   const updateStatus = useCallback((next: SyncStatus) => {
@@ -169,6 +172,20 @@ export function SyncProvider({
       const current = statusRef.current
       if (!current || current.mode !== 'cloud' || !current.signedIn) return
       const now = Date.now()
+      if (pendingBillingReturnRef.current) {
+        pendingBillingReturnRef.current = false
+        lastFocusRefreshAtRef.current = now
+        void client
+          .refreshAccount()
+          .then((refreshed) => {
+            updateStatus(refreshed)
+            if (!isSyncPaused(refreshed)) {
+              void triggerSync(true)
+            }
+          })
+          .catch(() => {})
+        return
+      }
       if (isSyncPaused(current)) {
         if (now - lastFocusRefreshAtRef.current < FOCUS_SYNC_THROTTLE_MS) return
         lastFocusRefreshAtRef.current = now
@@ -244,6 +261,26 @@ export function SyncProvider({
     },
     [client, updateStatus],
   )
+
+  const openPolarCheckout = useCallback(async () => {
+    setBusy(true)
+    try {
+      await client.openPolarCheckout()
+      pendingBillingReturnRef.current = true
+    } finally {
+      setBusy(false)
+    }
+  }, [client])
+
+  const openPolarPortal = useCallback(async () => {
+    setBusy(true)
+    try {
+      await client.openPolarPortal()
+      pendingBillingReturnRef.current = true
+    } finally {
+      setBusy(false)
+    }
+  }, [client])
 
   const signInOAuth = useCallback(
     async (serverUrl: string, provider: OAuthProvider) => {
@@ -321,6 +358,8 @@ export function SyncProvider({
       refreshAccount,
       startTrial,
       redeemInvite,
+      openPolarCheckout,
+      openPolarPortal,
       fetchProviders,
       signInOAuth,
       signInToken,
@@ -339,6 +378,8 @@ export function SyncProvider({
       refreshAccount,
       startTrial,
       redeemInvite,
+      openPolarCheckout,
+      openPolarPortal,
       fetchProviders,
       signInOAuth,
       signInToken,

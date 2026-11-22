@@ -6,9 +6,10 @@ use std::time::Duration;
 
 use rem_core::{Collection, SyncMode};
 use rem_sync::{
-    build_authorize_url, connect_collection, delete_cloud_account_with_client,
-    fetch_account_with_client, generate_oauth_state, generate_pkce_pair, redeem_invite_with_client,
-    sign_out_with_client, start_trial_with_client, sync_with_credentials, validate_server_url,
+    build_authorize_url, connect_collection, create_polar_checkout_with_client,
+    create_polar_portal_with_client, delete_cloud_account_with_client, fetch_account_with_client,
+    generate_oauth_state, generate_pkce_pair, redeem_invite_with_client, sign_out_with_client,
+    start_trial_with_client, sync_with_credentials, validate_server_url,
     verify_dev_token_with_client, AccountProfile, AuthAccount, AuthClient, AuthProviders,
     AuthTokenResponse, CredentialStore, DownloadedAsset, EntitlementInfo, EntitlementState,
     LoopbackOAuthServer, MemoryCredentialStore, OAuthProvider, StoredCredentials, SyncError,
@@ -197,6 +198,20 @@ impl AuthClient for MockAuthClient {
                 can_manage_billing: false,
             }),
         })
+    }
+
+    fn create_polar_checkout(&self, bearer_token: &str) -> Result<String, SyncError> {
+        if bearer_token != *self.valid_token.lock().unwrap() {
+            return Err(SyncError::Unauthorized);
+        }
+        Ok("https://polar.sh/checkout/chk_test_123".into())
+    }
+
+    fn create_polar_portal(&self, bearer_token: &str) -> Result<String, SyncError> {
+        if bearer_token != *self.valid_token.lock().unwrap() {
+            return Err(SyncError::Unauthorized);
+        }
+        Ok("https://polar.sh/portal/ses_test_456".into())
     }
 
     fn delete_account(&self, bearer_token: &str) -> Result<(), SyncError> {
@@ -511,4 +526,17 @@ fn entitlement_calls_refresh_jwt_on_401_for_account_trial_and_invite() {
         Some("code:REM-ABCD-EFGH")
     );
     assert_eq!(*auth.refresh_count.lock().unwrap(), 3);
+
+    // 4. create_polar_checkout refreshes on 401
+    *auth.valid_token.lock().unwrap() = "jwt-rotated-checkout".into();
+    let checkout_url =
+        create_polar_checkout_with_client(&collection, &store, &auth, 5_000).unwrap();
+    assert_eq!(checkout_url, "https://polar.sh/checkout/chk_test_123");
+    assert_eq!(*auth.refresh_count.lock().unwrap(), 4);
+
+    // 5. create_polar_portal refreshes on 401
+    *auth.valid_token.lock().unwrap() = "jwt-rotated-portal".into();
+    let portal_url = create_polar_portal_with_client(&collection, &store, &auth, 6_000).unwrap();
+    assert_eq!(portal_url, "https://polar.sh/portal/ses_test_456");
+    assert_eq!(*auth.refresh_count.lock().unwrap(), 5);
 }

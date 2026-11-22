@@ -166,6 +166,7 @@ export function SettingsPage() {
   const [syncError, setSyncError] = useState<string | null>(null)
   const [mismatch, setMismatch] = useState<AccountMismatchInfo | null>(null)
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false)
+  const [awaitingCheckoutReturn, setAwaitingCheckoutReturn] = useState(false)
 
   const syncStatus = sync.status
   const defaultServerUrl = (syncStatus?.defaultServerUrl ?? DEFAULT_CLOUD_SERVER_URL).replace(
@@ -433,10 +434,26 @@ export function SettingsPage() {
     }
   }
 
-  async function handleOpenUpgradeUrl(url: string) {
+  async function handleOpenPolarCheckout() {
     setSyncError(null)
+    setSyncMessage(null)
     try {
-      await sync.openExternalUrl(url)
+      await sync.openPolarCheckout()
+      setAwaitingCheckoutReturn(true)
+      setSyncMessage(
+        'Opened Polar checkout in your browser. Return to rem after subscribing — sync updates automatically.',
+      )
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleOpenPolarPortal() {
+    setSyncError(null)
+    setSyncMessage(null)
+    try {
+      await sync.openPolarPortal()
+      setSyncMessage('Opened billing portal in your browser.')
     } catch (err) {
       setSyncError(err instanceof Error ? err.message : String(err))
     }
@@ -519,7 +536,15 @@ export function SettingsPage() {
   const priceDisplay = entitlement?.priceDisplay ?? '$5/year'
   const daysLeft = daysRemaining(entitlement?.expiresAt ?? null)
   const periodEndFormatted = formatShortDate(entitlement?.expiresAt ?? null)
-  const premiumWebUrl = syncStatus?.upgradeUrl ?? `${defaultServerUrl}/premium`
+
+  useEffect(() => {
+    if (!awaitingCheckoutReturn) return
+    if (entitlement?.state === 'active') {
+      setAwaitingCheckoutReturn(false)
+      setSyncError(null)
+      setSyncMessage('rem Premium is active and syncing.')
+    }
+  }, [awaitingCheckoutReturn, entitlement?.state])
 
   const connectedBadge = syncStatus
     ? describeEntitlementBadge(entitlement, entState, syncStatus.activity)
@@ -842,7 +867,7 @@ export function SettingsPage() {
                             className="btn btn-sm"
                             type="button"
                             disabled={sync.busy}
-                            onClick={() => void handleOpenUpgradeUrl(premiumWebUrl)}
+                            onClick={() => void handleOpenPolarCheckout()}
                           >
                             Upgrade to Premium — {priceDisplay}
                           </button>
@@ -853,7 +878,7 @@ export function SettingsPage() {
                             className="btn btn-primary btn-sm"
                             type="button"
                             disabled={sync.busy}
-                            onClick={() => void handleOpenUpgradeUrl(premiumWebUrl)}
+                            onClick={() => void handleOpenPolarPortal()}
                           >
                             Manage billing ↗
                           </button>
@@ -926,7 +951,7 @@ export function SettingsPage() {
                         className="btn btn-ghost btn-sm"
                         type="button"
                         disabled={sync.busy}
-                        onClick={() => void handleOpenUpgradeUrl(premiumWebUrl)}
+                        onClick={() => void handleOpenPolarPortal()}
                       >
                         Manage billing ↗
                       </button>
@@ -1270,7 +1295,13 @@ export function SettingsPage() {
       {confirmDeleteAccount && (
         <ConfirmDialog
           title="Delete cloud account?"
-          description="This permanently removes your synced decks, review logs, media assets, and account record from the sync server. Your local collection on this device will stay intact in Local only mode."
+          description={
+            entState === 'active' || entState === 'past_due'
+              ? entitlement?.provider === 'apple'
+                ? 'This permanently removes your synced decks, review logs, media assets, and account record from the sync server. Your local collection stays intact. Remember to cancel your App Store subscription in Apple Subscriptions to prevent renewal.'
+                : 'This permanently removes your synced decks, review logs, media assets, and account record from the sync server, and cancels your active rem Premium web subscription. Your local collection on this device will stay intact in Local only mode.'
+              : 'This permanently removes your synced decks, review logs, media assets, and account record from the sync server. Your local collection on this device will stay intact in Local only mode.'
+          }
           confirmLabel="Delete cloud account"
           danger
           onConfirm={() => void handleDeleteAccount()}

@@ -360,6 +360,56 @@ pub fn redeem_invite_with_client(
     })
 }
 
+/// Create a Polar Checkout Session (`POST /v1/billing/polar/checkout`), automatically refreshing expired OAuth JWTs.
+pub fn create_polar_checkout_authenticated(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    now_ms: i64,
+) -> Result<String, SyncError> {
+    let state = collection.sync_state()?;
+    let server_url = state
+        .server_url
+        .ok_or_else(|| SyncError::NotConfigured("server_url is not set".into()))?;
+    let auth_client = HttpAuthClient::new(&server_url)?;
+    create_polar_checkout_with_client(collection, store, &auth_client, now_ms)
+}
+
+pub fn create_polar_checkout_with_client(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    auth_client: &dyn AuthClient,
+    now_ms: i64,
+) -> Result<String, SyncError> {
+    with_authed_token(collection, store, auth_client, now_ms, |token| {
+        auth_client.create_polar_checkout(token)
+    })
+}
+
+/// Create a Polar Customer Portal session (`POST /v1/billing/polar/portal`), automatically refreshing expired OAuth JWTs.
+pub fn create_polar_portal_authenticated(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    now_ms: i64,
+) -> Result<String, SyncError> {
+    let state = collection.sync_state()?;
+    let server_url = state
+        .server_url
+        .ok_or_else(|| SyncError::NotConfigured("server_url is not set".into()))?;
+    let auth_client = HttpAuthClient::new(&server_url)?;
+    create_polar_portal_with_client(collection, store, &auth_client, now_ms)
+}
+
+pub fn create_polar_portal_with_client(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    auth_client: &dyn AuthClient,
+    now_ms: i64,
+) -> Result<String, SyncError> {
+    with_authed_token(collection, store, auth_client, now_ms, |token| {
+        auth_client.create_polar_portal(token)
+    })
+}
+
 fn with_authed_token<T, F>(
     collection: &Collection,
     store: &dyn CredentialStore,

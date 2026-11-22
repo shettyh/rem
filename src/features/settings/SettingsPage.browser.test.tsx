@@ -21,10 +21,12 @@ function renderSettings(
   storage: ReturnType<typeof freshStorage>,
   syncClient?: SyncClient,
   updaterClient?: UpdaterClient,
+  autoSync = false,
 ) {
   return renderRoute({
     storage,
     syncClient,
+    autoSync,
     updaterClient,
     entry: '/settings',
     path: '/settings',
@@ -204,6 +206,8 @@ function makeMockSyncClient(
       emit(next)
       return next
     }),
+    openPolarCheckout: vi.fn(async () => {}),
+    openPolarPortal: vi.fn(async () => {}),
     openExternalUrl: vi.fn(async () => {}),
     subscribeStatus: (listener) => {
       listeners.add(listener)
@@ -475,9 +479,84 @@ test('shows active Apple subscription without Polar upgrade and supports check-a
 
   await expect.element(page.getByText('Payment issue').first()).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Manage billing ↗' })).toBeVisible()
+  await page.getByRole('button', { name: 'Manage billing ↗' }).click()
+  expect(pastDueClient.openPolarPortal).toHaveBeenCalledTimes(1)
   await page.getByRole('button', { name: 'Check access / Retry sync' }).click()
   expect(pastDueClient.refreshAccount).toHaveBeenCalledTimes(1)
   expect(pastDueClient.syncNow).toHaveBeenCalledTimes(1)
+})
+
+test('opens Polar checkout, auto-activates on window focus return, and opens billing portal for active Polar subscribers', async () => {
+  const storage = freshStorage()
+  let upgraded = false
+  const polarClient = makeMockSyncClient(
+    {
+      mode: 'cloud',
+      serverUrl: DEFAULT_CLOUD_SERVER_URL,
+      accountId: 'usr_polar_ui',
+      email: 'polar@example.com',
+      provider: 'google',
+      signedIn: true,
+      subscriptionRequired: true,
+      entitlement: makeEntitlement({
+        state: 'none',
+        syncEnabled: false,
+        canStartTrial: true,
+        canSubscribePolar: true,
+        canManageBilling: false,
+      }),
+    },
+    {
+      openPolarCheckout: vi.fn(async () => {
+        upgraded = true
+      }),
+      refreshAccount: vi.fn(async () => {
+        if (!upgraded) return polarClient.current
+        const activeStatus: SyncStatus = {
+          ...polarClient.current,
+          subscriptionRequired: false,
+          lastSyncedAt: Date.now(),
+          entitlement: makeEntitlement({
+            state: 'active',
+            syncEnabled: true,
+            provider: 'polar',
+            plan: 'premium_yearly',
+            expiresAt: Date.now() + 365 * 86_400_000,
+            canStartTrial: false,
+            canSubscribePolar: false,
+            canManageBilling: true,
+          }),
+        }
+        polarClient.current = activeStatus
+        return activeStatus
+      }),
+    },
+  )
+
+  renderSettings(storage, polarClient, undefined, true)
+
+  await expect.element(page.getByRole('button', { name: 'Upgrade to Premium — $5/year' })).toBeVisible()
+  await page.getByRole('button', { name: 'Upgrade to Premium — $5/year' }).click()
+  expect(polarClient.openPolarCheckout).toHaveBeenCalledTimes(1)
+  await expect
+    .element(page.getByText('Opened Polar checkout in your browser', { exact: false }))
+    .toBeVisible()
+
+  // Simulate returning to the desktop app window after completing Polar checkout in browser.
+  window.dispatchEvent(new Event('focus'))
+
+  await expect.element(page.getByText('rem Premium is active and syncing.')).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Manage billing ↗' })).toBeVisible()
+  expect(polarClient.syncNow).toHaveBeenCalled()
+
+  await page.getByRole('button', { name: 'Manage billing ↗' }).click()
+  expect(polarClient.openPolarPortal).toHaveBeenCalledTimes(1)
+
+  // Delete cloud account dialog informs Polar subscribers their web subscription is canceled.
+  await page.getByRole('button', { name: 'Delete cloud account…' }).click()
+  await expect
+    .element(page.getByText('cancels your active rem Premium web subscription', { exact: false }))
+    .toBeVisible()
 })
 
 test('prompts before switching a collection bound to another sync account', async () => {

@@ -15,6 +15,11 @@ import {
   handleTokenExchange,
   handleTokenRefresh,
 } from './oauth'
+import {
+  handleCreatePolarCheckout,
+  handleCreatePolarPortal,
+  handlePolarWebhook,
+} from './polar'
 import type { Env, MissingAssetsRequest, SyncRequest } from './types'
 import { UserSyncDO } from './userSyncDo'
 
@@ -87,6 +92,10 @@ export default {
       return handleLogout(request, env)
     }
 
+    if (request.method === 'POST' && url.pathname === '/v1/webhooks/polar') {
+      return handlePolarWebhook(request, env)
+    }
+
     if (request.method === 'POST' && url.pathname === '/v1/waitlist') {
       return jsonResponse(
         {
@@ -122,6 +131,14 @@ export default {
 
     if (request.method === 'POST' && url.pathname === '/v1/invites/redeem') {
       return handleRedeemInvite(request, env, auth.userId, auth.authMethod)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/billing/polar/checkout') {
+      return handleCreatePolarCheckout(request, env, auth.userId, auth.authMethod)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/billing/polar/portal') {
+      return handleCreatePolarPortal(env, auth.userId, auth.authMethod)
     }
 
     const entitlement = await checkSyncEntitlement(env, auth.userId, auth.authMethod)
