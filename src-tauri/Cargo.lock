@@ -4237,7 +4237,7 @@ dependencies = [
 name = "rem-sync"
 version = "0.15.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "keyring",
  "rem-core",
  "reqwest",
