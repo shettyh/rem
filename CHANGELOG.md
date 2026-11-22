@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.22.0 (2026-11-22)
+
+## What's Changed
+* fix(ios,sync): App Store review readiness (3.1.1, 5.1.1(v), ITMS-91053) by @shettyh in https://github.com/shettyh/rem/pull/231
+* feat(ios,sync): native Sign in with Apple on iOS (Guideline 4.8) by @shettyh in https://github.com/shettyh/rem/pull/232
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.21.0...v0.22.0
+
 ## 0.21.0 (2026-11-22)
 
 ## What's Changed
