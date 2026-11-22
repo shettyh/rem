@@ -45,7 +45,11 @@ function jsonResponse(body: unknown, status = 200): Response {
 export function getPolarApiBase(env: Env): string {
   const raw = env.POLAR_API_BASE?.trim()
   const base = raw && raw.length > 0 ? raw : DEFAULT_POLAR_API_BASE
-  return base.replace(/\/+$/, '')
+  let end = base.length
+  while (end > 0 && base.charCodeAt(end - 1) === 47) {
+    end -= 1
+  }
+  return base.slice(0, end)
 }
 
 function encodeBase64(bytes: Uint8Array): string {
