@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useStorage } from '../data/StorageContext'
 import { useSyncOptional } from '../data/SyncContext'
+import { useUpdaterOptional } from '../data/UpdaterContext'
 import { useStorageQuery } from '../data/useStorageQuery'
 import { ThemeToggle } from './ThemeToggle'
 
@@ -24,6 +25,7 @@ export function Sidebar({
 }: SidebarProps) {
   const storage = useStorage()
   const sync = useSyncOptional()
+  const updater = useUpdaterOptional()
   const navigate = useNavigate()
   const [peeking, setPeeking] = useState(false)
   const hoverTimerRef = useRef<number | null>(null)
@@ -168,20 +170,33 @@ export function Sidebar({
         </div>
 
         <div className="side-footer">
-          <NavLink
-            to="/settings"
-            className={({ isActive }) => (isActive ? 'side-settings is-active' : 'side-settings')}
-            aria-label="Settings"
-            title="Settings"
-          >
-            <svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M2.5 4.5h6M11.5 4.5h2M2.5 8h2M7.5 8h6M2.5 11.5h7M12.5 11.5h1" />
-              <circle cx="10" cy="4.5" r="1.5" />
-              <circle cx="6" cy="8" r="1.5" />
-              <circle cx="11" cy="11.5" r="1.5" />
-            </svg>
-            <span className="side-settings-label">Settings</span>
-          </NavLink>
+          {(() => {
+            const updateReady =
+              updater?.state.status === 'available' || updater?.state.status === 'ready'
+            const updateLabel =
+              updater?.state.status === 'ready'
+                ? `Settings — restart to install v${updater.state.info.version}`
+                : updater?.state.status === 'available'
+                  ? `Settings — update v${updater.state.info.version} available`
+                  : 'Settings'
+            return (
+              <NavLink
+                to="/settings"
+                className={({ isActive }) => (isActive ? 'side-settings is-active' : 'side-settings')}
+                aria-label={updateLabel}
+                title={updateLabel}
+              >
+                <svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M2.5 4.5h6M11.5 4.5h2M2.5 8h2M7.5 8h6M2.5 11.5h7M12.5 11.5h1" />
+                  <circle cx="10" cy="4.5" r="1.5" />
+                  <circle cx="6" cy="8" r="1.5" />
+                  <circle cx="11" cy="11.5" r="1.5" />
+                </svg>
+                <span className="side-settings-label">Settings</span>
+                {updateReady && <span className="side-update-dot" aria-hidden="true" />}
+              </NavLink>
+            )
+          })()}
           {sync?.status?.mode === 'cloud' && (
             <button
               type="button"

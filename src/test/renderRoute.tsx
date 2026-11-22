@@ -4,8 +4,10 @@ import { render } from 'vitest-browser-react'
 import { Layout } from '../ui/Layout'
 import { StorageProvider } from '../data/StorageContext'
 import { SyncProvider } from '../data/SyncContext'
+import { UpdaterProvider } from '../data/UpdaterContext'
 import type { Storage } from '../data/Storage'
 import type { SyncClient } from '../data/SyncClient'
+import type { UpdaterClient } from '../data/UpdaterClient'
 
 /**
  * Mount a page element at `path` (visited via `entry`) under the real Layout and a
@@ -15,6 +17,8 @@ export function renderRoute(opts: {
   storage: Storage
   /** Optional sync client override for testing cloud sync states. */
   syncClient?: SyncClient
+  /** Optional updater client override for testing update and CLI states. */
+  updaterClient?: UpdaterClient
   /** Route pattern, e.g. '/decks/:deckId'. */
   path: string
   /** URL actually visited, e.g. '/decks/abc'. */
@@ -40,7 +44,9 @@ export function renderRoute(opts: {
     <div data-testid="screen">
       <StorageProvider storage={opts.storage}>
         <SyncProvider client={opts.syncClient} autoSync={false}>
-          <RouterProvider router={router} />
+          <UpdaterProvider client={opts.updaterClient} autoCheck={false}>
+            <RouterProvider router={router} />
+          </UpdaterProvider>
         </SyncProvider>
       </StorageProvider>
     </div>,

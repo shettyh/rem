@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useStorage } from '../../data/StorageContext'
 import { useSync } from '../../data/SyncContext'
+import { useUpdaterOptional } from '../../data/UpdaterContext'
 import {
   DEFAULT_CLOUD_SERVER_URL,
   type AuthProviders,
@@ -82,6 +83,7 @@ type AccountMismatchInfo = Extract<SignInOutcome, { status: 'accountMismatch' }>
 export function SettingsPage() {
   const storage = useStorage()
   const sync = useSync()
+  const updater = useUpdaterOptional()
   const decks = useStorageQuery(() => storage.listDecks(), [])
 
   const importInput = useRef<HTMLInputElement>(null)
@@ -940,6 +942,140 @@ export function SettingsPage() {
             </label>
           </div>
         </section>
+
+        {updater?.supported && (
+          <section className="settings-group" aria-labelledby="app-updates-heading">
+            <div className="settings-group-heading">
+              <h2 id="app-updates-heading">App &amp; updates</h2>
+              <p>Keep rem and its bundled terminal CLI up to date.</p>
+            </div>
+
+            <div className="settings-panel">
+              <div className="settings-action-row settings-action-row--first">
+                <div className="settings-action-copy">
+                  <strong>Software updates</strong>
+                  <span>
+                    {updater.state.status === 'checking' && 'Checking for updates…'}
+                    {updater.state.status === 'idle' && `Installed version v${packageInfo.version}.`}
+                    {updater.state.status === 'up-to-date' &&
+                      `You're up to date on v${packageInfo.version}.`}
+                    {updater.state.status === 'available' &&
+                      `Version v${updater.state.info.version} is available.`}
+                    {updater.state.status === 'downloading' &&
+                      (updater.state.progress.total
+                        ? `Downloading v${updater.state.info.version} (${Math.min(
+                            100,
+                            Math.round(
+                              (updater.state.progress.downloaded / updater.state.progress.total) * 100,
+                            ),
+                          )}%)…`
+                        : `Downloading v${updater.state.info.version}…`)}
+                    {updater.state.status === 'ready' &&
+                      `Version v${updater.state.info.version} is installed. Restart to finish updating.`}
+                    {updater.state.status === 'error' && `Installed version v${packageInfo.version}.`}
+                  </span>
+                  {updater.state.status === 'downloading' && updater.state.progress.total && (
+                    <div className="settings-progress" role="progressbar" aria-label="Update download progress">
+                      <div
+                        className="settings-progress-fill"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.round(
+                              (updater.state.progress.downloaded / updater.state.progress.total) * 100,
+                            ),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  )}
+                  {(updater.state.status === 'available' || updater.state.status === 'ready') &&
+                    updater.state.info.body && (
+                      <pre className="settings-update-notes">{updater.state.info.body}</pre>
+                    )}
+                </div>
+
+                <div className="settings-inline-actions">
+                  {updater.state.status === 'available' && (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      type="button"
+                      onClick={() => void updater.downloadAndInstall()}
+                    >
+                      Install v{updater.state.info.version}
+                    </button>
+                  )}
+                  {updater.state.status === 'ready' && (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      type="button"
+                      onClick={() => void updater.relaunch()}
+                    >
+                      Restart to update
+                    </button>
+                  )}
+                  {updater.state.status !== 'available' &&
+                    updater.state.status !== 'downloading' &&
+                    updater.state.status !== 'ready' && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        type="button"
+                        disabled={updater.state.status === 'checking'}
+                        onClick={() => void updater.checkForUpdates()}
+                      >
+                        {updater.state.status === 'checking' ? 'Checking…' : 'Check for updates'}
+                      </button>
+                    )}
+                </div>
+              </div>
+
+              {updater.state.status === 'error' && (
+                <div className="settings-feedback">
+                  <p className="settings-error" role="alert">
+                    {updater.state.message}
+                  </p>
+                </div>
+              )}
+
+              {updater.cliStatus?.supported && (
+                <div className="settings-action-row">
+                  <div className="settings-action-copy">
+                    <strong>Command line (rem)</strong>
+                    <span>
+                      {updater.cliStatus.linkedToBundled
+                        ? updater.cliStatus.managedByHomebrew
+                          ? `Linked via Homebrew at ${updater.cliStatus.installedPath}. Updates automatically with rem.`
+                          : updater.cliStatus.onPath
+                            ? `Linked at ${updater.cliStatus.installedPath}. Updates automatically with rem.`
+                            : `Linked at ${updater.cliStatus.installedPath}. Add ~/.local/bin to your PATH to run rem.`
+                        : updater.cliStatus.installedPath
+                          ? `Found separate CLI at ${updater.cliStatus.installedPath}. Link the bundled binary so updates stay in sync.`
+                          : 'Link the bundled rem CLI into ~/.local/bin so you can capture and study from your terminal.'}
+                    </span>
+                  </div>
+                  {!updater.cliStatus.linkedToBundled && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      disabled={updater.cliBusy}
+                      onClick={() => void updater.installCli()}
+                    >
+                      {updater.cliBusy ? 'Linking…' : 'Install rem CLI'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {updater.cliError && (
+                <div className="settings-feedback">
+                  <p className="settings-error" role="alert">
+                    {updater.cliError}
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         <p className="settings-version">rem version {packageInfo.version}</p>
       </div>

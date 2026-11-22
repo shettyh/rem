@@ -38,13 +38,13 @@ explore a system or topic → agent proposes drafts → you try, edit, and appro
 
 ## Installation
 
-Download the latest installer for your platform from [GitHub Releases](https://github.com/shettyh/rem/releases/latest).
+### macOS (Homebrew — recommended)
 
-| Platform | Desktop packages | CLI archives |
-| --- | --- | --- |
-| macOS | Apple Silicon and Intel DMG | Apple Silicon and Intel `.tar.gz` |
-| Linux | AppImage, `.deb`, and `.rpm` | x86_64 `.tar.gz` |
-| Windows | `.msi` and `.exe` | x86_64 `.zip` |
+```sh
+brew install --cask shettyh/tap/rem
+```
+
+This single installation installs `/Applications/rem.app` (signed & notarized) and links the bundled `rem` CLI onto your `PATH`. In-app updates keep both the desktop app and the `rem` CLI in sync automatically.
 
 ### macOS and Linux installer
 
@@ -52,9 +52,25 @@ Download the latest installer for your platform from [GitHub Releases](https://g
 curl -fsSL https://raw.githubusercontent.com/shettyh/rem/main/install.sh | sh
 ```
 
-This installs both the desktop app and the `rem` CLI. On Linux, launch the desktop AppImage with `rem-app`; `rem` is reserved for the CLI. The AppImage requires FUSE. Debian and Ubuntu users can install it with `sudo apt install libfuse2`.
+On macOS, this downloads a single `.dmg`, installs `/Applications/rem.app`, and symlinks the bundled `rem` CLI into `~/.local/bin/rem`. If you drag `rem.app` from a `.dmg` manually, you can link the CLI in one click from **Settings → App & updates**.
 
-Windows releases include a separate CLI zip. Extract `rem.exe` into a directory on `PATH`.
+On Linux, this installs the desktop AppImage as `rem-app` and the CLI as `rem`. The AppImage requires FUSE (`sudo apt install libfuse2` on Debian/Ubuntu).
+
+### Direct downloads
+
+Download installers for any platform from [GitHub Releases](https://github.com/shettyh/rem/releases/latest):
+
+| Platform | Desktop packages (includes bundled `rem` CLI) | Standalone CLI archives |
+| --- | --- | --- |
+| macOS | Apple Silicon and Intel DMG (signed & notarized) | Apple Silicon and Intel `.tar.gz` |
+| Linux | AppImage, `.deb`, and `.rpm` | x86_64 `.tar.gz` |
+| Windows | `.msi` and `.exe` | x86_64 `.zip` |
+
+Windows releases also include a standalone CLI zip if you want `rem.exe` directly on `PATH`.
+
+### Automatic updates
+
+Desktop builds check GitHub Releases (`latest.json`) for signed updates and let you download, install, and restart from **Settings → App & updates**. Because the `rem` CLI is bundled inside the app package, updating `rem` updates both the desktop app and linked CLI together.
 
 ### Agent skill
 

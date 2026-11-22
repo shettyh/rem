@@ -39,4 +39,11 @@ else
   fail=1
 fi
 
+if grep -q 'ln -sf "$bundled_cli" "$dest/rem"' "$(dirname "$0")/../install.sh"; then
+  printf 'ok   - macOS links bundled CLI from rem.app\n'
+else
+  printf 'FAIL - macOS installer does not link bundled CLI from rem.app\n'
+  fail=1
+fi
+
 exit $fail

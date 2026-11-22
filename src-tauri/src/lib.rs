@@ -1,3 +1,4 @@
+mod cli;
 mod fsrs_sched;
 mod storage;
 mod study;
@@ -8,7 +9,11 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            cli::cli_status,
+            cli::cli_install,
             fsrs_sched::fsrs_next_states,
             fsrs_sched::fsrs_optimize,
             study::study_start,
@@ -85,5 +90,30 @@ mod tests {
         assert_eq!(csp["object-src"], "'none'");
         assert_eq!(csp["base-uri"], "'none'");
         assert!(!csp["script-src"].as_str().unwrap().contains("unsafe"));
+    }
+
+    #[test]
+    fn updater_and_release_bundle_configuration_are_valid() {
+        let base: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let updater = &base["plugins"]["updater"];
+        assert!(
+            !updater["pubkey"].as_str().unwrap_or("").is_empty(),
+            "updater pubkey must be configured"
+        );
+        let endpoints = updater["endpoints"].as_array().unwrap();
+        assert!(!endpoints.is_empty());
+        for ep in endpoints {
+            assert!(
+                ep.as_str().unwrap().starts_with("https://"),
+                "updater endpoint must use HTTPS"
+            );
+        }
+
+        let release: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.release.conf.json")).unwrap();
+        assert_eq!(release["bundle"]["createUpdaterArtifacts"], true);
+        let external_bin = release["bundle"]["externalBin"].as_array().unwrap();
+        assert!(external_bin.iter().any(|v| v == "binaries/rem"));
     }
 }
