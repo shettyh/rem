@@ -7,20 +7,35 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
-      tiptap:
-        patterns:
-          - "@tiptap/*"
       react:
         patterns:
           - "react"
           - "react-dom"
           - "@types/react"
           - "@types/react-dom"
+      tiptap:
+        patterns:
+          - "@tiptap/*"
       vitest:
         patterns:
           - "vitest"
           - "@vitest/*"
           - "vitest-browser-*"
+      npm-minor-and-patch:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+          - "@tiptap/*"
+          - "vitest"
+          - "@vitest/*"
+          - "vitest-browser-*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: cargo
     directory: /src-tauri
@@ -32,6 +47,17 @@ updates:
         patterns:
           - "tauri"
           - "tauri-*"
+      rust-minor-and-patch:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "tauri"
+          - "tauri-*"
+          - "uniffi"
+          - "uniffi-*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: github-actions
     directory: /
@@ -39,6 +65,6 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
-      codeql:
+      github-actions:
         patterns:
-          - "github/codeql-action/*"
+          - "*"
