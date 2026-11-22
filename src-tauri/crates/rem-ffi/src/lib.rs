@@ -459,6 +459,44 @@ impl RemClient {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn finish_apple_native_auth(
+        &self,
+        server_url: String,
+        identity_token: String,
+        authorization_code: Option<String>,
+        nonce: String,
+        email: Option<String>,
+        reset_existing_binding: bool,
+        now_ms: i64,
+    ) -> Result<ConnectResultDto, RemFfiError> {
+        let state = self.collection.sync_state()?;
+        let auth_client = HttpAuthClient::new(&server_url)?;
+        let token_response = auth_client.exchange_apple_native(
+            &identity_token,
+            authorization_code.as_deref(),
+            &nonce,
+            email.as_deref(),
+            &state.device_id,
+        )?;
+        let credentials = StoredCredentials::from_oauth_response(token_response, now_ms);
+        let result = connect_collection(
+            &self.collection,
+            self.credentials.as_ref(),
+            &server_url,
+            &credentials,
+            now_ms,
+            reset_existing_binding,
+        )?;
+        Ok(ConnectResultDto {
+            account_id: result.account_id,
+            email: result.email,
+            provider: result.provider,
+            server_url: result.server_url,
+            enqueued_bootstrap_ops: result.enqueued_bootstrap_ops as u32,
+        })
+    }
+
     pub fn sync_status(&self) -> Result<SyncStatusDto, RemFfiError> {
         let state = self.collection.sync_state()?;
         let pending_outbox_count = self.collection.pending_outbox_count()?;

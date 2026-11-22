@@ -16,9 +16,9 @@ use uuid::Uuid;
 use crate::credentials::{normalize_server_url, StoredCredentials};
 use crate::error::SyncError;
 use crate::protocol::{
-    AccountProfile, AuthProviders, AuthTokenResponse, LogoutRequest, OAuthProvider,
-    PolarCheckoutResponse, PolarPortalResponse, RedeemInviteRequest, TokenExchangeRequest,
-    TokenRefreshRequest, VerifyAppleTransactionRequest,
+    AccountProfile, AppleNativeAuthRequest, AuthProviders, AuthTokenResponse, LogoutRequest,
+    OAuthProvider, PolarCheckoutResponse, PolarPortalResponse, RedeemInviteRequest,
+    TokenExchangeRequest, TokenRefreshRequest, VerifyAppleTransactionRequest,
 };
 
 const AUTH_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -31,6 +31,14 @@ pub trait AuthClient {
         code: &str,
         code_verifier: &str,
         redirect_uri: &str,
+        device_id: &str,
+    ) -> Result<AuthTokenResponse, SyncError>;
+    fn exchange_apple_native(
+        &self,
+        identity_token: &str,
+        authorization_code: Option<&str>,
+        nonce: &str,
+        email: Option<&str>,
         device_id: &str,
     ) -> Result<AuthTokenResponse, SyncError>;
     fn refresh_token(
@@ -121,6 +129,32 @@ impl AuthClient for HttpAuthClient {
                 code: code.to_owned(),
                 code_verifier: code_verifier.to_owned(),
                 redirect_uri: redirect_uri.to_owned(),
+                device_id: device_id.to_owned(),
+            })
+            .send()
+            .map_err(|err| SyncError::Transport(err.to_string()))?;
+        let response = check_auth_status(response)?;
+        response
+            .json::<AuthTokenResponse>()
+            .map_err(|err| SyncError::InvalidResponse(err.to_string()))
+    }
+
+    fn exchange_apple_native(
+        &self,
+        identity_token: &str,
+        authorization_code: Option<&str>,
+        nonce: &str,
+        email: Option<&str>,
+        device_id: &str,
+    ) -> Result<AuthTokenResponse, SyncError> {
+        let response = self
+            .client
+            .post(self.endpoint("/v1/auth/apple/native"))
+            .json(&AppleNativeAuthRequest {
+                identity_token: identity_token.to_owned(),
+                authorization_code: authorization_code.map(str::to_owned),
+                nonce: nonce.to_owned(),
+                email: email.map(str::to_owned),
                 device_id: device_id.to_owned(),
             })
             .send()

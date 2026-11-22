@@ -12,6 +12,7 @@ import {
 import { getUpgradeUrl, isSubscriptionRequired } from './entitlements'
 import { revokePolarSubscriptionForAccountDeletion } from './polar'
 import type {
+  AppleNativeAuthRequest,
   AuthProvidersResponse,
   AuthTokenResponse,
   Env,
@@ -57,6 +58,19 @@ export function isAppleConfigured(env: Env): boolean {
       env.APPLE_KEY_ID &&
       env.APPLE_PRIVATE_KEY,
   )
+}
+
+function getAppleNativeClientId(env: Env): string | null {
+  const explicit = env.APPLE_IOS_CLIENT_ID?.trim()
+  if (explicit) return explicit
+  const bundle = env.APPLE_BUNDLE_ID?.trim()
+  if (bundle) return bundle
+  const web = env.APPLE_CLIENT_ID?.trim()
+  return web || null
+}
+
+function canSignAppleClientSecret(env: Env): boolean {
+  return Boolean(env.APPLE_TEAM_ID && env.APPLE_KEY_ID && env.APPLE_PRIVATE_KEY)
 }
 
 export function getAuthProviders(env: Env): AuthProvidersResponse {
@@ -409,6 +423,105 @@ export async function handleTokenExchange(request: Request, env: Env): Promise<R
   return jsonResponse(response)
 }
 
+export async function handleAppleNativeAuth(request: Request, env: Env): Promise<Response> {
+  if (!env.DB || !env.JWT_SECRET) {
+    return jsonResponse({ error: 'auth_not_configured' }, 503)
+  }
+  const nativeClientId = getAppleNativeClientId(env)
+  if (!nativeClientId) {
+    return jsonResponse({ error: 'provider_not_configured' }, 503)
+  }
+
+  let body: AppleNativeAuthRequest
+  try {
+    body = (await request.json()) as AppleNativeAuthRequest
+  } catch {
+    return jsonResponse({ error: 'invalid_json' }, 400)
+  }
+
+  const identityToken = typeof body?.identityToken === 'string' ? body.identityToken.trim() : ''
+  const rawNonce = typeof body?.nonce === 'string' ? body.nonce.trim() : ''
+  if (!identityToken || rawNonce.length < 16 || rawNonce.length > 256) {
+    return jsonResponse({ error: 'invalid_request' }, 400)
+  }
+
+  const expectedNonce = await sha256HexString(rawNonce)
+  let claims: Record<string, unknown>
+  try {
+    claims = await verifyOidcIdToken({
+      idToken: identityToken,
+      jwksUrl: env.APPLE_JWKS_URL ?? DEFAULT_APPLE_JWKS_URL,
+      allowedIssuers: ['https://appleid.apple.com'],
+      expectedAudience: nativeClientId,
+      expectedNonce,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'invalid_identity_token'
+    return jsonResponse({ error: 'invalid_identity_token', message }, 401)
+  }
+
+  const sub = String(claims.sub)
+  const fallbackEmail =
+    typeof body.email === 'string' && body.email.trim().length > 0 ? body.email.trim() : null
+  const email =
+    typeof claims.email === 'string' && claims.email.length > 0 ? claims.email : fallbackEmail
+
+  // Exchange native authorizationCode (when provided) to capture Apple's refresh_token
+  // for Guideline 5.1.1(v) token revocation during DELETE /v1/account.
+  let refreshToken: string | null = null
+  const authCode =
+    typeof body.authorizationCode === 'string' ? body.authorizationCode.trim() : ''
+  if (authCode.length > 0 && canSignAppleClientSecret(env)) {
+    try {
+      const clientSecret = await signAppleClientSecret(env, nativeClientId)
+      const form = new URLSearchParams({
+        code: authCode,
+        client_id: nativeClientId,
+        client_secret: clientSecret,
+        grant_type: 'authorization_code',
+      })
+      const resp = await fetch(env.APPLE_TOKEN_URL ?? DEFAULT_APPLE_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form.toString(),
+      })
+      if (resp.ok) {
+        const data = (await resp.json()) as { refresh_token?: unknown }
+        if (typeof data.refresh_token === 'string' && data.refresh_token.length > 0) {
+          refreshToken = data.refresh_token
+        }
+      }
+    } catch {
+      // Identity token is already cryptographically verified; don't fail sign-in on transient token fetch error.
+    }
+  }
+
+  const now = Date.now()
+  const userId = await upsertOAuthUser(env.DB, 'apple', sub, email, now, refreshToken)
+  const deviceId = normalizeDeviceId(body.deviceId)
+  const familyId = `fam_${randomToken(16)}`
+  const tokens = await issueSessionTokens(
+    env.DB,
+    env.JWT_SECRET,
+    userId,
+    familyId,
+    deviceId,
+    now,
+  )
+
+  const response: AuthTokenResponse = {
+    accessToken: tokens.accessToken,
+    expiresIn: ACCESS_TOKEN_TTL_SEC,
+    refreshToken: tokens.refreshToken,
+    account: {
+      id: userId,
+      email,
+      provider: 'apple',
+    },
+  }
+  return jsonResponse(response)
+}
+
 export async function handleTokenRefresh(request: Request, env: Env): Promise<Response> {
   if (!env.DB || !env.JWT_SECRET) {
     return jsonResponse({ error: 'auth_not_configured' }, 503)
@@ -612,7 +725,16 @@ async function issueSessionTokens(
 }
 
 async function revokeAppleTokensForAccountDeletion(env: Env, userId: string): Promise<void> {
-  if (!env.DB || !isAppleConfigured(env)) return
+  if (!env.DB || !canSignAppleClientSecret(env)) return
+
+  const clientIds = [
+    ...new Set(
+      [env.APPLE_CLIENT_ID?.trim(), getAppleNativeClientId(env)].filter(
+        (id): id is string => Boolean(id && id.length > 0),
+      ),
+    ),
+  ]
+  if (clientIds.length === 0) return
 
   let rows: { provider_refresh_token: string | null }[] = []
   try {
@@ -633,29 +755,26 @@ async function revokeAppleTokensForAccountDeletion(env: Env, userId: string): Pr
     .filter((token) => token.length > 0)
   if (tokens.length === 0) return
 
-  let clientSecret: string
-  try {
-    clientSecret = await signAppleClientSecret(env)
-  } catch {
-    return
-  }
-
   const revokeUrl = env.APPLE_REVOKE_URL ?? DEFAULT_APPLE_REVOKE_URL
   for (const token of tokens) {
-    try {
-      const form = new URLSearchParams({
-        client_id: env.APPLE_CLIENT_ID!,
-        client_secret: clientSecret,
-        token,
-        token_type_hint: 'refresh_token',
-      })
-      await fetch(revokeUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: form.toString(),
-      })
-    } catch {
-      // Best-effort revocation so account deletion always completes even if Apple is unreachable.
+    for (const clientId of clientIds) {
+      try {
+        const clientSecret = await signAppleClientSecret(env, clientId)
+        const form = new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          token,
+          token_type_hint: 'refresh_token',
+        })
+        const resp = await fetch(revokeUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: form.toString(),
+        })
+        if (resp.ok) break
+      } catch {
+        // Best-effort revocation so account deletion always completes even if Apple is unreachable.
+      }
     }
   }
 }
@@ -813,7 +932,8 @@ async function exchangeAppleCode(
   return { sub: String(claims.sub), email, refreshToken }
 }
 
-async function signAppleClientSecret(env: Env): Promise<string> {
+async function signAppleClientSecret(env: Env, clientIdOverride?: string): Promise<string> {
+  const clientId = clientIdOverride ?? env.APPLE_CLIENT_ID!
   const nowSec = Math.floor(Date.now() / 1000)
   const headerB64 = encodeBase64Url(
     TEXT_ENCODER.encode(JSON.stringify({ alg: 'ES256', kid: env.APPLE_KEY_ID! })),
@@ -825,7 +945,7 @@ async function signAppleClientSecret(env: Env): Promise<string> {
         iat: nowSec,
         exp: nowSec + 300,
         aud: 'https://appleid.apple.com',
-        sub: env.APPLE_CLIENT_ID!,
+        sub: clientId,
       }),
     ),
   )

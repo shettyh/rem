@@ -1,5 +1,7 @@
 import AuthenticationServices
+import CryptoKit
 import Foundation
+import Security
 import UIKit
 
 enum OAuthFlowError: LocalizedError {
@@ -9,6 +11,7 @@ enum OAuthFlowError: LocalizedError {
     case providerError(String)
     case stateMismatch
     case missingAuthorizationCode
+    case missingIdentityToken
 
     var errorDescription: String? {
         switch self {
@@ -24,8 +27,17 @@ enum OAuthFlowError: LocalizedError {
             return "Sign-in state verification failed. Please try again."
         case .missingAuthorizationCode:
             return "Sign-in response did not include an authorization code."
+        case .missingIdentityToken:
+            return "Apple did not return an identity token. Please try again."
         }
     }
+}
+
+struct NativeAppleCredential: Sendable {
+    let identityToken: String
+    let authorizationCode: String?
+    let rawNonce: String
+    let email: String?
 }
 
 struct PendingAccountSwitch: Identifiable {
@@ -38,10 +50,127 @@ struct PendingAccountSwitch: Identifiable {
     let incomingAccountId: String
 }
 
-/// Runs PKCE OAuth via native `ASWebAuthenticationSession` using the `rem://auth/callback` scheme.
+/// Runs native Sign in with Apple (`ASAuthorizationController`) and Google PKCE OAuth (`ASWebAuthenticationSession`).
 @MainActor
-final class AuthSessionManager: NSObject, ASWebAuthenticationPresentationContextProviding {
+final class AuthSessionManager: NSObject, ASWebAuthenticationPresentationContextProviding,
+    ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding
+{
     private var activeSession: ASWebAuthenticationSession?
+    private var activeAppleController: ASAuthorizationController?
+    private var appleContinuation: CheckedContinuation<NativeAppleCredential, Error>?
+    private var pendingAppleNonce: String?
+
+    nonisolated static func generateNonce(byteCount: Int = 32) -> String {
+        var bytes = [UInt8](repeating: 0, count: byteCount)
+        let status = SecRandomCopyBytes(kSecRandomDefault, byteCount, &bytes)
+        if status != errSecSuccess {
+            for idx in bytes.indices {
+                bytes[idx] = UInt8.random(in: 0...255)
+            }
+        }
+        return Data(bytes)
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    nonisolated static func sha256Hex(_ input: String) -> String {
+        let digest = SHA256.hash(data: Data(input.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    nonisolated static func parseAppleAuthorization(
+        _ authorization: ASAuthorization,
+        rawNonce: String
+    ) throws -> NativeAppleCredential {
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let tokenData = credential.identityToken,
+              let identityToken = String(data: tokenData, encoding: .utf8),
+              !identityToken.isEmpty
+        else {
+            throw OAuthFlowError.missingIdentityToken
+        }
+        let authorizationCode = credential.authorizationCode.flatMap {
+            let decoded = String(data: $0, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (decoded?.isEmpty == false) ? decoded : nil
+        }
+        let email = credential.email?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return NativeAppleCredential(
+            identityToken: identityToken,
+            authorizationCode: authorizationCode,
+            rawNonce: rawNonce,
+            email: (email?.isEmpty == false) ? email : nil
+        )
+    }
+
+    nonisolated static func parseAppleAuthorizationResult(
+        _ result: Result<ASAuthorization, Error>,
+        rawNonce: String
+    ) throws -> NativeAppleCredential {
+        switch result {
+        case .success(let authorization):
+            return try parseAppleAuthorization(authorization, rawNonce: rawNonce)
+        case .failure(let error):
+            if let authError = error as? ASAuthorizationError, authError.code == .canceled {
+                throw OAuthFlowError.cancelled
+            }
+            throw error
+        }
+    }
+
+    func authenticateWithAppleNative() async throws -> NativeAppleCredential {
+        let rawNonce = Self.generateNonce()
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.email]
+        request.nonce = Self.sha256Hex(rawNonce)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            controller.delegate = self
+            controller.presentationContextProvider = self
+            self.pendingAppleNonce = rawNonce
+            self.appleContinuation = continuation
+            self.activeAppleController = controller
+            controller.performRequests()
+        }
+    }
+
+    func authorizationController(
+        controller: ASAuthorizationController,
+        didCompleteWithAuthorization authorization: ASAuthorization
+    ) {
+        let nonce = pendingAppleNonce ?? ""
+        let continuation = appleContinuation
+        pendingAppleNonce = nil
+        appleContinuation = nil
+        activeAppleController = nil
+        do {
+            let credential = try Self.parseAppleAuthorization(authorization, rawNonce: nonce)
+            continuation?.resume(returning: credential)
+        } catch {
+            continuation?.resume(throwing: error)
+        }
+    }
+
+    func authorizationController(
+        controller: ASAuthorizationController,
+        didCompleteWithError error: Error
+    ) {
+        let continuation = appleContinuation
+        pendingAppleNonce = nil
+        appleContinuation = nil
+        activeAppleController = nil
+        if let authError = error as? ASAuthorizationError, authError.code == .canceled {
+            continuation?.resume(throwing: OAuthFlowError.cancelled)
+            return
+        }
+        continuation?.resume(throwing: error)
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        currentPresentationAnchor()
+    }
 
     func authenticate(authorizeUrlString: String, expectedState: String) async throws -> String {
         guard let url = URL(string: authorizeUrlString) else {
@@ -106,6 +235,10 @@ final class AuthSessionManager: NSObject, ASWebAuthenticationPresentationContext
     }
 
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        currentPresentationAnchor()
+    }
+
+    private func currentPresentationAnchor() -> ASPresentationAnchor {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         if let keyWindow = scenes.flatMap(\.windows).first(where: \.isKeyWindow) {
             return keyWindow

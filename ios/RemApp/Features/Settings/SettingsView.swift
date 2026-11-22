@@ -1,11 +1,14 @@
+import AuthenticationServices
 import SwiftUI
 import UIKit
 
 struct SettingsView: View {
     @Bindable var appState: AppState
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var useCustomServer: Bool = false
     @State private var customServerUrl: String = ""
+    @State private var pendingAppleNonce: String = ""
     @State private var showDeleteAccountConfirm: Bool = false
     @State private var showPremiumPaywall: Bool = false
     @State private var shareBackupURL: URL?
@@ -398,27 +401,37 @@ struct SettingsView: View {
                     .lineSpacing(2)
             }
 
-            Button {
-                Task {
-                    await appState.signIn(
-                        provider: .apple,
-                        customServerUrl: useCustomServer ? customServerUrl : nil
+            SignInWithAppleButton(.continue) { request in
+                let rawNonce = AuthSessionManager.generateNonce()
+                pendingAppleNonce = rawNonce
+                request.requestedScopes = [.email]
+                request.nonce = AuthSessionManager.sha256Hex(rawNonce)
+            } onCompletion: { result in
+                let rawNonce = pendingAppleNonce
+                pendingAppleNonce = ""
+                do {
+                    let credential = try AuthSessionManager.parseAppleAuthorizationResult(
+                        result,
+                        rawNonce: rawNonce
                     )
+                    Task {
+                        await appState.signInWithAppleNative(
+                            credential: credential,
+                            customServerUrl: useCustomServer ? customServerUrl : nil
+                        )
+                    }
+                } catch OAuthFlowError.cancelled {
+                    return
+                } catch {
+                    appState.showToast(error.remDisplayMessage)
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "apple.logo")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text(appState.isAuthenticating ? "Signing in…" : "Continue with Apple")
-                }
-                .font(.system(size: 14.5, weight: .semibold))
-                .foregroundStyle(RemColor.bg)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(RemColor.text)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
+            .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+            .frame(height: 44)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .id(colorScheme)
             .disabled(appState.isAuthenticating)
+            .opacity(appState.isAuthenticating ? 0.6 : 1.0)
 
             Button {
                 Task {

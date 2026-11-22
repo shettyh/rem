@@ -36,6 +36,11 @@ targets:
       - sdk: AuthenticationServices.framework
       - sdk: UserNotifications.framework
       - sdk: StoreKit.framework
+    entitlements:
+      path: RemApp/Resources/RemApp.entitlements
+      properties:
+        com.apple.developer.applesignin:
+          - Default
     info:
       path: RemApp/Resources/Info.plist
       properties:

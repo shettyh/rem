@@ -498,19 +498,31 @@ final class AppState {
 
     // MARK: - Cloud OAuth & Account Lifecycle
 
+    private func resolveTargetServerUrl(customServerUrl: String?) async -> String {
+        if let custom = customServerUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
+            return custom
+        }
+        return await store.defaultCloudServerUrl()
+    }
+
     func signIn(provider: OAuthProviderDto, customServerUrl: String? = nil) async {
         guard !isAuthenticating else { return }
         isAuthenticating = true
         defer { isAuthenticating = false }
 
-        let targetUrl: String
-        if let custom = customServerUrl?.trimmingCharacters(in: .whitespacesAndNewlines), !custom.isEmpty {
-            targetUrl = custom
-        } else {
-            targetUrl = await store.defaultCloudServerUrl()
-        }
+        let targetUrl = await resolveTargetServerUrl(customServerUrl: customServerUrl)
 
         do {
+            if provider == .apple {
+                let credential = try await authManager.authenticateWithAppleNative()
+                try await completeAppleNativeAuth(
+                    serverUrl: targetUrl,
+                    credential: credential,
+                    resetExistingBinding: false
+                )
+                return
+            }
+
             let oauthStart = try await store.beginOauth(serverUrl: targetUrl, provider: provider)
             let code = try await authManager.authenticate(
                 authorizeUrlString: oauthStart.authorizeUrl,
@@ -525,7 +537,34 @@ final class AppState {
         } catch OAuthFlowError.cancelled {
             return
         } catch let RemFfiError.AccountMismatch(boundServerUrl, boundAccountId, _, incomingAccountId) {
-            // Note: OAuth code was already consumed on exchange; prompt user to re-authenticate with reset.
+            // Prompt user to re-authenticate with reset.
+            pendingAccountSwitch = PendingAccountSwitch(
+                serverUrl: targetUrl,
+                code: "",
+                pkceVerifier: "",
+                boundServerUrl: boundServerUrl,
+                boundAccountId: boundAccountId,
+                incomingAccountId: incomingAccountId
+            )
+        } catch {
+            showToast(error.remDisplayMessage)
+        }
+    }
+
+    func signInWithAppleNative(credential: NativeAppleCredential, customServerUrl: String? = nil) async {
+        guard !isAuthenticating else { return }
+        isAuthenticating = true
+        defer { isAuthenticating = false }
+
+        let targetUrl = await resolveTargetServerUrl(customServerUrl: customServerUrl)
+
+        do {
+            try await completeAppleNativeAuth(
+                serverUrl: targetUrl,
+                credential: credential,
+                resetExistingBinding: false
+            )
+        } catch let RemFfiError.AccountMismatch(boundServerUrl, boundAccountId, _, incomingAccountId) {
             pendingAccountSwitch = PendingAccountSwitch(
                 serverUrl: targetUrl,
                 code: "",
@@ -546,6 +585,16 @@ final class AppState {
         defer { isAuthenticating = false }
 
         do {
+            if provider == .apple {
+                let credential = try await authManager.authenticateWithAppleNative()
+                try await completeAppleNativeAuth(
+                    serverUrl: serverUrl,
+                    credential: credential,
+                    resetExistingBinding: true
+                )
+                return
+            }
+
             let oauthStart = try await store.beginOauth(serverUrl: serverUrl, provider: provider)
             let code = try await authManager.authenticate(
                 authorizeUrlString: oauthStart.authorizeUrl,
@@ -564,6 +613,22 @@ final class AppState {
         }
     }
 
+    private func completeAppleNativeAuth(
+        serverUrl: String,
+        credential: NativeAppleCredential,
+        resetExistingBinding: Bool
+    ) async throws {
+        _ = try await store.finishAppleNativeAuth(
+            serverUrl: serverUrl,
+            identityToken: credential.identityToken,
+            authorizationCode: credential.authorizationCode,
+            nonce: credential.rawNonce,
+            email: credential.email,
+            resetExistingBinding: resetExistingBinding
+        )
+        await finishPostSignIn()
+    }
+
     private func completeOAuth(
         serverUrl: String,
         code: String,
@@ -576,6 +641,10 @@ final class AppState {
             pkceVerifier: pkceVerifier,
             resetExistingBinding: resetExistingBinding
         )
+        await finishPostSignIn()
+    }
+
+    private func finishPostSignIn() async {
         hasDismissedOnboarding = true
         lastSyncError = nil
         entitlement = nil
