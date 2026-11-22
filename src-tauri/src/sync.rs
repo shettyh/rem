@@ -3,10 +3,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rem_core::{Collection, SyncMode};
 use rem_sync::{
-    connect_collection, delete_cloud_account, open_system_browser, run_loopback_oauth, sign_out,
-    sync_authenticated, verify_dev_token, AuthClient, AuthProviders, CredentialStore,
-    HttpAuthClient, KeyringCredentialStore, OAuthProvider, StoredCredentials, SyncError,
-    DEFAULT_CLOUD_SERVER_URL, DEFAULT_OAUTH_TIMEOUT,
+    connect_collection, delete_cloud_account, fetch_account_authenticated, open_system_browser,
+    redeem_invite_authenticated, run_loopback_oauth, sign_out, start_trial_authenticated,
+    sync_authenticated, verify_dev_token, AccountProfile, AuthClient, AuthProviders,
+    CredentialStore, EntitlementInfo, EntitlementState, HttpAuthClient, KeyringCredentialStore,
+    OAuthProvider, StoredCredentials, SyncError, DEFAULT_CLOUD_SERVER_URL, DEFAULT_OAUTH_TIMEOUT,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -40,6 +41,7 @@ pub struct SyncStatusSnapshot {
     pub last_error: Option<String>,
     pub subscription_required: bool,
     pub upgrade_url: Option<String>,
+    pub entitlement: Option<EntitlementInfo>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -47,7 +49,7 @@ pub struct SyncStatusSnapshot {
 pub enum SignInOutcome {
     #[serde(rename_all = "camelCase")]
     Connected {
-        snapshot: SyncStatusSnapshot,
+        snapshot: Box<SyncStatusSnapshot>,
         synced: bool,
         sync_error: Option<String>,
     },
@@ -69,6 +71,7 @@ struct SyncRuntimeState {
     last_error: Option<String>,
     subscription_required: bool,
     upgrade_url: Option<String>,
+    entitlement: Option<EntitlementInfo>,
     cached_email: Option<String>,
     cached_provider: Option<String>,
     pending_switch: Option<(String, StoredCredentials)>,
@@ -129,7 +132,33 @@ impl SyncManager {
             last_error: rt.last_error.clone(),
             subscription_required: rt.subscription_required,
             upgrade_url: rt.upgrade_url.clone(),
+            entitlement: rt.entitlement.clone(),
         })
+    }
+
+    fn record_account_profile(&self, profile: &AccountProfile) {
+        if let Ok(mut rt) = self.runtime.lock() {
+            if let Some(email) = &profile.email {
+                rt.cached_email = Some(email.clone());
+            }
+            let sync_enabled = profile
+                .entitlement
+                .as_ref()
+                .map(|e| e.sync_enabled)
+                .unwrap_or(profile.sync_enabled);
+            rt.entitlement = profile.entitlement.clone();
+            rt.subscription_required = !sync_enabled;
+            rt.upgrade_url = profile.upgrade_url.clone();
+            if sync_enabled
+                || matches!(
+                    profile.entitlement.as_ref().map(|e| e.state),
+                    Some(EntitlementState::None)
+                )
+            {
+                rt.last_error = None;
+                rt.activity = Some(SyncActivity::Idle);
+            }
+        }
     }
 
     fn set_activity(&self, activity: SyncActivity, last_error: Option<String>) {
@@ -167,6 +196,7 @@ impl SyncManager {
             rt.last_error = None;
             rt.subscription_required = false;
             rt.upgrade_url = None;
+            rt.entitlement = None;
             rt.cached_email = None;
             rt.cached_provider = None;
             rt.pending_switch = None;
@@ -230,6 +260,9 @@ fn run_sync_locked(
             upgrade_url,
         }) => {
             manager.record_subscription_required(message.clone(), upgrade_url);
+            if let Ok(profile) = fetch_account_authenticated(collection, &store, now_millis()) {
+                manager.record_account_profile(&profile);
+            }
             if let Ok(snap) = manager.snapshot(collection) {
                 emit_status(app, &snap);
             }
@@ -264,22 +297,44 @@ fn finish_connect(
         now,
         reset_existing_binding,
     ) {
-        Ok(_) => match run_sync_locked(app, collection, manager) {
-            Ok(snapshot) => Ok(SignInOutcome::Connected {
-                snapshot,
-                synced: true,
-                sync_error: None,
-            }),
-            Err(err) => {
-                let snapshot = manager.snapshot(collection)?;
-                emit_status(app, &snapshot);
-                Ok(SignInOutcome::Connected {
-                    snapshot,
-                    synced: false,
-                    sync_error: Some(err),
-                })
+        Ok(_) => {
+            // Inspect GET /v1/account first so newly signed-in `state == "none"` accounts land
+            // cleanly on activation choices without triggering a spurious 402 sync error.
+            if let Ok(profile) = fetch_account_authenticated(collection, &store, now_millis()) {
+                manager.record_account_profile(&profile);
+                let can_sync = profile
+                    .entitlement
+                    .as_ref()
+                    .map(|e| e.sync_enabled)
+                    .unwrap_or(profile.sync_enabled);
+                if !can_sync {
+                    let snapshot = manager.snapshot(collection)?;
+                    emit_status(app, &snapshot);
+                    return Ok(SignInOutcome::Connected {
+                        snapshot: Box::new(snapshot),
+                        synced: false,
+                        sync_error: None,
+                    });
+                }
             }
-        },
+
+            match run_sync_locked(app, collection, manager) {
+                Ok(snapshot) => Ok(SignInOutcome::Connected {
+                    snapshot: Box::new(snapshot),
+                    synced: true,
+                    sync_error: None,
+                }),
+                Err(err) => {
+                    let snapshot = manager.snapshot(collection)?;
+                    emit_status(app, &snapshot);
+                    Ok(SignInOutcome::Connected {
+                        snapshot: Box::new(snapshot),
+                        synced: false,
+                        sync_error: Some(err),
+                    })
+                }
+            }
+        }
         Err(SyncError::AccountMismatch {
             bound_server_url,
             bound_account_id,
@@ -406,6 +461,78 @@ pub async fn sync_now(app: AppHandle) -> Result<SyncStatusSnapshot, String> {
     })
     .await
     .map_err(|err| format!("sync task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn sync_refresh_account(app: AppHandle) -> Result<SyncStatusSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let collection = app.state::<Collection>();
+        let manager = app.state::<SyncManager>();
+        let store = KeyringCredentialStore;
+        let profile = fetch_account_authenticated(&collection, &store, now_millis())
+            .map_err(|err| err.to_string())?;
+        manager.record_account_profile(&profile);
+        let snap = manager.snapshot(&collection)?;
+        emit_status(&app, &snap);
+        Ok(snap)
+    })
+    .await
+    .map_err(|err| format!("account refresh task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn sync_start_trial(app: AppHandle) -> Result<SyncStatusSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let collection = app.state::<Collection>();
+        let manager = app.state::<SyncManager>();
+        let store = KeyringCredentialStore;
+        let profile = start_trial_authenticated(&collection, &store, now_millis())
+            .map_err(|err| err.to_string())?;
+        manager.record_account_profile(&profile);
+        let can_sync = profile
+            .entitlement
+            .as_ref()
+            .map(|e| e.sync_enabled)
+            .unwrap_or(profile.sync_enabled);
+        if can_sync {
+            run_sync_locked(&app, &collection, &manager)
+        } else {
+            let snap = manager.snapshot(&collection)?;
+            emit_status(&app, &snap);
+            Ok(snap)
+        }
+    })
+    .await
+    .map_err(|err| format!("start trial task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn sync_redeem_invite(
+    app: AppHandle,
+    code: String,
+) -> Result<SyncStatusSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let collection = app.state::<Collection>();
+        let manager = app.state::<SyncManager>();
+        let store = KeyringCredentialStore;
+        let profile = redeem_invite_authenticated(&collection, &store, &code, now_millis())
+            .map_err(|err| err.to_string())?;
+        manager.record_account_profile(&profile);
+        let can_sync = profile
+            .entitlement
+            .as_ref()
+            .map(|e| e.sync_enabled)
+            .unwrap_or(profile.sync_enabled);
+        if can_sync {
+            run_sync_locked(&app, &collection, &manager)
+        } else {
+            let snap = manager.snapshot(&collection)?;
+            emit_status(&app, &snap);
+            Ok(snap)
+        }
+    })
+    .await
+    .map_err(|err| format!("redeem invite task failed: {err}"))?
 }
 
 #[tauri::command]

@@ -22,11 +22,20 @@ const WRITE_DEBOUNCE_MS = 3_000
 const FOCUS_SYNC_THROTTLE_MS = 30_000
 const PERIODIC_SYNC_MS = 5 * 60_000
 
+function isSyncPaused(status: SyncStatus | null): boolean {
+  if (!status) return false
+  if (status.entitlement) return !status.entitlement.syncEnabled
+  return status.subscriptionRequired
+}
+
 export interface SyncContextValue {
   supported: boolean
   status: SyncStatus | null
   busy: boolean
   refreshStatus: () => Promise<SyncStatus | null>
+  refreshAccount: () => Promise<SyncStatus>
+  startTrial: () => Promise<SyncStatus>
+  redeemInvite: (code: string) => Promise<SyncStatus>
   fetchProviders: (serverUrl: string) => Promise<AuthProviders>
   signInOAuth: (serverUrl: string, provider: OAuthProvider) => Promise<SignInOutcome>
   signInToken: (serverUrl: string, token: string) => Promise<SignInOutcome>
@@ -58,6 +67,7 @@ export function SyncProvider({
   const syncingRef = useRef(false)
   const skipLocalNotifyRef = useRef(false)
   const lastAutoSyncAtRef = useRef(0)
+  const lastFocusRefreshAtRef = useRef(0)
   const didStartupSyncRef = useRef(false)
 
   const updateStatus = useCallback((next: SyncStatus) => {
@@ -99,18 +109,23 @@ export function SyncProvider({
 
   useEffect(() => {
     let active = true
-    void client.getStatus().then((initial) => {
+    void client.getStatus().then(async (initial) => {
       if (!active) return
       updateStatus(initial)
-      if (
-        autoSync &&
-        client.supported &&
-        initial.mode === 'cloud' &&
-        initial.signedIn &&
-        !initial.subscriptionRequired &&
-        !didStartupSyncRef.current
-      ) {
-        didStartupSyncRef.current = true
+      if (!autoSync || !client.supported || initial.mode !== 'cloud' || !initial.signedIn) {
+        return
+      }
+      if (didStartupSyncRef.current) return
+      didStartupSyncRef.current = true
+
+      let current = initial
+      try {
+        current = await client.refreshAccount()
+        if (active) updateStatus(current)
+      } catch {
+        // Fall back to existing snapshot on transient startup failure.
+      }
+      if (active && !isSyncPaused(current)) {
         void triggerSync(true)
       }
     })
@@ -140,7 +155,7 @@ export function SyncProvider({
     const scheduleLocalSync = () => {
       if (skipLocalNotifyRef.current) return
       const current = statusRef.current
-      if (!current || current.mode !== 'cloud' || !current.signedIn || current.subscriptionRequired) return
+      if (!current || current.mode !== 'cloud' || !current.signedIn || isSyncPaused(current)) return
       if (debounceTimer !== null) window.clearTimeout(debounceTimer)
       debounceTimer = window.setTimeout(() => {
         debounceTimer = null
@@ -152,8 +167,23 @@ export function SyncProvider({
 
     const onWake = () => {
       const current = statusRef.current
-      if (!current || current.mode !== 'cloud' || !current.signedIn || current.subscriptionRequired) return
-      if (Date.now() - lastAutoSyncAtRef.current < FOCUS_SYNC_THROTTLE_MS) return
+      if (!current || current.mode !== 'cloud' || !current.signedIn) return
+      const now = Date.now()
+      if (isSyncPaused(current)) {
+        if (now - lastFocusRefreshAtRef.current < FOCUS_SYNC_THROTTLE_MS) return
+        lastFocusRefreshAtRef.current = now
+        void client
+          .refreshAccount()
+          .then((refreshed) => {
+            updateStatus(refreshed)
+            if (!isSyncPaused(refreshed)) {
+              void triggerSync(true)
+            }
+          })
+          .catch(() => {})
+        return
+      }
+      if (now - lastAutoSyncAtRef.current < FOCUS_SYNC_THROTTLE_MS) return
       void triggerSync(true)
     }
 
@@ -161,7 +191,7 @@ export function SyncProvider({
     window.addEventListener('online', onWake)
     const interval = window.setInterval(() => {
       const current = statusRef.current
-      if (!current || current.mode !== 'cloud' || !current.signedIn || current.subscriptionRequired) return
+      if (!current || current.mode !== 'cloud' || !current.signedIn || isSyncPaused(current)) return
       void triggerSync(true)
     }, PERIODIC_SYNC_MS)
 
@@ -172,11 +202,47 @@ export function SyncProvider({
       window.removeEventListener('online', onWake)
       window.clearInterval(interval)
     }
-  }, [autoSync, client.supported, storage, triggerSync])
+  }, [autoSync, client, storage, triggerSync, updateStatus])
 
   const fetchProviders = useCallback(
     (serverUrl: string) => client.fetchProviders(serverUrl),
     [client],
+  )
+
+  const refreshAccount = useCallback(async () => {
+    setBusy(true)
+    try {
+      const next = await client.refreshAccount()
+      updateStatus(next)
+      return next
+    } finally {
+      setBusy(false)
+    }
+  }, [client, updateStatus])
+
+  const startTrial = useCallback(async () => {
+    setBusy(true)
+    try {
+      const next = await client.startTrial()
+      updateStatus(next)
+      return next
+    } finally {
+      setBusy(false)
+    }
+  }, [client, updateStatus])
+
+  const redeemInvite = useCallback(
+    async (code: string) => {
+      setBusy(true)
+      try {
+        const next = await client.redeemInvite(code)
+        updateStatus(next)
+        return next
+      } finally {
+        setBusy(false)
+      }
+    },
+    [client, updateStatus],
   )
 
   const signInOAuth = useCallback(
@@ -252,6 +318,9 @@ export function SyncProvider({
       status,
       busy,
       refreshStatus,
+      refreshAccount,
+      startTrial,
+      redeemInvite,
       fetchProviders,
       signInOAuth,
       signInToken,
@@ -267,6 +336,9 @@ export function SyncProvider({
       status,
       busy,
       refreshStatus,
+      refreshAccount,
+      startTrial,
+      redeemInvite,
       fetchProviders,
       signInOAuth,
       signInToken,

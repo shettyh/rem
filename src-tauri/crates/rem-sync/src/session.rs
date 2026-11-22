@@ -4,6 +4,7 @@ use crate::auth_client::{AuthClient, HttpAuthClient};
 use crate::client::{sync_collection, SyncReport};
 use crate::credentials::{normalize_server_url, CredentialStore, StoredCredentials};
 use crate::error::SyncError;
+use crate::protocol::AccountProfile;
 use crate::transport::{HttpTransport, SyncTransport};
 
 const TOKEN_REFRESH_LEEWAY_MS: i64 = 60_000;
@@ -280,6 +281,135 @@ pub fn delete_cloud_account_with_client(
     store.delete(&server_url, &account_id)?;
     collection.reset_cloud_sync()?;
     Ok(())
+}
+
+/// Fetch `GET /v1/account` using stored credentials, automatically refreshing expired OAuth JWTs.
+pub fn fetch_account_authenticated(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    now_ms: i64,
+) -> Result<AccountProfile, SyncError> {
+    let state = collection.sync_state()?;
+    let server_url = state
+        .server_url
+        .ok_or_else(|| SyncError::NotConfigured("server_url is not set".into()))?;
+    let auth_client = HttpAuthClient::new(&server_url)?;
+    fetch_account_with_client(collection, store, &auth_client, now_ms)
+}
+
+pub fn fetch_account_with_client(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    auth_client: &dyn AuthClient,
+    now_ms: i64,
+) -> Result<AccountProfile, SyncError> {
+    with_authed_token(collection, store, auth_client, now_ms, |token| {
+        auth_client.get_account(token)
+    })
+}
+
+/// Start the optional no-card free trial (`POST /v1/trial/start`), automatically refreshing expired OAuth JWTs.
+pub fn start_trial_authenticated(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    now_ms: i64,
+) -> Result<AccountProfile, SyncError> {
+    let state = collection.sync_state()?;
+    let server_url = state
+        .server_url
+        .ok_or_else(|| SyncError::NotConfigured("server_url is not set".into()))?;
+    let auth_client = HttpAuthClient::new(&server_url)?;
+    start_trial_with_client(collection, store, &auth_client, now_ms)
+}
+
+pub fn start_trial_with_client(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    auth_client: &dyn AuthClient,
+    now_ms: i64,
+) -> Result<AccountProfile, SyncError> {
+    with_authed_token(collection, store, auth_client, now_ms, |token| {
+        auth_client.start_trial(token)
+    })
+}
+
+/// Redeem an invite code (`POST /v1/invites/redeem`), automatically refreshing expired OAuth JWTs.
+pub fn redeem_invite_authenticated(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    code: &str,
+    now_ms: i64,
+) -> Result<AccountProfile, SyncError> {
+    let state = collection.sync_state()?;
+    let server_url = state
+        .server_url
+        .ok_or_else(|| SyncError::NotConfigured("server_url is not set".into()))?;
+    let auth_client = HttpAuthClient::new(&server_url)?;
+    redeem_invite_with_client(collection, store, &auth_client, code, now_ms)
+}
+
+pub fn redeem_invite_with_client(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    auth_client: &dyn AuthClient,
+    code: &str,
+    now_ms: i64,
+) -> Result<AccountProfile, SyncError> {
+    with_authed_token(collection, store, auth_client, now_ms, |token| {
+        auth_client.redeem_invite(token, code)
+    })
+}
+
+fn with_authed_token<T, F>(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    auth_client: &dyn AuthClient,
+    now_ms: i64,
+    op: F,
+) -> Result<T, SyncError>
+where
+    F: Fn(&str) -> Result<T, SyncError>,
+{
+    let state = collection.sync_state()?;
+    let server_url = state
+        .server_url
+        .ok_or_else(|| SyncError::NotConfigured("server_url is not set".into()))?;
+    let account_id = state
+        .account_id
+        .ok_or_else(|| SyncError::NotConfigured("account_id is not set".into()))?;
+
+    let mut creds = store.load(&server_url, &account_id)?.ok_or_else(|| {
+        SyncError::NotAuthenticated("no stored credentials for this account".into())
+    })?;
+
+    if creds.needs_refresh(now_ms, TOKEN_REFRESH_LEEWAY_MS) {
+        creds = refresh_and_persist(
+            store,
+            auth_client,
+            &server_url,
+            &account_id,
+            &state.device_id,
+            &creds,
+            now_ms,
+        )?;
+    }
+
+    match op(creds.bearer_token()) {
+        Ok(value) => Ok(value),
+        Err(SyncError::Unauthorized) if creds.refresh_token().is_some() => {
+            let refreshed = refresh_and_persist(
+                store,
+                auth_client,
+                &server_url,
+                &account_id,
+                &state.device_id,
+                &creds,
+                now_ms,
+            )?;
+            op(refreshed.bearer_token())
+        }
+        Err(err) => Err(err),
+    }
 }
 
 fn refresh_and_persist(

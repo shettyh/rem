@@ -2,23 +2,24 @@
 
 Open-source (Apache-2.0) Cloudflare Workers + SQLite Durable Objects + D1 + R2 sync backend for [`rem`](../README.md).
 
-Each authenticated user is physically isolated in their own SQLite-backed Durable Object (`UserSyncDO`) with media assets stored in R2 under `users/<userId>/assets/<sha256>` and OAuth/session records in D1.
+Each authenticated user is physically isolated in their own SQLite-backed Durable Object (`UserSyncDO`) with media assets stored in R2 under `users/<userId>/assets/<sha256>` and OAuth/session/entitlement records in D1.
 
 ## Endpoints
 
 | Route | Purpose |
 | --- | --- |
 | `GET /health` | Liveness check |
-| `GET /cloud` | Early-access waitlist & self-hosting info page (same-origin with `POST /v1/waitlist`) |
+| `GET /premium`, `GET /cloud` | rem Premium overview & logged-in web portal (trial activation + invite-code redemption) |
 | `GET /v1/auth/providers` | Reports enabled sign-in providers (`google`, `apple`, `devToken`) |
-| `GET /v1/auth/:provider/start` | Starts Google or Apple OAuth + PKCE login (`127.0.0.1` loopback or `rem://auth/callback`) |
+| `GET /v1/auth/:provider/start` | Starts Google or Apple OAuth + PKCE login (`127.0.0.1` loopback, `rem://auth/callback`, or same-origin `/premium` & `/cloud`) |
 | `GET\|POST /v1/auth/:provider/callback` | Verifies OIDC ID token (JWKS), upserts D1 account, issues one-time PKCE code |
 | `POST /v1/auth/exchange` | Exchanges one-time code + PKCE `codeVerifier` for 15-min JWT + rotating refresh token |
 | `POST /v1/auth/refresh` | Rotates refresh token (with family reuse detection) and issues a fresh access JWT |
 | `POST /v1/auth/logout` | Revokes refresh token family |
-| `POST /v1/waitlist` | Records an early-access waitlist email in D1 (`early_access` table) |
-| `GET /v1/account` | Returns authenticated account profile (`id`, `email`, `providers`, `authMethod`, entitlement fields) |
-| `DELETE /v1/account` | Permanently deletes user R2 assets, `UserSyncDO` storage, and D1 auth records |
+| `GET /v1/account` | Returns authenticated account profile (`id`, `email`, `providers`, `authMethod`, structured `entitlement`, and legacy fields) |
+| `DELETE /v1/account` | Permanently deletes user R2 assets, `UserSyncDO` storage, and D1 auth/entitlement records |
+| `POST /v1/trial/start` | Opt-in start of the one-time no-card free trial (`TRIAL_DAYS`, default `30`) |
+| `POST /v1/invites/redeem` | Atomically redeems an invite code (`REM-XXXX-XXXX`) and unlocks sync |
 | `POST /v1/sync` | Push local outbox ops and pull remote ops after `sinceSeq` |
 | `POST /v1/assets/missing` | Check which SHA-256 asset hashes are not yet stored |
 | `PUT /v1/assets/:hash` | Upload content-addressed media asset (SHA-256 verified + quota checked) |
@@ -63,27 +64,28 @@ npx wrangler secret put APPLE_CLIENT_ID
 npx wrangler secret put APPLE_TEAM_ID
 npx wrangler secret put APPLE_KEY_ID
 npx wrangler secret put APPLE_PRIVATE_KEY
-# Optional: gate sync/R2 access behind subscriptions or early access (default: open for self-hosting)
+# Optional: gate sync/R2 access behind rem Premium / trial / invites (default: open for self-hosting)
 npx wrangler secret put REQUIRE_SUBSCRIPTION # set to "true" to enforce entitlements (HTTP 402 otherwise)
 npx wrangler secret put ALLOWED_EMAILS       # optional comma-separated owner/VIP emails always allowed to sync
-npx wrangler secret put UPGRADE_URL          # optional waitlist/pricing URL shown when HTTP 402 is returned (e.g. https://rem-sync.shettyh.fyi/cloud)
+npx wrangler secret put UPGRADE_URL          # optional pricing URL (e.g. https://rem-sync.shettyh.fyi/premium)
 npm run deploy
 ```
 
-## Managing early-access waitlist in D1
+## Managing invite codes in D1
 
-When `REQUIRE_SUBSCRIPTION=true`, users who sign up via `POST /v1/waitlist` land in D1 with `status = 'waitlist'` and remain gated until you approve them (no secret redeploys needed):
+Use the built-in CLI (`sync-server/scripts/invites.mjs`) to generate, list, and revoke Crockford-style invite codes (`REM-XXXX-XXXX`):
 
 ```bash
-# List pending early-access requests
-npx wrangler d1 execute rem-sync-auth --remote \
-  --command "SELECT email, note, datetime(created_at/1000, 'unixepoch') AS requested_at FROM early_access WHERE status = 'waitlist' ORDER BY created_at ASC"
+cd sync-server
+# Create a single-use 1-year invite code on production D1
+npm run invites -- create --uses 1 --days 365 --note "beta tester" --remote
 
-# Approve an email (works whether or not they have signed in yet)
-npx wrangler d1 execute rem-sync-auth --remote \
-  --command "INSERT INTO early_access(email, status, created_at, updated_at) VALUES ('user@example.com', 'approved', unixepoch()*1000, unixepoch()*1000) ON CONFLICT(email) DO UPDATE SET status = 'approved', updated_at = unixepoch()*1000"
+# Create an indefinite free access invite code
+npm run invites -- create --uses 1 --forever --note "contributor" --remote
 
-# Revoke access for an email
-npx wrangler d1 execute rem-sync-auth --remote \
-  --command "UPDATE early_access SET status = 'revoked', updated_at = unixepoch()*1000 WHERE email = 'user@example.com'"
+# List recent invite codes and redemption counts
+npm run invites -- list --remote
+
+# Revoke a code
+npm run invites -- revoke REM-ABCD-EFGH --remote
 ```

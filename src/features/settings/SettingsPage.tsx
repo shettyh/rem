@@ -5,6 +5,8 @@ import { useUpdaterOptional } from '../../data/UpdaterContext'
 import {
   DEFAULT_CLOUD_SERVER_URL,
   type AuthProviders,
+  type EntitlementInfo,
+  type EntitlementState,
   type OAuthProvider,
   type SignInOutcome,
   type SyncMode,
@@ -78,6 +80,56 @@ function formatProvider(provider: string | null): string {
   return provider
 }
 
+function daysRemaining(expiresAt: number | null): number | null {
+  if (!expiresAt) return null
+  return Math.max(1, Math.ceil((expiresAt - Date.now()) / 86_400_000))
+}
+
+function formatShortDate(timestamp: number | null): string | null {
+  if (!timestamp) return null
+  return new Date(timestamp).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function describeEntitlementBadge(
+  entitlement: EntitlementInfo | null,
+  entState: EntitlementState,
+  activity: 'idle' | 'syncing' | 'error',
+): { label: string; className: string } {
+  if (activity === 'syncing') {
+    return { label: 'Syncing', className: 'settings-badge is-active' }
+  }
+  const days = daysRemaining(entitlement?.expiresAt ?? null)
+  switch (entState) {
+    case 'trialing':
+      return {
+        label: days ? `Trial · ${days}d left` : 'Trial',
+        className: 'settings-badge is-active',
+      }
+    case 'invite':
+      return {
+        label: days ? `Invite · ${days}d left` : 'Free access',
+        className: 'settings-badge is-active',
+      }
+    case 'active':
+      return { label: 'Active', className: 'settings-badge is-active' }
+    case 'past_due':
+      return { label: 'Payment issue', className: 'settings-badge is-warn' }
+    case 'expired':
+      return { label: 'Sync paused', className: 'settings-badge is-warn' }
+    case 'none':
+      return { label: 'Not active', className: 'settings-badge is-warn' }
+    case 'self_hosted':
+      if (activity === 'error') {
+        return { label: 'Error', className: 'settings-badge is-error' }
+      }
+      return { label: 'Active', className: 'settings-badge is-active' }
+  }
+}
+
 type AccountMismatchInfo = Extract<SignInOutcome, { status: 'accountMismatch' }>
 
 export function SettingsPage() {
@@ -109,6 +161,7 @@ export function SettingsPage() {
   const [checkingHosted, setCheckingHosted] = useState(false)
   const [hostedError, setHostedError] = useState<string | null>(null)
   const [devToken, setDevToken] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [mismatch, setMismatch] = useState<AccountMismatchInfo | null>(null)
@@ -194,15 +247,7 @@ export function SettingsPage() {
     setSyncError(null)
     setSyncMessage(null)
     if (next === 'local') {
-      if (syncStatus?.mode === 'cloud' && syncStatus.signedIn) {
-        try {
-          await sync.signOut()
-          setDesiredMode('local')
-          setSyncMessage('Signed out. Cloud sync paused; local cards remain on this device.')
-        } catch (err) {
-          setSyncError(err instanceof Error ? err.message : String(err))
-        }
-      } else {
+      if (!isCloudConnected) {
         setDesiredMode('local')
       }
       return
@@ -327,6 +372,55 @@ export function SettingsPage() {
     }
   }
 
+  async function handleCheckAccess() {
+    setSyncError(null)
+    setSyncMessage(null)
+    try {
+      const refreshed = await sync.refreshAccount()
+      const enabled = refreshed.entitlement
+        ? refreshed.entitlement.syncEnabled
+        : !refreshed.subscriptionRequired
+      if (enabled) {
+        await sync.syncNow()
+        setSyncMessage('Access confirmed. Collection is up to date.')
+      } else {
+        setSyncMessage('Checked account status. Cloud sync is still paused.')
+      }
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleStartTrial() {
+    setSyncError(null)
+    setSyncMessage(null)
+    try {
+      const next = await sync.startTrial()
+      const days = next.entitlement?.trialDays ?? 30
+      setSyncMessage(`Your ${days}-day free trial is active and syncing.`)
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function handleRedeemInvite(e: FormEvent) {
+    e.preventDefault()
+    const trimmed = inviteCode.trim().toUpperCase()
+    if (!trimmed) {
+      setSyncError('Enter an invite code.')
+      return
+    }
+    setSyncError(null)
+    setSyncMessage(null)
+    try {
+      await sync.redeemInvite(trimmed)
+      setInviteCode('')
+      setSyncMessage('Invite code redeemed. Cloud sync is now active.')
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
   async function handleSignOut() {
     setSyncError(null)
     setSyncMessage(null)
@@ -417,28 +511,60 @@ export function SettingsPage() {
   const isDefaultConnectedServer =
     syncStatus?.serverUrl?.replace(/\/+$/, '') === defaultServerUrl
 
-  const isEarlyAccessRestricted = Boolean(syncStatus?.subscriptionRequired && !syncStatus?.upgradeUrl)
+  const entitlement = syncStatus?.entitlement ?? null
+  const entState: EntitlementState =
+    entitlement?.state ?? (syncStatus?.subscriptionRequired ? 'none' : 'self_hosted')
+  const isSyncPaused = entitlement ? !entitlement.syncEnabled : Boolean(syncStatus?.subscriptionRequired)
+  const trialDays = entitlement?.trialDays ?? 30
+  const priceDisplay = entitlement?.priceDisplay ?? '$5/year'
+  const daysLeft = daysRemaining(entitlement?.expiresAt ?? null)
+  const periodEndFormatted = formatShortDate(entitlement?.expiresAt ?? null)
+  const premiumWebUrl = syncStatus?.upgradeUrl ?? `${defaultServerUrl}/premium`
 
+  const connectedBadge = syncStatus
+    ? describeEntitlementBadge(entitlement, entState, syncStatus.activity)
+    : null
   const badgeLabel = isCloudConnected
-    ? syncStatus?.activity === 'syncing'
-      ? 'Syncing'
-      : syncStatus?.subscriptionRequired
-        ? isEarlyAccessRestricted
-          ? 'Early access'
-          : 'Plan required'
-        : syncStatus?.activity === 'error'
-          ? 'Error'
-          : 'Active'
+    ? connectedBadge!.label
     : effectiveMode === 'cloud'
       ? 'Setup'
       : 'Active'
+  const badgeClass = isCloudConnected
+    ? connectedBadge!.className
+    : effectiveMode === 'cloud'
+      ? 'settings-badge'
+      : 'settings-badge is-active'
 
-  const badgeClass =
-    badgeLabel === 'Error'
-      ? 'settings-badge is-error'
-      : badgeLabel === 'Setup' || badgeLabel === 'Plan required' || badgeLabel === 'Early access'
-        ? 'settings-badge'
-        : 'settings-badge is-active'
+  const showInviteInput =
+    isCloudConnected && (entState === 'none' || entState === 'trialing' || entState === 'expired')
+
+  const syncStatusDescription = (() => {
+    if (!syncStatus) return ''
+    if (isSyncPaused) {
+      return 'Sync paused · Your local cards remain safe on this device.'
+    }
+    const syncTail = `Last synced: ${formatSyncTime(syncStatus.lastSyncedAt)}${
+      syncStatus.pendingOutbox > 0 ? ` · ${syncStatus.pendingOutbox} pending` : ''
+    }`
+    switch (entState) {
+      case 'trialing':
+        return `rem Premium · Trial (${daysLeft ?? trialDays}d left) · ${syncTail}`
+      case 'invite':
+        return `rem Premium · ${daysLeft ? `Invite (${daysLeft}d left)` : 'Free access'} · ${syncTail}`
+      case 'active': {
+        const via =
+          entitlement?.provider === 'apple' ? 'Managed via Apple App Store' : 'rem Premium'
+        const renewal = periodEndFormatted
+          ? ` · ${entitlement?.cancelAtPeriodEnd ? 'Ends' : 'Renews'} ${periodEndFormatted}`
+          : ''
+        return `${via}${renewal} · ${syncTail}`
+      }
+      case 'past_due':
+        return `rem Premium · Grace period active · ${syncTail}`
+      default:
+        return `${isDefaultConnectedServer ? 'rem Cloud' : syncStatus.serverUrl} · ${syncTail}`
+    }
+  })()
 
   return (
     <>
@@ -461,11 +587,11 @@ export function SettingsPage() {
                   {isCloudConnected
                     ? `Signed in as ${syncStatus?.email ?? formatProvider(syncStatus?.provider ?? null)} via ${formatProvider(syncStatus?.provider ?? null)}.`
                     : effectiveMode === 'cloud'
-                      ? 'Sync decks, study progress, and images across all your devices with rem Cloud.'
+                      ? 'Sync decks, study progress, and images across all your devices with rem Premium.'
                       : 'Decks, study progress, and images are stored privately on this device.'}
                 </p>
               </div>
-              {sync.supported && (
+              {sync.supported && !isCloudConnected && (
                 <SegToggle
                   value={effectiveMode}
                   onChange={(next) => void handleModeChange(next)}
@@ -488,13 +614,12 @@ export function SettingsPage() {
               <div className="settings-sync-setup">
                 <div className="settings-sync-hosted">
                   <p className="settings-sync-hosted-copy">
-                    {hostedProviders?.subscriptionRequired && hostedProviders.upgradeUrl
-                      ? 'rem Cloud is an optional paid sync add-on. Local storage stays free.'
-                      : 'Sign in to connect this device to rem Cloud.'}
+                    All local features and self-hosting stay free forever. Sign in to start a
+                    30-day free trial (no card required) or connect an existing rem Premium account.
                   </p>
 
                   {checkingHosted && (
-                    <p className="settings-sync-hint">Checking rem Cloud sign-in options…</p>
+                    <p className="settings-sync-hint">Checking rem Premium sign-in options…</p>
                   )}
 
                   {!checkingHosted && hostedError && (
@@ -534,15 +659,6 @@ export function SettingsPage() {
                         >
                           <GoogleMark />
                           <span>{sync.busy ? 'Waiting for browser…' : 'Sign in with Google'}</span>
-                        </button>
-                      )}
-                      {hostedProviders.subscriptionRequired && hostedProviders.upgradeUrl && (
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          type="button"
-                          onClick={() => void handleOpenUpgradeUrl(hostedProviders.upgradeUrl!)}
-                        >
-                          Get rem Cloud
                         </button>
                       )}
                     </div>
@@ -679,116 +795,176 @@ export function SettingsPage() {
 
             {isCloudConnected && syncStatus && (
               <>
-                {syncStatus.subscriptionRequired && (
+                {(entState === 'none' ||
+                  entState === 'trialing' ||
+                  entState === 'past_due' ||
+                  entState === 'expired') && (
                   <div className="settings-sync-note settings-sync-plan-note" role="status">
-                    <div>
-                      <strong>
-                        {isEarlyAccessRestricted
-                          ? 'Cloud sync is in early access'
-                          : 'rem Cloud subscription required'}
-                      </strong>
-                      <p>
-                        {isEarlyAccessRestricted
-                          ? `${syncStatus.email ?? 'This account'} isn't on the early-access list yet. Your decks stay safely stored on this device, and you can keep studying offline anytime.`
-                          : 'Sync is paused for this account until an active rem Cloud plan is enabled. Your local cards remain safe on this device.'}
-                      </p>
-                    </div>
-                    {syncStatus.upgradeUrl ? (
-                      <button
-                        className="btn btn-primary btn-sm"
-                        type="button"
-                        onClick={() => void handleOpenUpgradeUrl(syncStatus.upgradeUrl!)}
-                      >
-                        Get rem Cloud
-                      </button>
-                    ) : (
-                      <div className="settings-inline-actions">
-                        <button
-                          className="btn btn-sm"
-                          type="button"
-                          disabled={sync.busy}
-                          onClick={async () => {
-                            await handleSignOut()
-                            setDesiredMode('cloud')
-                          }}
-                        >
-                          Try another account
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          type="button"
-                          disabled={sync.busy}
-                          onClick={() => void handleSignOut()}
-                        >
-                          Stay local
-                        </button>
+                    <div className="settings-sync-plan-header">
+                      <div>
+                        <strong>
+                          {entState === 'none'
+                            ? 'Activate rem Premium'
+                            : entState === 'trialing'
+                              ? `Free trial active · ${daysLeft ?? trialDays} day${(daysLeft ?? trialDays) === 1 ? '' : 's'} left`
+                              : entState === 'past_due'
+                                ? 'Payment issue'
+                                : 'Sync paused'}
+                        </strong>
+                        <p>
+                          {entState === 'none'
+                            ? `All local features and self-hosting stay free forever. Start a ${trialDays}-day free trial (no card required) or redeem an invite code.`
+                            : entState === 'trialing'
+                              ? 'Your collection is syncing across all devices. You can upgrade or redeem an invite code anytime.'
+                              : entState === 'past_due'
+                                ? entitlement?.provider === 'apple'
+                                  ? 'Your App Store subscription needs attention. Update payment details in Apple Subscriptions. Local cards stay safe on this device.'
+                                  : 'We could not renew your rem Premium plan. Update billing details to keep syncing. Local cards stay safe on this device.'
+                                : 'Your trial or rem Premium plan has ended. Your local cards stay on this device.'}
+                        </p>
                       </div>
+
+                      <div className="settings-inline-actions">
+                        {(entState === 'none' || entState === 'expired') &&
+                          (entitlement ? entitlement.canStartTrial : entState === 'none') && (
+                            <button
+                              className="btn btn-primary btn-sm"
+                              type="button"
+                              disabled={sync.busy}
+                              onClick={() => void handleStartTrial()}
+                            >
+                              Start {trialDays}-day free trial
+                            </button>
+                          )}
+
+                        {entitlement?.canSubscribePolar && (
+                          <button
+                            className="btn btn-sm"
+                            type="button"
+                            disabled={sync.busy}
+                            onClick={() => void handleOpenUpgradeUrl(premiumWebUrl)}
+                          >
+                            Upgrade to Premium — {priceDisplay}
+                          </button>
+                        )}
+
+                        {entState === 'past_due' && entitlement?.canManageBilling && (
+                          <button
+                            className="btn btn-primary btn-sm"
+                            type="button"
+                            disabled={sync.busy}
+                            onClick={() => void handleOpenUpgradeUrl(premiumWebUrl)}
+                          >
+                            Manage billing ↗
+                          </button>
+                        )}
+
+                        {(entState === 'none' || entState === 'past_due' || entState === 'expired') && (
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            type="button"
+                            disabled={sync.busy}
+                            onClick={() => void handleCheckAccess()}
+                          >
+                            Check access / Retry sync
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {showInviteInput && (
+                      <form
+                        className="settings-invite-form"
+                        onSubmit={(e) => void handleRedeemInvite(e)}
+                      >
+                        <label className="field-label" htmlFor="sync-invite-code">
+                          Have an invite code?
+                        </label>
+                        <div className="settings-invite-row">
+                          <input
+                            id="sync-invite-code"
+                            className="text-input"
+                            type="text"
+                            autoComplete="off"
+                            spellCheck={false}
+                            placeholder="REM-XXXX-XXXX"
+                            value={inviteCode}
+                            onChange={(e) => setInviteCode(e.target.value)}
+                            disabled={sync.busy}
+                          />
+                          <button
+                            className="btn btn-sm"
+                            type="submit"
+                            disabled={sync.busy || inviteCode.trim().length === 0}
+                          >
+                            Redeem
+                          </button>
+                        </div>
+                      </form>
                     )}
                   </div>
                 )}
 
-                {!isEarlyAccessRestricted && (
-                  <>
-                    <div className="settings-action-row">
-                      <div className="settings-action-copy">
-                        <strong>Sync status</strong>
-                        <span>
-                          {isDefaultConnectedServer ? 'rem Cloud' : syncStatus.serverUrl} · Last synced:{' '}
-                          {formatSyncTime(syncStatus.lastSyncedAt)}
-                          {syncStatus.pendingOutbox > 0
-                            ? ` · ${syncStatus.pendingOutbox} pending`
-                            : ''}
-                        </span>
-                      </div>
-                      <div className="settings-inline-actions">
-                        <button
-                          className="btn btn-sm"
-                          type="button"
-                          disabled={sync.busy || syncStatus.activity === 'syncing'}
-                          onClick={() => void handleSyncNow()}
-                        >
-                          {syncStatus.activity === 'syncing'
-                            ? 'Syncing…'
-                            : syncStatus.subscriptionRequired
-                              ? 'Retry sync'
-                              : 'Sync now'}
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          type="button"
-                          disabled={sync.busy}
-                          onClick={() => void handleSignOut()}
-                        >
-                          Sign out
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="settings-action-row">
-                      <div className="settings-action-copy">
-                        <strong>Delete cloud account</strong>
-                        <span>
-                          Permanently remove your synced data and media from the server. Local cards stay
-                          on this device.
-                        </span>
-                      </div>
+                <div className="settings-action-row">
+                  <div className="settings-action-copy">
+                    <strong>Sync status</strong>
+                    <span>{syncStatusDescription}</span>
+                  </div>
+                  <div className="settings-inline-actions">
+                    {!isSyncPaused && (
                       <button
-                        className="btn btn-danger-outline btn-sm"
+                        className="btn btn-sm"
+                        type="button"
+                        disabled={sync.busy || syncStatus.activity === 'syncing'}
+                        onClick={() => void handleSyncNow()}
+                      >
+                        {syncStatus.activity === 'syncing' ? 'Syncing…' : 'Sync now'}
+                      </button>
+                    )}
+                    {entState === 'active' && entitlement?.canManageBilling && (
+                      <button
+                        className="btn btn-ghost btn-sm"
                         type="button"
                         disabled={sync.busy}
-                        onClick={() => setConfirmDeleteAccount(true)}
+                        onClick={() => void handleOpenUpgradeUrl(premiumWebUrl)}
                       >
-                        Delete cloud account…
+                        Manage billing ↗
                       </button>
-                    </div>
-                  </>
-                )}
+                    )}
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      disabled={sync.busy}
+                      onClick={() => void handleSignOut()}
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+
+                <div className="settings-action-row">
+                  <div className="settings-action-copy">
+                    <strong>Delete cloud account</strong>
+                    <span>
+                      Permanently remove your synced data and media from the server. Local cards stay
+                      on this device.
+                    </span>
+                  </div>
+                  <button
+                    className="btn btn-danger-outline btn-sm"
+                    type="button"
+                    disabled={sync.busy}
+                    onClick={() => setConfirmDeleteAccount(true)}
+                  >
+                    Delete cloud account…
+                  </button>
+                </div>
               </>
             )}
 
-            {(syncError || (!syncStatus?.subscriptionRequired && syncStatus?.lastError) || syncMessage) && (
+            {(syncError || (!isSyncPaused && syncStatus?.lastError) || syncMessage) && (
               <div className="settings-feedback">
-                {(syncError || (!syncStatus?.subscriptionRequired && syncStatus?.lastError)) && (
+                {(syncError || (!isSyncPaused && syncStatus?.lastError)) && (
                   <p className="settings-error" role="alert">
                     {syncError ?? syncStatus?.lastError}
                   </p>

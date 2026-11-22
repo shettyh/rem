@@ -1,14 +1,28 @@
-const CLOUD_PAGE_HTML = `<!doctype html>
+import { getPriceDisplay, getTrialDays } from './entitlements'
+import type { Env } from './types'
+
+function escapeHtml(raw: string): string {
+  return raw
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
+  const safePrice = escapeHtml(priceDisplay)
+  return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Join early access for rem Cloud — optional hosted sync for rem across desktop, CLI, and the upcoming iPhone companion. Local storage and open-source self-hosting stay free."
+      content="rem Premium — optional managed Cloud Sync for rem across desktop, CLI, and iPhone. Start a ${trialDays}-day free trial with no card required, or keep local storage and open-source self-hosting free forever."
     />
     <meta name="theme-color" content="#f8f7f4" />
-    <title>rem Cloud — early access</title>
+    <title>rem Premium — Cloud Sync across all your devices</title>
     <style>
       :root {
         --bg: #f8f7f4;
@@ -22,6 +36,9 @@ const CLOUD_PAGE_HTML = `<!doctype html>
         --purple: #5a47e8;
         --purple-dark: #4937d0;
         --green: #20875a;
+        --green-bg: rgba(32, 135, 90, 0.1);
+        --amber: #b45309;
+        --amber-bg: rgba(180, 83, 9, 0.1);
         --danger: #b42318;
         --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
         --serif: Georgia, 'Times New Roman', serif;
@@ -188,7 +205,7 @@ const CLOUD_PAGE_HTML = `<!doctype html>
       }
 
       .card h2 {
-        font-size: 34px;
+        font-size: 32px;
       }
 
       .card-desc {
@@ -198,10 +215,54 @@ const CLOUD_PAGE_HTML = `<!doctype html>
         line-height: 1.65;
       }
 
-      .form {
+      .stack {
         display: grid;
-        gap: 16px;
-        margin-top: 24px;
+        gap: 12px;
+        margin-top: 22px;
+      }
+
+      .account-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 14px;
+        border: 1px solid var(--line-soft);
+        border-radius: 10px;
+        background: var(--bg);
+      }
+
+      .account-email {
+        font-size: 13px;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 9px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .badge.is-ok {
+        color: var(--green);
+        background: var(--green-bg);
+      }
+
+      .badge.is-warn {
+        color: var(--amber);
+        background: var(--amber-bg);
+      }
+
+      .badge.is-neutral {
+        color: var(--muted);
+        background: var(--surface-alt);
       }
 
       .field {
@@ -214,9 +275,9 @@ const CLOUD_PAGE_HTML = `<!doctype html>
         font-weight: 600;
       }
 
-      .field label span {
-        font-weight: 400;
-        color: var(--faint);
+      .inline-form {
+        display: flex;
+        gap: 8px;
       }
 
       .field input {
@@ -227,8 +288,10 @@ const CLOUD_PAGE_HTML = `<!doctype html>
         border-radius: 8px;
         background: var(--bg);
         color: var(--ink);
-        font: inherit;
+        font-family: var(--mono);
         font-size: 14px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
       }
 
       .field input:focus {
@@ -238,22 +301,13 @@ const CLOUD_PAGE_HTML = `<!doctype html>
         box-shadow: 0 0 0 3px rgba(90, 71, 232, 0.14);
       }
 
-      .hp {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        overflow: hidden;
-        clip: rect(0 0 0 0);
-        white-space: nowrap;
-      }
-
       .btn {
         display: inline-flex;
         align-items: center;
         justify-content: center;
         width: 100%;
-        min-height: 48px;
-        padding: 0 20px;
+        min-height: 44px;
+        padding: 0 18px;
         border: 0;
         border-radius: 8px;
         background: var(--purple);
@@ -262,7 +316,7 @@ const CLOUD_PAGE_HTML = `<!doctype html>
         font-size: 14px;
         font-weight: 600;
         cursor: pointer;
-        box-shadow: 0 8px 20px rgba(90, 71, 232, 0.22);
+        box-shadow: 0 8px 20px rgba(90, 71, 232, 0.2);
       }
 
       .btn:hover {
@@ -270,8 +324,49 @@ const CLOUD_PAGE_HTML = `<!doctype html>
       }
 
       .btn:disabled {
-        opacity: 0.7;
+        opacity: 0.65;
         cursor: wait;
+      }
+
+      .btn-secondary {
+        background: var(--surface);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        box-shadow: none;
+      }
+
+      .btn-secondary:hover {
+        background: var(--bg);
+      }
+
+      .btn-compact {
+        width: auto;
+        white-space: nowrap;
+      }
+
+      .btn-link {
+        background: transparent;
+        color: var(--muted);
+        border: 0;
+        box-shadow: none;
+        min-height: 32px;
+        width: auto;
+        padding: 0 4px;
+        font-size: 13px;
+        font-weight: 500;
+        justify-self: start;
+      }
+
+      .btn-link:hover {
+        background: transparent;
+        color: var(--ink);
+        text-decoration: underline;
+      }
+
+      .divider {
+        height: 1px;
+        background: var(--line-soft);
+        margin: 6px 0;
       }
 
       .feedback {
@@ -296,6 +391,10 @@ const CLOUD_PAGE_HTML = `<!doctype html>
         color: var(--muted);
         font-size: 12px;
         line-height: 1.6;
+      }
+
+      .hidden {
+        display: none !important;
       }
 
       .modes {
@@ -438,73 +537,78 @@ const CLOUD_PAGE_HTML = `<!doctype html>
     <main>
       <section class="hero shell">
         <div>
-          <p class="eyebrow"><span></span> rem Cloud · Early access</p>
+          <p class="eyebrow"><span></span> rem Premium · ${trialDays}-day free trial</p>
           <h1>Sync everywhere.<br /><em>Keep owning your data.</em></h1>
           <p class="lede">
-            rem Cloud is an optional hosted sync service for your decks, FSRS review history, and
-            media across desktop, CLI, and the upcoming iPhone companion. Local storage and
-            self-hosting remain free and open source.
+            All local features and self-hosting stay free forever. rem Premium (${safePrice})
+            unlocks managed Cloud Sync across macOS, Linux, Windows, CLI, and iPhone—and supports
+            development.
           </p>
           <ul class="highlights">
+            <li><span>✓</span> Optional ${trialDays}-day free trial with no card required</li>
             <li><span>✓</span> Local-first SQLite with automatic conflict-free merges</li>
-            <li><span>✓</span> Isolated per-user Cloudflare Durable Object storage + R2 media</li>
+            <li><span>✓</span> Isolated per-user Cloudflare Durable Objects + 500 MB R2 media</li>
             <li><span>✓</span> Sign out or delete cloud data anytime without touching local decks</li>
           </ul>
         </div>
 
-        <div class="card">
-          <p class="card-kicker">Early access waitlist</p>
-          <h2>Request hosted sync</h2>
-          <p class="card-desc">
-            Hosted sync is rolling out in small batches while we build the iPhone companion.
-            Enter the email you use with Google or Apple sign-in in rem.
+        <div class="card" id="account-card">
+          <p class="card-kicker">Account &amp; invite codes</p>
+          <h2 id="card-title">Manage rem Premium</h2>
+          <p class="card-desc" id="card-desc">
+            Sign in to start your ${trialDays}-day free trial, redeem an invite code, or check your
+            rem Premium status. Changes unlock Desktop, CLI, and iPhone automatically.
           </p>
 
-          <form class="form" id="waitlist-form" novalidate>
-            <div class="field">
-              <label for="waitlist-email">Email address</label>
-              <input
-                id="waitlist-email"
-                name="email"
-                type="email"
-                required
-                autocomplete="email"
-                placeholder="you@example.com"
-              />
+          <div id="signed-out-panel" class="stack">
+            <button type="button" class="btn hidden" id="btn-google">Continue with Google</button>
+            <button type="button" class="btn btn-secondary hidden" id="btn-apple">
+              Continue with Apple
+            </button>
+            <p class="card-desc hidden" id="no-providers-msg">
+              Sign-in providers are not configured on this server.
+            </p>
+          </div>
+
+          <div id="signed-in-panel" class="stack hidden">
+            <div class="account-bar">
+              <span class="account-email" id="account-email"></span>
+              <span class="badge is-neutral" id="status-badge">Loading…</span>
             </div>
 
-            <div class="field">
-              <label for="waitlist-note">Devices or workflow <span>(optional)</span></label>
-              <input
-                id="waitlist-note"
-                name="note"
-                type="text"
-                maxlength="280"
-                placeholder="e.g. macOS + Linux CLI, interested in iPhone"
-              />
-            </div>
+            <p class="card-desc" id="status-detail" style="margin-top: 0"></p>
 
-            <div class="hp" aria-hidden="true">
-              <label for="waitlist-website">Website</label>
-              <input
-                id="waitlist-website"
-                name="website"
-                type="text"
-                tabindex="-1"
-                autocomplete="off"
-              />
-            </div>
-
-            <button class="btn" type="submit" id="waitlist-submit">
-              Join early access waitlist
+            <button type="button" class="btn hidden" id="btn-start-trial">
+              Start ${trialDays}-day free trial
             </button>
 
-            <p class="feedback" id="waitlist-feedback" role="status" aria-live="polite"></p>
-          </form>
+            <form class="field hidden" id="invite-form" novalidate>
+              <label for="invite-code">Have an invite code?</label>
+              <div class="inline-form">
+                <input
+                  id="invite-code"
+                  name="code"
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="REM-XXXX-XXXX"
+                />
+                <button type="submit" class="btn btn-secondary btn-compact" id="btn-redeem">
+                  Redeem
+                </button>
+              </div>
+            </form>
+
+            <div class="divider"></div>
+            <button type="button" class="btn btn-link" id="btn-sign-out">Sign out</button>
+          </div>
+
+          <p class="feedback" id="account-feedback" role="status" aria-live="polite"></p>
 
           <p class="footnote">
-            Once your email is approved, open <strong>Settings → Cloud sync</strong> in rem and
-            click <strong>Retry sync</strong> (or sign in) to start syncing immediately.
+            After starting a trial or redeeming an invite code here, return to
+            <strong>rem</strong> on Desktop or iPhone — sync activates automatically (or choose
+            <strong>Check access</strong> in Settings).
           </p>
         </div>
       </section>
@@ -516,17 +620,17 @@ const CLOUD_PAGE_HTML = `<!doctype html>
             <h2>Three ways to <em>run rem.</em></h2>
             <p>
               Every copy of rem ships with the same local engine and configurable sync server URL.
-              No features are locked behind a subscription.
+              No study features are locked behind a subscription.
             </p>
           </div>
 
           <div class="compare">
             <article>
-              <p class="tier-label">Default · Free</p>
+              <p class="tier-label">Default · Free forever</p>
               <h3>Local only</h3>
               <p>
-                No account required. Your decks, reviews, drafts, and media stay in local SQLite
-                with portable JSON export and import.
+                No account required. Your decks, FSRS reviews, drafts, and media stay in local
+                SQLite with portable JSON export and import.
               </p>
               <a class="tier-link" href="https://github.com/shettyh/rem/releases/latest">
                 Download rem →
@@ -534,13 +638,13 @@ const CLOUD_PAGE_HTML = `<!doctype html>
             </article>
 
             <article class="is-featured">
-              <p class="tier-label">Optional · Early access</p>
-              <h3>rem Cloud</h3>
+              <p class="tier-label">Optional · ${trialDays}-day free trial, then ${safePrice}</p>
+              <h3>rem Premium</h3>
               <p>
-                Zero-setup hosted sync run by the rem maintainer. Covers desktop and CLI today,
-                with the iPhone companion coming next.
+                Zero-setup managed Cloud Sync across Desktop, CLI, and iPhone. Start a ${trialDays}-day
+                free trial with no card required, then ${safePrice} to keep syncing and support rem.
               </p>
-              <a class="tier-link" href="#waitlist-form">Request early access ↑</a>
+              <a class="tier-link" href="#account-card">Start trial or redeem invite ↑</a>
             </article>
 
             <article>
@@ -576,68 +680,346 @@ const CLOUD_PAGE_HTML = `<!doctype html>
 
     <script>
       ;(() => {
-        const form = document.getElementById('waitlist-form')
-        const emailInput = document.getElementById('waitlist-email')
-        const noteInput = document.getElementById('waitlist-note')
-        const websiteInput = document.getElementById('waitlist-website')
-        const submitBtn = document.getElementById('waitlist-submit')
-        const feedback = document.getElementById('waitlist-feedback')
+        const SESSION_KEY = 'rem_web_session_v1'
+        const PKCE_KEY = 'rem_web_pkce_v1'
+
+        const signedOutPanel = document.getElementById('signed-out-panel')
+        const signedInPanel = document.getElementById('signed-in-panel')
+        const btnGoogle = document.getElementById('btn-google')
+        const btnApple = document.getElementById('btn-apple')
+        const noProvidersMsg = document.getElementById('no-providers-msg')
+        const accountEmail = document.getElementById('account-email')
+        const statusBadge = document.getElementById('status-badge')
+        const statusDetail = document.getElementById('status-detail')
+        const btnStartTrial = document.getElementById('btn-start-trial')
+        const inviteForm = document.getElementById('invite-form')
+        const inviteInput = document.getElementById('invite-code')
+        const btnRedeem = document.getElementById('btn-redeem')
+        const btnSignOut = document.getElementById('btn-sign-out')
+        const feedback = document.getElementById('account-feedback')
 
         function setFeedback(text, kind) {
-          feedback.textContent = text
+          feedback.textContent = text || ''
           feedback.className = kind ? 'feedback is-' + kind : 'feedback'
         }
 
-        form.addEventListener('submit', async (event) => {
-          event.preventDefault()
-          const email = emailInput.value.trim()
-          if (!email || !emailInput.checkValidity()) {
-            setFeedback('Please enter a valid email address.', 'error')
-            emailInput.focus()
-            return
-          }
+        function base64Url(bytes) {
+          let bin = ''
+          for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+          return btoa(bin).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '')
+        }
 
-          submitBtn.disabled = true
-          submitBtn.textContent = 'Submitting…'
-          setFeedback('', '')
+        function randomBase64Url(len) {
+          const buf = new Uint8Array(len)
+          crypto.getRandomValues(buf)
+          return base64Url(buf)
+        }
 
+        async function pkceChallenge(verifier) {
+          const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+          return base64Url(new Uint8Array(digest))
+        }
+
+        function getCanonicalRedirectUri() {
+          const path = location.pathname.replace(/\\/+$/, '') || '/premium'
+          return location.origin + (path === '/cloud' ? '/cloud' : '/premium')
+        }
+
+        function loadSession() {
           try {
-            const response = await fetch('/v1/waitlist', {
+            const raw = sessionStorage.getItem(SESSION_KEY)
+            return raw ? JSON.parse(raw) : null
+          } catch {
+            return null
+          }
+        }
+
+        function saveSession(session) {
+          if (!session) {
+            sessionStorage.removeItem(SESSION_KEY)
+          } else {
+            sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
+          }
+        }
+
+        function daysLeft(expiresAt) {
+          if (!expiresAt) return null
+          return Math.max(1, Math.ceil((expiresAt - Date.now()) / 86400000))
+        }
+
+        async function authedFetch(path, init = {}) {
+          let session = loadSession()
+          if (!session || !session.accessToken) throw new Error('Please sign in first.')
+
+          const doFetch = (token) =>
+            fetch(path, {
+              ...init,
+              headers: {
+                ...(init.headers || {}),
+                Authorization: 'Bearer ' + token,
+              },
+            })
+
+          let resp = await doFetch(session.accessToken)
+          if (resp.status === 401 && session.refreshToken) {
+            const refreshResp = await fetch('/v1/auth/refresh', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                email,
-                note: noteInput.value.trim() || undefined,
-                website: websiteInput.value,
-              }),
+              body: JSON.stringify({ refreshToken: session.refreshToken }),
             })
-            const data = await response.json().catch(() => ({}))
-            if (!response.ok) {
-              throw new Error(data.message || 'Could not submit your request. Please try again.')
+            if (refreshResp.ok) {
+              session = await refreshResp.json()
+              saveSession(session)
+              resp = await doFetch(session.accessToken)
+            } else {
+              saveSession(null)
+              renderSignedOut()
+              throw new Error('Your session expired. Please sign in again.')
             }
-            form.reset()
+          }
+          return resp
+        }
+
+        function renderSignedOut() {
+          signedInPanel.classList.add('hidden')
+          signedOutPanel.classList.remove('hidden')
+        }
+
+        function renderAccount(account) {
+          signedOutPanel.classList.add('hidden')
+          signedInPanel.classList.remove('hidden')
+          accountEmail.textContent = account.email || account.id
+
+          const ent = account.entitlement || {}
+          const state = ent.state || 'none'
+          const dLeft = daysLeft(ent.expiresAt)
+
+          btnStartTrial.classList.toggle('hidden', !ent.canStartTrial)
+          const showInviteForm = state === 'none' || state === 'trialing' || state === 'expired'
+          inviteForm.classList.toggle('hidden', !showInviteForm)
+
+          if (state === 'self_hosted') {
+            statusBadge.textContent = 'Self-hosted'
+            statusBadge.className = 'badge is-ok'
+            statusDetail.textContent = 'Sync is enabled on this self-hosted server.'
+          } else if (state === 'invite') {
+            statusBadge.textContent = dLeft ? 'Invite · ' + dLeft + 'd left' : 'Free access'
+            statusBadge.className = 'badge is-ok'
+            statusDetail.textContent = dLeft
+              ? 'Your invite grant is active across Desktop, CLI, and iPhone.'
+              : 'Your account has indefinite free Cloud Sync access across all devices.'
+          } else if (state === 'trialing') {
+            statusBadge.textContent = 'Trial · ' + (dLeft || 1) + 'd left'
+            statusBadge.className = 'badge is-ok'
+            statusDetail.textContent =
+              'Your free trial is active across Desktop, CLI, and iPhone.'
+          } else if (state === 'active') {
+            statusBadge.textContent = 'Premium active'
+            statusBadge.className = 'badge is-ok'
+            statusDetail.textContent =
+              ent.provider === 'apple'
+                ? 'Active via Apple App Store. Manage renewal in iOS Subscriptions.'
+                : 'Your rem Premium subscription is active across all devices.'
+          } else if (state === 'past_due') {
+            statusBadge.textContent = 'Payment issue'
+            statusBadge.className = 'badge is-warn'
+            statusDetail.textContent =
+              'There was a renewal issue. Please update your payment method to keep syncing.'
+          } else if (state === 'expired') {
+            statusBadge.textContent = 'Sync paused'
+            statusBadge.className = 'badge is-warn'
+            statusDetail.textContent =
+              'Your trial or plan ended. Your local cards remain safe on your devices.'
+          } else {
+            statusBadge.textContent = 'Not active yet'
+            statusBadge.className = 'badge is-neutral'
+            statusDetail.textContent =
+              'Start your ' +
+              (ent.trialDays || ${trialDays}) +
+              '-day free trial (no card required) or redeem an invite code below.'
+          }
+        }
+
+        async function startOAuth(provider) {
+          setFeedback('', '')
+          const verifier = randomBase64Url(48)
+          const challenge = await pkceChallenge(verifier)
+          const state = randomBase64Url(16)
+          const redirectUri = getCanonicalRedirectUri()
+          sessionStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state, redirectUri }))
+
+          const url = new URL('/v1/auth/' + provider + '/start', location.origin)
+          url.searchParams.set('redirect_uri', redirectUri)
+          url.searchParams.set('code_challenge', challenge)
+          url.searchParams.set('code_challenge_method', 'S256')
+          url.searchParams.set('state', state)
+          location.assign(url.toString())
+        }
+
+        async function handleOAuthCallbackIfPresent() {
+          const params = new URLSearchParams(location.search)
+          const code = params.get('code')
+          const state = params.get('state')
+          const err = params.get('error')
+          if (!code && !err) return false
+
+          history.replaceState({}, '', location.pathname)
+
+          if (err) {
+            setFeedback('Sign-in was canceled or failed (' + err + ').', 'error')
+            return false
+          }
+
+          let pkce = null
+          try {
+            pkce = JSON.parse(sessionStorage.getItem(PKCE_KEY) || 'null')
+          } catch {
+            pkce = null
+          }
+          sessionStorage.removeItem(PKCE_KEY)
+
+          if (!pkce || !pkce.verifier || pkce.state !== state) {
+            setFeedback('Sign-in session mismatch. Please try signing in again.', 'error')
+            return false
+          }
+
+          const resp = await fetch('/v1/auth/exchange', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              code,
+              codeVerifier: pkce.verifier,
+              redirectUri: pkce.redirectUri,
+              deviceId: 'web-portal',
+            }),
+          })
+          const data = await resp.json().catch(() => ({}))
+          if (!resp.ok) {
+            setFeedback(data.error || 'Could not complete sign-in.', 'error')
+            return false
+          }
+          saveSession(data)
+          return true
+        }
+
+        async function refreshAccount() {
+          const resp = await authedFetch('/v1/account')
+          if (!resp.ok) throw new Error('Could not load account status.')
+          const account = await resp.json()
+          renderAccount(account)
+        }
+
+        btnGoogle.addEventListener('click', () => startOAuth('google'))
+        btnApple.addEventListener('click', () => startOAuth('apple'))
+
+        btnStartTrial.addEventListener('click', async () => {
+          btnStartTrial.disabled = true
+          setFeedback('', '')
+          try {
+            const resp = await authedFetch('/v1/trial/start', { method: 'POST' })
+            const data = await resp.json().catch(() => ({}))
+            if (!resp.ok) {
+              throw new Error(data.message || data.error || 'Could not start free trial.')
+            }
+            renderAccount(data)
             setFeedback(
-              'You’re on the early-access waitlist. Once approved, click Retry sync in rem Settings.',
+              'Your free trial is now active. Return to rem on Desktop or iPhone to sync.',
+              'success',
+            )
+          } catch (err) {
+            setFeedback(err instanceof Error ? err.message : 'Failed to start trial.', 'error')
+          } finally {
+            btnStartTrial.disabled = false
+          }
+        })
+
+        inviteForm.addEventListener('submit', async (event) => {
+          event.preventDefault()
+          const code = inviteInput.value.trim().toUpperCase()
+          if (!code) {
+            setFeedback('Enter an invite code.', 'error')
+            inviteInput.focus()
+            return
+          }
+          btnRedeem.disabled = true
+          setFeedback('', '')
+          try {
+            const resp = await authedFetch('/v1/invites/redeem', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ code }),
+            })
+            const data = await resp.json().catch(() => ({}))
+            if (!resp.ok) {
+              throw new Error(data.message || data.error || 'Could not redeem invite code.')
+            }
+            inviteInput.value = ''
+            renderAccount(data)
+            setFeedback(
+              'Invite code redeemed! Your account is unlocked across Desktop, CLI, and iPhone.',
               'success',
             )
           } catch (err) {
             setFeedback(
-              err instanceof Error ? err.message : 'Network error. Please try again.',
+              err instanceof Error ? err.message : 'Failed to redeem invite code.',
               'error',
             )
           } finally {
-            submitBtn.disabled = false
-            submitBtn.textContent = 'Join early access waitlist'
+            btnRedeem.disabled = false
           }
         })
+
+        btnSignOut.addEventListener('click', async () => {
+          const session = loadSession()
+          saveSession(null)
+          renderSignedOut()
+          setFeedback('Signed out.', '')
+          if (session && session.refreshToken) {
+            fetch('/v1/auth/logout', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refreshToken: session.refreshToken }),
+            }).catch(() => {})
+          }
+        })
+
+        ;(async () => {
+          try {
+            const providersResp = await fetch('/v1/auth/providers')
+            if (providersResp.ok) {
+              const providers = await providersResp.json()
+              if (providers.google) btnGoogle.classList.remove('hidden')
+              if (providers.apple) btnApple.classList.remove('hidden')
+              if (!providers.google && !providers.apple) {
+                noProvidersMsg.classList.remove('hidden')
+              }
+            }
+          } catch {
+            // Keep default state on transient network failure.
+          }
+
+          await handleOAuthCallbackIfPresent()
+          if (loadSession()) {
+            try {
+              await refreshAccount()
+            } catch (err) {
+              setFeedback(err instanceof Error ? err.message : 'Could not load account.', 'error')
+            }
+          } else {
+            renderSignedOut()
+          }
+        })()
       })()
     </script>
   </body>
 </html>
 `
+}
 
-export function renderCloudPage(): Response {
-  return new Response(CLOUD_PAGE_HTML, {
+export function renderCloudPage(env?: Env): Response {
+  const trialDays = env ? getTrialDays(env) : 30
+  const priceDisplay = env ? getPriceDisplay(env) : '$5/year'
+  return new Response(buildCloudPageHtml(trialDays, priceDisplay), {
     status: 200,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',

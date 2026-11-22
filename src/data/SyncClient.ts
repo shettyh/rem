@@ -7,6 +7,29 @@ export type SyncMode = 'local' | 'cloud'
 export type SyncActivity = 'idle' | 'syncing' | 'error'
 export type OAuthProvider = 'google' | 'apple'
 
+export type EntitlementState =
+  | 'self_hosted'
+  | 'none'
+  | 'trialing'
+  | 'invite'
+  | 'active'
+  | 'past_due'
+  | 'expired'
+
+export interface EntitlementInfo {
+  state: EntitlementState
+  syncEnabled: boolean
+  provider: string | null
+  plan: string | null
+  expiresAt: number | null
+  cancelAtPeriodEnd: boolean
+  canStartTrial: boolean
+  trialDays: number
+  priceDisplay: string
+  canSubscribePolar: boolean
+  canManageBilling: boolean
+}
+
 export interface SyncStatus {
   mode: SyncMode
   activity: SyncActivity
@@ -23,6 +46,7 @@ export interface SyncStatus {
   lastError: string | null
   subscriptionRequired: boolean
   upgradeUrl: string | null
+  entitlement: EntitlementInfo | null
 }
 
 export interface AuthProviders {
@@ -59,6 +83,9 @@ export interface SyncClient {
   confirmAccountSwitch(): Promise<SignInOutcome>
   cancelAccountSwitch(): Promise<void>
   syncNow(): Promise<SyncStatus>
+  refreshAccount(): Promise<SyncStatus>
+  startTrial(): Promise<SyncStatus>
+  redeemInvite(code: string): Promise<SyncStatus>
   signOut(): Promise<SyncStatus>
   deleteAccount(): Promise<SyncStatus>
   openExternalUrl(url: string): Promise<void>
@@ -98,6 +125,18 @@ export class TauriSyncClient implements SyncClient {
 
   syncNow(): Promise<SyncStatus> {
     return invoke<SyncStatus>('sync_now')
+  }
+
+  refreshAccount(): Promise<SyncStatus> {
+    return invoke<SyncStatus>('sync_refresh_account')
+  }
+
+  startTrial(): Promise<SyncStatus> {
+    return invoke<SyncStatus>('sync_start_trial')
+  }
+
+  redeemInvite(code: string): Promise<SyncStatus> {
+    return invoke<SyncStatus>('sync_redeem_invite', { code })
   }
 
   signOut(): Promise<SyncStatus> {
@@ -159,6 +198,7 @@ const DEFAULT_LOCAL_STATUS: SyncStatus = {
   lastError: null,
   subscriptionRequired: false,
   upgradeUrl: null,
+  entitlement: null,
 }
 
 export class LocalOnlySyncClient implements SyncClient {
@@ -188,6 +228,18 @@ export class LocalOnlySyncClient implements SyncClient {
 
   async syncNow(): Promise<SyncStatus> {
     return { ...DEFAULT_LOCAL_STATUS }
+  }
+
+  async refreshAccount(): Promise<SyncStatus> {
+    return { ...DEFAULT_LOCAL_STATUS }
+  }
+
+  async startTrial(): Promise<SyncStatus> {
+    throw new Error('Cloud sync is only available in the desktop app.')
+  }
+
+  async redeemInvite(): Promise<SyncStatus> {
+    throw new Error('Cloud sync is only available in the desktop app.')
   }
 
   async signOut(): Promise<SyncStatus> {

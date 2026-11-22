@@ -176,4 +176,75 @@ final class RemAppTests: XCTestCase {
         )
         XCTAssertEqual(stripped, "Answer text")
     }
+
+    @MainActor
+    func testAppStateEntitlementCachingAndPausedStateTransitions() async throws {
+        let (dir, store) = try makeTempStore()
+        defer {
+            AppState.clearCachedEntitlement()
+            try? FileManager.default.removeItem(at: dir)
+        }
+
+        let accountId = "usr_test_entitlement"
+        let trialInfo = EntitlementInfoDto(
+            state: .trialing,
+            syncEnabled: true,
+            provider: "trial",
+            plan: "trial_30d",
+            expiresAt: 1_900_000_000_000,
+            cancelAtPeriodEnd: false,
+            canStartTrial: false,
+            trialDays: 30,
+            priceDisplay: "$5/year",
+            canSubscribePolar: false,
+            canManageBilling: false
+        )
+
+        AppState.saveCachedEntitlement(trialInfo, for: accountId)
+        let loaded = AppState.loadCachedEntitlement(for: accountId)
+        XCTAssertEqual(loaded?.state, .trialing)
+        XCTAssertEqual(loaded?.syncEnabled, true)
+        XCTAssertEqual(loaded?.expiresAt, 1_900_000_000_000)
+        XCTAssertNil(AppState.loadCachedEntitlement(for: "usr_other"))
+
+        let appState = AppState(store: store)
+        let pausedProfile = AccountProfileDto(
+            id: accountId,
+            email: "alice@example.com",
+            providers: ["apple"],
+            authMethod: "jwt",
+            syncEnabled: false,
+            entitlement: EntitlementInfoDto(
+                state: .none,
+                syncEnabled: false,
+                provider: nil,
+                plan: nil,
+                expiresAt: nil,
+                cancelAtPeriodEnd: false,
+                canStartTrial: true,
+                trialDays: 30,
+                priceDisplay: "$5/year",
+                canSubscribePolar: false,
+                canManageBilling: false
+            )
+        )
+        appState.applyAccountProfile(pausedProfile)
+        XCTAssertEqual(appState.effectiveEntitlementState, .none)
+        XCTAssertTrue(appState.syncAccessRestricted)
+
+        let activeProfile = AccountProfileDto(
+            id: accountId,
+            email: "alice@example.com",
+            providers: ["apple"],
+            authMethod: "jwt",
+            syncEnabled: true,
+            entitlement: trialInfo
+        )
+        appState.applyAccountProfile(activeProfile)
+        XCTAssertEqual(appState.effectiveEntitlementState, .trialing)
+        XCTAssertFalse(appState.syncAccessRestricted)
+
+        AppState.clearCachedEntitlement()
+        XCTAssertNil(AppState.loadCachedEntitlement(for: accountId))
+    }
 }

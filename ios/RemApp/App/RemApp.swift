@@ -44,7 +44,12 @@ struct RemApp: App {
             self.appState = state
             Task {
                 await state.refreshAll()
-                await state.syncNow(silent: true)
+                if state.syncStatus?.signedIn == true {
+                    await state.refreshAccount(triggerSyncIfUnlocked: false)
+                    if !state.isSyncPaused {
+                        await state.syncNow(silent: true)
+                    }
+                }
             }
         } catch {
             self.bootError = error.localizedDescription
@@ -92,7 +97,11 @@ struct RootContainerView: View {
             if phase == .active {
                 Task {
                     await appState.refreshAll()
-                    await appState.syncNow(silent: true)
+                    if appState.isSyncPaused {
+                        await appState.refreshAccount(triggerSyncIfUnlocked: true)
+                    } else {
+                        await appState.syncNow(silent: true)
+                    }
                 }
             }
         }
