@@ -35,6 +35,7 @@ targets:
       - sdk: Security.framework
       - sdk: AuthenticationServices.framework
       - sdk: UserNotifications.framework
+      - sdk: StoreKit.framework
     info:
       path: RemApp/Resources/Info.plist
       properties:
@@ -71,6 +72,7 @@ targets:
       - path: RemAppTests
     dependencies:
       - target: RemApp
+      - sdk: StoreKitTest.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.shettyh.rem.tests
@@ -87,6 +89,7 @@ schemes:
         RemAppTests: [test]
     run:
       config: Debug
+      storeKitConfiguration: RemAppTests/RemPremium.storekit
     test:
       config: Debug
       targets:

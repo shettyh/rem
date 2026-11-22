@@ -1,3 +1,5 @@
+import StoreKit
+import StoreKitTest
 import XCTest
 @testable import rem
 
@@ -246,5 +248,143 @@ final class RemAppTests: XCTestCase {
 
         AppState.clearCachedEntitlement()
         XCTAssertNil(AppState.loadCachedEntitlement(for: accountId))
+    }
+
+    func testAppleAppAccountTokenMatchesServerTestVectors() {
+        // 1. Standard 16-byte production userId (`usr_` + 22 base64url chars) matches server bijectively
+        let prodToken = StoreKitManager.appAccountToken(for: "usr_ASNFZ4mrze_-3LqYdlQyEA")
+        XCTAssertEqual(prodToken.uuidString.lowercased(), "01234567-89ab-cdef-fedc-ba9876543210")
+
+        // 2. Non-standard userId produces identical RFC 9562 UUIDv8 as `sync-server/src/appleBilling.ts`
+        let customToken = StoreKitManager.appAccountToken(for: "usr_test_entitlement")
+        XCTAssertEqual(customToken.uuidString.lowercased(), "ffeedbb4-45cf-8678-85e8-487c7c392293")
+
+        // 3. Canonical UUID passes through unchanged
+        let direct = StoreKitManager.appAccountToken(for: "11111111-2222-3333-4444-555555555555")
+        XCTAssertEqual(direct.uuidString.lowercased(), "11111111-2222-3333-4444-555555555555")
+    }
+
+    @MainActor
+    func testAppleSubscribeAndManageVisibilityPreventsDoubleBilling() throws {
+        let (dir, store) = try makeTempStore()
+        defer {
+            AppState.clearCachedEntitlement()
+            try? FileManager.default.removeItem(at: dir)
+        }
+
+        let appState = AppState(store: store)
+        appState.syncStatus = SyncStatusDto(
+            mode: .cloud,
+            signedIn: true,
+            serverUrl: "https://rem-sync.shettyh.fyi",
+            defaultServerUrl: "https://rem-sync.shettyh.fyi",
+            accountId: "usr_vis_test",
+            email: "alice@example.com",
+            provider: "apple",
+            pendingOutboxCount: 0,
+            lastSeq: 0
+        )
+
+        func makeEntitlement(
+            state: EntitlementStateDto,
+            syncEnabled: Bool,
+            provider: String?,
+            expiresAt: Int64? = nil
+        ) -> EntitlementInfoDto {
+            EntitlementInfoDto(
+                state: state,
+                syncEnabled: syncEnabled,
+                provider: provider,
+                plan: nil,
+                expiresAt: expiresAt,
+                cancelAtPeriodEnd: false,
+                canStartTrial: state == .none,
+                trialDays: 30,
+                priceDisplay: "$5/year",
+                canSubscribePolar: false,
+                canManageBilling: false
+            )
+        }
+
+        // none -> show Subscribe, hide Manage
+        appState.entitlement = makeEntitlement(state: .none, syncEnabled: false, provider: nil)
+        XCTAssertTrue(appState.canShowAppleSubscribe)
+        XCTAssertFalse(appState.canShowAppleManageSubscription)
+
+        // trialing -> show Subscribe, hide Manage
+        appState.entitlement = makeEntitlement(state: .trialing, syncEnabled: true, provider: "trial", expiresAt: 1_900_000_000_000)
+        XCTAssertTrue(appState.canShowAppleSubscribe)
+        XCTAssertFalse(appState.canShowAppleManageSubscription)
+
+        // active Polar -> hide Subscribe (prevent double-billing!) & hide Apple Manage
+        appState.entitlement = makeEntitlement(state: .active, syncEnabled: true, provider: "polar", expiresAt: 1_900_000_000_000)
+        XCTAssertFalse(appState.canShowAppleSubscribe)
+        XCTAssertFalse(appState.canShowAppleManageSubscription)
+
+        // active Apple -> hide Subscribe & show Apple Manage
+        appState.entitlement = makeEntitlement(state: .active, syncEnabled: true, provider: "apple", expiresAt: 1_900_000_000_000)
+        XCTAssertFalse(appState.canShowAppleSubscribe)
+        XCTAssertTrue(appState.canShowAppleManageSubscription)
+
+        // indefinite invite -> hide Subscribe & hide Manage
+        appState.entitlement = makeEntitlement(state: .invite, syncEnabled: true, provider: "invite", expiresAt: nil)
+        XCTAssertFalse(appState.canShowAppleSubscribe)
+        XCTAssertFalse(appState.canShowAppleManageSubscription)
+
+        // time-limited invite -> allow Subscribe, hide Manage
+        appState.entitlement = makeEntitlement(state: .invite, syncEnabled: true, provider: "invite", expiresAt: 1_900_000_000_000)
+        XCTAssertTrue(appState.canShowAppleSubscribe)
+        XCTAssertFalse(appState.canShowAppleManageSubscription)
+
+        // past_due Apple -> hide Subscribe, show Manage
+        appState.entitlement = makeEntitlement(state: .pastDue, syncEnabled: true, provider: "apple", expiresAt: 1_900_000_000_000)
+        XCTAssertFalse(appState.canShowAppleSubscribe)
+        XCTAssertTrue(appState.canShowAppleManageSubscription)
+
+        // past_due Polar -> hide Subscribe, hide Apple Manage
+        appState.entitlement = makeEntitlement(state: .pastDue, syncEnabled: true, provider: "polar", expiresAt: 1_900_000_000_000)
+        XCTAssertFalse(appState.canShowAppleSubscribe)
+        XCTAssertFalse(appState.canShowAppleManageSubscription)
+
+        // expired -> show Subscribe, hide Manage
+        appState.entitlement = makeEntitlement(state: .expired, syncEnabled: false, provider: "trial")
+        XCTAssertTrue(appState.canShowAppleSubscribe)
+        XCTAssertFalse(appState.canShowAppleManageSubscription)
+
+        // self-hosted -> hide both
+        appState.entitlement = makeEntitlement(state: .selfHosted, syncEnabled: true, provider: "self_hosted")
+        XCTAssertFalse(appState.canShowAppleSubscribe)
+        XCTAssertFalse(appState.canShowAppleManageSubscription)
+    }
+
+    @MainActor
+    func testStoreKitPurchaseAndRestoreFlowWithLocalConfiguration() async throws {
+        let session = try SKTestSession(configurationFileNamed: "RemPremium")
+        session.disableDialogs = true
+        session.clearTransactions()
+        defer { session.clearTransactions() }
+
+        let manager = StoreKitManager()
+        await manager.loadProducts()
+        XCTAssertEqual(manager.product?.id, StoreKitManager.premiumYearlyProductID)
+        XCTAssertEqual(manager.displayPrice, "$4.99")
+
+        var verifiedJwsList: [String] = []
+        let purchaseOutcome = await manager.purchase(accountId: "usr_ASNFZ4mrze_-3LqYdlQyEA") { jws in
+            verifiedJwsList.append(jws)
+        }
+        XCTAssertEqual(purchaseOutcome, .purchased)
+        XCTAssertEqual(verifiedJwsList.count, 1)
+        let purchasedJws = try XCTUnwrap(verifiedJwsList.first)
+        XCTAssertEqual(purchasedJws.split(separator: ".").count, 3)
+
+        var restoredJwsList: [String] = []
+        let restoreOutcome = await manager.restorePurchases { jws in
+            restoredJwsList.append(jws)
+        }
+        XCTAssertEqual(restoreOutcome, .restored)
+        XCTAssertEqual(restoredJwsList.count, 1)
+        let restoredJws = try XCTUnwrap(restoredJwsList.first)
+        XCTAssertEqual(restoredJws.split(separator: ".").count, 3)
     }
 }

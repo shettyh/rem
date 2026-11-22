@@ -14,8 +14,8 @@ use rem_core::{
 use rem_sync::{
     build_authorize_url, connect_collection, delete_cloud_account, fetch_account_authenticated,
     generate_oauth_state, generate_pkce_pair, sign_out, start_trial_authenticated,
-    sync_authenticated, AuthClient, CredentialStore, HttpAuthClient, StoredCredentials,
-    DEFAULT_CLOUD_SERVER_URL,
+    sync_authenticated, verify_apple_transaction_authenticated, AuthClient, CredentialStore,
+    HttpAuthClient, StoredCredentials, DEFAULT_CLOUD_SERVER_URL,
 };
 
 pub use credentials::FfiCredentialStore;
@@ -392,6 +392,20 @@ impl RemClient {
     pub fn start_trial(&self, now_ms: i64) -> Result<AccountProfileDto, RemFfiError> {
         let profile =
             start_trial_authenticated(&self.collection, self.credentials.as_ref(), now_ms)?;
+        Ok(profile.into())
+    }
+
+    pub fn verify_apple_transaction(
+        &self,
+        signed_transaction_info: String,
+        now_ms: i64,
+    ) -> Result<AccountProfileDto, RemFfiError> {
+        let profile = verify_apple_transaction_authenticated(
+            &self.collection,
+            self.credentials.as_ref(),
+            &signed_transaction_info,
+            now_ms,
+        )?;
         Ok(profile.into())
     }
 

@@ -32,6 +32,14 @@ export interface Env {
   POLAR_WEBHOOK_SECRET?: string
   POLAR_API_BASE?: string
 
+  /** Apple StoreKit 2 / App Store Server Notifications v2 configuration (Slice 3). */
+  APPLE_BUNDLE_ID?: string
+  APPLE_PRODUCT_ID?: string
+  /** Allowed App Store environments: "Production", "Sandbox", or comma-separated "Production,Sandbox". */
+  APPLE_ENVIRONMENT?: string
+  /** Optional base64 DER root CA override for deterministic JWS unit tests (defaults strictly to pinned Apple Root CA - G3). */
+  APPLE_ROOT_CA_DER_B64?: string
+
   /** Google OAuth 2.0 credentials. */
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
@@ -166,6 +174,10 @@ export interface PolarCheckoutResponse {
 
 export interface PolarPortalResponse {
   portalUrl: string
+}
+
+export interface AppleVerifyRequest {
+  signedTransactionInfo: string
 }
 
 export interface AuthTokenResponse {

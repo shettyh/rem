@@ -13,10 +13,14 @@
 		11463BFEC7C471AC6282A1FB /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1815B3EB1508F3BED353BD /* AppState.swift */; };
 		1C57FC6B61E61725F7433B5E /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */; };
 		2B9E2665163134C4960129C2 /* MarkdownBlockParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5ADA201F3DEEC39FFA0FB76 /* MarkdownBlockParser.swift */; };
+		371D90B56FFD3E4DD0071DEC /* PremiumPaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA8613AEACCC074B9C549649 /* PremiumPaywallSheet.swift */; };
+		557D82CD4FB16A6A73814375 /* StoreKitTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 65C674A494879C0641B3B50C /* StoreKitTest.framework */; };
 		57A0A5EA2D55224B9DAB45ED /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 14ECB14C28F1B91F4165ECA0 /* PrivacyInfo.xcprivacy */; };
 		5D4E3D368F9CB8D48637E559 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 492A290EEEEE6A290D56073D /* MarkdownTextEditor.swift */; };
 		5F55AE7919E11A6C0BBDD818 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826924FAB93A7D776261FB18 /* SettingsView.swift */; };
+		6B4E7CA446769218EE5998C0 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7116D371F3ACE8655E429EDA /* StoreKit.framework */; };
 		6F25913452E569E6029713EE /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16278B140AD8DE458882895B /* KeychainStore.swift */; };
+		702FC76F9081A6EC69B8323B /* StoreKitManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16F00372B31F4E207DE56485 /* StoreKitManager.swift */; };
 		7556F594E668E98E3AD6A61C /* ImageLightboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2E11D38FDBD7F3BF4C3891B /* ImageLightboxView.swift */; };
 		7847E21ADEB515B1E9B67B67 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A23A9B47C22CFA16FA06F8D2 /* TodayView.swift */; };
 		81401AD06D3E3EC74CE48206 /* FirstRunView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DE67B932E46F12BFE3E215 /* FirstRunView.swift */; };
@@ -25,6 +29,7 @@
 		A0D4DA45C4654480420C62C6 /* RemAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B297A224C7F01BD19A9EB8D7 /* RemAppTests.swift */; };
 		A303DE9CD5611F4B4A760926 /* ReminderManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D0289A5C08D311C5739C02D /* ReminderManager.swift */; };
 		A57945E5CB8DD6A384A314C9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B9D0EEF3129F4028DB95E9EE /* Assets.xcassets */; };
+		B4AC627A03E5CC15B940ED53 /* RemPremium.storekit in Resources */ = {isa = PBXBuildFile; fileRef = D71278DB08B3D3BDFAEBD87B /* RemPremium.storekit */; };
 		B55EBD4B3D524BD59F1A46B2 /* ReviewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */; };
 		B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA01A89644F04D2536A7AC3D /* DecksView.swift */; };
 		BA683193E62377A9CB644FAC /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E2AEDEFBEE449696BAAEA397 /* UserNotifications.framework */; };
@@ -53,6 +58,7 @@
 /* Begin PBXFileReference section */
 		14ECB14C28F1B91F4165ECA0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		16278B140AD8DE458882895B /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		16F00372B31F4E207DE56485 /* StoreKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreKitManager.swift; sourceTree = "<group>"; };
 		18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewScreen.swift; sourceTree = "<group>"; };
 		38E2DD644390DD61851BB031 /* RemStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemStore.swift; sourceTree = "<group>"; };
 		39DE67B932E46F12BFE3E215 /* FirstRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunView.swift; sourceTree = "<group>"; };
@@ -62,7 +68,9 @@
 		523C20E8C6C0E5941D8ABA9D /* RemAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RemAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		63FD9975AC3D5F1809A91781 /* AuthSessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthSessionManager.swift; sourceTree = "<group>"; };
 		6564B229B20BA26BC37F4291 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		65C674A494879C0641B3B50C /* StoreKitTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKitTest.framework; path = System/Library/Frameworks/StoreKitTest.framework; sourceTree = SDKROOT; };
 		6D0289A5C08D311C5739C02D /* ReminderManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderManager.swift; sourceTree = "<group>"; };
+		7116D371F3ACE8655E429EDA /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		7D1815B3EB1508F3BED353BD /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		82581381AD6AC6E10D3D734B /* RemApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemApp.swift; sourceTree = "<group>"; };
 		826924FAB93A7D776261FB18 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -72,6 +80,7 @@
 		A1D83B33D3DD6D4646C9D8E7 /* AuthenticationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AuthenticationServices.framework; path = System/Library/Frameworks/AuthenticationServices.framework; sourceTree = SDKROOT; };
 		A23A9B47C22CFA16FA06F8D2 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		A84A243D48ABBD2F8C18E812 /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
+		AA8613AEACCC074B9C549649 /* PremiumPaywallSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumPaywallSheet.swift; sourceTree = "<group>"; };
 		B297A224C7F01BD19A9EB8D7 /* RemAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemAppTests.swift; sourceTree = "<group>"; };
 		B61826F3FB259AB3054EB2B6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B6F2429A3C21B7147D7B9238 /* AssetImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetImageCache.swift; sourceTree = "<group>"; };
@@ -79,6 +88,7 @@
 		CC0B6EAAC09D301BB681E301 /* rem_ffi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = rem_ffi.swift; sourceTree = "<group>"; };
 		D1025E01C7EF0E39CBDA2F19 /* QuickCaptureSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCaptureSheet.swift; sourceTree = "<group>"; };
 		D2E11D38FDBD7F3BF4C3891B /* ImageLightboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageLightboxView.swift; sourceTree = "<group>"; };
+		D71278DB08B3D3BDFAEBD87B /* RemPremium.storekit */ = {isa = PBXFileReference; path = RemPremium.storekit; sourceTree = "<group>"; };
 		DA01A89644F04D2536A7AC3D /* DecksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecksView.swift; sourceTree = "<group>"; };
 		DAC30A16A1E8B9680802B58F /* DeckDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckDetailView.swift; sourceTree = "<group>"; };
 		E2AEDEFBEE449696BAAEA397 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
@@ -89,6 +99,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A854CA3A1D20ABE02D208D65 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				557D82CD4FB16A6A73814375 /* StoreKitTest.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DBE2BB3B3D6E3783CFDCF1C2 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -97,6 +115,7 @@
 				D19929A93E0EB1BB1467D57F /* Security.framework in Frameworks */,
 				9586A4D03F68B7E927B2FC07 /* AuthenticationServices.framework in Frameworks */,
 				BA683193E62377A9CB644FAC /* UserNotifications.framework in Frameworks */,
+				6B4E7CA446769218EE5998C0 /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -180,6 +199,8 @@
 				A1D83B33D3DD6D4646C9D8E7 /* AuthenticationServices.framework */,
 				E7C4717F9816E2B76DD12439 /* RemCore.xcframework */,
 				6564B229B20BA26BC37F4291 /* Security.framework */,
+				7116D371F3ACE8655E429EDA /* StoreKit.framework */,
+				65C674A494879C0641B3B50C /* StoreKitTest.framework */,
 				E2AEDEFBEE449696BAAEA397 /* UserNotifications.framework */,
 			);
 			name = Frameworks;
@@ -215,6 +236,7 @@
 			isa = PBXGroup;
 			children = (
 				B297A224C7F01BD19A9EB8D7 /* RemAppTests.swift */,
+				D71278DB08B3D3BDFAEBD87B /* RemPremium.storekit */,
 			);
 			path = RemAppTests;
 			sourceTree = "<group>";
@@ -264,8 +286,10 @@
 			isa = PBXGroup;
 			children = (
 				63FD9975AC3D5F1809A91781 /* AuthSessionManager.swift */,
+				AA8613AEACCC074B9C549649 /* PremiumPaywallSheet.swift */,
 				6D0289A5C08D311C5739C02D /* ReminderManager.swift */,
 				826924FAB93A7D776261FB18 /* SettingsView.swift */,
+				16F00372B31F4E207DE56485 /* StoreKitManager.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -315,6 +339,8 @@
 			buildConfigurationList = A0C00DC6963318172D44FF32 /* Build configuration list for PBXNativeTarget "RemAppTests" */;
 			buildPhases = (
 				D21E8D81D19B6B5A5BF4827E /* Sources */,
+				088BD0BAED6B916468B2E563 /* Resources */,
+				A854CA3A1D20ABE02D208D65 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -368,6 +394,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		088BD0BAED6B916468B2E563 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B4AC627A03E5CC15B940ED53 /* RemPremium.storekit in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		C225C43EDA6A56F55C038076 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -395,6 +429,7 @@
 				2B9E2665163134C4960129C2 /* MarkdownBlockParser.swift in Sources */,
 				5D4E3D368F9CB8D48637E559 /* MarkdownTextEditor.swift in Sources */,
 				07359559E477945E46C39210 /* NewDeckSheet.swift in Sources */,
+				371D90B56FFD3E4DD0071DEC /* PremiumPaywallSheet.swift in Sources */,
 				026A1F86F2FDF2DF243503D2 /* QuickCaptureSheet.swift in Sources */,
 				F111BE04364058F56DA1EAC7 /* RemApp.swift in Sources */,
 				D3DCCF33397A1A676DCD1378 /* RemMarkdownView.swift in Sources */,
@@ -406,6 +441,7 @@
 				FDF6ECD3BE9DDA2776C2A7BE /* RootTabView.swift in Sources */,
 				5F55AE7919E11A6C0BBDD818 /* SettingsView.swift in Sources */,
 				1C57FC6B61E61725F7433B5E /* StatsView.swift in Sources */,
+				702FC76F9081A6EC69B8323B /* StoreKitManager.swift in Sources */,
 				7847E21ADEB515B1E9B67B67 /* TodayView.swift in Sources */,
 				0DDAD341758AB938466D3415 /* rem_ffi.swift in Sources */,
 			);

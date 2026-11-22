@@ -10,10 +10,10 @@ use rem_sync::{
     create_polar_portal_with_client, delete_cloud_account_with_client, fetch_account_with_client,
     generate_oauth_state, generate_pkce_pair, redeem_invite_with_client, sign_out_with_client,
     start_trial_with_client, sync_with_credentials, validate_server_url,
-    verify_dev_token_with_client, AccountProfile, AuthAccount, AuthClient, AuthProviders,
-    AuthTokenResponse, CredentialStore, DownloadedAsset, EntitlementInfo, EntitlementState,
-    LoopbackOAuthServer, MemoryCredentialStore, OAuthProvider, StoredCredentials, SyncError,
-    SyncRequest, SyncResponse, SyncTransport,
+    verify_apple_transaction_with_client, verify_dev_token_with_client, AccountProfile,
+    AuthAccount, AuthClient, AuthProviders, AuthTokenResponse, CredentialStore, DownloadedAsset,
+    EntitlementInfo, EntitlementState, LoopbackOAuthServer, MemoryCredentialStore, OAuthProvider,
+    StoredCredentials, SyncError, SyncRequest, SyncResponse, SyncTransport,
 };
 use tempfile::TempDir;
 
@@ -212,6 +212,39 @@ impl AuthClient for MockAuthClient {
             return Err(SyncError::Unauthorized);
         }
         Ok("https://polar.sh/portal/ses_test_456".into())
+    }
+
+    fn verify_apple_transaction(
+        &self,
+        bearer_token: &str,
+        signed_transaction_info: &str,
+    ) -> Result<AccountProfile, SyncError> {
+        if bearer_token != *self.valid_token.lock().unwrap() {
+            return Err(SyncError::Unauthorized);
+        }
+        Ok(AccountProfile {
+            id: self.account_id.clone(),
+            email: Some("alice@example.com".into()),
+            providers: vec!["apple".into()],
+            auth_method: "jwt".into(),
+            sync_enabled: true,
+            subscription_required: true,
+            subscription_status: Some("active".into()),
+            upgrade_url: None,
+            entitlement: Some(EntitlementInfo {
+                state: EntitlementState::Active,
+                sync_enabled: true,
+                provider: Some("apple".into()),
+                plan: Some(format!("jws_len:{}", signed_transaction_info.len())),
+                expires_at: Some(9_999_999_999),
+                cancel_at_period_end: false,
+                can_start_trial: false,
+                trial_days: 30,
+                price_display: "$5/year".into(),
+                can_subscribe_polar: false,
+                can_manage_billing: false,
+            }),
+        })
     }
 
     fn delete_account(&self, bearer_token: &str) -> Result<(), SyncError> {
@@ -539,4 +572,29 @@ fn entitlement_calls_refresh_jwt_on_401_for_account_trial_and_invite() {
     let portal_url = create_polar_portal_with_client(&collection, &store, &auth, 6_000).unwrap();
     assert_eq!(portal_url, "https://polar.sh/portal/ses_test_456");
     assert_eq!(*auth.refresh_count.lock().unwrap(), 5);
+
+    // 6. verify_apple_transaction refreshes on 401
+    *auth.valid_token.lock().unwrap() = "jwt-rotated-apple".into();
+    let verified =
+        verify_apple_transaction_with_client(&collection, &store, &auth, "hdr.pay.sig", 7_000)
+            .unwrap();
+    assert_eq!(
+        verified.entitlement.as_ref().map(|e| e.state),
+        Some(EntitlementState::Active)
+    );
+    assert_eq!(
+        verified
+            .entitlement
+            .as_ref()
+            .and_then(|e| e.provider.as_deref()),
+        Some("apple")
+    );
+    assert_eq!(
+        verified
+            .entitlement
+            .as_ref()
+            .and_then(|e| e.plan.as_deref()),
+        Some("jws_len:11")
+    );
+    assert_eq!(*auth.refresh_count.lock().unwrap(), 6);
 }

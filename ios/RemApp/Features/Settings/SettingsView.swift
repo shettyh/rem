@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var useCustomServer: Bool = false
     @State private var customServerUrl: String = ""
     @State private var showDeleteAccountConfirm: Bool = false
+    @State private var showPremiumPaywall: Bool = false
     @State private var shareBackupURL: URL?
 
     var body: some View {
@@ -42,6 +43,9 @@ struct SettingsView: View {
             if appState.syncStatus?.signedIn == true {
                 Task {
                     await appState.refreshAccount(triggerSyncIfUnlocked: appState.isSyncPaused)
+                    if appState.canShowAppleSubscribe {
+                        await appState.storeKit.loadProducts()
+                    }
                 }
             }
         }
@@ -51,7 +55,11 @@ struct SettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Permanently removes your synced data and images from the sync server. Your local cards on this iPhone remain intact.")
+            if appState.canShowAppleManageSubscription {
+                Text("Permanently removes your synced data and images from the sync server. Your local cards on this iPhone remain intact. Deleting your cloud account does not cancel your App Store subscription — cancel it in iOS Settings → Apple Account → Subscriptions.")
+            } else {
+                Text("Permanently removes your synced data and images from the sync server. Your local cards on this iPhone remain intact.")
+            }
         }
         .alert(
             "Switch cloud account?",
@@ -73,6 +81,9 @@ struct SettingsView: View {
             }
         } message: {
             Text("This iPhone is currently linked to another cloud account. Switching keeps your local cards and connects the new account.")
+        }
+        .sheet(isPresented: $showPremiumPaywall) {
+            PremiumPaywallSheet(appState: appState)
         }
         .sheet(isPresented: Binding(
             get: { shareBackupURL != nil },
@@ -143,8 +154,10 @@ struct SettingsView: View {
                         .foregroundStyle(RemColor.muted)
                         .lineSpacing(2)
 
-                    if (entState == .none || entState == .expired),
-                       (ent?.canStartTrial ?? (entState == .none)) {
+                    let showTrialButton = (entState == .none || entState == .expired)
+                        && (ent?.canStartTrial ?? (entState == .none))
+
+                    if showTrialButton {
                         Button {
                             Task { await appState.startTrial() }
                         } label: {
@@ -161,13 +174,63 @@ struct SettingsView: View {
                         .disabled(appState.isStartingTrial || appState.isCheckingEntitlement)
                         .padding(.top, 2)
                     }
+
+                    if appState.canShowAppleSubscribe {
+                        if showTrialButton {
+                            Button {
+                                showPremiumPaywall = true
+                            } label: {
+                                Text("Upgrade to Premium — \(appState.storeKit.displayPrice)/year")
+                            }
+                            .buttonStyle(RemSecondaryButtonStyle())
+                            .disabled(appState.isStartingTrial || appState.storeKit.isPurchasing)
+                        } else {
+                            Button {
+                                showPremiumPaywall = true
+                            } label: {
+                                Text("Upgrade to Premium — \(appState.storeKit.displayPrice)/year")
+                            }
+                            .buttonStyle(RemPrimaryButtonStyle())
+                            .disabled(appState.storeKit.isPurchasing)
+                            .padding(.top, 2)
+                        }
+                    }
+
+                    if entState == .pastDue && appState.canShowAppleManageSubscription {
+                        Button {
+                            Task { await appState.manageAppleSubscription() }
+                        } label: {
+                            Text("Manage subscription")
+                        }
+                        .buttonStyle(RemPrimaryButtonStyle())
+                        .padding(.top, 2)
+                    }
+
+                    Button {
+                        Task { _ = await appState.restoreApplePurchases() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if appState.storeKit.isRestoring {
+                                ProgressView().controlSize(.mini)
+                            }
+                            Text(appState.storeKit.isRestoring ? "Restoring purchases…" : "Restore purchases")
+                                .font(.system(size: 12.5, weight: .semibold))
+                                .foregroundStyle(RemColor.accent)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 2)
+                    }
+                    .disabled(appState.storeKit.isRestoring || appState.storeKit.isPurchasing)
                 }
                 .padding(13)
-                .background(RemColor.bgInset)
+                .background(entState == .pastDue ? RemColor.hardBg : RemColor.bgInset)
                 .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(RemColor.border, lineWidth: 1)
+                        .strokeBorder(
+                            entState == .pastDue ? RemColor.hard.opacity(0.28) : RemColor.border,
+                            lineWidth: 1
+                        )
                 )
                 .padding(14)
             }
@@ -216,6 +279,64 @@ struct SettingsView: View {
                     .contentShape(Rectangle())
                 }
                 .disabled(appState.isSyncing)
+
+                if appState.canShowAppleSubscribe {
+                    Divider().overlay(RemColor.border)
+
+                    Button {
+                        showPremiumPaywall = true
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Upgrade to rem Premium")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(RemColor.text)
+                                Text(
+                                    daysLeft.map { "\($0)d left · \(appState.storeKit.displayPrice)/year" }
+                                        ?? "\(appState.storeKit.displayPrice)/year via App Store"
+                                )
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(RemColor.muted)
+                            }
+                            Spacer()
+                            Text("Upgrade")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(RemColor.accent)
+                        }
+                        .padding(14)
+                        .contentShape(Rectangle())
+                    }
+                } else if appState.canShowAppleManageSubscription {
+                    Divider().overlay(RemColor.border)
+
+                    Button {
+                        Task { await appState.manageAppleSubscription() }
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Manage subscription")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(RemColor.text)
+                                if let dateStr = formattedShortDate(ent?.expiresAt) {
+                                    let verb = (ent?.cancelAtPeriodEnd ?? false) ? "Ends" : "Renews"
+                                    Text("\(verb) \(dateStr) · App Store")
+                                        .font(.system(size: 11.5))
+                                        .foregroundStyle(RemColor.muted)
+                                } else {
+                                    Text("App Store")
+                                        .font(.system(size: 11.5))
+                                        .foregroundStyle(RemColor.muted)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(RemColor.faint)
+                        }
+                        .padding(14)
+                        .contentShape(Rectangle())
+                    }
+                }
             }
 
             Divider().overlay(RemColor.border)

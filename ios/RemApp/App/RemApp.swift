@@ -42,6 +42,9 @@ struct RemApp: App {
             let store = try RemStore(dbPath: dbPath)
             let state = AppState(store: store)
             self.appState = state
+            if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+                state.startStoreKitListener()
+            }
             Task {
                 await state.refreshAll()
                 if state.syncStatus?.signedIn == true {
