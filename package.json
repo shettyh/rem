@@ -11,10 +11,12 @@
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
     "app:dev": "tauri dev",
-    "app:build": "tauri build"
+    "app:build": "node tools/stage-cli-sidecar.mjs && tauri build --config src-tauri/tauri.bundle.conf.json"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.14.1",
     "@tiptap/extension-bubble-menu": "^3.34.0",
     "@tiptap/extension-code-block-lowlight": "^3.34.0",
     "@tiptap/extension-image": "^3.34.0",

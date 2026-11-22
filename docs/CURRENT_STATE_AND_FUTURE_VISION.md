@@ -1,6 +1,6 @@
 # rem — Current State & Future Vision
 
-_Last reviewed: 2026-11-21 · based on `v0.16.0` plus Cloud Sync (Slices 1–3), hosted `rem Cloud` entitlement gating, and iOS Companion v1 (Slice 4)_
+_Last reviewed: 2026-11-22 · based on `v0.18.0` plus FSRS-7, macOS signing/notarization, bundled single-install CLI, Tauri auto-updater, and Homebrew tap_
 
 This document is the canonical product snapshot for future planning. Dated files under
 `docs/superpowers/` record the decisions and implementation history behind individual slices;
@@ -94,7 +94,7 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 ### Decks and study
 
 - Flat deck organization with colors, live due counts, deck progress rings, and cross-deck study.
-- FSRS-6 calculation and optimization live in `rem-core`; SM-2 has been removed.
+- FSRS-7 calculation and optimization live in `rem-core`; SM-2 has been removed.
 - A shared Rust `StudySession` owns due selection, daily caps, learning/relearning steps, FSRS
   choices, custom study, leeches, review persistence, undo snapshots, counters, requeueing, and
   stale-card conflicts.
@@ -162,9 +162,9 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 
 - Collapsible icon-rail sidebar and native content shell with light and dark themes, dense cards
   list, custom icons, and native window chrome.
-- Installers build for Apple Silicon and Intel macOS, Linux, and Windows.
-- Release workflows package the unchanged `rem` CLI binary alongside desktop installers.
-- A macOS/Linux curl installer installs both desktop and CLI; Windows publishes a separate CLI zip.
+- Installers build for Apple Silicon and Intel macOS (Developer ID signed & notarized), Linux, and Windows.
+- The `rem` CLI binary is bundled directly inside desktop packages (`rem.app/Contents/MacOS/rem` on macOS) so Homebrew (`brew install --cask shettyh/tap/rem`) and `install.sh` provide a single installation that stays updated in lockstep with the desktop app; standalone CLI archives are also published on GitHub Releases.
+- Signed in-app auto-updates (`tauri-plugin-updater`) check `latest.json` on GitHub Releases and update both desktop and linked CLI together.
 - CI covers TypeScript/unit tests, real-browser flows, Rust formatting, Clippy, Rust workspace tests,
   frontend builds, security auditing, and cross-platform desktop/CLI release builds.
 
@@ -215,7 +215,7 @@ These are real gaps in the resulting product, not features already delivered.
 | Organization | Decks are flat; namespaces, nested decks, and folders do not exist. |
 | Cloud sync v1.1 | Server-side op compaction (`/v1/bootstrap`), real-time WebSocket pokes, automated billing webhooks, and an optional non-Cloudflare self-host server are deferred beyond initial early access. |
 | iOS companion v1.1 | WidgetKit Home/Lock Screen widgets, Share Sheet capture extension, per-deck FSRS settings/optimizer UI, and Custom Study modes are deferred past v1. |
-| CI & Distribution | iOS builds/tests are not yet wired into GitHub Actions or TestFlight/App Store distribution; macOS is ad-hoc signed rather than notarized; Windows has no Authenticode signature. |
+| CI & Distribution | iOS builds/tests are not yet wired into GitHub Actions or TestFlight/App Store distribution; Windows has no Authenticode signature. |
 
 ## Future direction
 

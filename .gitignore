@@ -7,5 +7,6 @@ test-artifacts
 .vitest-attachments
 **/__screenshots__
 src-tauri/target/
+src-tauri/binaries/
 ios/Frameworks/
 ios/RemApp/Generated/

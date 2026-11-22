@@ -34,9 +34,7 @@ install_macos() {
   esac
   release=$(fetch_release_json)
   app_url=$(select_asset_url "$release" '\.dmg' "$key")
-  cli_url=$(select_asset_url "$release" 'rem-cli-.*\.tar\.gz' "$target")
   [ -n "$app_url" ] || err "no .dmg asset for '$key' in the latest release"
-  [ -n "$cli_url" ] || err "no CLI archive for '$target' in the latest release"
 
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
@@ -56,16 +54,23 @@ install_macos() {
   info "Installing $name to /Applications"
   rm -rf "/Applications/$name"
   cp -R "$app" /Applications/
-  xattr -dr com.apple.quarantine "/Applications/$name" 2>/dev/null || true
 
-  info "Downloading $cli_url"
-  curl -fL -o "$tmp/rem-cli.tar.gz" "$cli_url" || err "CLI download failed"
-  tar -xzf "$tmp/rem-cli.tar.gz" -C "$tmp" || err "could not extract CLI archive"
   dest="$HOME/.local/bin"
   mkdir -p "$dest"
-  cp "$tmp/rem" "$dest/rem"
-  chmod +x "$dest/rem"
-  info "Installed CLI to $dest/rem"
+  bundled_cli="/Applications/$name/Contents/MacOS/rem"
+  if [ -x "$bundled_cli" ]; then
+    ln -sf "$bundled_cli" "$dest/rem"
+    info "Linked bundled CLI at $dest/rem -> $bundled_cli"
+  else
+    cli_url=$(select_asset_url "$release" 'rem-cli-.*\.tar\.gz' "$target")
+    [ -n "$cli_url" ] || err "no bundled CLI or CLI archive for '$target' in the latest release"
+    info "Downloading $cli_url"
+    curl -fL -o "$tmp/rem-cli.tar.gz" "$cli_url" || err "CLI download failed"
+    tar -xzf "$tmp/rem-cli.tar.gz" -C "$tmp" || err "could not extract CLI archive"
+    cp "$tmp/rem" "$dest/rem"
+    chmod +x "$dest/rem"
+    info "Installed CLI to $dest/rem"
+  fi
   case ":$PATH:" in
     *":$dest:"*) : ;;
     *) info "Note: $dest is not on your PATH. Add: export PATH=\"$dest:\$PATH\"" ;;

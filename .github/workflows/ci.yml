@@ -30,8 +30,8 @@ jobs:
       - name: Audit dependencies
         run: npm audit --audit-level=high
 
-      - name: Test release installer selection
-        run: sh tools/test-install.sh
+      - name: Test release installer selection and tooling
+        run: sh tools/test-install.sh && node tools/test-release-tools.mjs
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium

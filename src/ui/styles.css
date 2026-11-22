@@ -379,6 +379,23 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
 .side-settings.is-active .nav-icon {
   opacity: 1;
 }
+.side-settings {
+  position: relative;
+}
+.side-update-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+  margin-left: auto;
+}
+.sidebar.is-collapsed:not(.is-peeking) .side-update-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  margin-left: 0;
+}
 
 .side-sync-btn {
   position: relative;
@@ -2310,6 +2327,32 @@ select.text-input,
   font-family: var(--font-mono);
   font-size: 11px;
   text-align: center;
+}
+.settings-update-notes {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-inset);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.settings-progress {
+  margin-top: 8px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+.settings-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.18s ease;
 }
 
 

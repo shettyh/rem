@@ -58,9 +58,19 @@ jobs:
 
       - run: npm ci
 
+      - name: Stage bundled rem CLI sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.platform }}" = "macos-latest" ]; then
+            node tools/stage-cli-sidecar.mjs --universal
+          else
+            node tools/stage-cli-sidecar.mjs
+          fi
+
       # `tauri build` runs the frontend build (beforeBuildCommand) then bundles.
       - name: Build installers
-        run: npx tauri build ${{ matrix.args }}
+        run: npx tauri build ${{ matrix.args }} --config src-tauri/tauri.bundle.conf.json
 
       - name: Build CLI archives (macOS)
         if: matrix.platform == 'macos-latest'

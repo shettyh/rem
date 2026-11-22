@@ -13,12 +13,18 @@ import {
   type SyncClient,
   type SyncStatus,
 } from '../../data/SyncClient'
+import type { CliStatus, PendingUpdateHandle, UpdaterClient } from '../../data/UpdaterClient'
 import packageInfo from '../../../package.json'
 
-function renderSettings(storage: ReturnType<typeof freshStorage>, syncClient?: SyncClient) {
+function renderSettings(
+  storage: ReturnType<typeof freshStorage>,
+  syncClient?: SyncClient,
+  updaterClient?: UpdaterClient,
+) {
   return renderRoute({
     storage,
     syncClient,
+    updaterClient,
     entry: '/settings',
     path: '/settings',
     element: <SettingsPage />,
@@ -349,4 +355,71 @@ test('prompts before switching a collection bound to another sync account', asyn
   await page.getByRole('button', { name: 'Switch account' }).click()
   expect(syncClient.confirmAccountSwitch).toHaveBeenCalledTimes(1)
   await expect.element(page.getByText('bob@example.com', { exact: false })).toBeVisible()
+})
+
+function makeMockUpdaterClient(overrides: Partial<UpdaterClient> = {}): UpdaterClient {
+  const defaultCli: CliStatus = {
+    supported: true,
+    bundledPath: '/Applications/rem.app/Contents/MacOS/rem',
+    installedPath: null,
+    managedByHomebrew: false,
+    linkedToBundled: false,
+    onPath: false,
+  }
+  return {
+    supported: true,
+    check: vi.fn(async () => null),
+    relaunch: vi.fn(async () => {}),
+    getCliStatus: vi.fn(async () => defaultCli),
+    installCli: vi.fn(async () => ({
+      ...defaultCli,
+      installedPath: '/Users/alex/.local/bin/rem',
+      linkedToBundled: true,
+      onPath: true,
+    })),
+    ...overrides,
+  }
+}
+
+test('checks for updates, downloads with progress, and prompts to restart', async () => {
+  const storage = freshStorage()
+  const downloadAndInstall = vi.fn(async (onProgress) => {
+    onProgress?.({ downloaded: 50, total: 100 })
+    onProgress?.({ downloaded: 100, total: 100 })
+  })
+  const pending: PendingUpdateHandle = {
+    info: { version: '0.19.0', body: '- Bundled rem CLI\n- In-app updates' },
+    downloadAndInstall,
+  }
+  const updaterClient = makeMockUpdaterClient({
+    check: vi.fn(async () => pending),
+  })
+  renderSettings(storage, undefined, updaterClient)
+
+  await expect.element(page.getByRole('heading', { name: 'App & updates' })).toBeVisible()
+  await page.getByRole('button', { name: 'Check for updates' }).click()
+
+  await expect.element(page.getByText('Version v0.19.0 is available.')).toBeVisible()
+  await expect.element(page.getByText('In-app updates', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Install v0.19.0' }).click()
+
+  expect(downloadAndInstall).toHaveBeenCalledTimes(1)
+  await expect.element(page.getByText('Restart to finish updating', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Restart to update' }).click()
+  expect(updaterClient.relaunch).toHaveBeenCalledTimes(1)
+})
+
+test('reports up-to-date and links the bundled rem CLI in one click', async () => {
+  const storage = freshStorage()
+  const updaterClient = makeMockUpdaterClient()
+  renderSettings(storage, undefined, updaterClient)
+
+  await page.getByRole('button', { name: 'Check for updates' }).click()
+  await expect.element(page.getByText(`You're up to date on v${packageInfo.version}.`)).toBeVisible()
+
+  await page.getByRole('button', { name: 'Install rem CLI' }).click()
+  expect(updaterClient.installCli).toHaveBeenCalledTimes(1)
+  await expect
+    .element(page.getByText('Linked at /Users/alex/.local/bin/rem. Updates automatically with rem.'))
+    .toBeVisible()
 })
