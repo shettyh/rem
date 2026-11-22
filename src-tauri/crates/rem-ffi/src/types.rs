@@ -1,6 +1,6 @@
 use std::fmt;
 
-use rem_core::{CollectionError, Grade, LeechAction, SyncMode};
+use rem_core::{CollectionError, DeckSettings, Grade, InsertionOrder, LeechAction, SyncMode};
 use rem_sync::{AccountProfile, EntitlementInfo, EntitlementState, OAuthProvider, SyncError};
 
 #[derive(Debug, uniffi::Error)]
@@ -197,6 +197,114 @@ impl From<OAuthProviderDto> for OAuthProvider {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum InsertionOrderDto {
+    Sequential,
+    Random,
+}
+
+impl From<InsertionOrder> for InsertionOrderDto {
+    fn from(value: InsertionOrder) -> Self {
+        match value {
+            InsertionOrder::Sequential => Self::Sequential,
+            InsertionOrder::Random => Self::Random,
+        }
+    }
+}
+
+impl From<InsertionOrderDto> for InsertionOrder {
+    fn from(value: InsertionOrderDto) -> Self {
+        match value {
+            InsertionOrderDto::Sequential => Self::Sequential,
+            InsertionOrderDto::Random => Self::Random,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum LeechActionDto {
+    Tag,
+    Suspend,
+}
+
+impl From<LeechAction> for LeechActionDto {
+    fn from(value: LeechAction) -> Self {
+        match value {
+            LeechAction::Tag => Self::Tag,
+            LeechAction::Suspend => Self::Suspend,
+        }
+    }
+}
+
+impl From<LeechActionDto> for LeechAction {
+    fn from(value: LeechActionDto) -> Self {
+        match value {
+            LeechActionDto::Tag => Self::Tag,
+            LeechActionDto::Suspend => Self::Suspend,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct DeckSettingsDto {
+    pub new_per_day: u32,
+    pub max_reviews: u32,
+    pub learn_steps: String,
+    pub insertion_order: InsertionOrderDto,
+    pub relearn_steps: String,
+    pub minimum_interval: u32,
+    pub leech_threshold: u32,
+    pub leech_action: LeechActionDto,
+    pub bury_related: bool,
+    pub show_timer: bool,
+    pub desired_retention: f64,
+    pub maximum_interval: u32,
+    pub has_personalized_weights: bool,
+}
+
+impl From<&DeckSettings> for DeckSettingsDto {
+    fn from(value: &DeckSettings) -> Self {
+        Self {
+            new_per_day: value.new_per_day,
+            max_reviews: value.max_reviews,
+            learn_steps: value.learn_steps.clone(),
+            insertion_order: value.insertion_order.into(),
+            relearn_steps: value.relearn_steps.clone(),
+            minimum_interval: value.minimum_interval,
+            leech_threshold: value.leech_threshold,
+            leech_action: value.leech_action.into(),
+            bury_related: value.bury_related,
+            show_timer: value.show_timer,
+            desired_retention: value.desired_retention,
+            maximum_interval: value.maximum_interval,
+            has_personalized_weights: value.fsrs_weights.is_some(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct DeckSettingsPatchDto {
+    pub new_per_day: u32,
+    pub max_reviews: u32,
+    pub learn_steps: String,
+    pub insertion_order: InsertionOrderDto,
+    pub relearn_steps: String,
+    pub minimum_interval: u32,
+    pub leech_threshold: u32,
+    pub leech_action: LeechActionDto,
+    pub bury_related: bool,
+    pub show_timer: bool,
+    pub desired_retention: f64,
+    pub maximum_interval: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DeckFsrsStatusDto {
+    pub has_personalized_weights: bool,
+    pub review_count: u32,
+    pub can_optimize: bool,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct DeckDto {
     pub id: String,
@@ -207,6 +315,7 @@ pub struct DeckDto {
     pub desired_retention: f64,
     pub new_per_day: u32,
     pub max_reviews: u32,
+    pub settings: DeckSettingsDto,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]

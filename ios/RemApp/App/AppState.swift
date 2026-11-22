@@ -21,6 +21,12 @@ struct CaptureSheetRequest: Identifiable {
     let onSaved: (() -> Void)?
 }
 
+struct DeckEditRequest: Identifiable {
+    let id = UUID()
+    let deckId: String
+    let onDeleted: (() -> Void)?
+}
+
 @Observable
 @MainActor
 final class AppState {
@@ -52,6 +58,7 @@ final class AppState {
 
     var studyLaunch: StudyLaunchRequest?
     var captureRequest: CaptureSheetRequest?
+    var editingDeckRequest: DeckEditRequest?
     var showNewDeckSheet: Bool = false
 
     var hasDismissedOnboarding: Bool {
@@ -668,9 +675,62 @@ final class AppState {
             Task { await syncNow(silent: true) }
             return deck
         } catch {
-            showToast(error.localizedDescription)
+            showToast(error.remDisplayMessage)
             return nil
         }
+    }
+
+    func updateDeck(
+        id: String,
+        name: String?,
+        color: String?,
+        settings: DeckSettingsPatchDto? = nil
+    ) async -> DeckDto? {
+        do {
+            let updated = try await store.updateDeck(
+                id: id,
+                name: name,
+                color: color,
+                settings: settings
+            )
+            await refreshAll()
+            showToast("Deck updated")
+            Task { await syncNow(silent: true) }
+            return updated
+        } catch {
+            showToast(error.remDisplayMessage)
+            return nil
+        }
+    }
+
+    func optimizeDeckFsrs(id: String) async -> DeckDto? {
+        do {
+            let updated = try await store.optimizeDeckFsrs(deckId: id)
+            await refreshAll()
+            showToast("Personalized schedule updated")
+            Task { await syncNow(silent: true) }
+            return updated
+        } catch {
+            showToast(error.remDisplayMessage)
+            return nil
+        }
+    }
+
+    func resetDeckFsrs(id: String) async -> DeckDto? {
+        do {
+            let updated = try await store.resetDeckFsrs(deckId: id)
+            await refreshAll()
+            showToast("Reset to default schedule")
+            Task { await syncNow(silent: true) }
+            return updated
+        } catch {
+            showToast(error.remDisplayMessage)
+            return nil
+        }
+    }
+
+    func openEditDeck(deckId: String, onDeleted: (() -> Void)? = nil) {
+        editingDeckRequest = DeckEditRequest(deckId: deckId, onDeleted: onDeleted)
     }
 
     func deleteDeck(id: String) async {
@@ -680,7 +740,7 @@ final class AppState {
             showToast("Deck deleted")
             Task { await syncNow(silent: true) }
         } catch {
-            showToast(error.localizedDescription)
+            showToast(error.remDisplayMessage)
         }
     }
 

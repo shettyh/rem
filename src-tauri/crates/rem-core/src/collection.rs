@@ -4,11 +4,12 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use directories::ProjectDirs;
 use rusqlite::types::Type;
-use rusqlite::{params, Connection, Transaction, TransactionBehavior};
+use rusqlite::{params, Connection, ErrorCode, Transaction, TransactionBehavior};
 use uuid::Uuid;
 
 use crate::scheduler::{build_fsrs_for_migration, migrate_card_scheduling_to_fsrs7};
@@ -92,21 +93,29 @@ impl Collection {
         let mut connection = Connection::open(path)?;
         connection.busy_timeout(BUSY_TIMEOUT)?;
 
-        let version: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if version > CURRENT_SCHEMA_VERSION {
-            return Err(CollectionError::NewerSchema {
-                found: version,
-                supported: CURRENT_SCHEMA_VERSION,
-            });
-        }
-        if version == 0 {
-            initialize_schema(&mut connection)?;
-        } else if version < CURRENT_SCHEMA_VERSION {
-            migrate_schema(&mut connection)?;
-        }
+        retry_on_busy(BUSY_TIMEOUT, || {
+            let version: u32 =
+                connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+            if version > CURRENT_SCHEMA_VERSION {
+                return Err(CollectionError::NewerSchema {
+                    found: version,
+                    supported: CURRENT_SCHEMA_VERSION,
+                });
+            }
+            if version == 0 {
+                initialize_schema(&mut connection)?;
+            } else if version < CURRENT_SCHEMA_VERSION {
+                migrate_schema(&mut connection)?;
+            }
 
-        connection.pragma_update(None, "foreign_keys", "ON")?;
-        connection.pragma_update(None, "journal_mode", "WAL")?;
+            connection.pragma_update(None, "foreign_keys", "ON")?;
+            let journal_mode: String =
+                connection.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
+            if !journal_mode.eq_ignore_ascii_case("wal") {
+                connection.pragma_update(None, "journal_mode", "WAL")?;
+            }
+            Ok(())
+        })?;
 
         Ok(Self {
             connection: Mutex::new(connection),
@@ -131,6 +140,32 @@ pub(crate) fn write_transaction(
     connection: &mut Connection,
 ) -> Result<Transaction<'_>, rusqlite::Error> {
     connection.transaction_with_behavior(TransactionBehavior::Immediate)
+}
+
+fn is_sqlite_busy(error: &CollectionError) -> bool {
+    matches!(
+        error,
+        CollectionError::Sqlite(rusqlite::Error::SqliteFailure(err, _))
+            if matches!(err.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+    )
+}
+
+fn retry_on_busy<T>(
+    timeout: Duration,
+    mut operation: impl FnMut() -> Result<T, CollectionError>,
+) -> Result<T, CollectionError> {
+    let deadline = Instant::now() + timeout;
+    let mut backoff = Duration::from_millis(5);
+    loop {
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(error) if is_sqlite_busy(&error) && Instant::now() < deadline => {
+                thread::sleep(backoff);
+                backoff = (backoff * 2).min(Duration::from_millis(50));
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error> {

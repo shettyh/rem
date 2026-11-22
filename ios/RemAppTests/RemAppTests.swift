@@ -387,4 +387,78 @@ final class RemAppTests: XCTestCase {
         let restoredJws = try XCTUnwrap(restoredJwsList.first)
         XCTAssertEqual(restoredJws.split(separator: ".").count, 3)
     }
+
+    func testDeckStepParserHandlesValidAndInvalidTokens() {
+        XCTAssertEqual(DeckStepParser.parseTokens("  1m   10m\t1d "), ["1m", "10m", "1d"])
+        XCTAssertTrue(DeckStepParser.isValidToken("30s"))
+        XCTAssertTrue(DeckStepParser.isValidToken("10m"))
+        XCTAssertTrue(DeckStepParser.isValidToken("2h"))
+        XCTAssertTrue(DeckStepParser.isValidToken("1d"))
+        XCTAssertTrue(DeckStepParser.isValidToken("15"))
+        XCTAssertFalse(DeckStepParser.isValidToken(""))
+        XCTAssertFalse(DeckStepParser.isValidToken("m"))
+        XCTAssertFalse(DeckStepParser.isValidToken("10w"))
+        XCTAssertFalse(DeckStepParser.isValidToken("abc"))
+    }
+
+    @MainActor
+    func testUpdateDeckPersistsNameColorAndFullFsrsSettings() async throws {
+        let (dir, store) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let appState = AppState(store: store)
+        let createdDeck = await appState.createDeck(name: "Systems", color: "#5a47e8")
+        let created = try XCTUnwrap(createdDeck)
+        XCTAssertEqual(created.settings.desiredRetention, 0.9, accuracy: 0.0001)
+        XCTAssertEqual(created.settings.newPerDay, 20)
+        XCTAssertEqual(created.settings.maxReviews, 200)
+        XCTAssertEqual(created.settings.insertionOrder, .sequential)
+        XCTAssertEqual(created.settings.leechAction, .suspend)
+
+        let patch = DeckSettingsPatchDto(
+            newPerDay: 30,
+            maxReviews: 180,
+            learnSteps: "1m 10m 1d",
+            insertionOrder: .random,
+            relearnSteps: "15m",
+            minimumInterval: 2,
+            leechThreshold: 5,
+            leechAction: .tag,
+            buryRelated: true,
+            showTimer: false,
+            desiredRetention: 0.93,
+            maximumInterval: 36_500
+        )
+
+        let updatedDeck = await appState.updateDeck(
+            id: created.id,
+            name: "Distributed Systems",
+            color: "#1e9b5e",
+            settings: patch
+        )
+        let updated = try XCTUnwrap(updatedDeck)
+        XCTAssertEqual(updated.name, "Distributed Systems")
+        XCTAssertEqual(updated.color, "#1e9b5e")
+        XCTAssertEqual(updated.desiredRetention, 0.93, accuracy: 0.0001)
+        XCTAssertEqual(updated.newPerDay, 30)
+        XCTAssertEqual(updated.maxReviews, 180)
+        XCTAssertEqual(updated.settings.learnSteps, "1m 10m 1d")
+        XCTAssertEqual(updated.settings.insertionOrder, .random)
+        XCTAssertEqual(updated.settings.relearnSteps, "15m")
+        XCTAssertEqual(updated.settings.minimumInterval, 2)
+        XCTAssertEqual(updated.settings.leechThreshold, 5)
+        XCTAssertEqual(updated.settings.leechAction, .tag)
+
+        let reloadedDeck = try await store.getDeck(id: created.id)
+        let reloaded = try XCTUnwrap(reloadedDeck)
+        XCTAssertEqual(reloaded.name, "Distributed Systems")
+        XCTAssertEqual(reloaded.color, "#1e9b5e")
+        XCTAssertEqual(reloaded.settings, updated.settings)
+        XCTAssertEqual(appState.decks.first(where: { $0.id == created.id })?.name, "Distributed Systems")
+
+        let fsrsStatus = try await store.getDeckFsrsStatus(deckId: created.id)
+        XCTAssertEqual(fsrsStatus.reviewCount, 0)
+        XCTAssertFalse(fsrsStatus.canOptimize)
+        XCTAssertFalse(fsrsStatus.hasPersonalizedWeights)
+    }
 }

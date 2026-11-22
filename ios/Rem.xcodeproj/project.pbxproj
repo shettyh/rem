@@ -33,6 +33,7 @@
 		B55EBD4B3D524BD59F1A46B2 /* ReviewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */; };
 		B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA01A89644F04D2536A7AC3D /* DecksView.swift */; };
 		BA683193E62377A9CB644FAC /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E2AEDEFBEE449696BAAEA397 /* UserNotifications.framework */; };
+		BC5481300B1E21BB8D4BB204 /* DeckOptionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36855D285827CEB531DABB0B /* DeckOptionsSheet.swift */; };
 		D19929A93E0EB1BB1467D57F /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6564B229B20BA26BC37F4291 /* Security.framework */; };
 		D3DCCF33397A1A676DCD1378 /* RemMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E670AF040422AD01B9994B2F /* RemMarkdownView.swift */; };
 		D98E184FBE92A160FD24DD8B /* RemStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E2DD644390DD61851BB031 /* RemStore.swift */; };
@@ -60,6 +61,7 @@
 		16278B140AD8DE458882895B /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		16F00372B31F4E207DE56485 /* StoreKitManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreKitManager.swift; sourceTree = "<group>"; };
 		18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewScreen.swift; sourceTree = "<group>"; };
+		36855D285827CEB531DABB0B /* DeckOptionsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckOptionsSheet.swift; sourceTree = "<group>"; };
 		38E2DD644390DD61851BB031 /* RemStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemStore.swift; sourceTree = "<group>"; };
 		39DE67B932E46F12BFE3E215 /* FirstRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunView.swift; sourceTree = "<group>"; };
 		3AF2926313E4E32977B3C215 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
@@ -268,6 +270,7 @@
 			isa = PBXGroup;
 			children = (
 				DAC30A16A1E8B9680802B58F /* DeckDetailView.swift */,
+				36855D285827CEB531DABB0B /* DeckOptionsSheet.swift */,
 				DA01A89644F04D2536A7AC3D /* DecksView.swift */,
 				872ED05E3BF79C8E15E1BFD3 /* NewDeckSheet.swift */,
 			);
@@ -422,6 +425,7 @@
 				D993148BD033563EA25808C0 /* AssetImageCache.swift in Sources */,
 				FBDCF55221BFF338F38F94DB /* AuthSessionManager.swift in Sources */,
 				F705E41584E290A7FC6DFF96 /* DeckDetailView.swift in Sources */,
+				BC5481300B1E21BB8D4BB204 /* DeckOptionsSheet.swift in Sources */,
 				B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */,
 				81401AD06D3E3EC74CE48206 /* FirstRunView.swift in Sources */,
 				7556F594E668E98E3AD6A61C /* ImageLightboxView.swift in Sources */,
