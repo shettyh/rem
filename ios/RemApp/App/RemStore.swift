@@ -159,6 +159,26 @@ actor RemStore {
         )
     }
 
+    func finishAppleNativeAuth(
+        serverUrl: String,
+        identityToken: String,
+        authorizationCode: String?,
+        nonce: String,
+        email: String?,
+        resetExistingBinding: Bool,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> ConnectResultDto {
+        try client.finishAppleNativeAuth(
+            serverUrl: serverUrl,
+            identityToken: identityToken,
+            authorizationCode: authorizationCode,
+            nonce: nonce,
+            email: email,
+            resetExistingBinding: resetExistingBinding,
+            nowMs: nowMs
+        )
+    }
+
     func syncStatus() throws -> SyncStatusDto {
         try client.syncStatus()
     }

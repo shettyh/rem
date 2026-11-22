@@ -549,6 +549,122 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
     expect(revokeCalls[0].get('client_secret')?.split('.')).toHaveLength(3)
   })
 
+  it('authenticates native iOS Sign in with Apple via POST /v1/auth/apple/native and revokes native refresh_token on delete', async () => {
+    const envWithApple: Env = {
+      ...TEST_ENV,
+      APPLE_PRIVATE_KEY: appleClientKey.privatePem,
+      APPLE_BUNDLE_ID: 'com.shettyh.rem',
+    }
+    const rawNonce = 'native_ios_apple_nonce_0123456789abcdef'
+    const hashedNonce = await sha256Hex(new TextEncoder().encode(rawNonce))
+    const nowSec = Math.floor(Date.now() / 1000)
+
+    const nativeIdToken = await signEs256Jwt(
+      {
+        iss: 'https://appleid.apple.com',
+        aud: 'com.shettyh.rem',
+        sub: 'apple-sub-native-001',
+        email: 'native@privaterelay.appleid.com',
+        nonce: hashedNonce,
+        iat: nowSec,
+        exp: nowSec + 300,
+      },
+      appleIdpKey.privateKey,
+    )
+
+    const tokenCalls: URLSearchParams[] = []
+    const revokeCalls: URLSearchParams[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const target = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      if (target === 'https://appleid.apple.com/auth/keys') {
+        return new Response(JSON.stringify({ keys: [appleIdpKey.publicJwk] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      if (target === 'https://appleid.apple.com/auth/token') {
+        const params = new URLSearchParams(typeof init?.body === 'string' ? init.body : '')
+        tokenCalls.push(params)
+        return new Response(
+          JSON.stringify({
+            id_token: nativeIdToken,
+            refresh_token: 'apple_native_rt_999',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        )
+      }
+      if (target === 'https://appleid.apple.com/auth/revoke') {
+        const params = new URLSearchParams(typeof init?.body === 'string' ? init.body : '')
+        revokeCalls.push(params)
+        // Simulate Apple accepting revocation only for the matching native bundle client_id.
+        if (params.get('client_id') === 'com.shettyh.rem') {
+          return new Response(null, { status: 200 })
+        }
+        return new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })
+      }
+      throw new Error(`unexpected outbound fetch: ${target}`)
+    })
+
+    // Wrong nonce is rejected with 401.
+    const badNonceResp = await callWorker(
+      'https://sync.example.com/v1/auth/apple/native',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identityToken: nativeIdToken,
+          nonce: 'wrong_nonce_0123456789abcdef',
+          deviceId: 'dev-iphone-native',
+        }),
+      },
+      envWithApple,
+    )
+    expect(badNonceResp.status).toBe(401)
+
+    // Valid native identityToken + authorizationCode creates session and stores native refresh_token.
+    const okResp = await callWorker(
+      'https://sync.example.com/v1/auth/apple/native',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identityToken: nativeIdToken,
+          authorizationCode: 'native-auth-code-abc',
+          nonce: rawNonce,
+          email: 'native@privaterelay.appleid.com',
+          deviceId: 'dev-iphone-native',
+        }),
+      },
+      envWithApple,
+    )
+    expect(okResp.status).toBe(200)
+    const session = (await okResp.json()) as {
+      accessToken: string
+      refreshToken: string
+      account: { id: string; email: string | null; provider: string }
+    }
+    expect(session.account.provider).toBe('apple')
+    expect(session.account.email).toBe('native@privaterelay.appleid.com')
+    expect(tokenCalls).toHaveLength(1)
+    expect(tokenCalls[0].get('client_id')).toBe('com.shettyh.rem')
+    expect(tokenCalls[0].get('code')).toBe('native-auth-code-abc')
+
+    // Deleting the account retries with com.shettyh.rem and revokes the native refresh_token.
+    const delResp = await callWorker(
+      'https://sync.example.com/v1/account',
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+      },
+      envWithApple,
+    )
+    expect(delResp.status).toBe(200)
+    expect(revokeCalls.some((c) => c.get('client_id') === 'com.shettyh.rem' && c.get('token') === 'apple_native_rt_999')).toBe(true)
+  })
+
   it('enforces two-user OAuth isolation and purges DO + R2 + D1 on DELETE /v1/account', async () => {
     const userA = await completeGoogleLogin({
       sub: 'google-iso-a',

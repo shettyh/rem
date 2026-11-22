@@ -113,6 +113,17 @@ final class RemAppTests: XCTestCase {
         XCTAssertThrowsError(try AuthSessionManager.parseOAuthCallback(url: providerErr, expectedState: "xyz789"))
     }
 
+    func testNativeAppleNonceGenerationAndSha256Hex() {
+        let n1 = AuthSessionManager.generateNonce()
+        let n2 = AuthSessionManager.generateNonce()
+        XCTAssertGreaterThanOrEqual(n1.count, 32)
+        XCTAssertNotEqual(n1, n2)
+        XCTAssertEqual(
+            AuthSessionManager.sha256Hex("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        )
+    }
+
     func testBackupExportAndPerDeckStats() async throws {
         let (dir, store) = try makeTempStore()
         defer { try? FileManager.default.removeItem(at: dir) }

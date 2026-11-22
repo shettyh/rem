@@ -11,6 +11,7 @@ import { renderPrivacyPage, renderTermsPage } from './legalPages'
 import {
   deleteAccountData,
   getAuthProviders,
+  handleAppleNativeAuth,
   handleLogout,
   handleOAuthCallback,
   handleOAuthStart,
@@ -92,6 +93,10 @@ export default {
 
     if (request.method === 'POST' && url.pathname === '/v1/auth/exchange') {
       return handleTokenExchange(request, env)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/auth/apple/native') {
+      return handleAppleNativeAuth(request, env)
     }
 
     if (request.method === 'POST' && url.pathname === '/v1/auth/refresh') {

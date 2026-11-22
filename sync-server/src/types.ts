@@ -49,6 +49,8 @@ export interface Env {
 
   /** Sign in with Apple credentials. */
   APPLE_CLIENT_ID?: string
+  /** Optional native iOS Sign in with Apple bundle ID (defaults to APPLE_BUNDLE_ID, then APPLE_CLIENT_ID). */
+  APPLE_IOS_CLIENT_ID?: string
   APPLE_TEAM_ID?: string
   APPLE_KEY_ID?: string
   /** PKCS#8 PEM-encoded ES256 private key (.p8 contents). */
@@ -153,6 +155,14 @@ export interface TokenExchangeRequest {
   code: string
   codeVerifier: string
   redirectUri: string
+  deviceId?: string
+}
+
+export interface AppleNativeAuthRequest {
+  identityToken: string
+  authorizationCode?: string
+  nonce: string
+  email?: string | null
   deviceId?: string
 }
 

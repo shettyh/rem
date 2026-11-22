@@ -58,6 +58,17 @@ impl AuthClient for MockAuthClient {
         unimplemented!()
     }
 
+    fn exchange_apple_native(
+        &self,
+        _identity_token: &str,
+        _authorization_code: Option<&str>,
+        _nonce: &str,
+        _email: Option<&str>,
+        _device_id: &str,
+    ) -> Result<AuthTokenResponse, SyncError> {
+        unimplemented!()
+    }
+
     fn refresh_token(
         &self,
         refresh_token: &str,
