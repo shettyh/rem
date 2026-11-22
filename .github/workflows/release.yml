@@ -91,10 +91,90 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Import Apple signing certificate and API key (macOS)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          for var in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PRIVATE_KEY; do
+            if [ -z "${!var:-}" ]; then
+              echo "::error::Missing required GitHub secret for macOS signing/notarization: $var"
+              exit 1
+            fi
+          done
+
+          keychain_path="$RUNNER_TEMP/rem-signing.keychain-db"
+          cert_path="$RUNNER_TEMP/apple-cert.p12"
+          g2_cert_path="$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          api_key_path="$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          keychain_password=$(openssl rand -hex 24)
+          echo "::add-mask::$keychain_password"
+
+          printf '%s' "$APPLE_CERTIFICATE" | tr -d '[:space:]' | base64 --decode > "$cert_path"
+          chmod 600 "$cert_path"
+
+          curl -fsSL "https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer" -o "$g2_cert_path"
+          printf '%s  %s\n' \
+            "f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a" \
+            "$g2_cert_path" | shasum -a 256 -c -
+
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$g2_cert_path" \
+            -t cert \
+            -k "$keychain_path"
+          security import "$cert_path" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
+
+          existing_keychains=()
+          while IFS= read -r line; do
+            cleaned=$(printf '%s' "$line" | sed -E 's/^[[:space:]]*"?//; s/"?[[:space:]]*$//')
+            [ -n "$cleaned" ] && existing_keychains+=("$cleaned")
+          done < <(security list-keychains -d user)
+          security list-keychains -d user -s "$keychain_path" ${existing_keychains[@]+"${existing_keychains[@]}"}
+          security default-keychain -d user -s "$keychain_path"
+
+          if ! security find-identity -v -p codesigning "$keychain_path" | grep -F -- "$APPLE_SIGNING_IDENTITY" >/dev/null; then
+            echo "::error::Signing identity not found in imported certificate: $APPLE_SIGNING_IDENTITY"
+            security find-identity -v -p codesigning "$keychain_path"
+            exit 1
+          fi
+
+          printf '%s\n' "$APPLE_API_KEY_PRIVATE_KEY" | tr -d '\r' > "$api_key_path"
+          chmod 600 "$api_key_path"
+          if ! grep -q "BEGIN PRIVATE KEY" "$api_key_path"; then
+            echo "::error::APPLE_API_KEY_PRIVATE_KEY does not look like a PEM .p8 private key"
+            exit 1
+          fi
+
+          {
+            echo "APPLE_KEYCHAIN_PATH=$keychain_path"
+            echo "APPLE_API_KEY_PATH=$api_key_path"
+          } >> "$GITHUB_ENV"
+
       - name: Build CLI archive (macOS/Linux)
         if: matrix.platform != 'windows-latest'
         shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_KEY: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_ISSUER: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_API_ISSUER || '' }}
         run: |
+          set -euo pipefail
           mkdir -p src-tauri/dist-cli
           if [ -n "${{ matrix.cli-target }}" ]; then
             cargo build --manifest-path src-tauri/Cargo.toml --release -p rem-cli --target "${{ matrix.cli-target }}"
@@ -102,6 +182,16 @@ jobs:
           else
             cargo build --manifest-path src-tauri/Cargo.toml --release -p rem-cli
             binary_dir="src-tauri/target/release"
+          fi
+          if [ "${{ matrix.platform }}" = "macos-latest" ]; then
+            codesign --force --options runtime --timestamp \
+              --keychain "$APPLE_KEYCHAIN_PATH" \
+              --sign "$APPLE_SIGNING_IDENTITY" \
+              "$binary_dir/rem"
+            codesign --verify --verbose=2 --strict "$binary_dir/rem"
+            cli_zip="$RUNNER_TEMP/rem-cli-${{ matrix.cli-name }}.zip"
+            ditto -c -k --keepParent "$binary_dir/rem" "$cli_zip"
+            bash tools/macos-notarize.sh "$cli_zip"
           fi
           tar -C "$binary_dir" -czf "src-tauri/dist-cli/rem-cli-${{ matrix.cli-name }}.tar.gz" rem
 
@@ -116,20 +206,57 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # --- Code signing is intentionally OFF (no Apple Developer ID). ---
-          # macOS ships ad-hoc signed; the curl installer avoids Gatekeeper
-          # quarantine, and the README documents the workaround for manual
-          # DMG downloads. To enable real Developer ID signing + notarization
-          # later, add these repo secrets and they are picked up automatically:
-          #   APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
-          #   APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
-          # NOTE: TAURI_SIGNING_PRIVATE_KEY is for the Tauri auto-updater, not
-          # Windows Authenticode — no updater is configured, so it is unused.
+          # macOS Developer ID signing + App Store Connect API notarization.
+          # The certificate is already unlocked in the temporary keychain above;
+          # APPLE_API_KEY_PATH is exported into GITHUB_ENV on macOS runners only.
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_KEY: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_ISSUER: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_API_ISSUER || '' }}
         with:
           tagName: ${{ needs.release_please.outputs.tag_name }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Verify macOS signing and notarize DMG (macOS)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.release_please.outputs.tag_name }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          bundle_dir="src-tauri/target/${{ matrix.cli-target }}/release/bundle"
+          app_path="$bundle_dir/macos/rem.app"
+          test -d "$app_path"
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          xcrun stapler validate "$app_path"
+          spctl --assess --type execute --verbose=4 "$app_path"
+
+          shopt -s nullglob
+          dmgs=("$bundle_dir"/dmg/*.dmg)
+          if [ "${#dmgs[@]}" -eq 0 ]; then
+            echo "::error::No DMG found in $bundle_dir/dmg"
+            exit 1
+          fi
+
+          for dmg in "${dmgs[@]}"; do
+            if ! xcrun stapler validate "$dmg" >/dev/null 2>&1; then
+              codesign --force --timestamp \
+                --keychain "$APPLE_KEYCHAIN_PATH" \
+                --sign "$APPLE_SIGNING_IDENTITY" \
+                "$dmg"
+              bash tools/macos-notarize.sh "$dmg"
+              xcrun stapler staple "$dmg"
+              gh release upload "$TAG_NAME" "$dmg" --repo "$GITHUB_REPOSITORY" --clobber
+            fi
+            xcrun stapler validate "$dmg"
+            spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
+          done
 
       - name: Upload CLI archive
         shell: bash
@@ -137,6 +264,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ needs.release_please.outputs.tag_name }}
         run: gh release upload "$TAG_NAME" src-tauri/dist-cli/* --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Clean up Apple signing credentials (macOS)
+        if: always() && matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          if [ -n "${APPLE_KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$APPLE_KEYCHAIN_PATH" 2>/dev/null || true
+          fi
+          rm -rf "$RUNNER_TEMP/private_keys"
+          rm -f "$RUNNER_TEMP/apple-cert.p12" "$RUNNER_TEMP/DeveloperIDG2CA.cer" "$RUNNER_TEMP"/rem-cli-*.zip
 
   publish:
     if: needs.release_please.outputs.release_created == 'true'
