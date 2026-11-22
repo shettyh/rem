@@ -2084,6 +2084,10 @@ select.text-input,
   background: color-mix(in srgb, var(--good) 13%, transparent);
   color: var(--good);
 }
+.settings-badge.is-warn {
+  background: color-mix(in srgb, var(--hard) 15%, transparent);
+  color: var(--hard);
+}
 .settings-badge.is-error {
   background: color-mix(in srgb, var(--danger) 13%, transparent);
   color: var(--danger);
@@ -2182,9 +2186,15 @@ select.text-input,
 }
 .settings-sync-plan-note {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 12px;
+}
+.settings-sync-plan-header {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
 }
 .settings-sync-plan-note strong {
   display: block;
@@ -2194,6 +2204,28 @@ select.text-input,
 }
 .settings-sync-plan-note p {
   margin: 0;
+}
+.settings-invite-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.settings-invite-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-invite-row .text-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 260px;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .settings-action-row {
   display: flex;

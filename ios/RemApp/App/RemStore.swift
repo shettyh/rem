@@ -145,6 +145,14 @@ actor RemStore {
         try client.syncNow(nowMs: nowMs)
     }
 
+    func fetchAccount(nowMs: Int64 = RemStore.nowMs()) throws -> AccountProfileDto {
+        try client.fetchAccount(nowMs: nowMs)
+    }
+
+    func startTrial(nowMs: Int64 = RemStore.nowMs()) throws -> AccountProfileDto {
+        try client.startTrial(nowMs: nowMs)
+    }
+
     func signOut() throws {
         try client.signOut()
     }

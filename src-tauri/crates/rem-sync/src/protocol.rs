@@ -64,6 +64,48 @@ fn default_true() -> bool {
     true
 }
 
+fn default_trial_days() -> u32 {
+    30
+}
+
+fn default_price_display() -> String {
+    "$5/year".to_owned()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntitlementState {
+    SelfHosted,
+    None,
+    Trialing,
+    Invite,
+    Active,
+    PastDue,
+    Expired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntitlementInfo {
+    pub state: EntitlementState,
+    pub sync_enabled: bool,
+    pub provider: Option<String>,
+    pub plan: Option<String>,
+    pub expires_at: Option<i64>,
+    #[serde(default)]
+    pub cancel_at_period_end: bool,
+    #[serde(default)]
+    pub can_start_trial: bool,
+    #[serde(default = "default_trial_days")]
+    pub trial_days: u32,
+    #[serde(default = "default_price_display")]
+    pub price_display: String,
+    #[serde(default)]
+    pub can_subscribe_polar: bool,
+    #[serde(default)]
+    pub can_manage_billing: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthProviders {
@@ -108,6 +150,14 @@ pub struct AccountProfile {
     pub subscription_status: Option<String>,
     #[serde(default)]
     pub upgrade_url: Option<String>,
+    #[serde(default)]
+    pub entitlement: Option<EntitlementInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedeemInviteRequest {
+    pub code: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

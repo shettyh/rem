@@ -43,16 +43,16 @@ struct FirstRunView: View {
             Spacer()
 
             VStack(spacing: 10) {
-                Button("Connect rem Cloud") {
-                    appState.hasDismissedOnboarding = true
-                    appState.selectedTab = .settings
-                }
-                .buttonStyle(RemPrimaryButtonStyle())
-
-                Button("Start without an account") {
+                Button("Start locally") {
                     appState.hasDismissedOnboarding = true
                     appState.selectedTab = .today
                     appState.showNewDeckSheet = true
+                }
+                .buttonStyle(RemPrimaryButtonStyle())
+
+                Button("Sign in to rem Premium") {
+                    appState.hasDismissedOnboarding = true
+                    appState.selectedTab = .settings
                 }
                 .buttonStyle(RemSecondaryButtonStyle())
             }

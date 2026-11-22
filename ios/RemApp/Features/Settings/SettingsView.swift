@@ -39,6 +39,11 @@ struct SettingsView: View {
                     customServerUrl = bound
                 }
             }
+            if appState.syncStatus?.signedIn == true {
+                Task {
+                    await appState.refreshAccount(triggerSyncIfUnlocked: appState.isSyncPaused)
+                }
+            }
         }
         .alert("Delete cloud account?", isPresented: $showDeleteAccountConfirm) {
             Button("Delete cloud data", role: .destructive) {
@@ -84,9 +89,7 @@ struct SettingsView: View {
     private var cloudSyncSection: some View {
         let isSignedIn = appState.syncStatus?.signedIn == true
         return section("CLOUD SYNC") {
-            if isSignedIn && appState.syncAccessRestricted {
-                restrictedAccessCard
-            } else if isSignedIn {
+            if isSignedIn {
                 signedInCard
             } else {
                 signedOutCard
@@ -94,111 +97,28 @@ struct SettingsView: View {
         }
     }
 
-    private var restrictedAccessCard: some View {
-        let identity = appState.syncStatus?.email ?? "Your account"
-        let hasUpgradeUrl = appState.syncUpgradeUrl.flatMap { URL(string: $0) } != nil
+    private var signedInCard: some View {
+        let ent = appState.entitlement
+        let entState = appState.effectiveEntitlementState
+        let isPaused = appState.isSyncPaused
+        let trialDays = Int(ent?.trialDays ?? 30)
+        let daysLeft = daysRemaining(ent?.expiresAt)
+
         return VStack(spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("rem Cloud")
-                        .font(.system(size: 14.5, weight: .semibold))
-                        .foregroundStyle(RemColor.text)
-                    Text(identity)
-                        .font(.system(size: 12))
-                        .foregroundStyle(RemColor.muted)
-                }
-                Spacer()
-                RemPillBadge(
-                    text: hasUpgradeUrl ? "Plan required" : "Early access",
-                    tone: .neutral
-                )
-            }
-            .padding(14)
-
-            Divider().overlay(RemColor.border)
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text(hasUpgradeUrl ? "rem Cloud plan required" : "Cloud sync is in early access")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(RemColor.text)
-
-                Text(hasUpgradeUrl
-                     ? "\(identity) doesn't have an active rem Cloud plan yet. Your decks remain safely stored on this iPhone, and you can keep studying offline anytime."
-                     : "\(identity) isn't on the early-access list yet. Your decks remain safely stored on this iPhone, and you can keep studying offline anytime.")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(RemColor.muted)
-                    .lineSpacing(2)
-
-                if let urlString = appState.syncUpgradeUrl, let url = URL(string: urlString) {
-                    Link(destination: url) {
-                        Text("Get rem Cloud")
-                            .font(.system(size: 13.5, weight: .semibold))
-                            .foregroundStyle(RemColor.onAccent)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 10)
-                            .background(RemColor.accent)
-                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    }
-                    .padding(.top, 2)
-                }
-
-                HStack(spacing: 8) {
-                    Button {
-                        Task { await appState.signOut(silent: true) }
-                    } label: {
-                        Text("Try another account")
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundStyle(RemColor.text)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 9)
-                            .background(RemColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .strokeBorder(RemColor.borderStrong, lineWidth: 1)
-                            )
-                    }
-
-                    Button {
-                        Task { await appState.signOut() }
-                    } label: {
-                        Text("Stay local")
-                            .font(.system(size: 12.5, weight: .semibold))
-                            .foregroundStyle(RemColor.muted)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 9)
-                            .background(RemColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .strokeBorder(RemColor.border, lineWidth: 1)
-                            )
-                    }
-                }
-                .padding(.top, 2)
-            }
-            .padding(13)
-            .background(RemColor.bgInset)
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .strokeBorder(RemColor.border, lineWidth: 1)
-            )
-            .padding(14)
-        }
-    }
-
-    private var signedInCard: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("rem Cloud")
+                    Text(entState == .selfHosted ? "Self-hosted sync" : "rem Premium")
                         .font(.system(size: 14.5, weight: .semibold))
                         .foregroundStyle(RemColor.text)
                     Text(signedInSubtitle)
                         .font(.system(size: 12))
                         .foregroundStyle(RemColor.muted)
-                    if let err = appState.lastSyncError {
+                    if let planSubtitle = planDetailLine(ent: ent, state: entState, daysLeft: daysLeft) {
+                        Text(planSubtitle)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(RemColor.faint)
+                    }
+                    if let err = appState.lastSyncError, !isPaused {
                         Text(err)
                             .font(.system(size: 11.5))
                             .foregroundStyle(RemColor.again)
@@ -206,32 +126,97 @@ struct SettingsView: View {
                     }
                 }
                 Spacer()
-                statusBadge
+                entitlementBadge(ent: ent, state: entState, daysLeft: daysLeft)
             }
             .padding(14)
 
-            Divider().overlay(RemColor.border)
+            if entState == .none || entState == .expired || entState == .pastDue {
+                Divider().overlay(RemColor.border)
 
-            Button {
-                Task { await appState.syncNow(silent: false) }
-            } label: {
-                HStack {
-                    Text("Sync now")
-                        .font(.system(size: 14))
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(pausedCardTitle(state: entState))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(RemColor.text)
-                    Spacer()
-                    if appState.isSyncing {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text(appState.lastSyncError != nil ? "Retry" : "Run")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(RemColor.accent)
+
+                    Text(pausedCardBody(state: entState, provider: ent?.provider, trialDays: trialDays))
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(RemColor.muted)
+                        .lineSpacing(2)
+
+                    if (entState == .none || entState == .expired),
+                       (ent?.canStartTrial ?? (entState == .none)) {
+                        Button {
+                            Task { await appState.startTrial() }
+                        } label: {
+                            HStack(spacing: 8) {
+                                if appState.isStartingTrial {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .tint(RemColor.onAccent)
+                                }
+                                Text(appState.isStartingTrial ? "Starting trial…" : "Start \(trialDays)-day free trial")
+                            }
+                        }
+                        .buttonStyle(RemPrimaryButtonStyle())
+                        .disabled(appState.isStartingTrial || appState.isCheckingEntitlement)
+                        .padding(.top, 2)
                     }
                 }
+                .padding(13)
+                .background(RemColor.bgInset)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(RemColor.border, lineWidth: 1)
+                )
                 .padding(14)
-                .contentShape(Rectangle())
             }
-            .disabled(appState.isSyncing)
+
+            Divider().overlay(RemColor.border)
+
+            if isPaused || entState == .pastDue {
+                Button {
+                    Task { await appState.checkAccessAndRetrySync() }
+                } label: {
+                    HStack {
+                        Text("Check access / Retry sync")
+                            .font(.system(size: 14))
+                            .foregroundStyle(RemColor.text)
+                        Spacer()
+                        if appState.isCheckingEntitlement || appState.isSyncing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("Check")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(RemColor.accent)
+                        }
+                    }
+                    .padding(14)
+                    .contentShape(Rectangle())
+                }
+                .disabled(appState.isCheckingEntitlement || appState.isSyncing)
+            } else {
+                Button {
+                    Task { await appState.syncNow(silent: false) }
+                } label: {
+                    HStack {
+                        Text("Sync now")
+                            .font(.system(size: 14))
+                            .foregroundStyle(RemColor.text)
+                        Spacer()
+                        if appState.isSyncing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text(appState.lastSyncError != nil ? "Retry" : "Run")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(RemColor.accent)
+                        }
+                    }
+                    .padding(14)
+                    .contentShape(Rectangle())
+                }
+                .disabled(appState.isSyncing)
+            }
 
             Divider().overlay(RemColor.border)
 
@@ -517,15 +502,94 @@ struct SettingsView: View {
         }
     }
 
-    private var statusBadge: some View {
+    private func daysRemaining(_ expiresAt: Int64?) -> Int? {
+        guard let expiresAt else { return nil }
+        let nowMs = RemStore.nowMs()
+        let remainingMs = max(0, expiresAt - nowMs)
+        return max(1, Int((remainingMs + 86_400_000 - 1) / 86_400_000))
+    }
+
+    private func formattedShortDate(_ epochMs: Int64?) -> String? {
+        guard let epochMs else { return nil }
+        let date = Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
+        return date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private func entitlementBadge(
+        ent: EntitlementInfoDto?,
+        state: EntitlementStateDto,
+        daysLeft: Int?
+    ) -> some View {
         let pending = appState.syncStatus?.pendingOutboxCount ?? 0
-        if appState.lastSyncError != nil {
-            return RemPillBadge(text: pending > 0 ? "Pending" : "Error", tone: pending > 0 ? .hard : .again)
+        switch state {
+        case .trialing:
+            return RemPillBadge(text: daysLeft.map { "Trial · \($0)d left" } ?? "Trial", tone: .good)
+        case .invite:
+            return RemPillBadge(text: daysLeft.map { "Invite · \($0)d left" } ?? "Free access", tone: .good)
+        case .pastDue:
+            return RemPillBadge(text: "Payment issue", tone: .hard)
+        case .expired:
+            return RemPillBadge(text: "Sync paused", tone: .hard)
+        case .none:
+            return RemPillBadge(text: "Not active", tone: .hard)
+        case .active, .selfHosted:
+            if appState.lastSyncError != nil {
+                return RemPillBadge(text: pending > 0 ? "Pending" : "Error", tone: pending > 0 ? .hard : .again)
+            }
+            if pending > 0 {
+                return RemPillBadge(text: "\(pending) pending", tone: .hard)
+            }
+            return RemPillBadge(text: "Synced", tone: .good)
         }
-        if pending > 0 {
-            return RemPillBadge(text: "\(pending) pending", tone: .hard)
+    }
+
+    private func planDetailLine(
+        ent: EntitlementInfoDto?,
+        state: EntitlementStateDto,
+        daysLeft: Int?
+    ) -> String? {
+        switch state {
+        case .trialing:
+            return daysLeft.map { "30-day free trial · \($0)d remaining" } ?? "Free trial active"
+        case .invite:
+            return daysLeft.map { "Free access · \($0)d remaining" } ?? "Free access across all devices"
+        case .active:
+            let via = ent?.provider == "apple" ? "rem Premium · App Store" : "rem Premium · Web"
+            if let dateStr = formattedShortDate(ent?.expiresAt) {
+                let verb = (ent?.cancelAtPeriodEnd ?? false) ? "Ends" : "Renews"
+                return "\(via) · \(verb) \(dateStr)"
+            }
+            return via
+        case .pastDue:
+            return "Renewal issue · Local cards stay safe"
+        case .expired, .none, .selfHosted:
+            return nil
         }
-        return RemPillBadge(text: "Synced", tone: .good)
+    }
+
+    private func pausedCardTitle(state: EntitlementStateDto) -> String {
+        switch state {
+        case .none: return "Activate rem Premium"
+        case .pastDue: return "Payment issue"
+        case .expired: return "Sync paused"
+        default: return "Cloud sync paused"
+        }
+    }
+
+    private func pausedCardBody(state: EntitlementStateDto, provider: String?, trialDays: Int) -> String {
+        switch state {
+        case .none:
+            return "All local features stay free forever. Start a \(trialDays)-day free trial with no card required to sync across your devices."
+        case .pastDue:
+            if provider == "apple" {
+                return "We couldn't renew your App Store subscription. Your cards stay safely on this iPhone."
+            }
+            return "There is a billing issue with your rem Premium plan. Your cards stay safely on this iPhone."
+        case .expired:
+            return "Your trial or rem Premium plan has ended. Your cards stay safely on this iPhone, and you can keep studying offline anytime."
+        default:
+            return "Your cards stay safely on this iPhone."
+        }
     }
 
     private var signedInSubtitle: String {

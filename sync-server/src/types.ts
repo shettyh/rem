@@ -15,12 +15,22 @@ export interface Env {
   MAX_ASSET_BYTES?: string
   /** Maximum total stored asset bytes per user (default 500 MB). */
   MAX_USER_QUOTA_BYTES?: string
-  /** When "true", only subscribed or allowlisted users may sync or access R2 assets (HTTP 402 otherwise). */
+  /** When "true", only subscribed, trialing, or invited users may sync or access R2 assets (HTTP 402 otherwise). */
   REQUIRE_SUBSCRIPTION?: string
   /** Optional comma-separated emails always permitted to sync when REQUIRE_SUBSCRIPTION="true". */
   ALLOWED_EMAILS?: string
   /** Optional checkout/pricing URL advertised to users when subscription is required. */
   UPGRADE_URL?: string
+  /** Optional length of the no-card free trial in days (default "30"). */
+  TRIAL_DAYS?: string
+  /** Optional human-readable subscription price display (default "$5/year"). */
+  CLOUD_PRICE_DISPLAY?: string
+
+  /** Polar billing credentials (Slice 2). */
+  POLAR_ACCESS_TOKEN?: string
+  POLAR_PRODUCT_ID?: string
+  POLAR_WEBHOOK_SECRET?: string
+  POLAR_API_BASE?: string
 
   /** Google OAuth 2.0 credentials. */
   GOOGLE_CLIENT_ID?: string
@@ -87,6 +97,29 @@ export type SubscriptionStatus =
   | 'canceled'
   | 'allowlisted'
 
+export type EntitlementState =
+  | 'self_hosted'
+  | 'none'
+  | 'trialing'
+  | 'invite'
+  | 'active'
+  | 'past_due'
+  | 'expired'
+
+export interface EntitlementInfo {
+  state: EntitlementState
+  syncEnabled: boolean
+  provider: string | null
+  plan: string | null
+  expiresAt: number | null
+  cancelAtPeriodEnd: boolean
+  canStartTrial: boolean
+  trialDays: number
+  priceDisplay: string
+  canSubscribePolar: boolean
+  canManageBilling: boolean
+}
+
 export interface AuthProvidersResponse {
   google: boolean
   apple: boolean
@@ -104,6 +137,7 @@ export interface AccountInfo {
   subscriptionRequired: boolean
   subscriptionStatus: SubscriptionStatus
   upgradeUrl: string | null
+  entitlement: EntitlementInfo
 }
 
 export interface TokenExchangeRequest {
@@ -122,11 +156,8 @@ export interface LogoutRequest {
   refreshToken: string
 }
 
-export interface WaitlistRequest {
-  email: string
-  note?: string
-  /** Optional honeypot field; non-empty values are silently ignored. */
-  website?: string
+export interface RedeemInviteRequest {
+  code: string
 }
 
 export interface AuthTokenResponse {

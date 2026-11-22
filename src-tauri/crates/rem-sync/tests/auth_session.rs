@@ -7,11 +7,12 @@ use std::time::Duration;
 use rem_core::{Collection, SyncMode};
 use rem_sync::{
     build_authorize_url, connect_collection, delete_cloud_account_with_client,
-    generate_oauth_state, generate_pkce_pair, sign_out_with_client, sync_with_credentials,
-    validate_server_url, verify_dev_token_with_client, AccountProfile, AuthAccount, AuthClient,
-    AuthProviders, AuthTokenResponse, CredentialStore, DownloadedAsset, LoopbackOAuthServer,
-    MemoryCredentialStore, OAuthProvider, StoredCredentials, SyncError, SyncRequest, SyncResponse,
-    SyncTransport,
+    fetch_account_with_client, generate_oauth_state, generate_pkce_pair, redeem_invite_with_client,
+    sign_out_with_client, start_trial_with_client, sync_with_credentials, validate_server_url,
+    verify_dev_token_with_client, AccountProfile, AuthAccount, AuthClient, AuthProviders,
+    AuthTokenResponse, CredentialStore, DownloadedAsset, EntitlementInfo, EntitlementState,
+    LoopbackOAuthServer, MemoryCredentialStore, OAuthProvider, StoredCredentials, SyncError,
+    SyncRequest, SyncResponse, SyncTransport,
 };
 use tempfile::TempDir;
 
@@ -97,10 +98,105 @@ impl AuthClient for MockAuthClient {
                 subscription_required: false,
                 subscription_status: None,
                 upgrade_url: None,
+                entitlement: Some(EntitlementInfo {
+                    state: EntitlementState::SelfHosted,
+                    sync_enabled: true,
+                    provider: Some("dev_token".into()),
+                    plan: Some("self_hosted".into()),
+                    expires_at: None,
+                    cancel_at_period_end: false,
+                    can_start_trial: false,
+                    trial_days: 30,
+                    price_display: "$5/year".into(),
+                    can_subscribe_polar: false,
+                    can_manage_billing: false,
+                }),
+            })
+        } else if bearer_token == *self.valid_token.lock().unwrap() {
+            Ok(AccountProfile {
+                id: self.account_id.clone(),
+                email: Some("alice@example.com".into()),
+                providers: vec!["google".into()],
+                auth_method: "jwt".into(),
+                sync_enabled: false,
+                subscription_required: true,
+                subscription_status: Some("none".into()),
+                upgrade_url: None,
+                entitlement: Some(EntitlementInfo {
+                    state: EntitlementState::None,
+                    sync_enabled: false,
+                    provider: None,
+                    plan: None,
+                    expires_at: None,
+                    cancel_at_period_end: false,
+                    can_start_trial: true,
+                    trial_days: 30,
+                    price_display: "$5/year".into(),
+                    can_subscribe_polar: false,
+                    can_manage_billing: false,
+                }),
             })
         } else {
             Err(SyncError::Unauthorized)
         }
+    }
+
+    fn start_trial(&self, bearer_token: &str) -> Result<AccountProfile, SyncError> {
+        if bearer_token != *self.valid_token.lock().unwrap() {
+            return Err(SyncError::Unauthorized);
+        }
+        Ok(AccountProfile {
+            id: self.account_id.clone(),
+            email: Some("alice@example.com".into()),
+            providers: vec!["google".into()],
+            auth_method: "jwt".into(),
+            sync_enabled: true,
+            subscription_required: true,
+            subscription_status: Some("trialing".into()),
+            upgrade_url: None,
+            entitlement: Some(EntitlementInfo {
+                state: EntitlementState::Trialing,
+                sync_enabled: true,
+                provider: Some("trial".into()),
+                plan: Some("trial_30d".into()),
+                expires_at: Some(9_999_999),
+                cancel_at_period_end: false,
+                can_start_trial: false,
+                trial_days: 30,
+                price_display: "$5/year".into(),
+                can_subscribe_polar: false,
+                can_manage_billing: false,
+            }),
+        })
+    }
+
+    fn redeem_invite(&self, bearer_token: &str, code: &str) -> Result<AccountProfile, SyncError> {
+        if bearer_token != *self.valid_token.lock().unwrap() {
+            return Err(SyncError::Unauthorized);
+        }
+        Ok(AccountProfile {
+            id: self.account_id.clone(),
+            email: Some("alice@example.com".into()),
+            providers: vec!["google".into()],
+            auth_method: "jwt".into(),
+            sync_enabled: true,
+            subscription_required: true,
+            subscription_status: Some("active".into()),
+            upgrade_url: None,
+            entitlement: Some(EntitlementInfo {
+                state: EntitlementState::Invite,
+                sync_enabled: true,
+                provider: Some("invite".into()),
+                plan: Some(format!("code:{code}")),
+                expires_at: None,
+                cancel_at_period_end: false,
+                can_start_trial: false,
+                trial_days: 30,
+                price_display: "$5/year".into(),
+                can_subscribe_polar: false,
+                can_manage_billing: false,
+            }),
+        })
     }
 
     fn delete_account(&self, bearer_token: &str) -> Result<(), SyncError> {
@@ -366,4 +462,53 @@ fn loopback_oauth_server_receives_code_and_rejects_state_mismatch() {
         .unwrap();
     assert_eq!(code, "rem_code_abc");
     sender.join().unwrap();
+}
+
+#[test]
+fn entitlement_calls_refresh_jwt_on_401_for_account_trial_and_invite() {
+    let (_dir, collection) = open_temp_collection();
+    let store = MemoryCredentialStore::default();
+    let server_url = "https://sync.example.com";
+
+    let creds = StoredCredentials::OAuth {
+        account_id: "usr_ent".into(),
+        email: Some("alice@example.com".into()),
+        provider: "google".into(),
+        access_token: "jwt-stale".into(),
+        access_expires_at: 500_000, // not expired locally, but server rejects with 401
+        refresh_token: "rt-ent".into(),
+    };
+    connect_collection(&collection, &store, server_url, &creds, 1_000, false).unwrap();
+
+    // 1. fetch_account refreshes on 401
+    let auth = MockAuthClient::new("usr_ent", "jwt-different-on-server");
+    let account = fetch_account_with_client(&collection, &store, &auth, 2_000).unwrap();
+    assert_eq!(
+        account.entitlement.as_ref().map(|e| e.state),
+        Some(EntitlementState::None)
+    );
+    assert_eq!(*auth.refresh_count.lock().unwrap(), 1);
+
+    // 2. start_trial refreshes on 401
+    *auth.valid_token.lock().unwrap() = "jwt-rotated-elsewhere".into();
+    let trial = start_trial_with_client(&collection, &store, &auth, 3_000).unwrap();
+    assert_eq!(
+        trial.entitlement.as_ref().map(|e| e.state),
+        Some(EntitlementState::Trialing)
+    );
+    assert_eq!(*auth.refresh_count.lock().unwrap(), 2);
+
+    // 3. redeem_invite refreshes on 401
+    *auth.valid_token.lock().unwrap() = "jwt-rotated-again".into();
+    let invite =
+        redeem_invite_with_client(&collection, &store, &auth, "REM-ABCD-EFGH", 4_000).unwrap();
+    assert_eq!(
+        invite.entitlement.as_ref().map(|e| e.state),
+        Some(EntitlementState::Invite)
+    );
+    assert_eq!(
+        invite.entitlement.as_ref().and_then(|e| e.plan.as_deref()),
+        Some("code:REM-ABCD-EFGH")
+    );
+    assert_eq!(*auth.refresh_count.lock().unwrap(), 3);
 }

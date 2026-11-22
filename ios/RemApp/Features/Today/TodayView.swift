@@ -29,7 +29,11 @@ struct TodayView: View {
             }
             .background(RemColor.bg)
             .refreshable {
-                await appState.syncNow(silent: true)
+                if appState.isSyncPaused {
+                    await appState.refreshAccount(triggerSyncIfUnlocked: true)
+                } else {
+                    await appState.syncNow(silent: true)
+                }
                 await appState.refreshAll()
             }
             .navigationBarHidden(true)
@@ -267,7 +271,7 @@ struct SyncStatusChip: View {
 
     var body: some View {
         Button {
-            if appState.syncStatus?.signedIn == true && !appState.syncAccessRestricted {
+            if isCloud && !isPaused {
                 Task { await appState.syncNow(silent: false) }
             } else {
                 appState.selectedTab = .settings
@@ -298,13 +302,18 @@ struct SyncStatusChip: View {
         appState.syncStatus?.mode == .cloud && appState.syncStatus?.signedIn == true
     }
 
+    private var isPaused: Bool {
+        isCloud && (appState.isSyncPaused || appState.effectiveEntitlementState == .pastDue)
+    }
+
     private var pendingCount: UInt64 {
         appState.syncStatus?.pendingOutboxCount ?? 0
     }
 
     private var labelText: String {
         if appState.isSyncing { return "Syncing…" }
-        if !isCloud || appState.syncAccessRestricted { return "Local only" }
+        if !isCloud { return "Local only" }
+        if isPaused { return "Sync paused" }
         if appState.lastSyncError != nil {
             return pendingCount > 0 ? "Offline · \(pendingCount) pending" : "Sync error · Retry"
         }
@@ -315,14 +324,15 @@ struct SyncStatusChip: View {
     }
 
     private var dotColor: Color {
-        if !isCloud || appState.syncAccessRestricted { return RemColor.faint }
+        if !isCloud { return RemColor.faint }
+        if isPaused { return RemColor.hard }
         if appState.lastSyncError != nil { return pendingCount > 0 ? RemColor.hard : RemColor.again }
         if pendingCount > 0 { return RemColor.hard }
         return RemColor.good
     }
 
     private var textColor: Color {
-        if appState.syncAccessRestricted { return RemColor.muted }
+        if isPaused { return RemColor.hard }
         if appState.lastSyncError != nil {
             return pendingCount > 0 ? RemColor.hard : RemColor.again
         }
@@ -330,7 +340,7 @@ struct SyncStatusChip: View {
     }
 
     private var bgColor: Color {
-        if appState.syncAccessRestricted { return RemColor.bgInset }
+        if isPaused { return RemColor.hardBg }
         if appState.lastSyncError != nil {
             return pendingCount > 0 ? RemColor.hardBg : RemColor.againBg
         }
@@ -338,7 +348,7 @@ struct SyncStatusChip: View {
     }
 
     private var borderColor: Color {
-        if appState.syncAccessRestricted { return RemColor.border }
+        if isPaused { return RemColor.hard.opacity(0.3) }
         if appState.lastSyncError != nil {
             return (pendingCount > 0 ? RemColor.hard : RemColor.again).opacity(0.3)
         }

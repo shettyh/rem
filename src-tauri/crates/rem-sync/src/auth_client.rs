@@ -17,7 +17,7 @@ use crate::credentials::{normalize_server_url, StoredCredentials};
 use crate::error::SyncError;
 use crate::protocol::{
     AccountProfile, AuthProviders, AuthTokenResponse, LogoutRequest, OAuthProvider,
-    TokenExchangeRequest, TokenRefreshRequest,
+    RedeemInviteRequest, TokenExchangeRequest, TokenRefreshRequest,
 };
 
 const AUTH_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -39,6 +39,8 @@ pub trait AuthClient {
     ) -> Result<AuthTokenResponse, SyncError>;
     fn logout(&self, refresh_token: &str) -> Result<(), SyncError>;
     fn get_account(&self, bearer_token: &str) -> Result<AccountProfile, SyncError>;
+    fn start_trial(&self, bearer_token: &str) -> Result<AccountProfile, SyncError>;
+    fn redeem_invite(&self, bearer_token: &str, code: &str) -> Result<AccountProfile, SyncError>;
     fn delete_account(&self, bearer_token: &str) -> Result<(), SyncError>;
 }
 
@@ -167,6 +169,35 @@ impl AuthClient for HttpAuthClient {
             .map_err(|err| SyncError::InvalidResponse(err.to_string()))
     }
 
+    fn start_trial(&self, bearer_token: &str) -> Result<AccountProfile, SyncError> {
+        let response = self
+            .client
+            .post(self.endpoint("/v1/trial/start"))
+            .header(AUTHORIZATION, format!("Bearer {}", bearer_token.trim()))
+            .send()
+            .map_err(|err| SyncError::Transport(err.to_string()))?;
+        let response = check_auth_status(response)?;
+        response
+            .json::<AccountProfile>()
+            .map_err(|err| SyncError::InvalidResponse(err.to_string()))
+    }
+
+    fn redeem_invite(&self, bearer_token: &str, code: &str) -> Result<AccountProfile, SyncError> {
+        let response = self
+            .client
+            .post(self.endpoint("/v1/invites/redeem"))
+            .header(AUTHORIZATION, format!("Bearer {}", bearer_token.trim()))
+            .json(&RedeemInviteRequest {
+                code: code.to_owned(),
+            })
+            .send()
+            .map_err(|err| SyncError::Transport(err.to_string()))?;
+        let response = check_auth_status(response)?;
+        response
+            .json::<AccountProfile>()
+            .map_err(|err| SyncError::InvalidResponse(err.to_string()))
+    }
+
     fn delete_account(&self, bearer_token: &str) -> Result<(), SyncError> {
         let response = self
             .client
@@ -179,6 +210,12 @@ impl AuthClient for HttpAuthClient {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct ApiErrorBody {
+    error: Option<String>,
+    message: Option<String>,
+}
+
 fn check_auth_status(
     response: reqwest::blocking::Response,
 ) -> Result<reqwest::blocking::Response, SyncError> {
@@ -187,11 +224,17 @@ fn check_auth_status(
         return Ok(response);
     }
     let body = response.text().unwrap_or_default();
+    let parsed = serde_json::from_str::<ApiErrorBody>(&body).ok();
+    let clean_message = parsed
+        .as_ref()
+        .and_then(|p| p.message.clone().or_else(|| p.error.clone()))
+        .filter(|m| !m.trim().is_empty())
+        .unwrap_or(body);
     match status {
         StatusCode::UNAUTHORIZED => Err(SyncError::Unauthorized),
         _ => Err(SyncError::Http {
             status: status.as_u16(),
-            message: body,
+            message: clean_message,
         }),
     }
 }

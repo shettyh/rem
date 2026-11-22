@@ -8,6 +8,7 @@ import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 import {
   DEFAULT_CLOUD_SERVER_URL,
   type AuthProviders,
+  type EntitlementInfo,
   type OAuthProvider,
   type SignInOutcome,
   type SyncClient,
@@ -51,6 +52,7 @@ function makeMockSyncClient(
     lastError: null,
     subscriptionRequired: false,
     upgradeUrl: null,
+    entitlement: null,
     ...initial,
   }
   const listeners = new Set<(s: SyncStatus) => void>()
@@ -127,8 +129,61 @@ function makeMockSyncClient(
       emit(next)
       return next
     }),
+    refreshAccount: vi.fn(async () => current),
+    startTrial: vi.fn(async () => {
+      const next: SyncStatus = {
+        ...current,
+        subscriptionRequired: false,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+        entitlement: {
+          state: 'trialing',
+          syncEnabled: true,
+          provider: 'trial',
+          plan: 'trial_30d',
+          expiresAt: Date.now() + 30 * 86_400_000,
+          cancelAtPeriodEnd: false,
+          canStartTrial: false,
+          trialDays: 30,
+          priceDisplay: '$5/year',
+          canSubscribePolar: false,
+          canManageBilling: false,
+        },
+      }
+      emit(next)
+      return next
+    }),
+    redeemInvite: vi.fn(async () => {
+      const next: SyncStatus = {
+        ...current,
+        subscriptionRequired: false,
+        lastSyncedAt: Date.now(),
+        lastError: null,
+        entitlement: {
+          state: 'invite',
+          syncEnabled: true,
+          provider: 'invite',
+          plan: 'invite_free',
+          expiresAt: null,
+          cancelAtPeriodEnd: false,
+          canStartTrial: false,
+          trialDays: 30,
+          priceDisplay: '$5/year',
+          canSubscribePolar: false,
+          canManageBilling: false,
+        },
+      }
+      emit(next)
+      return next
+    }),
     signOut: vi.fn(async () => {
-      const next: SyncStatus = { ...current, mode: 'local', signedIn: false, lastError: null }
+      const next: SyncStatus = {
+        ...current,
+        mode: 'local',
+        signedIn: false,
+        lastError: null,
+        entitlement: null,
+      }
       emit(next)
       return next
     }),
@@ -276,50 +331,153 @@ test('defaults cloud sync to hosted rem Cloud without asking for a URL, with sel
   await expect.element(page.getByText('Cloud account and remote data deleted', { exact: false })).toBeVisible()
 })
 
-test('shows subscription notice calmly when server returns subscriptionRequired', async () => {
+function makeEntitlement(overrides: Partial<EntitlementInfo> = {}): EntitlementInfo {
+  return {
+    state: 'none',
+    syncEnabled: false,
+    provider: null,
+    plan: null,
+    expiresAt: null,
+    cancelAtPeriodEnd: false,
+    canStartTrial: true,
+    trialDays: 30,
+    priceDisplay: '$5/year',
+    canSubscribePolar: false,
+    canManageBilling: false,
+    ...overrides,
+  }
+}
+
+test('shows activation choices in none state, starts 30-day trial, and keeps sign-out and delete visible', async () => {
   const storage = freshStorage()
   const syncClient = makeMockSyncClient({
     mode: 'cloud',
     serverUrl: DEFAULT_CLOUD_SERVER_URL,
-    accountId: 'usr_unpaid',
-    email: 'unpaid@example.com',
+    accountId: 'usr_new',
+    email: 'new@example.com',
     provider: 'google',
     signedIn: true,
     subscriptionRequired: true,
-    upgradeUrl: 'https://rem-sync.shettyh.fyi/cloud',
-    lastError: 'Cloud sync requires an active rem Cloud subscription.',
+    entitlement: makeEntitlement({ state: 'none', canStartTrial: true }),
   })
   renderSettings(storage, syncClient)
 
-  await expect.element(page.getByText('Plan required')).toBeVisible()
-  await expect.element(page.getByText('rem Cloud subscription required')).toBeVisible()
-  const upgradeBtn = page.getByRole('button', { name: 'Get rem Cloud' })
-  await expect.element(upgradeBtn).toBeVisible()
-  await upgradeBtn.click()
-  expect(syncClient.openExternalUrl).toHaveBeenCalledWith('https://rem-sync.shettyh.fyi/cloud')
-  await expect.element(page.getByRole('button', { name: 'Retry sync' })).toBeVisible()
+  await expect.element(page.getByText('Not active')).toBeVisible()
+  await expect.element(page.getByText('Activate rem Premium')).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Start 30-day free trial' })).toBeVisible()
+  await expect.element(page.getByLabelText('Have an invite code?')).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Check access / Retry sync' })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Delete cloud account…' })).toBeVisible()
+  // No silent mode toggle when already signed in.
+  await expect.element(page.getByRole('button', { name: 'Local only' })).not.toBeInTheDocument()
+  // Sidebar indicator shows paused tooltip.
+  await expect.element(page.getByRole('button', { name: 'rem Premium paused — open Settings' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Start 30-day free trial' }).click()
+  expect(syncClient.startTrial).toHaveBeenCalledTimes(1)
+  await expect.element(page.getByText('Trial · 30d left')).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Sync now' })).toBeVisible()
 })
 
-test('shows calm early-access state when non-allowlisted account signs in without upgradeUrl', async () => {
+test('redeems invite code from expired state and unlocks Free access', async () => {
   const storage = freshStorage()
   const syncClient = makeMockSyncClient({
     mode: 'cloud',
     serverUrl: DEFAULT_CLOUD_SERVER_URL,
-    accountId: 'usr_waitlist',
+    accountId: 'usr_expired',
     email: 'alex@example.com',
     provider: 'google',
     signedIn: true,
     subscriptionRequired: true,
-    upgradeUrl: null,
-    lastError: 'Cloud sync requires an active rem Cloud subscription.',
+    entitlement: makeEntitlement({
+      state: 'expired',
+      syncEnabled: false,
+      canStartTrial: false,
+      canSubscribePolar: true,
+    }),
   })
   renderSettings(storage, syncClient)
 
-  await expect.element(page.getByText('Early access')).toBeVisible()
-  await expect.element(page.getByText('Cloud sync is in early access')).toBeVisible()
-  await expect.element(page.getByText("alex@example.com isn't on the early-access list yet", { exact: false })).toBeVisible()
-  await expect.element(page.getByRole('button', { name: 'Try another account' })).toBeVisible()
-  await expect.element(page.getByRole('button', { name: 'Stay local' })).toBeVisible()
+  await expect.element(page.getByText('Sync paused').first()).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Upgrade to Premium — $5/year' })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Start 30-day free trial' })).not.toBeInTheDocument()
+  await expect.element(page.getByRole('button', { name: 'Delete cloud account…' })).toBeVisible()
+
+  await page.getByLabelText('Have an invite code?').fill('rem-abcd-efgh')
+  await page.getByRole('button', { name: 'Redeem' }).click()
+  expect(syncClient.redeemInvite).toHaveBeenCalledWith('REM-ABCD-EFGH')
+  await expect.element(page.getByText('Free access', { exact: true })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Sync now' })).toBeVisible()
+})
+
+test('shows active Apple subscription without Polar upgrade and supports check-access retry in past_due', async () => {
+  const storage = freshStorage()
+  const appleClient = makeMockSyncClient({
+    mode: 'cloud',
+    serverUrl: DEFAULT_CLOUD_SERVER_URL,
+    accountId: 'usr_apple',
+    email: 'ios@example.com',
+    provider: 'apple',
+    signedIn: true,
+    subscriptionRequired: false,
+    lastSyncedAt: Date.now(),
+    entitlement: makeEntitlement({
+      state: 'active',
+      syncEnabled: true,
+      provider: 'apple',
+      plan: 'premium_yearly',
+      expiresAt: Date.now() + 200 * 86_400_000,
+      canStartTrial: false,
+      canSubscribePolar: false,
+      canManageBilling: false,
+    }),
+  })
+  renderSettings(storage, appleClient)
+
+  await expect.element(page.getByText('Managed via Apple App Store', { exact: false })).toBeVisible()
+  await expect.element(page.getByRole('button', { name: /Upgrade to Premium/ })).not.toBeInTheDocument()
+  await expect.element(page.getByRole('button', { name: 'Manage billing ↗' })).not.toBeInTheDocument()
+
+  const storage2 = freshStorage()
+  const pastDueClient = makeMockSyncClient(
+    {
+      mode: 'cloud',
+      serverUrl: DEFAULT_CLOUD_SERVER_URL,
+      accountId: 'usr_past_due',
+      email: 'billing@example.com',
+      provider: 'google',
+      signedIn: true,
+      subscriptionRequired: true,
+      entitlement: makeEntitlement({
+        state: 'past_due',
+        syncEnabled: false,
+        provider: 'polar',
+        canStartTrial: false,
+        canManageBilling: true,
+      }),
+    },
+    {
+      refreshAccount: vi.fn(async () => ({
+        ...pastDueClient.current,
+        subscriptionRequired: false,
+        entitlement: makeEntitlement({
+          state: 'active',
+          syncEnabled: true,
+          provider: 'polar',
+          canStartTrial: false,
+          canManageBilling: true,
+        }),
+      })),
+    },
+  )
+  renderSettings(storage2, pastDueClient)
+
+  await expect.element(page.getByText('Payment issue').first()).toBeVisible()
+  await expect.element(page.getByRole('button', { name: 'Manage billing ↗' })).toBeVisible()
+  await page.getByRole('button', { name: 'Check access / Retry sync' }).click()
+  expect(pastDueClient.refreshAccount).toHaveBeenCalledTimes(1)
+  expect(pastDueClient.syncNow).toHaveBeenCalledTimes(1)
 })
 
 test('prompts before switching a collection bound to another sync account', async () => {

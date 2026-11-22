@@ -38,10 +38,12 @@ final class AppState {
     var isLoading: Bool = true
     var isSyncing: Bool = false
     var isAuthenticating: Bool = false
+    var isCheckingEntitlement: Bool = false
+    var isStartingTrial: Bool = false
     var lastSyncedAt: Date?
     var lastSyncError: String?
+    var entitlement: EntitlementInfoDto?
     var syncAccessRestricted: Bool = false
-    var syncUpgradeUrl: String?
     var toastMessage: String?
 
     var pendingAccountSwitch: PendingAccountSwitch?
@@ -82,7 +84,16 @@ final class AppState {
         static let reminderHour = "rem.ios.reminderHour"
         static let reminderMinute = "rem.ios.reminderMinute"
         static let restrictedAccountId = "rem.ios.restrictedAccountId"
-        static let restrictedUpgradeUrl = "rem.ios.restrictedUpgradeUrl"
+        static let cachedEntitlementAccountId = "rem.ios.entitlement.accountId"
+        static let cachedEntitlementState = "rem.ios.entitlement.state"
+        static let cachedEntitlementSyncEnabled = "rem.ios.entitlement.syncEnabled"
+        static let cachedEntitlementProvider = "rem.ios.entitlement.provider"
+        static let cachedEntitlementPlan = "rem.ios.entitlement.plan"
+        static let cachedEntitlementExpiresAt = "rem.ios.entitlement.expiresAt"
+        static let cachedEntitlementCancelAtPeriodEnd = "rem.ios.entitlement.cancelAtPeriodEnd"
+        static let cachedEntitlementCanStartTrial = "rem.ios.entitlement.canStartTrial"
+        static let cachedEntitlementTrialDays = "rem.ios.entitlement.trialDays"
+        static let cachedEntitlementPriceDisplay = "rem.ios.entitlement.priceDisplay"
     }
 
     private var toastTask: Task<Void, Never>?
@@ -104,6 +115,24 @@ final class AppState {
             && !hasDismissedOnboarding
             && decks.isEmpty
             && (syncStatus?.signedIn != true)
+    }
+
+    var effectiveEntitlementState: EntitlementStateDto {
+        if let entitlement {
+            return entitlement.state
+        }
+        if syncAccessRestricted {
+            return .none
+        }
+        return .selfHosted
+    }
+
+    var isSyncPaused: Bool {
+        guard syncStatus?.signedIn == true else { return false }
+        if let entitlement {
+            return !entitlement.syncEnabled
+        }
+        return syncAccessRestricted
     }
 
     var defaultCaptureDeckId: String? {
@@ -142,15 +171,18 @@ final class AppState {
             self.decks = fetchedDecks
             self.syncStatus = status
             self.storageSummary = storage
-            let defaults = UserDefaults.standard
-            if status.signedIn,
-               let accountId = status.accountId,
-               defaults.string(forKey: Keys.restrictedAccountId) == accountId {
-                self.syncAccessRestricted = true
-                self.syncUpgradeUrl = defaults.string(forKey: Keys.restrictedUpgradeUrl)
+            if status.signedIn, let accountId = status.accountId {
+                if self.entitlement == nil,
+                   let cached = Self.loadCachedEntitlement(for: accountId) {
+                    self.entitlement = cached
+                    self.syncAccessRestricted = !cached.syncEnabled
+                } else if self.entitlement == nil,
+                          UserDefaults.standard.string(forKey: Keys.restrictedAccountId) == accountId {
+                    self.syncAccessRestricted = true
+                }
             } else if !status.signedIn {
+                self.entitlement = nil
                 self.syncAccessRestricted = false
-                self.syncUpgradeUrl = nil
             }
             if !fetchedDecks.isEmpty || status.signedIn {
                 self.hasDismissedOnboarding = true
@@ -162,24 +194,83 @@ final class AppState {
         self.isLoading = false
     }
 
+    func refreshAccount(triggerSyncIfUnlocked: Bool = false) async {
+        guard syncStatus?.signedIn == true else { return }
+        guard !isCheckingEntitlement else { return }
+        isCheckingEntitlement = true
+        defer { isCheckingEntitlement = false }
+
+        do {
+            let profile = try await store.fetchAccount()
+            applyAccountProfile(profile)
+            if triggerSyncIfUnlocked && !isSyncPaused {
+                await syncNow(silent: true)
+            }
+        } catch {
+            // Keep last-known cached entitlement when offline.
+        }
+    }
+
+    func checkAccessAndRetrySync() async {
+        guard syncStatus?.signedIn == true else { return }
+        guard !isCheckingEntitlement else { return }
+        isCheckingEntitlement = true
+        do {
+            let profile = try await store.fetchAccount()
+            applyAccountProfile(profile)
+            isCheckingEntitlement = false
+            if !isSyncPaused {
+                await syncNow(silent: false)
+            } else {
+                showToast("Cloud sync is still paused for this account")
+            }
+        } catch {
+            isCheckingEntitlement = false
+            showToast(error.remDisplayMessage)
+        }
+    }
+
+    func startTrial() async {
+        guard !isStartingTrial else { return }
+        isStartingTrial = true
+        defer { isStartingTrial = false }
+
+        do {
+            let profile = try await store.startTrial()
+            applyAccountProfile(profile)
+            lastSyncError = nil
+            await syncNow(silent: true)
+            showToast("Free trial started · syncing")
+        } catch {
+            showToast(error.remDisplayMessage)
+        }
+    }
+
     func syncNow(silent: Bool = false) async {
         guard let status = syncStatus, status.mode == .cloud, status.signedIn else { return }
-        if syncAccessRestricted && silent { return }
+        if isSyncPaused && silent { return }
         guard !isSyncing else { return }
         isSyncing = true
         lastSyncError = nil
         do {
             _ = try await store.syncNow()
             lastSyncedAt = Date()
-            setSyncAccessRestricted(false, upgradeUrl: nil)
+            syncAccessRestricted = false
+            UserDefaults.standard.removeObject(forKey: Keys.restrictedAccountId)
             await refreshAll()
             if !silent {
                 showToast("Synced with rem Cloud")
             }
-        } catch let RemFfiError.SubscriptionRequired(_, upgradeUrl) {
+        } catch RemFfiError.SubscriptionRequired {
             lastSyncError = nil
-            setSyncAccessRestricted(true, upgradeUrl: upgradeUrl)
+            syncAccessRestricted = true
+            if let accountId = syncStatus?.accountId {
+                UserDefaults.standard.set(accountId, forKey: Keys.restrictedAccountId)
+            }
+            isSyncing = false
+            await refreshAccount(triggerSyncIfUnlocked: false)
             await refreshAll()
+            return
         } catch {
             lastSyncError = error.remDisplayMessage
             await refreshAll()
@@ -190,20 +281,113 @@ final class AppState {
         isSyncing = false
     }
 
-    private func setSyncAccessRestricted(_ restricted: Bool, upgradeUrl: String?) {
-        syncAccessRestricted = restricted
-        syncUpgradeUrl = upgradeUrl
-        let defaults = UserDefaults.standard
-        if restricted, let accountId = syncStatus?.accountId {
-            defaults.set(accountId, forKey: Keys.restrictedAccountId)
-            if let upgradeUrl, !upgradeUrl.isEmpty {
-                defaults.set(upgradeUrl, forKey: Keys.restrictedUpgradeUrl)
+    func applyAccountProfile(_ profile: AccountProfileDto) {
+        let resolvedEntitlement = profile.entitlement ?? EntitlementInfoDto(
+            state: profile.syncEnabled ? .selfHosted : .none,
+            syncEnabled: profile.syncEnabled,
+            provider: nil,
+            plan: nil,
+            expiresAt: nil,
+            cancelAtPeriodEnd: false,
+            canStartTrial: !profile.syncEnabled,
+            trialDays: 30,
+            priceDisplay: "$5/year",
+            canSubscribePolar: false,
+            canManageBilling: false
+        )
+        entitlement = resolvedEntitlement
+        syncAccessRestricted = !resolvedEntitlement.syncEnabled
+        if let accountId = syncStatus?.accountId ?? Optional(profile.id) {
+            Self.saveCachedEntitlement(resolvedEntitlement, for: accountId)
+            if resolvedEntitlement.syncEnabled {
+                UserDefaults.standard.removeObject(forKey: Keys.restrictedAccountId)
             } else {
-                defaults.removeObject(forKey: Keys.restrictedUpgradeUrl)
+                UserDefaults.standard.set(accountId, forKey: Keys.restrictedAccountId)
             }
+        }
+    }
+
+    static func saveCachedEntitlement(_ info: EntitlementInfoDto, for accountId: String) {
+        let defaults = UserDefaults.standard
+        defaults.set(accountId, forKey: Keys.cachedEntitlementAccountId)
+        defaults.set(encodeState(info.state), forKey: Keys.cachedEntitlementState)
+        defaults.set(info.syncEnabled, forKey: Keys.cachedEntitlementSyncEnabled)
+        defaults.set(info.provider, forKey: Keys.cachedEntitlementProvider)
+        defaults.set(info.plan, forKey: Keys.cachedEntitlementPlan)
+        if let expiresAt = info.expiresAt {
+            defaults.set(expiresAt, forKey: Keys.cachedEntitlementExpiresAt)
         } else {
-            defaults.removeObject(forKey: Keys.restrictedAccountId)
-            defaults.removeObject(forKey: Keys.restrictedUpgradeUrl)
+            defaults.removeObject(forKey: Keys.cachedEntitlementExpiresAt)
+        }
+        defaults.set(info.cancelAtPeriodEnd, forKey: Keys.cachedEntitlementCancelAtPeriodEnd)
+        defaults.set(info.canStartTrial, forKey: Keys.cachedEntitlementCanStartTrial)
+        defaults.set(Int(info.trialDays), forKey: Keys.cachedEntitlementTrialDays)
+        defaults.set(info.priceDisplay, forKey: Keys.cachedEntitlementPriceDisplay)
+    }
+
+    static func loadCachedEntitlement(for accountId: String) -> EntitlementInfoDto? {
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: Keys.cachedEntitlementAccountId) == accountId,
+              let stateRaw = defaults.string(forKey: Keys.cachedEntitlementState),
+              let state = decodeState(stateRaw) else {
+            return nil
+        }
+        let expiresAt: Int64? = defaults.object(forKey: Keys.cachedEntitlementExpiresAt) != nil
+            ? Int64(defaults.integer(forKey: Keys.cachedEntitlementExpiresAt))
+            : nil
+        let trialDaysRaw = defaults.integer(forKey: Keys.cachedEntitlementTrialDays)
+        return EntitlementInfoDto(
+            state: state,
+            syncEnabled: defaults.bool(forKey: Keys.cachedEntitlementSyncEnabled),
+            provider: defaults.string(forKey: Keys.cachedEntitlementProvider),
+            plan: defaults.string(forKey: Keys.cachedEntitlementPlan),
+            expiresAt: expiresAt,
+            cancelAtPeriodEnd: defaults.bool(forKey: Keys.cachedEntitlementCancelAtPeriodEnd),
+            canStartTrial: defaults.bool(forKey: Keys.cachedEntitlementCanStartTrial),
+            trialDays: trialDaysRaw > 0 ? UInt32(trialDaysRaw) : 30,
+            priceDisplay: defaults.string(forKey: Keys.cachedEntitlementPriceDisplay) ?? "$5/year",
+            canSubscribePolar: false,
+            canManageBilling: false
+        )
+    }
+
+    static func clearCachedEntitlement() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: Keys.restrictedAccountId)
+        defaults.removeObject(forKey: Keys.cachedEntitlementAccountId)
+        defaults.removeObject(forKey: Keys.cachedEntitlementState)
+        defaults.removeObject(forKey: Keys.cachedEntitlementSyncEnabled)
+        defaults.removeObject(forKey: Keys.cachedEntitlementProvider)
+        defaults.removeObject(forKey: Keys.cachedEntitlementPlan)
+        defaults.removeObject(forKey: Keys.cachedEntitlementExpiresAt)
+        defaults.removeObject(forKey: Keys.cachedEntitlementCancelAtPeriodEnd)
+        defaults.removeObject(forKey: Keys.cachedEntitlementCanStartTrial)
+        defaults.removeObject(forKey: Keys.cachedEntitlementTrialDays)
+        defaults.removeObject(forKey: Keys.cachedEntitlementPriceDisplay)
+    }
+
+    private static func encodeState(_ state: EntitlementStateDto) -> String {
+        switch state {
+        case .selfHosted: return "self_hosted"
+        case .none: return "none"
+        case .trialing: return "trialing"
+        case .invite: return "invite"
+        case .active: return "active"
+        case .pastDue: return "past_due"
+        case .expired: return "expired"
+        }
+    }
+
+    private static func decodeState(_ raw: String) -> EntitlementStateDto? {
+        switch raw {
+        case "self_hosted": return .selfHosted
+        case "none": return .none
+        case "trialing": return .trialing
+        case "invite": return .invite
+        case "active": return .active
+        case "past_due": return .pastDue
+        case "expired": return .expired
+        default: return nil
         }
     }
 
@@ -289,11 +473,16 @@ final class AppState {
         )
         hasDismissedOnboarding = true
         lastSyncError = nil
-        setSyncAccessRestricted(false, upgradeUrl: nil)
+        entitlement = nil
+        syncAccessRestricted = false
+        Self.clearCachedEntitlement()
         await refreshAll()
-        await syncNow(silent: true)
-        if !syncAccessRestricted && lastSyncError == nil {
-            showToast("Signed in · synced")
+        await refreshAccount(triggerSyncIfUnlocked: false)
+        if !isSyncPaused {
+            await syncNow(silent: true)
+            if !isSyncPaused && lastSyncError == nil {
+                showToast("Signed in · synced")
+            }
         }
     }
 
@@ -302,7 +491,9 @@ final class AppState {
             try await store.signOut()
             lastSyncError = nil
             lastSyncedAt = nil
-            setSyncAccessRestricted(false, upgradeUrl: nil)
+            entitlement = nil
+            syncAccessRestricted = false
+            Self.clearCachedEntitlement()
             await refreshAll()
             if !silent {
                 showToast("Signed out · local cards kept")
@@ -317,7 +508,9 @@ final class AppState {
             try await store.deleteCloudAccount()
             lastSyncError = nil
             lastSyncedAt = nil
-            setSyncAccessRestricted(false, upgradeUrl: nil)
+            entitlement = nil
+            syncAccessRestricted = false
+            Self.clearCachedEntitlement()
             await refreshAll()
             showToast("Cloud account deleted · local cards kept")
         } catch {

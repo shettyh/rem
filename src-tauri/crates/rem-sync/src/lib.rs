@@ -30,13 +30,16 @@ pub use credentials::{
 };
 pub use error::SyncError;
 pub use protocol::{
-    AccountProfile, AuthAccount, AuthProviders, AuthTokenResponse, DownloadedAsset, LogoutRequest,
-    MissingAssetsRequest, MissingAssetsResponse, OAuthProvider, SyncRequest, SyncRequestOp,
-    SyncResponse, TokenExchangeRequest, TokenRefreshRequest,
+    AccountProfile, AuthAccount, AuthProviders, AuthTokenResponse, DownloadedAsset,
+    EntitlementInfo, EntitlementState, LogoutRequest, MissingAssetsRequest, MissingAssetsResponse,
+    OAuthProvider, RedeemInviteRequest, SyncRequest, SyncRequestOp, SyncResponse,
+    TokenExchangeRequest, TokenRefreshRequest,
 };
 pub use session::{
-    connect_collection, delete_cloud_account, delete_cloud_account_with_client, sign_out,
-    sign_out_with_client, sync_authenticated, sync_with_credentials, verify_dev_token,
+    connect_collection, delete_cloud_account, delete_cloud_account_with_client,
+    fetch_account_authenticated, fetch_account_with_client, redeem_invite_authenticated,
+    redeem_invite_with_client, sign_out, sign_out_with_client, start_trial_authenticated,
+    start_trial_with_client, sync_authenticated, sync_with_credentials, verify_dev_token,
     verify_dev_token_with_client, ConnectResult,
 };
 pub use transport::{HttpTransport, SyncTransport};

@@ -9,17 +9,15 @@ import {
   timingSafeStringEqual,
   verifyHs256Jwt,
 } from './auth'
+import { getUpgradeUrl, isSubscriptionRequired } from './entitlements'
 import type {
-  AccountInfo,
   AuthProvidersResponse,
   AuthTokenResponse,
   Env,
   LogoutRequest,
   OAuthProvider,
-  SubscriptionStatus,
   TokenExchangeRequest,
   TokenRefreshRequest,
-  WaitlistRequest,
 } from './types'
 
 const ACCESS_TOKEN_TTL_SEC = 15 * 60
@@ -37,47 +35,7 @@ const DEFAULT_APPLE_JWKS_URL = 'https://appleid.apple.com/auth/keys'
 
 const PKCE_CHALLENGE_RE = /^[A-Za-z0-9_-]{43,128}$/
 const PKCE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
-const MAX_EMAIL_LENGTH = 254
-const MAX_WAITLIST_NOTE_LENGTH = 280
 const TEXT_ENCODER = new TextEncoder()
-
-export async function handleWaitlistSignup(request: Request, env: Env): Promise<Response> {
-  if (!env.DB) {
-    return jsonResponse({ error: 'waitlist_not_configured' }, 503)
-  }
-
-  let body: WaitlistRequest
-  try {
-    body = (await request.json()) as WaitlistRequest
-  } catch {
-    return jsonResponse({ error: 'invalid_json' }, 400)
-  }
-
-  if (body && typeof body.website === 'string' && body.website.trim().length > 0) {
-    // Honeypot triggered by bot: pretend success without touching D1.
-    return jsonResponse({ ok: true })
-  }
-
-  const rawEmail = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
-  if (!rawEmail || rawEmail.length > MAX_EMAIL_LENGTH || !EMAIL_RE.test(rawEmail)) {
-    return jsonResponse({ error: 'invalid_email', message: 'Enter a valid email address.' }, 400)
-  }
-
-  const rawNote = typeof body?.note === 'string' ? body.note.trim() : ''
-  const note = rawNote.length > 0 ? rawNote.slice(0, MAX_WAITLIST_NOTE_LENGTH) : null
-  const now = Date.now()
-
-  await env.DB.prepare(
-    `INSERT INTO early_access(email, status, note, created_at, updated_at)
-     VALUES (?1, 'waitlist', ?2, ?3, ?3)
-     ON CONFLICT(email) DO NOTHING`,
-  )
-    .bind(rawEmail, note, now)
-    .run()
-
-  return jsonResponse({ ok: true })
-}
 
 export function isGoogleConfigured(env: Env): boolean {
   return Boolean(
@@ -99,25 +57,6 @@ export function isAppleConfigured(env: Env): boolean {
   )
 }
 
-export function isSubscriptionRequired(env: Env): boolean {
-  return env.REQUIRE_SUBSCRIPTION?.trim().toLowerCase() === 'true'
-}
-
-export function getUpgradeUrl(env: Env): string | null {
-  const trimmed = env.UPGRADE_URL?.trim()
-  return trimmed && trimmed.length > 0 ? trimmed : null
-}
-
-function isEmailAllowlisted(env: Env, email: string | null): boolean {
-  if (!email || !env.ALLOWED_EMAILS) return false
-  const target = email.trim().toLowerCase()
-  if (!target) return false
-  return env.ALLOWED_EMAILS.split(',')
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry) => entry.length > 0)
-    .includes(target)
-}
-
 export function getAuthProviders(env: Env): AuthProvidersResponse {
   return {
     google: isGoogleConfigured(env),
@@ -128,7 +67,7 @@ export function getAuthProviders(env: Env): AuthProvidersResponse {
   }
 }
 
-export function isAllowedClientRedirectUri(raw: string): boolean {
+export function isAllowedClientRedirectUri(raw: string, requestOrigin?: string): boolean {
   if (raw === 'rem://auth/callback') return true
   let url: URL
   try {
@@ -136,10 +75,20 @@ export function isAllowedClientRedirectUri(raw: string): boolean {
   } catch {
     return false
   }
+  if (url.username || url.password || url.search || url.hash) return false
+
+  // Same-origin web PKCE callback for /premium and /cloud (used for web invite redemption & billing).
+  if (
+    requestOrigin &&
+    url.origin === requestOrigin &&
+    (url.pathname === '/premium' || url.pathname === '/cloud')
+  ) {
+    return true
+  }
+
   if (url.protocol !== 'http:') return false
   if (url.hostname !== '127.0.0.1' && url.hostname !== 'localhost') return false
   if (url.pathname !== '/auth/callback') return false
-  if (url.username || url.password || url.search || url.hash) return false
   const port = Number.parseInt(url.port, 10)
   return Number.isInteger(port) && port >= 1024 && port <= 65535
 }
@@ -201,7 +150,7 @@ export async function handleOAuthStart(
   const method = url.searchParams.get('code_challenge_method') ?? 'S256'
   const clientState = url.searchParams.get('state') ?? undefined
 
-  if (!isAllowedClientRedirectUri(redirectUri)) {
+  if (!isAllowedClientRedirectUri(redirectUri, url.origin)) {
     return jsonResponse({ error: 'invalid_redirect_uri' }, 400)
   }
   if (method !== 'S256' || !PKCE_CHALLENGE_RE.test(codeChallenge)) {
@@ -303,7 +252,7 @@ export async function handleOAuthCallback(
     statePayload.typ !== 'oauth_state' ||
     statePayload.provider !== provider ||
     typeof statePayload.redirectUri !== 'string' ||
-    !isAllowedClientRedirectUri(statePayload.redirectUri) ||
+    !isAllowedClientRedirectUri(statePayload.redirectUri, url.origin) ||
     typeof statePayload.codeChallenge !== 'string' ||
     typeof statePayload.nonce !== 'string'
   ) {
@@ -374,6 +323,7 @@ export async function handleTokenExchange(request: Request, env: Env): Promise<R
     return jsonResponse({ error: 'invalid_json' }, 400)
   }
 
+  const requestOrigin = new URL(request.url).origin
   if (
     !body ||
     typeof body.code !== 'string' ||
@@ -381,7 +331,7 @@ export async function handleTokenExchange(request: Request, env: Env): Promise<R
     typeof body.codeVerifier !== 'string' ||
     !PKCE_VERIFIER_RE.test(body.codeVerifier) ||
     typeof body.redirectUri !== 'string' ||
-    !isAllowedClientRedirectUri(body.redirectUri)
+    !isAllowedClientRedirectUri(body.redirectUri, requestOrigin)
   ) {
     return jsonResponse({ error: 'invalid_request' }, 400)
   }
@@ -576,152 +526,6 @@ export async function handleLogout(request: Request, env: Env): Promise<Response
   return jsonResponse({ ok: true })
 }
 
-export interface SyncEntitlement {
-  syncEnabled: boolean
-  subscriptionRequired: boolean
-  subscriptionStatus: SubscriptionStatus
-  upgradeUrl: string | null
-}
-
-function parseSubscriptionStatus(raw: string | null | undefined): SubscriptionStatus {
-  switch (raw) {
-    case 'active':
-    case 'trialing':
-    case 'past_due':
-    case 'canceled':
-    case 'allowlisted':
-      return raw
-    default:
-      return 'none'
-  }
-}
-
-export async function checkSyncEntitlement(
-  env: Env,
-  userId: string,
-  authMethod: 'jwt' | 'dev_token',
-): Promise<SyncEntitlement> {
-  const required = isSubscriptionRequired(env)
-  const upgradeUrl = getUpgradeUrl(env)
-  if (!required) {
-    return {
-      syncEnabled: true,
-      subscriptionRequired: false,
-      subscriptionStatus: 'none',
-      upgradeUrl,
-    }
-  }
-  if (authMethod === 'dev_token') {
-    return {
-      syncEnabled: true,
-      subscriptionRequired: true,
-      subscriptionStatus: 'allowlisted',
-      upgradeUrl,
-    }
-  }
-  if (!env.DB) {
-    return {
-      syncEnabled: false,
-      subscriptionRequired: true,
-      subscriptionStatus: 'none',
-      upgradeUrl,
-    }
-  }
-
-  const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?1')
-    .bind(userId)
-    .first<{ email: string | null }>()
-  const normalizedEmail = user?.email?.trim().toLowerCase() ?? null
-  if (isEmailAllowlisted(env, normalizedEmail)) {
-    return {
-      syncEnabled: true,
-      subscriptionRequired: true,
-      subscriptionStatus: 'allowlisted',
-      upgradeUrl,
-    }
-  }
-
-  if (normalizedEmail) {
-    try {
-      const earlyAccess = await env.DB.prepare(
-        'SELECT status FROM early_access WHERE email = ?1',
-      )
-        .bind(normalizedEmail)
-        .first<{ status: string }>()
-      if (earlyAccess?.status === 'approved') {
-        return {
-          syncEnabled: true,
-          subscriptionRequired: true,
-          subscriptionStatus: 'allowlisted',
-          upgradeUrl,
-        }
-      }
-    } catch {
-      // Ignore if the early_access migration has not been applied yet.
-    }
-  }
-
-  let row: { status: string; current_period_end: number | null } | null = null
-  try {
-    row = await env.DB.prepare(
-      'SELECT status, current_period_end FROM user_entitlements WHERE user_id = ?1',
-    )
-      .bind(userId)
-      .first<{ status: string; current_period_end: number | null }>()
-  } catch {
-    // Fail closed if the entitlements migration has not been applied yet.
-    row = null
-  }
-
-  const status = parseSubscriptionStatus(row?.status)
-  const periodValid =
-    row?.current_period_end === null ||
-    row?.current_period_end === undefined ||
-    row.current_period_end > Date.now()
-  const active = (status === 'active' || status === 'trialing') && periodValid
-
-  return {
-    syncEnabled: active,
-    subscriptionRequired: true,
-    subscriptionStatus: status,
-    upgradeUrl,
-  }
-}
-
-export async function getAccountInfo(
-  env: Env,
-  userId: string,
-  authMethod: 'jwt' | 'dev_token',
-): Promise<AccountInfo> {
-  const entitlement = await checkSyncEntitlement(env, userId, authMethod)
-  if (authMethod === 'dev_token' || !env.DB) {
-    return {
-      id: userId,
-      email: null,
-      providers: authMethod === 'dev_token' ? ['dev_token'] : [],
-      authMethod,
-      ...entitlement,
-    }
-  }
-
-  const user = await env.DB.prepare('SELECT id, email FROM users WHERE id = ?1')
-    .bind(userId)
-    .first<{ id: string; email: string | null }>()
-  const identities = await env.DB.prepare(
-    'SELECT provider FROM auth_identities WHERE user_id = ?1 ORDER BY created_at ASC',
-  )
-    .bind(userId)
-    .all<{ provider: string }>()
-
-  return {
-    id: user?.id ?? userId,
-    email: user?.email ?? null,
-    providers: identities.results.map((r) => r.provider),
-    authMethod,
-    ...entitlement,
-  }
-}
-
 export async function deleteAccountData(env: Env, userId: string): Promise<void> {
   // 1. Delete all user assets in R2.
   const prefix = `users/${userId}/assets/`
@@ -740,6 +544,11 @@ export async function deleteAccountData(env: Env, userId: string): Promise<void>
 
   // 3. Delete all auth/account rows in D1.
   if (env.DB) {
+    try {
+      await env.DB.prepare('DELETE FROM invite_redemptions WHERE user_id = ?1').bind(userId).run()
+    } catch {
+      // Ignore if invite_redemptions table has not been migrated yet.
+    }
     try {
       await env.DB.prepare('DELETE FROM user_entitlements WHERE user_id = ?1').bind(userId).run()
     } catch {

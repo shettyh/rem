@@ -21,9 +21,10 @@ use rem_core::{
     NewCardInput, NewDraftInput, ProposalMetadata, ProposalMode, StudyRequest, SyncMode,
 };
 use rem_sync::{
-    connect_collection, open_system_browser, run_loopback_oauth, sign_out, sync_authenticated,
-    sync_with_http, verify_dev_token, CredentialStore, KeyringCredentialStore, OAuthProvider,
-    SyncError, SyncReport, DEFAULT_CLOUD_SERVER_URL, DEFAULT_OAUTH_TIMEOUT,
+    connect_collection, fetch_account_authenticated, open_system_browser, run_loopback_oauth,
+    sign_out, sync_authenticated, sync_with_http, verify_dev_token, CredentialStore,
+    EntitlementInfo, EntitlementState, KeyringCredentialStore, OAuthProvider, SyncError,
+    SyncReport, DEFAULT_CLOUD_SERVER_URL, DEFAULT_OAUTH_TIMEOUT,
 };
 use serde::{Deserialize, Serialize};
 
@@ -404,6 +405,8 @@ struct SyncStatusData {
     device_id: String,
     last_seq: u64,
     pending_outbox: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entitlement: Option<EntitlementInfo>,
 }
 
 #[derive(Serialize)]
@@ -437,7 +440,10 @@ struct SyncLoginData {
     account_id: String,
     email: Option<String>,
     provider: String,
-    sync: SyncRunData,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sync: Option<SyncRunData>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entitlement: Option<EntitlementInfo>,
 }
 
 #[derive(Serialize)]
@@ -1155,6 +1161,28 @@ impl From<SyncError> for CliError {
     }
 }
 
+fn format_entitlement_summary(ent: &EntitlementInfo, now_ms: i64) -> String {
+    let days_left = ent.expires_at.map(|exp| {
+        let remaining_ms = (exp - now_ms).max(0);
+        ((remaining_ms + 86_400_000 - 1) / 86_400_000).max(1)
+    });
+    match ent.state {
+        EntitlementState::SelfHosted => "Self-hosted".to_owned(),
+        EntitlementState::Trialing => match days_left {
+            Some(days) => format!("Trial ({days}d left)"),
+            None => "Trial".to_owned(),
+        },
+        EntitlementState::Invite => match days_left {
+            Some(days) => format!("Free access ({days}d left)"),
+            None => "Free access".to_owned(),
+        },
+        EntitlementState::Active => "Premium".to_owned(),
+        EntitlementState::PastDue => "Paused (payment issue)".to_owned(),
+        EntitlementState::Expired => "Paused (expired)".to_owned(),
+        EntitlementState::None => "Paused (no active plan)".to_owned(),
+    }
+}
+
 fn show_sync_status(collection: &Collection, output: OutputFormat) -> Result<(), CliError> {
     let state = collection.sync_state()?;
     let pending_outbox = collection.pending_outbox_count()?;
@@ -1162,6 +1190,14 @@ fn show_sync_status(collection: &Collection, output: OutputFormat) -> Result<(),
     let stored = match (&state.server_url, &state.account_id) {
         (Some(url), Some(account_id)) => store.load(url, account_id).ok().flatten(),
         _ => None,
+    };
+    let now = now_millis();
+    let entitlement = if stored.is_some() {
+        fetch_account_authenticated(collection, &store, now)
+            .ok()
+            .and_then(|profile| profile.entitlement)
+    } else {
+        None
     };
     let data = SyncStatusData {
         mode: state.mode,
@@ -1176,6 +1212,7 @@ fn show_sync_status(collection: &Collection, output: OutputFormat) -> Result<(),
         device_id: state.device_id,
         last_seq: state.last_seq,
         pending_outbox,
+        entitlement,
     };
     match output {
         OutputFormat::Text => {
@@ -1194,6 +1231,9 @@ fn show_sync_status(collection: &Collection, output: OutputFormat) -> Result<(),
             }
             if let Some(email) = &data.email {
                 println!("email\t{email}");
+            }
+            if let Some(ent) = &data.entitlement {
+                println!("plan\t{}", format_entitlement_summary(ent, now));
             }
             println!("signed_in\t{}", data.signed_in);
             println!("last_seq\t{}", data.last_seq);
@@ -1273,15 +1313,46 @@ fn sync_login(collection: &Collection, args: SyncLoginArgs) -> Result<(), CliErr
         now,
         args.reset_binding,
     )?;
-    let report = sync_authenticated(collection, &store, now_millis())?;
-    let sync_data = SyncRunData::from(report);
+
+    let account = fetch_account_authenticated(collection, &store, now_millis()).ok();
+    let entitlement = account
+        .as_ref()
+        .and_then(|profile| profile.entitlement.clone());
+    let can_sync = account
+        .as_ref()
+        .map(|profile| {
+            profile
+                .entitlement
+                .as_ref()
+                .map(|e| e.sync_enabled)
+                .unwrap_or(profile.sync_enabled)
+        })
+        .unwrap_or(true);
+
+    let sync_data = if can_sync {
+        let report = sync_authenticated(collection, &store, now_millis())?;
+        Some(SyncRunData::from(report))
+    } else {
+        None
+    };
 
     match args.output {
         OutputFormat::Text => {
-            println!(
-                "connected\taccount={}\tserver={}\tseq={}",
-                connected.account_id, connected.server_url, sync_data.latest_seq
-            );
+            if let Some(sync) = &sync_data {
+                println!(
+                    "connected\taccount={}\tserver={}\tseq={}",
+                    connected.account_id, connected.server_url, sync.latest_seq
+                );
+            } else {
+                println!(
+                    "connected\taccount={}\tserver={}\tstatus=paused",
+                    connected.account_id, connected.server_url
+                );
+                let premium_url = format!("{}/premium", connected.server_url.trim_end_matches('/'));
+                println!(
+                    "Cloud sync is paused. Open rem Desktop Settings → Cloud sync or visit {premium_url} to start your 30-day free trial or redeem an invite code."
+                );
+            }
         }
         OutputFormat::Json => write_json(&Success {
             version: OUTPUT_VERSION,
@@ -1292,6 +1363,7 @@ fn sync_login(collection: &Collection, args: SyncLoginArgs) -> Result<(), CliErr
                 email: connected.email,
                 provider: connected.provider,
                 sync: sync_data,
+                entitlement,
             },
         }),
     }

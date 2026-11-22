@@ -3,6 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import migrationSql from '../migrations/0001_auth.sql?raw'
 import entitlementsMigrationSql from '../migrations/0002_entitlements.sql?raw'
 import earlyAccessMigrationSql from '../migrations/0003_early_access.sql?raw'
+import trialInvitesBillingMigrationSql from '../migrations/0004_trial_invites_billing.sql?raw'
 import worker from '../src/index'
 import type { Env } from '../src/types'
 
@@ -95,7 +96,12 @@ async function signEs256Jwt(
 }
 
 async function applyAuthMigration() {
-  for (const raw of [migrationSql, entitlementsMigrationSql, earlyAccessMigrationSql]) {
+  for (const raw of [
+    migrationSql,
+    entitlementsMigrationSql,
+    earlyAccessMigrationSql,
+    trialInvitesBillingMigrationSql,
+  ]) {
     const statements = raw
       .split(';')
       .map((s: string) => s.trim())
@@ -251,6 +257,19 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       subscriptionRequired: false,
       subscriptionStatus: 'none',
       upgradeUrl: null,
+      entitlement: {
+        state: 'self_hosted',
+        syncEnabled: true,
+        provider: 'self_hosted',
+        plan: 'self_hosted',
+        expiresAt: null,
+        cancelAtPeriodEnd: false,
+        canStartTrial: false,
+        trialDays: 30,
+        priceDisplay: '$5/year',
+        canSubscribePolar: false,
+        canManageBilling: false,
+      },
     })
 
     const devAccountResp = await callWorker('https://sync.example.com/v1/account', {
@@ -266,6 +285,19 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       subscriptionRequired: false,
       subscriptionStatus: 'none',
       upgradeUrl: null,
+      entitlement: {
+        state: 'self_hosted',
+        syncEnabled: true,
+        provider: 'dev_token',
+        plan: 'self_hosted',
+        expiresAt: null,
+        cancelAtPeriodEnd: false,
+        canStartTrial: false,
+        trialDays: 30,
+        priceDisplay: '$5/year',
+        canSubscribePolar: false,
+        canManageBilling: false,
+      },
     })
 
     // Refresh rotates the refresh token and issues a valid new access token.
@@ -612,91 +644,24 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
     expect(unblockedSync.status).toBe(200)
   })
 
-  it('serves the /cloud early-access page, records waitlist requests without auto-enabling sync, and unlocks sync once approved in D1', async () => {
+  it('serves /premium and /cloud pages, retires /v1/waitlist with 410, and still honors legacy approved early_access rows', async () => {
     const gatedEnv: Env = {
       ...TEST_ENV,
       REQUIRE_SUBSCRIPTION: 'true',
-      UPGRADE_URL: 'https://rem-sync.shettyh.fyi/cloud',
+      UPGRADE_URL: 'https://rem-sync.shettyh.fyi/premium',
     }
 
-    const cloudPage = await callWorker('https://sync.example.com/cloud', undefined, gatedEnv)
-    expect(cloudPage.status).toBe(200)
-    expect(cloudPage.headers.get('Content-Type')).toContain('text/html')
-    const html = await cloudPage.text()
-    expect(html).toContain('waitlist-form')
-    expect(html).toContain('/v1/waitlist')
+    for (const path of ['/premium', '/premium/', '/cloud', '/cloud/']) {
+      const page = await callWorker(`https://sync.example.com${path}`, undefined, gatedEnv)
+      expect(page.status).toBe(200)
+      expect(page.headers.get('Content-Type')).toContain('text/html')
+      const html = await page.text()
+      expect(html).toContain('rem Premium')
+      expect(html).toContain('/v1/trial/start')
+      expect(html).toContain('/v1/invites/redeem')
+    }
 
-    const cloudPageSlash = await callWorker('https://sync.example.com/cloud/', undefined, gatedEnv)
-    expect(cloudPageSlash.status).toBe(200)
-
-    const badEmail = await callWorker(
-      'https://sync.example.com/v1/waitlist',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'not-an-email' }),
-      },
-      gatedEnv,
-    )
-    expect(badEmail.status).toBe(400)
-
-    // Honeypot submission pretends success without storing a row.
-    const bot = await callWorker(
-      'https://sync.example.com/v1/waitlist',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'bot@example.com', website: 'https://spam.invalid' }),
-      },
-      gatedEnv,
-    )
-    expect(bot.status).toBe(200)
-    const botRow = await TEST_ENV.DB!.prepare('SELECT email FROM early_access WHERE email = ?1')
-      .bind('bot@example.com')
-      .first()
-    expect(botRow).toBeNull()
-
-    // Genuine waitlist request stores status = 'waitlist' and still requires approval.
-    const signup = await callWorker(
-      'https://sync.example.com/v1/waitlist',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: '  Beta@Example.com ', note: 'macOS + iPhone' }),
-      },
-      gatedEnv,
-    )
-    expect(signup.status).toBe(200)
-    expect(await signup.json()).toEqual({ ok: true })
-
-    const betaUser = await completeGoogleLogin({
-      sub: 'google-sub-beta',
-      email: 'beta@example.com',
-    })
-
-    const stillBlocked = await callWorker(
-      'https://sync.example.com/v1/sync',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${betaUser.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ deviceId: 'dev-beta', sinceSeq: 0, ops: [] }),
-      },
-      gatedEnv,
-    )
-    expect(stillBlocked.status).toBe(402)
-
-    // Approving the email in D1 immediately grants sync access.
-    await TEST_ENV.DB!.prepare(
-      `UPDATE early_access SET status = 'approved', updated_at = ?1 WHERE email = ?2`,
-    )
-      .bind(Date.now(), 'beta@example.com')
-      .run()
-
-    // Re-submitting the same email to the waitlist must not downgrade an approved user.
-    const duplicate = await callWorker(
+    const retiredWaitlist = await callWorker(
       'https://sync.example.com/v1/waitlist',
       {
         method: 'POST',
@@ -705,7 +670,25 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       },
       gatedEnv,
     )
-    expect(duplicate.status).toBe(200)
+    expect(retiredWaitlist.status).toBe(410)
+    expect(await retiredWaitlist.json()).toMatchObject({
+      error: 'waitlist_retired',
+      premiumUrl: 'https://sync.example.com/premium',
+    })
+
+    const betaUser = await completeGoogleLogin({
+      sub: 'google-sub-beta',
+      email: 'beta@example.com',
+    })
+
+    // Legacy approved row in early_access continues to grant indefinite invite access.
+    await TEST_ENV.DB!.prepare(
+      `INSERT INTO early_access(email, status, created_at, updated_at)
+       VALUES ('beta@example.com', 'approved', ?1, ?1)
+       ON CONFLICT(email) DO UPDATE SET status = 'approved', updated_at = ?1`,
+    )
+      .bind(Date.now())
+      .run()
 
     const accountResp = await callWorker(
       'https://sync.example.com/v1/account',
@@ -718,6 +701,14 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       syncEnabled: true,
       subscriptionRequired: true,
       subscriptionStatus: 'allowlisted',
+      entitlement: {
+        state: 'invite',
+        syncEnabled: true,
+        provider: 'allowlist',
+        plan: 'early_access',
+        expiresAt: null,
+        canStartTrial: false,
+      },
     })
 
     const approvedSync = await callWorker(

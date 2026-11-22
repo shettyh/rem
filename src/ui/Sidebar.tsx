@@ -197,68 +197,76 @@ export function Sidebar({
               </NavLink>
             )
           })()}
-          {sync?.status?.mode === 'cloud' && (
-            <button
-              type="button"
-              className={`side-sync-btn is-${
-                sync.status.activity === 'syncing'
+          {sync?.status?.mode === 'cloud' &&
+            (() => {
+              const st = sync.status
+              const entState = st.entitlement?.state ?? null
+              const isPaused = st.entitlement ? !st.entitlement.syncEnabled : st.subscriptionRequired
+              const isPastDue = entState === 'past_due'
+              const needsSettings = !st.signedIn || Boolean(st.lastError) || isPaused || isPastDue
+              const dotState =
+                st.activity === 'syncing'
                   ? 'syncing'
-                  : sync.status.subscriptionRequired
+                  : isPaused || isPastDue
                     ? 'pending'
-                    : sync.status.activity === 'error' || sync.status.lastError
+                    : st.activity === 'error' || st.lastError
                       ? 'error'
-                      : !sync.status.signedIn || sync.status.pendingOutbox > 0
+                      : !st.signedIn || st.pendingOutbox > 0
                         ? 'pending'
                         : 'synced'
-              }`}
-              aria-label={
-                sync.status.activity === 'syncing'
+              const pausedLabel = isPastDue
+                ? 'rem Premium payment issue — open Settings'
+                : 'rem Premium paused — open Settings'
+              const ariaLabel =
+                st.activity === 'syncing'
                   ? 'Cloud sync in progress'
-                  : sync.status.subscriptionRequired
-                    ? sync.status.upgradeUrl
-                      ? 'rem Cloud subscription required — open settings'
-                      : 'Cloud sync is in early access — open settings'
-                    : sync.status.activity === 'error' || sync.status.lastError
-                      ? 'Cloud sync error — open settings'
-                      : !sync.status.signedIn
-                        ? 'Cloud sync signed out — open settings'
-                        : sync.status.pendingOutbox > 0
-                          ? `Cloud sync: ${sync.status.pendingOutbox} pending — click to sync`
+                  : isPaused || isPastDue
+                    ? pausedLabel
+                    : st.activity === 'error' || st.lastError
+                      ? 'Cloud sync error — open Settings'
+                      : !st.signedIn
+                        ? 'Cloud sync signed out — open Settings'
+                        : st.pendingOutbox > 0
+                          ? `Cloud sync: ${st.pendingOutbox} pending — click to sync`
                           : 'Cloud synced — click to sync now'
-              }
-              title={
-                sync.status.activity === 'syncing'
+              const title =
+                st.activity === 'syncing'
                   ? 'Syncing…'
-                  : sync.status.subscriptionRequired
-                    ? sync.status.upgradeUrl
-                      ? 'rem Cloud subscription required — open Settings'
-                      : 'Cloud sync is in early access — open Settings'
-                    : sync.status.lastError
-                      ? `Sync error: ${sync.status.lastError}`
-                      : !sync.status.signedIn
+                  : isPaused || isPastDue
+                    ? pausedLabel
+                    : st.lastError
+                      ? `Sync error: ${st.lastError}`
+                      : !st.signedIn
                         ? 'Signed out — open Settings'
-                        : sync.status.pendingOutbox > 0
-                          ? `${sync.status.pendingOutbox} pending change(s) — click to sync`
+                        : st.pendingOutbox > 0
+                          ? `${st.pendingOutbox} pending change(s) — click to sync`
                           : 'Synced — click to sync now'
-              }
-              disabled={sync.status.activity === 'syncing'}
-              onClick={() => {
-                if (!sync.status?.signedIn || sync.status.lastError || sync.status.subscriptionRequired) {
-                  navigate('/settings')
-                } else {
-                  void sync.syncNow().catch(() => {})
-                }
-              }}
-            >
-              <svg className="side-sync-icon" viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M12.5 6.5A4.5 4.5 0 0 0 4.2 5.2" />
-                <path d="M4.2 2.8v2.4h2.4" />
-                <path d="M3.5 9.5a4.5 4.5 0 0 0 8.3 1.3" />
-                <path d="M11.8 13.2v-2.4H9.4" />
-              </svg>
-              <span className="side-sync-dot" aria-hidden="true" />
-            </button>
-          )}
+
+              return (
+                <button
+                  type="button"
+                  className={`side-sync-btn is-${dotState}`}
+                  aria-label={ariaLabel}
+                  title={title}
+                  disabled={st.activity === 'syncing'}
+                  onClick={() => {
+                    if (needsSettings) {
+                      navigate('/settings')
+                    } else {
+                      void sync.syncNow().catch(() => {})
+                    }
+                  }}
+                >
+                  <svg className="side-sync-icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M12.5 6.5A4.5 4.5 0 0 0 4.2 5.2" />
+                    <path d="M4.2 2.8v2.4h2.4" />
+                    <path d="M3.5 9.5a4.5 4.5 0 0 0 8.3 1.3" />
+                    <path d="M11.8 13.2v-2.4H9.4" />
+                  </svg>
+                  <span className="side-sync-dot" aria-hidden="true" />
+                </button>
+              )
+            })()}
           <ThemeToggle />
         </div>
       </aside>

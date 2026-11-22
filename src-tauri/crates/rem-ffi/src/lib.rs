@@ -12,17 +12,19 @@ use rem_core::{
     ReviewBackup, StudyGradeOutcome, StudyRequest, StudySession, StudyView,
 };
 use rem_sync::{
-    build_authorize_url, connect_collection, delete_cloud_account, generate_oauth_state,
-    generate_pkce_pair, sign_out, sync_authenticated, AuthClient, CredentialStore, HttpAuthClient,
-    StoredCredentials, DEFAULT_CLOUD_SERVER_URL,
+    build_authorize_url, connect_collection, delete_cloud_account, fetch_account_authenticated,
+    generate_oauth_state, generate_pkce_pair, sign_out, start_trial_authenticated,
+    sync_authenticated, AuthClient, CredentialStore, HttpAuthClient, StoredCredentials,
+    DEFAULT_CLOUD_SERVER_URL,
 };
 
 pub use credentials::FfiCredentialStore;
 pub use types::{
-    AssetDataDto, AuthProvidersDto, CardDto, ConnectResultDto, DailyActivityDto, DeckDto,
-    DeckStatsDto, DeckSummaryDto, GradeDto, GradeIntervalsDto, LeechNoticeDto, OAuthProviderDto,
-    OAuthStartDto, RemFfiError, StatsDto, StorageSummaryDto, StudyGradeOutcomeDto, StudyViewDto,
-    SyncModeDto, SyncReportDto, SyncStatusDto, TodaySummaryDto,
+    AccountProfileDto, AssetDataDto, AuthProvidersDto, CardDto, ConnectResultDto, DailyActivityDto,
+    DeckDto, DeckStatsDto, DeckSummaryDto, EntitlementInfoDto, EntitlementStateDto, GradeDto,
+    GradeIntervalsDto, LeechNoticeDto, OAuthProviderDto, OAuthStartDto, RemFfiError, StatsDto,
+    StorageSummaryDto, StudyGradeOutcomeDto, StudyViewDto, SyncModeDto, SyncReportDto,
+    SyncStatusDto, TodaySummaryDto,
 };
 
 use credentials::CredentialStoreBridge;
@@ -379,6 +381,18 @@ impl RemClient {
             downloaded_assets: report.downloaded_assets as u32,
             latest_seq: report.latest_seq,
         })
+    }
+
+    pub fn fetch_account(&self, now_ms: i64) -> Result<AccountProfileDto, RemFfiError> {
+        let profile =
+            fetch_account_authenticated(&self.collection, self.credentials.as_ref(), now_ms)?;
+        Ok(profile.into())
+    }
+
+    pub fn start_trial(&self, now_ms: i64) -> Result<AccountProfileDto, RemFfiError> {
+        let profile =
+            start_trial_authenticated(&self.collection, self.credentials.as_ref(), now_ms)?;
+        Ok(profile.into())
     }
 
     pub fn sign_out(&self) -> Result<(), RemFfiError> {

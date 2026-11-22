@@ -2,15 +2,18 @@ import { authenticateRequest, sha256HexBytes } from './auth'
 import { renderCloudPage } from './cloudPage'
 import {
   checkSyncEntitlement,
-  deleteAccountData,
   getAccountInfo,
+  handleRedeemInvite,
+  handleStartTrial,
+} from './entitlements'
+import {
+  deleteAccountData,
   getAuthProviders,
   handleLogout,
   handleOAuthCallback,
   handleOAuthStart,
   handleTokenExchange,
   handleTokenRefresh,
-  handleWaitlistSignup,
 } from './oauth'
 import type { Env, MissingAssetsRequest, SyncRequest } from './types'
 import { UserSyncDO } from './userSyncDo'
@@ -47,8 +50,14 @@ export default {
       return jsonResponse({ ok: true })
     }
 
-    if (request.method === 'GET' && (url.pathname === '/cloud' || url.pathname === '/cloud/')) {
-      return renderCloudPage()
+    if (
+      request.method === 'GET' &&
+      (url.pathname === '/premium' ||
+        url.pathname === '/premium/' ||
+        url.pathname === '/cloud' ||
+        url.pathname === '/cloud/')
+    ) {
+      return renderCloudPage(env)
     }
 
     // Public auth routes
@@ -79,7 +88,15 @@ export default {
     }
 
     if (request.method === 'POST' && url.pathname === '/v1/waitlist') {
-      return handleWaitlistSignup(request, env)
+      return jsonResponse(
+        {
+          error: 'waitlist_retired',
+          message:
+            'The early-access waitlist has been retired. Start a 30-day free trial or redeem an invite code at /premium.',
+          premiumUrl: `${url.origin}/premium`,
+        },
+        410,
+      )
     }
 
     // Authenticated routes
@@ -99,12 +116,21 @@ export default {
       }
     }
 
+    if (request.method === 'POST' && url.pathname === '/v1/trial/start') {
+      return handleStartTrial(env, auth.userId, auth.authMethod)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/invites/redeem') {
+      return handleRedeemInvite(request, env, auth.userId, auth.authMethod)
+    }
+
     const entitlement = await checkSyncEntitlement(env, auth.userId, auth.authMethod)
     if (!entitlement.syncEnabled) {
       return jsonResponse(
         {
           error: 'subscription_required',
-          message: 'Cloud sync requires an active rem Cloud subscription.',
+          state: entitlement.entitlement.state,
+          message: 'Cloud sync requires an active rem Premium plan or free trial.',
           upgradeUrl: entitlement.upgradeUrl,
         },
         402,

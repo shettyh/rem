@@ -1,7 +1,7 @@
 use std::fmt;
 
 use rem_core::{CollectionError, Grade, LeechAction, SyncMode};
-use rem_sync::{OAuthProvider, SyncError};
+use rem_sync::{AccountProfile, EntitlementInfo, EntitlementState, OAuthProvider, SyncError};
 
 #[derive(Debug, uniffi::Error)]
 pub enum RemFfiError {
@@ -364,4 +364,85 @@ pub struct SyncReportDto {
     pub applied_ops: u32,
     pub downloaded_assets: u32,
     pub latest_seq: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EntitlementStateDto {
+    SelfHosted,
+    None,
+    Trialing,
+    Invite,
+    Active,
+    PastDue,
+    Expired,
+}
+
+impl From<EntitlementState> for EntitlementStateDto {
+    fn from(value: EntitlementState) -> Self {
+        match value {
+            EntitlementState::SelfHosted => Self::SelfHosted,
+            EntitlementState::None => Self::None,
+            EntitlementState::Trialing => Self::Trialing,
+            EntitlementState::Invite => Self::Invite,
+            EntitlementState::Active => Self::Active,
+            EntitlementState::PastDue => Self::PastDue,
+            EntitlementState::Expired => Self::Expired,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EntitlementInfoDto {
+    pub state: EntitlementStateDto,
+    pub sync_enabled: bool,
+    pub provider: Option<String>,
+    pub plan: Option<String>,
+    pub expires_at: Option<i64>,
+    pub cancel_at_period_end: bool,
+    pub can_start_trial: bool,
+    pub trial_days: u32,
+    pub price_display: String,
+    pub can_subscribe_polar: bool,
+    pub can_manage_billing: bool,
+}
+
+impl From<EntitlementInfo> for EntitlementInfoDto {
+    fn from(value: EntitlementInfo) -> Self {
+        Self {
+            state: value.state.into(),
+            sync_enabled: value.sync_enabled,
+            provider: value.provider,
+            plan: value.plan,
+            expires_at: value.expires_at,
+            cancel_at_period_end: value.cancel_at_period_end,
+            can_start_trial: value.can_start_trial,
+            trial_days: value.trial_days,
+            price_display: value.price_display,
+            can_subscribe_polar: value.can_subscribe_polar,
+            can_manage_billing: value.can_manage_billing,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct AccountProfileDto {
+    pub id: String,
+    pub email: Option<String>,
+    pub providers: Vec<String>,
+    pub auth_method: String,
+    pub sync_enabled: bool,
+    pub entitlement: Option<EntitlementInfoDto>,
+}
+
+impl From<AccountProfile> for AccountProfileDto {
+    fn from(value: AccountProfile) -> Self {
+        Self {
+            id: value.id,
+            email: value.email,
+            providers: value.providers,
+            auth_method: value.auth_method,
+            sync_enabled: value.sync_enabled,
+            entitlement: value.entitlement.map(Into::into),
+        }
+    }
 }
