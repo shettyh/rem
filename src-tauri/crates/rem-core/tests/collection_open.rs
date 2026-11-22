@@ -37,8 +37,8 @@ fn independent_handles_can_open_the_same_collection() {
 fn concurrent_first_open_initializes_the_collection_once() {
     let temp = tempdir().unwrap();
     let path = temp.path().join("first-open.sqlite3");
-    let barrier = Arc::new(Barrier::new(2));
-    let handles: Vec<_> = (0..2)
+    let barrier = Arc::new(Barrier::new(4));
+    let handles: Vec<_> = (0..4)
         .map(|_| {
             let path = path.clone();
             let barrier = barrier.clone();
