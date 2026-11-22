@@ -166,7 +166,8 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 - The `rem` CLI binary is bundled directly inside desktop packages (`rem.app/Contents/MacOS/rem` on macOS) so Homebrew (`brew install --cask shettyh/tap/rem`) and `install.sh` provide a single installation that stays updated in lockstep with the desktop app; standalone CLI archives are also published on GitHub Releases.
 - Signed in-app auto-updates (`tauri-plugin-updater`) check `latest.json` on GitHub Releases and update both desktop and linked CLI together.
 - CI covers TypeScript/unit tests, real-browser flows, Rust formatting, Clippy, Rust workspace tests,
-  frontend builds, security auditing, and cross-platform desktop/CLI release builds.
+  frontend builds, iOS `RemCore.xcframework` + `RemAppTests` Simulator tests, security auditing,
+  cross-platform desktop/CLI release builds, and cloud-signed iOS TestFlight uploads.
 
 ## Completed milestones
 
@@ -215,7 +216,7 @@ These are real gaps in the resulting product, not features already delivered.
 | Organization | Decks are flat; namespaces, nested decks, and folders do not exist. |
 | Cloud sync v1.1 | Server-side op compaction (`/v1/bootstrap`), real-time WebSocket pokes, automated billing webhooks, and an optional non-Cloudflare self-host server are deferred beyond initial early access. |
 | iOS companion v1.1 | WidgetKit Home/Lock Screen widgets, Share Sheet capture extension, per-deck FSRS settings/optimizer UI, and Custom Study modes are deferred past v1. |
-| CI & Distribution | iOS builds/tests are not yet wired into GitHub Actions or TestFlight/App Store distribution; Windows has no Authenticode signature. |
+| CI & Distribution | Windows installers and CLI binaries do not yet have an Authenticode signature; public App Store release (beyond TestFlight) is not yet submitted. |
 
 ## Future direction
 

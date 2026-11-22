@@ -6,6 +6,10 @@ options:
   xcodeVersion: "16.0"
   generateEmptyDirectories: true
 
+configFiles:
+  Debug: Config/Version.xcconfig
+  Release: Config/Version.xcconfig
+
 settings:
   base:
     SWIFT_VERSION: "5.10"
@@ -35,8 +39,9 @@ targets:
       path: RemApp/Resources/Info.plist
       properties:
         CFBundleDisplayName: rem
-        CFBundleShortVersionString: "0.15.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen:
           UIColorName: ""
         UISupportedInterfaceOrientations:
@@ -71,3 +76,22 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/rem.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/rem"
         BUNDLE_LOADER: "$(TEST_HOST)"
+
+schemes:
+  RemApp:
+    build:
+      targets:
+        RemApp: all
+        RemAppTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - RemAppTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

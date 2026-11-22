@@ -10,3 +10,5 @@ src-tauri/target/
 src-tauri/binaries/
 ios/Frameworks/
 ios/RemApp/Generated/
+ios/build/
+**/xcuserdata/

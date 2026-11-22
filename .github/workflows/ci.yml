@@ -102,3 +102,54 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+  ios:
+    name: iOS (xcframework · test)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          key: ios-sim-debug
+
+      - name: Build RemCore.xcframework (simulator) & Swift bindings
+        run: bash tools/build-ios-xcframework.sh --debug --sim-only
+
+      - name: Select available iPhone Simulator
+        id: simulator
+        run: |
+          set -euo pipefail
+          sim_udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, re, sys
+          data = json.load(sys.stdin)["devices"]
+          runtimes = sorted(
+              (rt for rt in data.keys() if "iOS" in rt),
+              key=lambda rt: tuple(int(n) for n in re.findall(r"\d+", rt)),
+              reverse=True,
+          )
+          for rt in runtimes:
+              iphones = [d for d in data[rt] if d.get("isAvailable") and "iPhone" in d.get("name", "")]
+              if iphones:
+                  print(iphones[0]["udid"])
+                  sys.exit(0)
+          sys.exit(1)
+          ')
+          echo "Selected simulator UDID: $sim_udid"
+          echo "udid=$sim_udid" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test iOS app
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project ios/Rem.xcodeproj \
+            -scheme RemApp \
+            -configuration Debug \
+            -destination "id=${{ steps.simulator.outputs.udid }}" \
+            -resultBundlePath "$RUNNER_TEMP/RemAppTests.xcresult" \
+            CODE_SIGNING_ALLOWED=NO

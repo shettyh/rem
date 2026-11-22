@@ -13,6 +13,7 @@
 		11463BFEC7C471AC6282A1FB /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1815B3EB1508F3BED353BD /* AppState.swift */; };
 		1C57FC6B61E61725F7433B5E /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */; };
 		2B9E2665163134C4960129C2 /* MarkdownBlockParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5ADA201F3DEEC39FFA0FB76 /* MarkdownBlockParser.swift */; };
+		57A0A5EA2D55224B9DAB45ED /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 14ECB14C28F1B91F4165ECA0 /* PrivacyInfo.xcprivacy */; };
 		5D4E3D368F9CB8D48637E559 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 492A290EEEEE6A290D56073D /* MarkdownTextEditor.swift */; };
 		5F55AE7919E11A6C0BBDD818 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826924FAB93A7D776261FB18 /* SettingsView.swift */; };
 		6F25913452E569E6029713EE /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16278B140AD8DE458882895B /* KeychainStore.swift */; };
@@ -50,10 +51,12 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		14ECB14C28F1B91F4165ECA0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		16278B140AD8DE458882895B /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewScreen.swift; sourceTree = "<group>"; };
 		38E2DD644390DD61851BB031 /* RemStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemStore.swift; sourceTree = "<group>"; };
 		39DE67B932E46F12BFE3E215 /* FirstRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunView.swift; sourceTree = "<group>"; };
+		3AF2926313E4E32977B3C215 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
 		492A290EEEEE6A290D56073D /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
 		4ABC582F7419B4F3FEFD0AA8 /* RemTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemTokens.swift; sourceTree = "<group>"; };
 		523C20E8C6C0E5941D8ABA9D /* RemAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RemAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -103,6 +106,7 @@
 		1268541518B13678734FF027 = {
 			isa = PBXGroup;
 			children = (
+				E3C02D0437B76BE9E2CB40DB /* Config */,
 				69129F51316EB3ACA3A0BD4D /* RemApp */,
 				67368321CC746AE59269C5EE /* RemAppTests */,
 				47EF0477C99E3AA3DF4BDDA7 /* Frameworks */,
@@ -233,6 +237,7 @@
 			children = (
 				B9D0EEF3129F4028DB95E9EE /* Assets.xcassets */,
 				B61826F3FB259AB3054EB2B6 /* Info.plist */,
+				14ECB14C28F1B91F4165ECA0 /* PrivacyInfo.xcprivacy */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -273,6 +278,14 @@
 				E670AF040422AD01B9994B2F /* RemMarkdownView.swift */,
 			);
 			path = Markdown;
+			sourceTree = "<group>";
+		};
+		E3C02D0437B76BE9E2CB40DB /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				3AF2926313E4E32977B3C215 /* Version.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -360,6 +373,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A57945E5CB8DD6A384A314C9 /* Assets.xcassets in Resources */,
+				57A0A5EA2D55224B9DAB45ED /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -418,6 +432,7 @@
 /* Begin XCBuildConfiguration section */
 		2620B8775A789710527336EC /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3AF2926313E4E32977B3C215 /* Version.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -514,6 +529,7 @@
 		};
 		758FDC3D6812C301748A558C /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 3AF2926313E4E32977B3C215 /* Version.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;

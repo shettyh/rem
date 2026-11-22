@@ -4314,7 +4314,7 @@ dependencies = [
 
 [[package]]
 name = "rem-ffi"
-version = "0.15.0"
+version = "0.19.0"
 dependencies = [
  "chrono",
  "rem-core",
@@ -4327,7 +4327,7 @@ dependencies = [
 
 [[package]]
 name = "rem-sync"
-version = "0.15.0"
+version = "0.19.0"
 dependencies = [
  "base64 0.23.1",
  "keyring",

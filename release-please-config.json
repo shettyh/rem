@@ -36,6 +36,20 @@
         },
         {
           "type": "toml",
+          "path": "src-tauri/crates/rem-sync/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "toml",
+          "path": "src-tauri/crates/rem-ffi/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
+          "type": "generic",
+          "path": "ios/Config/Version.xcconfig"
+        },
+        {
+          "type": "toml",
           "path": "src-tauri/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value==\"app\")].version"
         },
@@ -48,6 +62,16 @@
           "type": "toml",
           "path": "src-tauri/Cargo.lock",
           "jsonpath": "$.package[?(@.name.value==\"rem-cli\")].version"
+        },
+        {
+          "type": "toml",
+          "path": "src-tauri/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value==\"rem-sync\")].version"
+        },
+        {
+          "type": "toml",
+          "path": "src-tauri/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value==\"rem-ffi\")].version"
         }
       ]
     }
