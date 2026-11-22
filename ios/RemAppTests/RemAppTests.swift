@@ -375,7 +375,8 @@ final class RemAppTests: XCTestCase {
         }
         XCTAssertEqual(purchaseOutcome, .purchased)
         XCTAssertEqual(verifiedJwsList.count, 1)
-        XCTAssertEqual(verifiedJwsList[0].split(separator: ".").count, 3)
+        let purchasedJws = try XCTUnwrap(verifiedJwsList.first)
+        XCTAssertEqual(purchasedJws.split(separator: ".").count, 3)
 
         var restoredJwsList: [String] = []
         let restoreOutcome = await manager.restorePurchases { jws in
@@ -383,6 +384,7 @@ final class RemAppTests: XCTestCase {
         }
         XCTAssertEqual(restoreOutcome, .restored)
         XCTAssertEqual(restoredJwsList.count, 1)
-        XCTAssertEqual(restoredJwsList[0].split(separator: ".").count, 3)
+        let restoredJws = try XCTUnwrap(restoredJwsList.first)
+        XCTAssertEqual(restoredJws.split(separator: ".").count, 3)
     }
 }
