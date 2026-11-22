@@ -1,3 +1,4 @@
+import { handleAppleWebhook, handleVerifyAppleTransaction } from './appleBilling'
 import { authenticateRequest, sha256HexBytes } from './auth'
 import { renderCloudPage } from './cloudPage'
 import {
@@ -6,6 +7,7 @@ import {
   handleRedeemInvite,
   handleStartTrial,
 } from './entitlements'
+import { renderPrivacyPage, renderTermsPage } from './legalPages'
 import {
   deleteAccountData,
   getAuthProviders,
@@ -65,6 +67,14 @@ export default {
       return renderCloudPage(env)
     }
 
+    if (request.method === 'GET' && (url.pathname === '/privacy' || url.pathname === '/privacy/')) {
+      return renderPrivacyPage()
+    }
+
+    if (request.method === 'GET' && (url.pathname === '/terms' || url.pathname === '/terms/')) {
+      return renderTermsPage()
+    }
+
     // Public auth routes
     if (request.method === 'GET' && url.pathname === '/v1/auth/providers') {
       return jsonResponse(getAuthProviders(env))
@@ -94,6 +104,10 @@ export default {
 
     if (request.method === 'POST' && url.pathname === '/v1/webhooks/polar') {
       return handlePolarWebhook(request, env)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/webhooks/apple') {
+      return handleAppleWebhook(request, env)
     }
 
     if (request.method === 'POST' && url.pathname === '/v1/waitlist') {
@@ -139,6 +153,10 @@ export default {
 
     if (request.method === 'POST' && url.pathname === '/v1/billing/polar/portal') {
       return handleCreatePolarPortal(env, auth.userId, auth.authMethod)
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/billing/apple/verify') {
+      return handleVerifyAppleTransaction(request, env, auth.userId, auth.authMethod)
     }
 
     const entitlement = await checkSyncEntitlement(env, auth.userId, auth.authMethod)

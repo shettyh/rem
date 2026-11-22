@@ -410,6 +410,39 @@ pub fn create_polar_portal_with_client(
     })
 }
 
+/// Verify a StoreKit 2 JWS transaction (`POST /v1/billing/apple/verify`), automatically refreshing expired OAuth JWTs.
+pub fn verify_apple_transaction_authenticated(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    signed_transaction_info: &str,
+    now_ms: i64,
+) -> Result<AccountProfile, SyncError> {
+    let state = collection.sync_state()?;
+    let server_url = state
+        .server_url
+        .ok_or_else(|| SyncError::NotConfigured("server_url is not set".into()))?;
+    let auth_client = HttpAuthClient::new(&server_url)?;
+    verify_apple_transaction_with_client(
+        collection,
+        store,
+        &auth_client,
+        signed_transaction_info,
+        now_ms,
+    )
+}
+
+pub fn verify_apple_transaction_with_client(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    auth_client: &dyn AuthClient,
+    signed_transaction_info: &str,
+    now_ms: i64,
+) -> Result<AccountProfile, SyncError> {
+    with_authed_token(collection, store, auth_client, now_ms, |token| {
+        auth_client.verify_apple_transaction(token, signed_transaction_info)
+    })
+}
+
 fn with_authed_token<T, F>(
     collection: &Collection,
     store: &dyn CredentialStore,

@@ -18,7 +18,7 @@ use crate::error::SyncError;
 use crate::protocol::{
     AccountProfile, AuthProviders, AuthTokenResponse, LogoutRequest, OAuthProvider,
     PolarCheckoutResponse, PolarPortalResponse, RedeemInviteRequest, TokenExchangeRequest,
-    TokenRefreshRequest,
+    TokenRefreshRequest, VerifyAppleTransactionRequest,
 };
 
 const AUTH_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -44,6 +44,11 @@ pub trait AuthClient {
     fn redeem_invite(&self, bearer_token: &str, code: &str) -> Result<AccountProfile, SyncError>;
     fn create_polar_checkout(&self, bearer_token: &str) -> Result<String, SyncError>;
     fn create_polar_portal(&self, bearer_token: &str) -> Result<String, SyncError>;
+    fn verify_apple_transaction(
+        &self,
+        bearer_token: &str,
+        signed_transaction_info: &str,
+    ) -> Result<AccountProfile, SyncError>;
     fn delete_account(&self, bearer_token: &str) -> Result<(), SyncError>;
 }
 
@@ -227,6 +232,26 @@ impl AuthClient for HttpAuthClient {
             .json::<PolarPortalResponse>()
             .map_err(|err| SyncError::InvalidResponse(err.to_string()))?;
         Ok(parsed.portal_url)
+    }
+
+    fn verify_apple_transaction(
+        &self,
+        bearer_token: &str,
+        signed_transaction_info: &str,
+    ) -> Result<AccountProfile, SyncError> {
+        let response = self
+            .client
+            .post(self.endpoint("/v1/billing/apple/verify"))
+            .header(AUTHORIZATION, format!("Bearer {}", bearer_token.trim()))
+            .json(&VerifyAppleTransactionRequest {
+                signed_transaction_info: signed_transaction_info.to_owned(),
+            })
+            .send()
+            .map_err(|err| SyncError::Transport(err.to_string()))?;
+        let response = check_auth_status(response)?;
+        response
+            .json::<AccountProfile>()
+            .map_err(|err| SyncError::InvalidResponse(err.to_string()))
     }
 
     fn delete_account(&self, bearer_token: &str) -> Result<(), SyncError> {

@@ -25,6 +25,7 @@ struct CaptureSheetRequest: Identifiable {
 @MainActor
 final class AppState {
     let store: RemStore
+    let storeKit = StoreKitManager()
     private let authManager = AuthSessionManager()
 
     var selectedTab: RemTab = .today
@@ -133,6 +134,28 @@ final class AppState {
             return !entitlement.syncEnabled
         }
         return syncAccessRestricted
+    }
+
+    /// Whether iOS Settings should offer native StoreKit 2 subscription purchase.
+    /// Hidden when already active (including Polar web subscribers), indefinite free invite,
+    /// past_due, or self-hosted to prevent double-billing.
+    var canShowAppleSubscribe: Bool {
+        guard syncStatus?.signedIn == true else { return false }
+        switch effectiveEntitlementState {
+        case .none, .trialing, .expired:
+            return true
+        case .invite:
+            return entitlement?.expiresAt != nil
+        case .active, .pastDue, .selfHosted:
+            return false
+        }
+    }
+
+    /// Whether iOS Settings should offer Apple's native Manage Subscription sheet.
+    var canShowAppleManageSubscription: Bool {
+        guard syncStatus?.signedIn == true else { return false }
+        guard entitlement?.provider == "apple" else { return false }
+        return effectiveEntitlementState == .active || effectiveEntitlementState == .pastDue
     }
 
     var defaultCaptureDeckId: String? {
@@ -244,6 +267,81 @@ final class AppState {
         } catch {
             showToast(error.remDisplayMessage)
         }
+    }
+
+    // MARK: - StoreKit 2 In-App Purchase
+
+    func startStoreKitListener() {
+        storeKit.startTransactionListener { [weak self] jws in
+            guard let self else { return }
+            guard self.syncStatus?.signedIn == true else {
+                throw RemFfiError.NotAuthenticated(message: "Sign in to link your App Store subscription.")
+            }
+            try await self.verifyAppleTransactionJWS(jws, silent: true)
+        }
+    }
+
+    func verifyAppleTransactionJWS(_ jws: String, silent: Bool = false) async throws {
+        let profile = try await store.verifyAppleTransaction(signedTransactionInfo: jws)
+        applyAccountProfile(profile)
+        lastSyncError = nil
+        if !isSyncPaused {
+            await syncNow(silent: true)
+        }
+        if !silent {
+            showToast("rem Premium active · syncing")
+        }
+    }
+
+    func purchasePremiumViaApple() async -> Bool {
+        guard let accountId = syncStatus?.accountId else {
+            showToast("Sign in first to subscribe to rem Premium")
+            return false
+        }
+        let outcome = await storeKit.purchase(accountId: accountId) { [weak self] jws in
+            guard let self else { return }
+            try await self.verifyAppleTransactionJWS(jws, silent: true)
+        }
+        switch outcome {
+        case .purchased:
+            showToast("rem Premium active · syncing")
+            return true
+        case .pending:
+            showToast("Purchase pending approval")
+            return false
+        case .cancelled:
+            return false
+        case .failed(let message):
+            showToast(message)
+            return false
+        }
+    }
+
+    func restoreApplePurchases() async -> Bool {
+        guard syncStatus?.signedIn == true else {
+            showToast("Sign in first to restore purchases")
+            return false
+        }
+        let outcome = await storeKit.restorePurchases { [weak self] jws in
+            guard let self else { return }
+            try await self.verifyAppleTransactionJWS(jws, silent: true)
+        }
+        switch outcome {
+        case .restored:
+            showToast("App Store purchase restored · syncing")
+            return true
+        case .noActiveSubscription:
+            showToast("No active App Store subscription found")
+            return false
+        case .failed(let message):
+            showToast(message)
+            return false
+        }
+    }
+
+    func manageAppleSubscription() async {
+        await storeKit.showManageSubscriptions()
+        await refreshAccount(triggerSyncIfUnlocked: isSyncPaused)
     }
 
     func syncNow(silent: Bool = false) async {
@@ -381,7 +479,7 @@ final class AppState {
     private static func decodeState(_ raw: String) -> EntitlementStateDto? {
         switch raw {
         case "self_hosted": return .selfHosted
-        case "none": return .none
+        case "none": return EntitlementStateDto.none
         case "trialing": return .trialing
         case "invite": return .invite
         case "active": return .active

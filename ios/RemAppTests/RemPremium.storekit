@@ -1,0 +1,63 @@
+{
+  "identifier" : "A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6740000001",
+    "_developerTeamID" : "VB28U48NHS",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21500001",
+      "localizations" : [
+        {
+          "description" : "Managed Cloud Sync across Desktop, CLI, and iPhone.",
+          "displayName" : "rem Premium",
+          "locale" : "en_US"
+        }
+      ],
+      "name" : "rem Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "4.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6740000101",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Managed Cloud Sync across Mac, Linux, Windows, CLI, and iPhone.",
+              "displayName" : "rem Premium Annual",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.shettyh.rem.premium.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "rem Premium Annual",
+          "subscriptionGroupID" : "21500001",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

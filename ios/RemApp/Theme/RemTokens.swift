@@ -164,6 +164,8 @@ enum RemRadius {
 
 enum RemDocs {
     static let selfHostingGuideURL = URL(string: "https://shettyh.github.io/rem/")!
+    static let privacyPolicyURL = URL(string: "https://rem-sync.shettyh.fyi/privacy")!
+    static let termsOfUseURL = URL(string: "https://rem-sync.shettyh.fyi/terms")!
 }
 
 /// Official 4-color Google "G" mark drawn as crisp vector paths for Sign-In buttons.

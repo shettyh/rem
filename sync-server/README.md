@@ -10,6 +10,7 @@ Each authenticated user is physically isolated in their own SQLite-backed Durabl
 | --- | --- |
 | `GET /health` | Liveness check |
 | `GET /premium`, `GET /cloud` | rem Premium overview & logged-in web portal (trial activation + invite-code redemption) |
+| `GET /privacy`, `GET /terms` | Privacy Policy & Terms of Use pages (linked from iOS App Store subscription sheet) |
 | `GET /v1/auth/providers` | Reports enabled sign-in providers (`google`, `apple`, `devToken`) |
 | `GET /v1/auth/:provider/start` | Starts Google or Apple OAuth + PKCE login (`127.0.0.1` loopback, `rem://auth/callback`, or same-origin `/premium` & `/cloud`) |
 | `GET\|POST /v1/auth/:provider/callback` | Verifies OIDC ID token (JWKS), upserts D1 account, issues one-time PKCE code |
@@ -23,6 +24,8 @@ Each authenticated user is physically isolated in their own SQLite-backed Durabl
 | `POST /v1/billing/polar/checkout` | Creates a Polar Checkout Session for rem Premium (`$5/year`) and returns `{ checkoutUrl }` |
 | `POST /v1/billing/polar/portal` | Creates a Polar Customer Portal session for existing Polar subscribers and returns `{ portalUrl }` |
 | `POST /v1/webhooks/polar` | Receives Polar subscription webhooks (Standard Webhooks HMAC-SHA256 verified + idempotent via `billing_events`) |
+| `POST /v1/billing/apple/verify` | Verifies StoreKit 2 `signedTransactionInfo` JWS against Apple Root CA - G3 and activates `provider='apple'` entitlement |
+| `POST /v1/webhooks/apple` | Receives App Store Server Notifications v2 (`signedPayload` JWS verified + idempotent via `billing_events`) |
 | `POST /v1/sync` | Push local outbox ops and pull remote ops after `sinceSeq` |
 | `POST /v1/assets/missing` | Check which SHA-256 asset hashes are not yet stored |
 | `PUT /v1/assets/:hash` | Upload content-addressed media asset (SHA-256 verified + quota checked) |
@@ -76,6 +79,11 @@ npx wrangler secret put POLAR_ACCESS_TOKEN   # Polar Organization Access Token (
 npx wrangler secret put POLAR_PRODUCT_ID     # Polar annual rem Premium product UUID
 npx wrangler secret put POLAR_WEBHOOK_SECRET # Polar Standard Webhooks endpoint secret
 # Optional: set POLAR_API_BASE=https://sandbox-api.polar.sh for Polar Sandbox testing
+# Optional: Apple StoreKit 2 IAP & App Store Server Notifications v2 ($4.99/year on iOS)
+# Set in wrangler.toml [vars] or as secrets:
+#   APPLE_BUNDLE_ID=com.shettyh.rem
+#   APPLE_PRODUCT_ID=com.shettyh.rem.premium.yearly
+#   APPLE_ENVIRONMENT=Production,Sandbox   # or "Production" / "Sandbox" (Production,Sandbox allows TestFlight & App Review)
 npm run deploy
 ```
 

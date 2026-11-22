@@ -153,6 +153,16 @@ actor RemStore {
         try client.startTrial(nowMs: nowMs)
     }
 
+    func verifyAppleTransaction(
+        signedTransactionInfo: String,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> AccountProfileDto {
+        try client.verifyAppleTransaction(
+            signedTransactionInfo: signedTransactionInfo,
+            nowMs: nowMs
+        )
+    }
+
     func signOut() throws {
         try client.signOut()
     }

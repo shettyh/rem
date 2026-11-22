@@ -174,6 +174,12 @@ pub struct PolarPortalResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct VerifyAppleTransactionRequest {
+    pub signed_transaction_info: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TokenExchangeRequest {
     pub code: String,
     pub code_verifier: String,
