@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.18.0 (2026-11-22)
+
+## What's Changed
+* docs(site): redesign site with Desktop + iPhone slide showcase and streamline README by @shettyh in https://github.com/shettyh/rem/pull/188
+* fix(ci): split GitHub Pages build and deploy jobs by @shettyh in https://github.com/shettyh/rem/pull/190
+* build(deps): bump the codeql group with 2 updates by @dependabot[bot] in https://github.com/shettyh/rem/pull/191
+* build(deps): bump tauri from 2.12.4 to 2.12.5 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/193
+* build(deps): bump base64 from 0.22.1 to 0.23.1 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/194
+* build(deps): bump tauri-plugin-log from 2.10.1 to 2.10.2 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/195
+* build(deps): bump clap from 4.6.7 to 4.6.8 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/198
+* build(deps): bump rand from 0.10.3 to 0.10.4 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/199
+* build(deps): bump log from 0.4.34 to 0.4.35 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/200
+* build(deps): bump the tiptap group with 7 updates by @dependabot[bot] in https://github.com/shettyh/rem/pull/201
+* build(deps-dev): bump jsdom from 30.1.1 to 31.0.1 by @dependabot[bot] in https://github.com/shettyh/rem/pull/202
+* build(deps-dev): bump vitest from 5.0.5 to 5.1.1 by @dependabot[bot] in https://github.com/shettyh/rem/pull/206
+* build(deps-dev): bump playwright from 1.63.0 to 1.65.1 by @dependabot[bot] in https://github.com/shettyh/rem/pull/204
+* build(deps-dev): bump fake-indexeddb from 6.2.5 to 6.2.8 by @dependabot[bot] in https://github.com/shettyh/rem/pull/203
+* build(deps): bump react and react-dom to 19.3.1 and group Dependabot updates by @shettyh in https://github.com/shettyh/rem/pull/207
+* build(deps): bump uniffi from 0.29.5 to 0.32.2 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/197
+* build(deps-dev): bump @testing-library/jest-dom from 7.0.1 to 8.0.0 by @dependabot[bot] in https://github.com/shettyh/rem/pull/208
+* build(deps): bump dexie from 4.4.6 to 4.4.7 by @dependabot[bot] in https://github.com/shettyh/rem/pull/209
+* build(deps): bump tauri from 2.12.5 to 2.12.7 in /src-tauri in the tauri group by @dependabot[bot] in https://github.com/shettyh/rem/pull/210
+* build(deps-dev): bump @vitejs/plugin-react from 6.1.1 to 6.3.0 by @dependabot[bot] in https://github.com/shettyh/rem/pull/211
+* build(deps-dev): bump @testing-library/user-event from 14.6.7 to 14.6.13 by @dependabot[bot] in https://github.com/shettyh/rem/pull/212
+* build(deps): bump uuid from 1.29.0 to 1.29.3 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/213
+* build(deps): bump react-router-dom from 7.18.4 to 7.18.6 by @dependabot[bot] in https://github.com/shettyh/rem/pull/214
+* build(deps-dev): bump vite from 8.3.4 to 8.3.8 by @dependabot[bot] in https://github.com/shettyh/rem/pull/215
+* build(deps): bump reqwest from 0.13.4 to 0.13.5 in /src-tauri by @dependabot[bot] in https://github.com/shettyh/rem/pull/216
+* ci(dependabot): group routine dependency updates into weekly PRs by @shettyh in https://github.com/shettyh/rem/pull/217
+* feat(scheduler): migrate to fsrs 7.0.0 (FSRS-7) by @shettyh in https://github.com/shettyh/rem/pull/219
+* ci(macos): add Apple Developer ID signing and notarization pipeline by @shettyh in https://github.com/shettyh/rem/pull/220
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.17.0...v0.18.0
+
 ## 0.17.0 (2026-11-21)
 
 ## What's Changed
