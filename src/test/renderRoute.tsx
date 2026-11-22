@@ -17,6 +17,8 @@ export function renderRoute(opts: {
   storage: Storage
   /** Optional sync client override for testing cloud sync states. */
   syncClient?: SyncClient
+  /** Enable SyncProvider background focus/auto-sync handlers (default false for deterministic tests). */
+  autoSync?: boolean
   /** Optional updater client override for testing update and CLI states. */
   updaterClient?: UpdaterClient
   /** Route pattern, e.g. '/decks/:deckId'. */
@@ -43,7 +45,7 @@ export function renderRoute(opts: {
   return render(
     <div data-testid="screen">
       <StorageProvider storage={opts.storage}>
-        <SyncProvider client={opts.syncClient} autoSync={false}>
+        <SyncProvider client={opts.syncClient} autoSync={opts.autoSync ?? false}>
           <UpdaterProvider client={opts.updaterClient} autoCheck={false}>
             <RouterProvider router={router} />
           </UpdaterProvider>

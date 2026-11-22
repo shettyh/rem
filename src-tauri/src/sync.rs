@@ -3,7 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rem_core::{Collection, SyncMode};
 use rem_sync::{
-    connect_collection, delete_cloud_account, fetch_account_authenticated, open_system_browser,
+    connect_collection, create_polar_checkout_authenticated, create_polar_portal_authenticated,
+    delete_cloud_account, fetch_account_authenticated, open_system_browser,
     redeem_invite_authenticated, run_loopback_oauth, sign_out, start_trial_authenticated,
     sync_authenticated, verify_dev_token, AccountProfile, AuthClient, AuthProviders,
     CredentialStore, EntitlementInfo, EntitlementState, HttpAuthClient, KeyringCredentialStore,
@@ -558,6 +559,32 @@ pub async fn sync_sign_out(app: AppHandle) -> Result<SyncStatusSnapshot, String>
 #[tauri::command]
 pub fn sync_open_external_url(url: String) -> Result<(), String> {
     open_system_browser(&url).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn sync_open_polar_checkout(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let collection = app.state::<Collection>();
+        let store = KeyringCredentialStore;
+        let checkout_url = create_polar_checkout_authenticated(&collection, &store, now_millis())
+            .map_err(|err| err.to_string())?;
+        open_system_browser(&checkout_url).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| format!("checkout task failed: {err}"))?
+}
+
+#[tauri::command]
+pub async fn sync_open_polar_portal(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let collection = app.state::<Collection>();
+        let store = KeyringCredentialStore;
+        let portal_url = create_polar_portal_authenticated(&collection, &store, now_millis())
+            .map_err(|err| err.to_string())?;
+        open_system_browser(&portal_url).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| format!("billing portal task failed: {err}"))?
 }
 
 #[tauri::command]

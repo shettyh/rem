@@ -10,6 +10,7 @@ import {
   verifyHs256Jwt,
 } from './auth'
 import { getUpgradeUrl, isSubscriptionRequired } from './entitlements'
+import { revokePolarSubscriptionForAccountDeletion } from './polar'
 import type {
   AuthProvidersResponse,
   AuthTokenResponse,
@@ -527,6 +528,9 @@ export async function handleLogout(request: Request, env: Env): Promise<Response
 }
 
 export async function deleteAccountData(env: Env, userId: string): Promise<void> {
+  // 0. Best-effort cancel any active Polar subscription before removing entitlement records.
+  await revokePolarSubscriptionForAccountDeletion(env, userId)
+
   // 1. Delete all user assets in R2.
   const prefix = `users/${userId}/assets/`
   let cursor: string | undefined

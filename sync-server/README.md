@@ -20,6 +20,9 @@ Each authenticated user is physically isolated in their own SQLite-backed Durabl
 | `DELETE /v1/account` | Permanently deletes user R2 assets, `UserSyncDO` storage, and D1 auth/entitlement records |
 | `POST /v1/trial/start` | Opt-in start of the one-time no-card free trial (`TRIAL_DAYS`, default `30`) |
 | `POST /v1/invites/redeem` | Atomically redeems an invite code (`REM-XXXX-XXXX`) and unlocks sync |
+| `POST /v1/billing/polar/checkout` | Creates a Polar Checkout Session for rem Premium (`$5/year`) and returns `{ checkoutUrl }` |
+| `POST /v1/billing/polar/portal` | Creates a Polar Customer Portal session for existing Polar subscribers and returns `{ portalUrl }` |
+| `POST /v1/webhooks/polar` | Receives Polar subscription webhooks (Standard Webhooks HMAC-SHA256 verified + idempotent via `billing_events`) |
 | `POST /v1/sync` | Push local outbox ops and pull remote ops after `sinceSeq` |
 | `POST /v1/assets/missing` | Check which SHA-256 asset hashes are not yet stored |
 | `PUT /v1/assets/:hash` | Upload content-addressed media asset (SHA-256 verified + quota checked) |
@@ -68,6 +71,11 @@ npx wrangler secret put APPLE_PRIVATE_KEY
 npx wrangler secret put REQUIRE_SUBSCRIPTION # set to "true" to enforce entitlements (HTTP 402 otherwise)
 npx wrangler secret put ALLOWED_EMAILS       # optional comma-separated owner/VIP emails always allowed to sync
 npx wrangler secret put UPGRADE_URL          # optional pricing URL (e.g. https://rem-sync.shettyh.fyi/premium)
+# Optional: Polar Merchant-of-Record billing for Desktop & Web ($5/year)
+npx wrangler secret put POLAR_ACCESS_TOKEN   # Polar Organization Access Token (checkouts:write, customer_sessions:write, subscriptions:write)
+npx wrangler secret put POLAR_PRODUCT_ID     # Polar annual rem Premium product UUID
+npx wrangler secret put POLAR_WEBHOOK_SECRET # Polar Standard Webhooks endpoint secret
+# Optional: set POLAR_API_BASE=https://sandbox-api.polar.sh for Polar Sandbox testing
 npm run deploy
 ```
 

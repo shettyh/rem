@@ -582,6 +582,14 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
               Start ${trialDays}-day free trial
             </button>
 
+            <button type="button" class="btn btn-secondary hidden" id="btn-subscribe-polar">
+              Upgrade to Premium — ${safePrice}
+            </button>
+
+            <button type="button" class="btn btn-secondary hidden" id="btn-manage-billing">
+              Manage billing ↗
+            </button>
+
             <form class="field hidden" id="invite-form" novalidate>
               <label for="invite-code">Have an invite code?</label>
               <div class="inline-form">
@@ -692,6 +700,8 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
         const statusBadge = document.getElementById('status-badge')
         const statusDetail = document.getElementById('status-detail')
         const btnStartTrial = document.getElementById('btn-start-trial')
+        const btnSubscribePolar = document.getElementById('btn-subscribe-polar')
+        const btnManageBilling = document.getElementById('btn-manage-billing')
         const inviteForm = document.getElementById('invite-form')
         const inviteInput = document.getElementById('invite-code')
         const btnRedeem = document.getElementById('btn-redeem')
@@ -795,6 +805,19 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
           const dLeft = daysLeft(ent.expiresAt)
 
           btnStartTrial.classList.toggle('hidden', !ent.canStartTrial)
+          btnSubscribePolar.classList.toggle('hidden', !ent.canSubscribePolar)
+          btnSubscribePolar.textContent =
+            'Upgrade to Premium — ' + (ent.priceDisplay || '${safePrice}')
+          btnSubscribePolar.className =
+            'btn' +
+            (ent.canStartTrial ? ' btn-secondary' : '') +
+            (ent.canSubscribePolar ? '' : ' hidden')
+          btnManageBilling.classList.toggle('hidden', !ent.canManageBilling)
+          btnManageBilling.className =
+            'btn' +
+            (state === 'past_due' ? '' : ' btn-secondary') +
+            (ent.canManageBilling ? '' : ' hidden')
+
           const showInviteForm = state === 'none' || state === 'trialing' || state === 'expired'
           inviteForm.classList.toggle('hidden', !showInviteForm)
 
@@ -816,10 +839,23 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
           } else if (state === 'active') {
             statusBadge.textContent = 'Premium active'
             statusBadge.className = 'badge is-ok'
-            statusDetail.textContent =
-              ent.provider === 'apple'
-                ? 'Active via Apple App Store. Manage renewal in iOS Subscriptions.'
-                : 'Your rem Premium subscription is active across all devices.'
+            if (ent.provider === 'apple') {
+              statusDetail.textContent =
+                'Active via Apple App Store. Manage renewal in iOS Subscriptions.'
+            } else {
+              const dateLabel = ent.expiresAt
+                ? new Date(ent.expiresAt).toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })
+                : null
+              const renewalNote = dateLabel
+                ? (ent.cancelAtPeriodEnd ? ' Ends ' : ' Renews ') + dateLabel + '.'
+                : ''
+              statusDetail.textContent =
+                'Your rem Premium subscription is active across all devices.' + renewalNote
+            }
           } else if (state === 'past_due') {
             statusBadge.textContent = 'Payment issue'
             statusBadge.className = 'badge is-warn'
@@ -836,7 +872,7 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
             statusDetail.textContent =
               'Start your ' +
               (ent.trialDays || ${trialDays}) +
-              '-day free trial (no card required) or redeem an invite code below.'
+              '-day free trial (no card required), upgrade to Premium, or redeem an invite code below.'
           }
         }
 
@@ -907,10 +943,46 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
           if (!resp.ok) throw new Error('Could not load account status.')
           const account = await resp.json()
           renderAccount(account)
+          return account
         }
 
         btnGoogle.addEventListener('click', () => startOAuth('google'))
         btnApple.addEventListener('click', () => startOAuth('apple'))
+
+        btnSubscribePolar.addEventListener('click', async () => {
+          btnSubscribePolar.disabled = true
+          setFeedback('', '')
+          try {
+            const resp = await authedFetch('/v1/billing/polar/checkout', { method: 'POST' })
+            const data = await resp.json().catch(() => ({}))
+            if (!resp.ok || !data.checkoutUrl) {
+              throw new Error(data.message || data.error || 'Could not start Polar checkout.')
+            }
+            location.assign(data.checkoutUrl)
+          } catch (err) {
+            setFeedback(err instanceof Error ? err.message : 'Failed to start checkout.', 'error')
+            btnSubscribePolar.disabled = false
+          }
+        })
+
+        btnManageBilling.addEventListener('click', async () => {
+          btnManageBilling.disabled = true
+          setFeedback('', '')
+          try {
+            const resp = await authedFetch('/v1/billing/polar/portal', { method: 'POST' })
+            const data = await resp.json().catch(() => ({}))
+            if (!resp.ok || !data.portalUrl) {
+              throw new Error(data.message || data.error || 'Could not open billing portal.')
+            }
+            location.assign(data.portalUrl)
+          } catch (err) {
+            setFeedback(
+              err instanceof Error ? err.message : 'Failed to open billing portal.',
+              'error',
+            )
+            btnManageBilling.disabled = false
+          }
+        })
 
         btnStartTrial.addEventListener('click', async () => {
           btnStartTrial.disabled = true
@@ -998,15 +1070,51 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
             // Keep default state on transient network failure.
           }
 
+          const initialParams = new URLSearchParams(location.search)
+          const billingSuccess = initialParams.get('billing') === 'success'
+          if (billingSuccess && !initialParams.get('code') && !initialParams.get('error')) {
+            history.replaceState({}, '', location.pathname)
+          }
+
           await handleOAuthCallbackIfPresent()
           if (loadSession()) {
             try {
-              await refreshAccount()
+              let account = await refreshAccount()
+              if (billingSuccess) {
+                if (account.entitlement && account.entitlement.state === 'active') {
+                  setFeedback(
+                    'rem Premium is active! Return to rem on Desktop or iPhone — sync activates automatically.',
+                    'success',
+                  )
+                } else {
+                  setFeedback(
+                    'Payment received! Updating your rem Premium status…',
+                    'success',
+                  )
+                  for (let attempt = 0; attempt < 4; attempt++) {
+                    await new Promise((r) => setTimeout(r, 1500))
+                    account = await refreshAccount()
+                    if (account.entitlement && account.entitlement.state === 'active') {
+                      setFeedback(
+                        'rem Premium is active! Return to rem on Desktop or iPhone — sync activates automatically.',
+                        'success',
+                      )
+                      break
+                    }
+                  }
+                }
+              }
             } catch (err) {
               setFeedback(err instanceof Error ? err.message : 'Could not load account.', 'error')
             }
           } else {
             renderSignedOut()
+            if (billingSuccess) {
+              setFeedback(
+                'Thank you for subscribing to rem Premium! Return to the rem desktop app — Cloud Sync will activate automatically.',
+                'success',
+              )
+            }
           }
         })()
       })()
