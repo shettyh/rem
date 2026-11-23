@@ -14,32 +14,17 @@ struct NewDeckSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("DECK NAME")
-                        .font(.system(size: 11, weight: .bold))
-                        .tracking(0.8)
-                        .foregroundStyle(RemColor.muted)
-
+            Form {
+                Section("Deck Name") {
                     TextField("e.g. Distributed systems, Rust…", text: $name)
-                        .font(.system(size: 16))
-                        .padding(13)
-                        .background(RemColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                .strokeBorder(RemColor.borderStrong, lineWidth: 1)
-                        )
+                        .foregroundStyle(RemColor.text)
                 }
+                .listRowBackground(RemColor.surface)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("COLOR")
-                        .font(.system(size: 11, weight: .bold))
-                        .tracking(0.8)
-                        .foregroundStyle(RemColor.muted)
-
+                Section("Color") {
                     HStack(spacing: 14) {
                         ForEach(RemColor.deckPalette, id: \.self) { hex in
+                            let isSelected = selectedColor == hex
                             Button {
                                 selectedColor = hex
                             } label: {
@@ -48,25 +33,26 @@ struct NewDeckSheet: View {
                                     .frame(width: 30, height: 30)
                                     .overlay(
                                         Circle()
-                                            .strokeBorder(RemColor.text, lineWidth: selectedColor == hex ? 2.5 : 0)
+                                            .strokeBorder(RemColor.text, lineWidth: isSelected ? 2.5 : 0)
                                             .padding(-4)
                                     )
                             }
+                            .buttonStyle(.plain)
                             .accessibilityLabel("Color \(hex)")
+                            .accessibilityAddTraits(isSelected ? .isSelected : [])
                         }
                     }
+                    .padding(.vertical, 6)
                 }
-
-                Spacer()
+                .listRowBackground(RemColor.surface)
             }
-            .padding(20)
-            .background(RemColor.bg)
+            .scrollContentBackground(.hidden)
+            .background(RemColor.groupedBg)
             .navigationTitle("New deck")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .foregroundStyle(RemColor.muted)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
@@ -83,11 +69,11 @@ struct NewDeckSheet: View {
                         }
                     }
                     .fontWeight(.semibold)
-                    .foregroundStyle(canSave ? RemColor.accent : RemColor.faint)
                     .disabled(!canSave)
                 }
             }
         }
+        .tint(RemColor.accent)
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
     }

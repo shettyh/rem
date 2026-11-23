@@ -139,17 +139,13 @@ struct PremiumPaywallSheet: View {
                 .padding(.bottom, 24)
             }
             .background(RemColor.bg)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(RemColor.muted)
-                            .frame(width: 28, height: 28)
-                            .background(RemColor.bgInset)
-                            .clipShape(Circle())
                     }
                     .accessibilityLabel("Close")
                 }
@@ -158,6 +154,7 @@ struct PremiumPaywallSheet: View {
                 await appState.storeKit.loadProducts()
             }
         }
+        .tint(RemColor.accent)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }

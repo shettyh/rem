@@ -5,6 +5,7 @@ import UIKit
 enum RemColor {
     static let bg = dynamic(light: 0xFFFFFF, dark: 0x161413)
     static let bgInset = dynamic(light: 0xF5F4F2, dark: 0x201E1C)
+    static let groupedBg = dynamic(light: 0xF5F4F2, dark: 0x0E0C0B)
     static let chrome = dynamic(light: 0xFAFAF9, dark: 0x0E0C0B)
     static let surface = dynamic(light: 0xFFFFFF, dark: 0x1B1918)
     static let surfaceInset = dynamic(light: 0xF1F0EE, dark: 0x24211F)

@@ -14,29 +14,46 @@ struct DecksView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if filteredDecks.isEmpty {
-                        RemCardSurface(padding: 20) {
-                            VStack(spacing: 6) {
-                                Text(searchText.isEmpty ? "No decks yet" : "No matching decks")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(RemColor.text)
-                                Text(searchText.isEmpty
-                                     ? "Create a deck below to organize your cards."
-                                     : "Try another search term.")
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(RemColor.muted)
-                            }
-                            .frame(maxWidth: .infinity)
+            Group {
+                if filteredDecks.isEmpty && !searchText.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(RemColor.groupedBg)
+                } else if filteredDecks.isEmpty {
+                    ContentUnavailableView {
+                        Label("No decks yet", systemImage: "rectangle.stack")
+                    } description: {
+                        Text("Create a deck to start organizing your cards.")
+                    } actions: {
+                        Button("Create new deck") {
+                            appState.showNewDeckSheet = true
                         }
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(Array(filteredDecks.enumerated()), id: \.element.id) { idx, deck in
+                        .buttonStyle(.borderedProminent)
+                        .tint(RemColor.accent)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(RemColor.groupedBg)
+                } else {
+                    List {
+                        Section {
+                            ForEach(filteredDecks, id: \.id) { deck in
                                 NavigationLink(value: deck.id) {
-                                    DeckSummaryRow(deck: deck)
+                                    DeckSummaryRow(deck: deck, showChevron: false)
                                 }
-                                .buttonStyle(.plain)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        deckPendingDelete = deck
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+
+                                    Button {
+                                        appState.openEditDeck(deckId: deck.id)
+                                    } label: {
+                                        Label("Edit", systemImage: "slider.horizontal.3")
+                                    }
+                                    .tint(RemColor.accent)
+                                }
                                 .contextMenu {
                                     Button {
                                         appState.openEditDeck(deckId: deck.id)
@@ -49,32 +66,27 @@ struct DecksView: View {
                                         Label("Delete deck", systemImage: "trash")
                                     }
                                 }
-
-                                if idx < filteredDecks.count - 1 {
-                                    Divider().overlay(RemColor.border)
-                                }
                             }
                         }
-                        .background(RemColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous)
-                                .strokeBorder(RemColor.border, lineWidth: 1)
-                        )
-                    }
+                        .listRowBackground(RemColor.surface)
+                        .listRowSeparatorTint(RemColor.border)
 
-                    Button {
-                        appState.showNewDeckSheet = true
-                    } label: {
-                        Label("Create new deck", systemImage: "plus")
+                        Section {
+                            Button {
+                                appState.showNewDeckSheet = true
+                            } label: {
+                                Label("Create new deck", systemImage: "plus")
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(RemColor.accent)
+                            }
+                        }
+                        .listRowBackground(RemColor.surface)
                     }
-                    .buttonStyle(RemSecondaryButtonStyle())
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
+                    .background(RemColor.groupedBg)
                 }
-                .padding(.horizontal, 18)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
             }
-            .background(RemColor.bg)
             .navigationTitle("Decks")
             .searchable(text: $searchText, prompt: "Search decks")
             .toolbar {
