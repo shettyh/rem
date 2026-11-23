@@ -1,3 +1,4 @@
+import AuthenticationServices
 import StoreKit
 import StoreKitTest
 import XCTest
@@ -122,6 +123,21 @@ final class RemAppTests: XCTestCase {
             AuthSessionManager.sha256Hex("abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         )
+    }
+
+    func testMapAppleAuthorizationErrorFormatsCleanMessages() {
+        let canceled = AuthSessionManager.mapAppleAuthorizationError(ASAuthorizationError(.canceled))
+        XCTAssertEqual(canceled as? OAuthFlowError, .cancelled)
+
+        let unknown = AuthSessionManager.mapAppleAuthorizationError(ASAuthorizationError(.unknown))
+        let unknownMessage = unknown.remDisplayMessage
+        XCTAssertTrue(unknownMessage.contains("Apple error 1000"))
+        XCTAssertFalse(unknownMessage.contains("com.apple.AuthenticationServices.AuthorizationError"))
+
+        let failed = AuthSessionManager.mapAppleAuthorizationError(ASAuthorizationError(.failed))
+        let failedMessage = failed.remDisplayMessage
+        XCTAssertTrue(failedMessage.contains("Apple error 1004"))
+        XCTAssertFalse(failedMessage.contains("Operation"))
     }
 
     func testBackupExportAndPerDeckStats() async throws {
