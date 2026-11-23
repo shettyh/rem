@@ -135,6 +135,20 @@ jobs:
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             CODE_SIGNING_ALLOWED=NO
 
+          # `CODE_SIGNING_ALLOWED=NO` skips ProcessProductPackaging/CodeSign during
+          # archiving, which otherwise strips `RemApp.entitlements` (e.g.
+          # `com.apple.developer.applesignin`) before `-exportArchive` cloud-signs
+          # the app. Embed the target entitlements into the archived bundle so
+          # `xcodebuild -exportArchive` carries them into the distribution signature.
+          app_path="$RUNNER_TEMP/Rem.xcarchive/Products/Applications/rem.app"
+          entitlements_path="ios/RemApp/Resources/RemApp.entitlements"
+          test -f "$entitlements_path"
+          cp "$entitlements_path" "$app_path/archived-expanded-entitlements.xcent"
+          codesign --force --sign - \
+            --entitlements "$entitlements_path" \
+            --generate-entitlement-der \
+            "$app_path"
+
       - name: Verify archive metadata and App Store readiness
         env:
           EXPECTED_VERSION: ${{ steps.version.outputs.marketing_version }}
@@ -146,12 +160,14 @@ jobs:
           test -d "$app_path"
           test -f "$info_plist"
           test -f "$app_path/PrivacyInfo.xcprivacy"
+          test -f "$app_path/archived-expanded-entitlements.xcent"
 
           bundle_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$info_plist")
           short_ver=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$info_plist")
           build_ver=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$info_plist")
           non_exempt=$(/usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" "$info_plist")
           device_families=$(/usr/libexec/PlistBuddy -c "Print :UIDeviceFamily" "$info_plist" | tr -d '[:space:]')
+          archived_entitlements=$(codesign -d --entitlements :- "$app_path" 2>/dev/null)
 
           echo "Archived bundle: $bundle_id v$short_ver ($build_ver), ITSAppUsesNonExemptEncryption=$non_exempt, UIDeviceFamily=$device_families"
           test "$bundle_id" = "com.shettyh.rem"
@@ -159,6 +175,7 @@ jobs:
           test "$build_ver" = "$EXPECTED_BUILD"
           test "$non_exempt" = "false"
           test "$device_families" = "Array{1}"
+          grep -q "com.apple.developer.applesignin" <<< "$archived_entitlements"
 
       - name: Export and upload to TestFlight (Cloud Signing)
         if: ${{ !inputs.dry_run }}
@@ -176,6 +193,39 @@ jobs:
           chmod 600 "$api_key_path"
           if ! grep -q "BEGIN PRIVATE KEY" "$api_key_path"; then
             echo "::error::APPLE_API_KEY_PRIVATE_KEY does not look like a PEM .p8 private key"
+            exit 1
+          fi
+
+          # Export locally first to verify the final Cloud-Signed IPA actually retains
+          # required capabilities (such as `com.apple.developer.applesignin`) before uploading.
+          verify_export_plist="$RUNNER_TEMP/ExportOptionsVerify.plist"
+          node tools/render-ios-export-options.mjs \
+            --team-id "$APPLE_TEAM_ID" \
+            --destination export \
+            --internal-only "$INTERNAL_ONLY" \
+            --output "$verify_export_plist"
+
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Rem.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export-verify" \
+            -exportOptionsPlist "$verify_export_plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$api_key_path" \
+            -authenticationKeyID "$APPLE_API_KEY" \
+            -authenticationKeyIssuerID "$APPLE_API_ISSUER"
+
+          ipa_path=$(find "$RUNNER_TEMP/export-verify" -maxdepth 1 -name '*.ipa' | head -n 1)
+          test -f "$ipa_path"
+          rm -rf "$RUNNER_TEMP/ipa-verify"
+          unzip -q "$ipa_path" -d "$RUNNER_TEMP/ipa-verify"
+          signed_app="$RUNNER_TEMP/ipa-verify/Payload/rem.app"
+          test -d "$signed_app"
+          codesign --verify --strict --verbose=2 "$signed_app"
+          final_entitlements=$(codesign -d --entitlements :- "$signed_app" 2>/dev/null)
+          echo "Verified final IPA entitlements:"
+          echo "$final_entitlements"
+          if ! grep -q "com.apple.developer.applesignin" <<< "$final_entitlements"; then
+            echo "::error::Exported IPA is missing com.apple.developer.applesignin entitlement. Ensure Sign in with Apple is enabled for com.shettyh.rem in Apple Developer Portal."
             exit 1
           fi
 
@@ -197,4 +247,4 @@ jobs:
 
       - name: Clean up App Store Connect credentials
         if: always()
-        run: rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/ExportOptions.plist"
+        run: rm -rf "$RUNNER_TEMP/private_keys" "$RUNNER_TEMP/ExportOptions.plist" "$RUNNER_TEMP/ExportOptionsVerify.plist" "$RUNNER_TEMP/export-verify" "$RUNNER_TEMP/ipa-verify"

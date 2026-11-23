@@ -4,7 +4,7 @@ import Foundation
 import Security
 import UIKit
 
-enum OAuthFlowError: LocalizedError {
+enum OAuthFlowError: LocalizedError, Equatable {
     case invalidAuthorizeURL
     case cancelled
     case missingCallbackURL
@@ -12,6 +12,7 @@ enum OAuthFlowError: LocalizedError {
     case stateMismatch
     case missingAuthorizationCode
     case missingIdentityToken
+    case appleAuthorizationFailed(code: Int, detail: String)
 
     var errorDescription: String? {
         switch self {
@@ -29,6 +30,8 @@ enum OAuthFlowError: LocalizedError {
             return "Sign-in response did not include an authorization code."
         case .missingIdentityToken:
             return "Apple did not return an identity token. Please try again."
+        case .appleAuthorizationFailed(let code, let detail):
+            return "\(detail) (Apple error \(code))."
         }
     }
 }
@@ -104,6 +107,46 @@ final class AuthSessionManager: NSObject, ASWebAuthenticationPresentationContext
         )
     }
 
+    nonisolated static func mapAppleAuthorizationError(_ error: Error) -> Error {
+        if let authError = error as? ASAuthorizationError {
+            switch authError.code {
+            case .canceled:
+                return OAuthFlowError.cancelled
+            case .unknown:
+                return OAuthFlowError.appleAuthorizationFailed(
+                    code: authError.code.rawValue,
+                    detail: "Sign in with Apple could not be completed. Make sure you are signed into an Apple Account in iOS Settings and try again"
+                )
+            case .invalidResponse:
+                return OAuthFlowError.appleAuthorizationFailed(
+                    code: authError.code.rawValue,
+                    detail: "Sign in with Apple returned an invalid response. Please try again"
+                )
+            case .notHandled:
+                return OAuthFlowError.appleAuthorizationFailed(
+                    code: authError.code.rawValue,
+                    detail: "Sign in with Apple could not be handled. Please try again"
+                )
+            case .failed:
+                return OAuthFlowError.appleAuthorizationFailed(
+                    code: authError.code.rawValue,
+                    detail: "Sign in with Apple failed. Please try again"
+                )
+            case .notInteractive:
+                return OAuthFlowError.appleAuthorizationFailed(
+                    code: authError.code.rawValue,
+                    detail: "Sign in with Apple requires confirmation on this device"
+                )
+            @unknown default:
+                return OAuthFlowError.appleAuthorizationFailed(
+                    code: authError.code.rawValue,
+                    detail: "Sign in with Apple failed. Please try again"
+                )
+            }
+        }
+        return error
+    }
+
     nonisolated static func parseAppleAuthorizationResult(
         _ result: Result<ASAuthorization, Error>,
         rawNonce: String
@@ -112,10 +155,7 @@ final class AuthSessionManager: NSObject, ASWebAuthenticationPresentationContext
         case .success(let authorization):
             return try parseAppleAuthorization(authorization, rawNonce: rawNonce)
         case .failure(let error):
-            if let authError = error as? ASAuthorizationError, authError.code == .canceled {
-                throw OAuthFlowError.cancelled
-            }
-            throw error
+            throw mapAppleAuthorizationError(error)
         }
     }
 
@@ -161,11 +201,7 @@ final class AuthSessionManager: NSObject, ASWebAuthenticationPresentationContext
         pendingAppleNonce = nil
         appleContinuation = nil
         activeAppleController = nil
-        if let authError = error as? ASAuthorizationError, authError.code == .canceled {
-            continuation?.resume(throwing: OAuthFlowError.cancelled)
-            return
-        }
-        continuation?.resume(throwing: error)
+        continuation?.resume(throwing: Self.mapAppleAuthorizationError(error))
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
