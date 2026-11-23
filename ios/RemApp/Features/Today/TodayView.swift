@@ -25,8 +25,8 @@ struct TodayView: View {
                     decksSection
                 }
                 .padding(.horizontal, 18)
-                .padding(.top, 10)
-                .padding(.bottom, 104)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
             }
             .background(RemColor.bg)
             .refreshable {
@@ -37,7 +37,17 @@ struct TodayView: View {
                 }
                 await appState.refreshAll()
             }
-            .navigationBarHidden(true)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        appState.openQuickCapture()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("New card")
+                }
+            }
             .navigationDestination(for: String.self) { deckId in
                 DeckDetailView(appState: appState, deckId: deckId)
             }
@@ -117,7 +127,7 @@ struct TodayView: View {
                             .font(.system(size: 13))
                             .foregroundStyle(RemColor.muted)
                     } else {
-                        Text("Tap + below whenever you want to capture a new card.")
+                        Text("Tap + above whenever you want to capture a new card.")
                             .font(.system(size: 13))
                             .foregroundStyle(RemColor.muted)
                     }

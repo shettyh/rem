@@ -37,42 +37,31 @@ struct DeckDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Button {
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text("Back")
-                                .font(.system(size: 15, weight: .medium))
-                        }
-                        .foregroundStyle(RemColor.muted)
-                    }
-
-                    Spacer()
-
-                    Menu {
-                        Button {
-                            appState.openEditDeck(deckId: deckId) {
-                                dismiss()
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 10) {
+                            if let colorHex = deckSummary?.color {
+                                Circle()
+                                    .fill(Color(hexString: colorHex))
+                                    .frame(width: 10, height: 10)
                             }
-                        } label: {
-                            Label("Edit deck", systemImage: "slider.horizontal.3")
+                            Text(deckSummary?.name ?? "Deck")
+                                .font(.system(size: 25, weight: .bold))
+                                .tracking(-0.5)
+                                .foregroundStyle(RemColor.text)
                         }
 
-                        Button(role: .destructive) {
-                            showDeleteConfirm = true
-                        } label: {
-                            Label("Delete deck", systemImage: "trash")
+                        if let summary = deckSummary {
+                            let cardLabel = "\(cards.count) \(cards.count == 1 ? "card" : "cards")"
+                            let newPart = summary.newDueCount > 0 ? " · \(summary.newDueCount) new" : ""
+                            let duePart = summary.dueCount > 0 ? " · \(summary.dueCount) due" : (cards.isEmpty ? "" : " · All caught up")
+                            Text("\(cardLabel)\(duePart)\(newPart)")
+                                .font(.system(size: 13))
+                                .foregroundStyle(RemColor.muted)
                         }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(RemColor.muted)
-                            .frame(width: 32, height: 32)
                     }
-                    .accessibilityLabel("Deck actions")
+
+                    Spacer(minLength: 8)
 
                     if let due = deckSummary?.dueCount, due > 0 {
                         Button("Study (\(due))") {
@@ -86,47 +75,6 @@ struct DeckDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 10) {
-                        if let colorHex = deckSummary?.color {
-                            Circle()
-                                .fill(Color(hexString: colorHex))
-                                .frame(width: 10, height: 10)
-                        }
-                        Text(deckSummary?.name ?? "Deck")
-                            .font(.system(size: 25, weight: .bold))
-                            .tracking(-0.5)
-                            .foregroundStyle(RemColor.text)
-                    }
-
-                    if let summary = deckSummary {
-                        let cardLabel = "\(cards.count) \(cards.count == 1 ? "card" : "cards")"
-                        let newPart = summary.newDueCount > 0 ? " · \(summary.newDueCount) new" : ""
-                        let duePart = summary.dueCount > 0 ? " · \(summary.dueCount) due" : (cards.isEmpty ? "" : " · All caught up")
-                        Text("\(cardLabel)\(duePart)\(newPart)")
-                            .font(.system(size: 13))
-                            .foregroundStyle(RemColor.muted)
-                    }
-                }
-
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 14))
-                        .foregroundStyle(RemColor.muted)
-                    TextField("Filter cards in deck…", text: $searchText)
-                        .font(.system(size: 14))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(RemColor.bgInset)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(RemColor.border, lineWidth: 1)
-                )
 
                 if allTags.count > 1 {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -159,7 +107,7 @@ struct DeckDetailView: View {
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(RemColor.text)
                             Text(cards.isEmpty
-                                 ? "Tap the + button below to add your first card."
+                                 ? "Tap + above to add your first card."
                                  : "Try clearing your search or tag filter.")
                                 .font(.system(size: 13))
                                 .foregroundStyle(RemColor.muted)
@@ -188,11 +136,43 @@ struct DeckDetailView: View {
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.top, 8)
-            .padding(.bottom, 104)
+            .padding(.top, 4)
+            .padding(.bottom, 24)
         }
         .background(RemColor.bg)
-        .navigationBarHidden(true)
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, prompt: "Filter cards in deck")
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        appState.openEditDeck(deckId: deckId) {
+                            dismiss()
+                        }
+                    } label: {
+                        Label("Edit deck", systemImage: "slider.horizontal.3")
+                    }
+
+                    Button(role: .destructive) {
+                        showDeleteConfirm = true
+                    } label: {
+                        Label("Delete deck", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("Deck actions")
+
+                Button {
+                    appState.openQuickCapture(deckId: deckId) {
+                        Task { await loadCards() }
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("New card")
+            }
+        }
         .onAppear {
             appState.activeDeckId = deckId
             Task { await loadCards() }
