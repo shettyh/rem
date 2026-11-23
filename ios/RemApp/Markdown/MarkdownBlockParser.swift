@@ -12,6 +12,7 @@ enum MarkdownBlock: Equatable, Identifiable {
     case blockquote(text: String)
     case bulletList(items: [String])
     case orderedList(items: [String])
+    case table(headers: [String], rows: [[String]])
     case image(alt: String, source: MarkdownImageSource)
     case divider
     case paragraph(text: String)
@@ -23,6 +24,7 @@ enum MarkdownBlock: Equatable, Identifiable {
         case .blockquote(let text): return "quote-\(text.hashValue)"
         case .bulletList(let items): return "ul-\(items.joined().hashValue)"
         case .orderedList(let items): return "ol-\(items.joined().hashValue)"
+        case .table(let headers, let rows): return "tbl-\(headers.joined().hashValue)-\(rows.count)"
         case .image(let alt, let src): return "img-\(alt)-\(String(describing: src).hashValue)"
         case .divider: return "hr"
         case .paragraph(let text): return "p-\(text.hashValue)"
@@ -102,6 +104,27 @@ enum MarkdownBlockParser {
                 continue
             }
 
+            // Markdown pipe table (header row + separator row + optional body rows)
+            if i + 1 < lines.count,
+               let headers = parseTableRow(trimmed),
+               isTableSeparator(lines[i + 1].trimmingCharacters(in: .whitespaces), expectedColumns: headers.count)
+            {
+                i += 2
+                var rows: [[String]] = []
+                while i < lines.count {
+                    let rt = lines[i].trimmingCharacters(in: .whitespaces)
+                    guard !rt.isEmpty, rt.contains("|"), let cells = parseTableRow(rt) else { break }
+                    var normalizedRow = Array(cells.prefix(headers.count))
+                    while normalizedRow.count < headers.count {
+                        normalizedRow.append("")
+                    }
+                    rows.append(normalizedRow)
+                    i += 1
+                }
+                blocks.append(.table(headers: headers, rows: rows))
+                continue
+            }
+
             // Bullet list (- or * or +)
             if isBulletLine(trimmed) {
                 var items: [String] = []
@@ -141,6 +164,12 @@ enum MarkdownBlockParser {
                     || parseStandaloneImage(ct) != nil
                     || isBulletLine(ct)
                     || orderedListContent(ct) != nil
+                    || (i + 1 < lines.count
+                        && parseTableRow(ct) != nil
+                        && isTableSeparator(
+                            lines[i + 1].trimmingCharacters(in: .whitespaces),
+                            expectedColumns: parseTableRow(ct)?.count ?? 0
+                        ))
                 {
                     break
                 }
@@ -179,6 +208,83 @@ enum MarkdownBlockParser {
         let afterDot = line.index(after: dotIdx)
         guard afterDot < line.endIndex, line[afterDot] == " " else { return nil }
         return String(line[line.index(after: afterDot)...]).trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func parseTableRow(_ line: String) -> [String]? {
+        guard line.contains("|") else { return nil }
+        var trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("|") { trimmed.removeFirst() }
+        if trimmed.hasSuffix("|") { trimmed.removeLast() }
+        let cells = trimmed.split(separator: "|", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        return cells.count >= 2 ? cells : nil
+    }
+
+    private static func isTableSeparator(_ line: String, expectedColumns: Int) -> Bool {
+        guard expectedColumns >= 2, let cells = parseTableRow(line), cells.count == expectedColumns else {
+            return false
+        }
+        return cells.allSatisfy { cell in
+            let core = cell.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+            return core.count >= 3 && core.allSatisfy { $0 == "-" }
+        }
+    }
+
+    /// Produces a clean single-paragraph plain-text snippet for compact list rows (stripping
+    /// headings, bold/italic/code delimiters, image links, and code fence markers).
+    static func plainTextPreview(_ markdown: String) -> String {
+        let normalized = markdown
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        var cleanedLines: [String] = []
+        for rawLine in normalized.components(separatedBy: "\n") {
+            var line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("```") || line == "---" || line == "***" || line == "___" {
+                continue
+            }
+            // Strip ATX heading prefix
+            while line.hasPrefix("#") { line.removeFirst() }
+            line = line.trimmingCharacters(in: .whitespaces)
+            // Strip blockquote or bullet prefix
+            if line.hasPrefix("> ") {
+                line = String(line.dropFirst(2))
+            } else if isBulletLine(line) {
+                line = String(line.dropFirst(2))
+            }
+            // Replace markdown images ![alt](url) with alt text or "[Image]"
+            if let imgRegex = try? NSRegularExpression(pattern: #"!\[([^\]]*)\]\([^)]+\)"#) {
+                let ns = line as NSString
+                let range = NSRange(location: 0, length: ns.length)
+                var out = line
+                for match in imgRegex.matches(in: line, range: range).reversed() {
+                    let alt = ns.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespaces)
+                    let replacement = alt.isEmpty ? "[Image]" : alt
+                    if let swiftRange = Range(match.range, in: out) {
+                        out.replaceSubrange(swiftRange, with: replacement)
+                    }
+                }
+                line = out
+            }
+            // Replace inline markdown links [label](url) -> label
+            if let linkRegex = try? NSRegularExpression(pattern: #"\[([^\]]+)\]\([^)]+\)"#) {
+                line = linkRegex.stringByReplacingMatches(
+                    in: line,
+                    range: NSRange(location: 0, length: (line as NSString).length),
+                    withTemplate: "$1"
+                )
+            }
+            // Strip common inline formatting markers
+            line = line
+                .replacingOccurrences(of: "**", with: "")
+                .replacingOccurrences(of: "__", with: "")
+                .replacingOccurrences(of: "~~", with: "")
+                .replacingOccurrences(of: "`", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            if !line.isEmpty {
+                cleanedLines.append(line)
+            }
+        }
+        return cleanedLines.joined(separator: " ")
     }
 
     private static func parseStandaloneImage(_ line: String) -> MarkdownBlock? {

@@ -40,6 +40,16 @@ struct DecksView: View {
                                 NavigationLink(value: deck.id) {
                                     DeckSummaryRow(deck: deck, showChevron: false)
                                 }
+                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                    if deck.dueCount > 0 {
+                                        Button {
+                                            appState.startStudy(deckId: deck.id)
+                                        } label: {
+                                            Label("Study", systemImage: "play.fill")
+                                        }
+                                        .tint(RemColor.accent)
+                                    }
+                                }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     Button(role: .destructive) {
                                         deckPendingDelete = deck

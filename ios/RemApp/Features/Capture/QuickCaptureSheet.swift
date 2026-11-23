@@ -100,6 +100,7 @@ struct QuickCaptureSheet: View {
             .animation(.easeOut(duration: 0.15), value: isFormatBarMode)
         }
         .tint(RemColor.accent)
+        .remToastOverlay(appState: appState)
         .onAppear {
             if let card = editingCard {
                 selectedDeckId = card.deckId

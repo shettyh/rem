@@ -100,6 +100,14 @@ enum CardTextSize: String, CaseIterable, Identifiable {
         }
     }
 
+    var menuLabel: String {
+        switch self {
+        case .compact: return "Small"
+        case .default: return "Medium"
+        case .large: return "Large"
+        }
+    }
+
     var questionSize: CGFloat {
         switch self {
         case .compact: return 19
@@ -296,6 +304,78 @@ struct RemSecondaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(RemColor.borderStrong, lineWidth: 1)
             )
+    }
+}
+
+struct RemGradeButtonStyle: ButtonStyle {
+    let tint: Color
+    let tintBg: Color
+    var emphasized: Bool = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(
+                configuration.isPressed
+                    ? tintBg
+                    : (emphasized ? tintBg.opacity(0.62) : RemColor.surface)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(
+                        configuration.isPressed
+                            ? tint.opacity(0.55)
+                            : (emphasized ? tint.opacity(0.35) : RemColor.border),
+                        lineWidth: 1
+                    )
+            )
+            .scaleEffect(configuration.isPressed ? 0.965 : 1.0)
+            .animation(.easeOut(duration: 0.11), value: configuration.isPressed)
+    }
+}
+
+struct RemToastOverlayModifier: ViewModifier {
+    @Bindable var appState: AppState
+    var enabled: Bool = true
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if enabled, let toast = appState.toastMessage {
+                    HStack(spacing: 10) {
+                        Text(toast)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(RemColor.bg)
+                            .lineLimit(2)
+                        Spacer(minLength: 4)
+                        Button("OK") {
+                            appState.toastMessage = nil
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(RemColor.bg.opacity(0.75))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                    .background(RemColor.text)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .shadow(color: Color.black.opacity(0.18), radius: 14, y: 6)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onTapGesture {
+                        appState.toastMessage = nil
+                    }
+                }
+            }
+            .animation(.easeOut(duration: 0.18), value: appState.toastMessage)
+    }
+}
+
+extension View {
+    func remToastOverlay(appState: AppState, enabled: Bool = true) -> some View {
+        modifier(RemToastOverlayModifier(appState: appState, enabled: enabled))
     }
 }
 
