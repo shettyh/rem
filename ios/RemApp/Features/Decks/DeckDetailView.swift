@@ -39,27 +39,20 @@ struct DeckDetailView: View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .center, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 10) {
-                                if let colorHex = deckSummary?.color {
-                                    Circle()
-                                        .fill(Color(hexString: colorHex))
-                                        .frame(width: 10, height: 10)
-                                }
-                                Text(deckSummary?.name ?? "Deck")
-                                    .font(.title2.weight(.bold))
-                                    .foregroundStyle(RemColor.text)
-                            }
+                    HStack(alignment: .center, spacing: 10) {
+                        if let colorHex = deckSummary?.color {
+                            Circle()
+                                .fill(Color(hexString: colorHex))
+                                .frame(width: 9, height: 9)
+                        }
 
-                            if let summary = deckSummary {
-                                let cardLabel = "\(cards.count) \(cards.count == 1 ? "card" : "cards")"
-                                let newPart = summary.newDueCount > 0 ? " · \(summary.newDueCount) new" : ""
-                                let duePart = summary.dueCount > 0 ? " · \(summary.dueCount) due" : (cards.isEmpty ? "" : " · All caught up")
-                                Text("\(cardLabel)\(duePart)\(newPart)")
-                                    .font(.footnote)
-                                    .foregroundStyle(RemColor.muted)
-                            }
+                        if let summary = deckSummary {
+                            let cardLabel = "\(cards.count) \(cards.count == 1 ? "card" : "cards")"
+                            let newPart = summary.newDueCount > 0 ? " · \(summary.newDueCount) new" : ""
+                            let duePart = summary.dueCount > 0 ? " · \(summary.dueCount) due" : (cards.isEmpty ? "" : " · All caught up")
+                            Text("\(cardLabel)\(duePart)\(newPart)")
+                                .font(.footnote)
+                                .foregroundStyle(RemColor.muted)
                         }
 
                         Spacer(minLength: 8)
@@ -173,7 +166,8 @@ struct DeckDetailView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(RemColor.groupedBg)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(deckSummary?.name ?? "Deck")
+        .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, prompt: "Filter cards in deck")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -292,9 +286,10 @@ struct CardBrowserRow: View {
     let onTap: () -> Void
 
     var body: some View {
+        let preview = MarkdownBlockParser.plainTextPreview(card.front)
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(card.front)
+                Text(preview.isEmpty ? card.front : preview)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(card.suspended ? RemColor.muted : RemColor.text)
                     .lineLimit(2)

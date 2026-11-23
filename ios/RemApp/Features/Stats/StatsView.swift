@@ -134,6 +134,10 @@ struct StatsView: View {
                                         Text("\(Self.shortDayFormatter.string(from: selected.date)) · \(selected.count) \(selected.count == 1 ? "review" : "reviews")")
                                             .font(.caption.weight(.semibold))
                                             .foregroundStyle(RemColor.accent)
+                                    } else if stats.reviews == 0 {
+                                        Text("No reviews in the last \(rangeDays) days")
+                                            .font(.caption)
+                                            .foregroundStyle(RemColor.muted)
                                     } else {
                                         Text("Touch and drag to inspect daily reviews")
                                             .font(.caption)
@@ -193,7 +197,7 @@ struct StatsView: View {
                     RemCardSurface(padding: 16) {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Grade distribution")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(RemColor.text)
 
                             let total = max(1, stats.reviews)
@@ -206,29 +210,41 @@ struct StatsView: View {
 
                     if selectedDeckId == nil && !stats.byDeck.isEmpty {
                         RemCardSurface(padding: 16) {
-                            VStack(alignment: .leading, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 10) {
                                 Text("By deck")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(RemColor.text)
 
                                 ForEach(stats.byDeck, id: \.deckId) { item in
-                                    HStack(spacing: 8) {
-                                        Circle()
-                                            .fill(Color(hexString: item.deckColor))
-                                            .frame(width: 7, height: 7)
-                                        Text(item.deckName)
-                                            .font(.system(size: 13.5, weight: .medium))
-                                            .foregroundStyle(RemColor.text)
-                                            .lineLimit(1)
-                                        Spacer()
-                                        Text("\(item.reviews)")
-                                            .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                                            .foregroundStyle(RemColor.text)
-                                        Text(item.recallRatePercent.map { "\($0)%" } ?? "—")
-                                            .font(.system(size: 12.5, design: .monospaced))
-                                            .foregroundStyle(RemColor.muted)
-                                            .frame(width: 40, alignment: .trailing)
+                                    Button {
+                                        withAnimation(.easeOut(duration: 0.16)) {
+                                            selectedDeckId = item.deckId
+                                        }
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            Circle()
+                                                .fill(Color(hexString: item.deckColor))
+                                                .frame(width: 7, height: 7)
+                                            Text(item.deckName)
+                                                .font(.subheadline.weight(.medium))
+                                                .foregroundStyle(RemColor.text)
+                                                .lineLimit(1)
+                                            Spacer()
+                                            Text("\(item.reviews)")
+                                                .font(.footnote.weight(.semibold).monospacedDigit())
+                                                .foregroundStyle(RemColor.text)
+                                            Text(item.recallRatePercent.map { "\($0)%" } ?? "—")
+                                                .font(.footnote.monospacedDigit())
+                                                .foregroundStyle(RemColor.muted)
+                                                .frame(width: 40, alignment: .trailing)
+                                            Image(systemName: "chevron.right")
+                                                .font(.caption2.weight(.semibold))
+                                                .foregroundStyle(RemColor.faint)
+                                        }
+                                        .padding(.vertical, 3)
+                                        .contentShape(Rectangle())
                                     }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
@@ -242,7 +258,7 @@ struct StatsView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 24)
             }
-            .background(RemColor.bg)
+            .background(RemColor.groupedBg)
             .navigationTitle("Stats")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -262,11 +278,11 @@ struct StatsView: View {
         RemCardSurface(padding: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(value)
-                    .font(.system(size: 24, weight: .bold))
-                    .tracking(-0.6)
+                    .font(.title2.weight(.bold).monospacedDigit())
+                    .tracking(-0.5)
                     .foregroundStyle(RemColor.text)
                 Text(label)
-                    .font(.system(size: 12))
+                    .font(.caption)
                     .foregroundStyle(RemColor.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -277,7 +293,7 @@ struct StatsView: View {
         let pct = Int((Double(count) / Double(total) * 100.0).rounded())
         return HStack(spacing: 10) {
             Text(label)
-                .font(.system(size: 12.5))
+                .font(.footnote)
                 .foregroundStyle(RemColor.text)
                 .frame(width: 44, alignment: .leading)
             GeometryReader { geo in
@@ -290,7 +306,7 @@ struct StatsView: View {
             }
             .frame(height: 6)
             Text("\(pct)%")
-                .font(.system(size: 12, design: .monospaced))
+                .font(.caption.monospacedDigit())
                 .foregroundStyle(RemColor.muted)
                 .frame(width: 38, alignment: .trailing)
         }

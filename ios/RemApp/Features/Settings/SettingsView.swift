@@ -3,6 +3,12 @@ import SwiftUI
 import UIKit
 
 struct SettingsView: View {
+    private static let relativeSyncFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+
     @Bindable var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
 
@@ -685,9 +691,7 @@ struct SettingsView: View {
             return "\(identity) · \(status.pendingOutboxCount) \(changeWord) waiting to sync"
         }
         if let last = appState.lastSyncedAt {
-            let formatter = RelativeDateTimeFormatter()
-            formatter.unitsStyle = .abbreviated
-            return "\(identity) · \(formatter.localizedString(for: last, relativeTo: Date()))"
+            return "\(identity) · \(Self.relativeSyncFormatter.localizedString(for: last, relativeTo: Date()))"
         }
         return identity
     }

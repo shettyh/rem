@@ -65,37 +65,17 @@ struct RootContainerView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        ZStack(alignment: .top) {
+        Group {
             if appState.shouldShowFirstRun {
                 FirstRunView(appState: appState)
             } else {
                 RootTabView(appState: appState)
             }
-
-            if let toast = appState.toastMessage {
-                HStack(spacing: 10) {
-                    Text(toast)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(RemColor.bg)
-                        .lineLimit(2)
-                    Spacer(minLength: 4)
-                    Button("OK") {
-                        appState.toastMessage = nil
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(RemColor.bg.opacity(0.75))
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .background(RemColor.text)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .shadow(color: Color.black.opacity(0.18), radius: 14, y: 6)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
         }
-        .animation(.easeOut(duration: 0.18), value: appState.toastMessage)
+        .remToastOverlay(
+            appState: appState,
+            enabled: appState.studyLaunch == nil && appState.captureRequest == nil
+        )
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 Task {

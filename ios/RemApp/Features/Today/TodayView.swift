@@ -8,15 +8,16 @@ struct TodayView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    topBar
-
                     VStack(alignment: .leading, spacing: 4) {
+                        Text(formattedDate)
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(RemColor.muted)
                         Text(greetingText)
-                            .font(.system(size: 29, weight: .bold))
-                            .tracking(-0.7)
+                            .font(.largeTitle.bold())
+                            .tracking(-0.6)
                             .foregroundStyle(RemColor.text)
                         Text(subtitleText)
-                            .font(.system(size: 14))
+                            .font(.subheadline)
                             .foregroundStyle(RemColor.muted)
                     }
 
@@ -25,10 +26,10 @@ struct TodayView: View {
                     decksSection
                 }
                 .padding(.horizontal, 18)
-                .padding(.top, 4)
+                .padding(.top, 8)
                 .padding(.bottom, 24)
             }
-            .background(RemColor.bg)
+            .background(RemColor.groupedBg)
             .refreshable {
                 if appState.isSyncPaused {
                     await appState.refreshAccount(triggerSyncIfUnlocked: true)
@@ -39,6 +40,9 @@ struct TodayView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    SyncStatusChip(appState: appState)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         appState.openQuickCapture()
@@ -70,16 +74,6 @@ struct TodayView: View {
             } message: {
                 Text("This deletes the deck and all its cards locally and on synced devices.")
             }
-        }
-    }
-
-    private var topBar: some View {
-        HStack {
-            Text(formattedDate)
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(RemColor.muted)
-            Spacer()
-            SyncStatusChip(appState: appState)
         }
     }
 
@@ -181,12 +175,12 @@ struct TodayView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("YOUR DECKS")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.caption2.weight(.bold))
                         .tracking(0.8)
                         .foregroundStyle(RemColor.muted)
                     Spacer()
                     Text("\(deckSummaries.count) \(deckSummaries.count == 1 ? "deck" : "decks")")
-                        .font(.system(size: 12))
+                        .font(.caption)
                         .foregroundStyle(RemColor.muted)
                 }
                 .padding(.horizontal, 2)
@@ -195,10 +189,22 @@ struct TodayView: View {
                 VStack(spacing: 0) {
                     ForEach(Array(deckSummaries.enumerated()), id: \.element.id) { idx, deck in
                         NavigationLink(value: deck.id) {
-                            DeckSummaryRow(deck: deck)
+                            DeckSummaryRow(
+                                deck: deck,
+                                onStudy: deck.dueCount > 0 ? {
+                                    appState.startStudy(deckId: deck.id)
+                                } : nil
+                            )
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
+                            if deck.dueCount > 0 {
+                                Button {
+                                    appState.startStudy(deckId: deck.id)
+                                } label: {
+                                    Label("Study due cards (\(deck.dueCount))", systemImage: "play.fill")
+                                }
+                            }
                             Button {
                                 appState.openEditDeck(deckId: deck.id)
                             } label: {
@@ -248,15 +254,14 @@ struct TodayView: View {
     }
 
     private var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE, MMM d"
-        return formatter.string(from: Date())
+        Date.now.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     }
 }
 
 struct DeckSummaryRow: View {
     let deck: DeckSummaryDto
     var showChevron: Bool = true
+    var onStudy: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 10) {
@@ -266,23 +271,31 @@ struct DeckSummaryRow: View {
                         .fill(Color(hexString: deck.color))
                         .frame(width: 8, height: 8)
                     Text(deck.name)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(RemColor.text)
                         .lineLimit(1)
                 }
 
                 Text(subtitleText)
-                    .font(.system(size: 12))
+                    .font(.caption)
                     .foregroundStyle(RemColor.muted)
             }
 
             Spacer()
 
             HStack(spacing: 8) {
-                statusPill
+                if let onStudy, deck.dueCount > 0 {
+                    Button(action: onStudy) {
+                        statusPill
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Study \(deck.dueCount) due in \(deck.name)")
+                } else {
+                    statusPill
+                }
                 if showChevron {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(RemColor.faint)
                 }
             }

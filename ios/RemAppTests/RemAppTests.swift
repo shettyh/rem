@@ -100,6 +100,42 @@ final class RemAppTests: XCTestCase {
         XCTAssertEqual(String(highlighted.characters), "const x = 'hi' // note")
     }
 
+    func testMarkdownParserParsesTablesAndPlainTextPreview() {
+        let tableMd = """
+        | Engine | Write | Read |
+        | --- | :---: | ---: |
+        | B-Tree | Random | Fast |
+        | LSM | Sequential | Compaction |
+        """
+        let blocks = MarkdownBlockParser.parse(tableMd)
+        XCTAssertEqual(blocks.count, 1)
+        XCTAssertEqual(
+            blocks[0],
+            .table(
+                headers: ["Engine", "Write", "Read"],
+                rows: [
+                    ["B-Tree", "Random", "Fast"],
+                    ["LSM", "Sequential", "Compaction"]
+                ]
+            )
+        )
+
+        let rawCard = """
+        ## What is `WAL`?
+        **Write-Ahead Logging** in [SQLite](https://sqlite.org)
+        ![Diagram](asset:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)
+        """
+        XCTAssertEqual(
+            MarkdownBlockParser.plainTextPreview(rawCard),
+            "What is WAL? Write-Ahead Logging in SQLite Diagram"
+        )
+
+        XCTAssertEqual(ReviewScreen.formatDuration(seconds: 0), "1s")
+        XCTAssertEqual(ReviewScreen.formatDuration(seconds: 42), "42s")
+        XCTAssertEqual(ReviewScreen.formatDuration(seconds: 120), "2m")
+        XCTAssertEqual(ReviewScreen.formatDuration(seconds: 125), "2m 5s")
+    }
+
     func testOAuthCallbackParsingValidatesStateAndExtractsCode() throws {
         let valid = URL(string: "rem://auth/callback?code=abc123&state=xyz789")!
         XCTAssertEqual(

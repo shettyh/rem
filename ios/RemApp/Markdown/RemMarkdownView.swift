@@ -16,6 +16,14 @@ struct RemMarkdownView: View {
         MarkdownBlockParser.parse(markdown)
     }
 
+    private var scaledBaseFontSize: CGFloat {
+        UIFontMetrics(forTextStyle: .body).scaledValue(for: baseFontSize)
+    }
+
+    private var scaledCodeFontSize: CGFloat {
+        UIFontMetrics(forTextStyle: .callout).scaledValue(for: codeFontSize)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
@@ -27,31 +35,32 @@ struct RemMarkdownView: View {
 
     @ViewBuilder
     private func renderBlock(_ block: MarkdownBlock) -> some View {
+        let bodySize = scaledBaseFontSize
         switch block {
         case .heading(let level, let text):
             let scale: CGFloat = level == 1 ? 1.32 : (level == 2 ? 1.18 : 1.08)
-            Text(inlineMarkdown(text))
-                .font(.system(size: baseFontSize * scale, weight: .bold))
+            Text(inlineMarkdown(text, fontSize: bodySize))
+                .font(.system(size: bodySize * scale, weight: .bold))
                 .foregroundStyle(textColor)
                 .lineSpacing(3)
 
         case .paragraph(let text):
-            Text(inlineMarkdown(text))
-                .font(.system(size: baseFontSize, weight: baseWeight))
+            Text(inlineMarkdown(text, fontSize: bodySize))
+                .font(.system(size: bodySize, weight: baseWeight))
                 .foregroundStyle(textColor)
                 .lineSpacing(5)
                 .fixedSize(horizontal: false, vertical: true)
 
         case .codeBlock(let language, let code):
-            CodeBlockView(code: code, language: language, fontSize: codeFontSize)
+            CodeBlockView(code: code, language: language, fontSize: scaledCodeFontSize)
 
         case .blockquote(let text):
             HStack(alignment: .top, spacing: 12) {
                 RoundedRectangle(cornerRadius: 1.5, style: .continuous)
                     .fill(RemColor.borderStrong)
                     .frame(width: 2.5)
-                Text(inlineMarkdown(text))
-                    .font(.system(size: max(14, baseFontSize - 1.5)))
+                Text(inlineMarkdown(text, fontSize: max(14, bodySize - 1.5)))
+                    .font(.system(size: max(14, bodySize - 1.5)))
                     .foregroundStyle(RemColor.muted)
                     .lineSpacing(4)
                     .fixedSize(horizontal: false, vertical: true)
@@ -63,10 +72,10 @@ struct RemMarkdownView: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .top, spacing: 9) {
                         Text("•")
-                            .font(.system(size: baseFontSize, weight: .semibold))
+                            .font(.system(size: bodySize, weight: .semibold))
                             .foregroundStyle(RemColor.muted)
-                        Text(inlineMarkdown(item))
-                            .font(.system(size: baseFontSize, weight: baseWeight))
+                        Text(inlineMarkdown(item, fontSize: bodySize))
+                            .font(.system(size: bodySize, weight: baseWeight))
                             .foregroundStyle(textColor)
                             .lineSpacing(4)
                             .fixedSize(horizontal: false, vertical: true)
@@ -79,15 +88,52 @@ struct RemMarkdownView: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
                     HStack(alignment: .top, spacing: 8) {
                         Text("\(idx + 1).")
-                            .font(.system(size: baseFontSize - 1, weight: .semibold, design: .monospaced))
+                            .font(.system(size: bodySize - 1, weight: .semibold, design: .monospaced))
                             .foregroundStyle(RemColor.muted)
-                        Text(inlineMarkdown(item))
-                            .font(.system(size: baseFontSize, weight: baseWeight))
+                        Text(inlineMarkdown(item, fontSize: bodySize))
+                            .font(.system(size: bodySize, weight: baseWeight))
                             .foregroundStyle(textColor)
                             .lineSpacing(4)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+            }
+
+        case .table(let headers, let rows):
+            ScrollView(.horizontal, showsIndicators: false) {
+                Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+                    GridRow {
+                        ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
+                            Text(inlineMarkdown(header, fontSize: max(12.5, bodySize - 2)))
+                                .font(.system(size: max(12.5, bodySize - 2), weight: .semibold))
+                                .foregroundStyle(RemColor.text)
+                                .padding(.horizontal, 11)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .background(RemColor.bgInset)
+
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        Divider().overlay(RemColor.border)
+                        GridRow {
+                            ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                                Text(inlineMarkdown(cell, fontSize: max(12.5, bodySize - 2)))
+                                    .font(.system(size: max(12.5, bodySize - 2)))
+                                    .foregroundStyle(textColor)
+                                    .padding(.horizontal, 11)
+                                    .padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+                .background(RemColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(RemColor.border, lineWidth: 1)
+                )
             }
 
         case .image(let alt, let source):
@@ -121,7 +167,7 @@ struct RemMarkdownView: View {
         }
     }
 
-    private func inlineMarkdown(_ raw: String) -> AttributedString {
+    private func inlineMarkdown(_ raw: String, fontSize: CGFloat) -> AttributedString {
         var attributed = (try? AttributedString(
             markdown: raw,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
@@ -131,7 +177,7 @@ struct RemMarkdownView: View {
         for run in attributed.runs {
             if let intent = run.inlinePresentationIntent, intent.contains(.code) {
                 let range = run.range
-                attributed[range].font = .system(size: max(12, baseFontSize * 0.85), design: .monospaced)
+                attributed[range].font = .system(size: max(12, fontSize * 0.85), design: .monospaced)
                 attributed[range].backgroundColor = RemColor.surfaceInset
                 attributed[range].foregroundColor = RemColor.text
             }
@@ -226,35 +272,37 @@ struct AssetImageView: View {
                     onTap?(loaded)
                 } label: {
                     VStack(alignment: .leading, spacing: 6) {
-                        Image(uiImage: loaded.image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity, maxHeight: 320)
-                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        ZStack(alignment: .bottomTrailing) {
+                            Image(uiImage: loaded.image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxWidth: .infinity, maxHeight: 320)
+                                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                        .strokeBorder(RemColor.border, lineWidth: 1)
+                                )
 
-                        HStack {
-                            if !alt.isEmpty {
-                                Text(alt)
-                                    .font(.system(size: 11.5))
-                                    .foregroundStyle(RemColor.muted)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Label("Tap to zoom", systemImage: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(RemColor.muted)
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Color.white)
+                                .padding(6)
+                                .background(Color.black.opacity(0.55))
+                                .clipShape(Circle())
+                                .padding(8)
                         }
-                        .padding(.horizontal, 2)
+
+                        if !alt.isEmpty {
+                            Text(alt)
+                                .font(.caption)
+                                .foregroundStyle(RemColor.muted)
+                                .lineLimit(2)
+                                .padding(.horizontal, 2)
+                        }
                     }
-                    .padding(10)
-                    .background(RemColor.chrome)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(RemColor.border, lineWidth: 1)
-                    )
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(alt.isEmpty ? "Image. Tap to zoom" : "\(alt). Tap to zoom")
             } else if didAttemptLoad {
                 HStack(spacing: 8) {
                     Image(systemName: "photo.badge.exclamationmark")

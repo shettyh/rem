@@ -1,77 +1,57 @@
 import SwiftUI
 
-struct ReviewMenuSheet: View {
-    @Bindable var appState: AppState
-    let canUndo: Bool
-    let hasCurrentCard: Bool
-    let onEdit: () -> Void
-    let onUndo: () -> Void
-    let onSuspend: () -> Void
+/// Compact native inspector sheet showing FSRS scheduling details for the current card.
+struct ReviewCardInfoSheet: View {
+    let card: CardDto
+    let deckName: String?
 
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    if hasCurrentCard {
-                        Button {
-                            dismiss()
-                            onEdit()
-                        } label: {
-                            Label("Edit card", systemImage: "pencil")
-                                .foregroundStyle(RemColor.text)
-                        }
+                Section("Schedule") {
+                    LabeledContent("Status") {
+                        RemPillBadge(text: stateLabel, tone: stateTone)
                     }
-
-                    Button {
-                        dismiss()
-                        onUndo()
-                    } label: {
-                        HStack {
-                            Label("Undo last grade", systemImage: "arrow.uturn.backward")
-                                .foregroundStyle(canUndo ? RemColor.text : RemColor.muted)
-                            Spacer()
-                            if !canUndo {
-                                Text("None yet")
-                                    .font(.footnote)
-                                    .foregroundStyle(RemColor.faint)
-                            }
-                        }
-                    }
-                    .disabled(!canUndo)
-
-                    HStack {
-                        Label("Text size", systemImage: "textformat.size")
+                    LabeledContent("Reviews") {
+                        Text("\(card.reps)")
+                            .font(.body.monospacedDigit())
                             .foregroundStyle(RemColor.text)
-                        Spacer()
-                        Picker("Text size", selection: $appState.cardTextSize) {
-                            ForEach(CardTextSize.allCases) { size in
-                                Text(size.shortLabel).tag(size)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 124)
+                    }
+                    LabeledContent("Lapses") {
+                        Text("\(card.lapses)")
+                            .font(.body.monospacedDigit())
+                            .foregroundStyle(card.lapses > 0 ? RemColor.hard : RemColor.text)
+                    }
+                    LabeledContent("Due") {
+                        Text(dueText)
+                            .foregroundStyle(RemColor.muted)
                     }
                 }
                 .listRowBackground(RemColor.surface)
                 .listRowSeparatorTint(RemColor.border)
 
-                if hasCurrentCard {
-                    Section {
-                        Button(role: .destructive) {
-                            dismiss()
-                            onSuspend()
-                        } label: {
-                            Label("Suspend card", systemImage: "pause.circle")
+                Section("Details") {
+                    if let deckName, !deckName.isEmpty {
+                        LabeledContent("Deck", value: deckName)
+                    }
+                    LabeledContent("Created", value: formattedDate(card.createdAt))
+                    if !card.tags.isEmpty {
+                        LabeledContent("Tags") {
+                            Text(card.tags.map { "#\($0)" }.joined(separator: " "))
+                                .font(.footnote)
+                                .foregroundStyle(RemColor.muted)
+                                .multilineTextAlignment(.trailing)
                         }
                     }
-                    .listRowBackground(RemColor.surface)
                 }
+                .listRowBackground(RemColor.surface)
+                .listRowSeparatorTint(RemColor.border)
             }
             .scrollContentBackground(.hidden)
             .background(RemColor.groupedBg)
-            .navigationTitle("Card & Session")
+            .navigationTitle("Card Info")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -81,7 +61,41 @@ struct ReviewMenuSheet: View {
             }
         }
         .tint(RemColor.accent)
-        .presentationDetents([.height(340)])
+        .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
+    }
+
+    private var stateLabel: String {
+        if card.suspended { return "Suspended" }
+        switch card.state {
+        case 0: return "New"
+        case 1: return "Learning"
+        case 2: return "Review"
+        case 3: return "Relearning"
+        default: return "Card"
+        }
+    }
+
+    private var stateTone: RemPillBadge.Tone {
+        if card.suspended { return .neutral }
+        switch card.state {
+        case 0: return .accent
+        case 1, 3: return .hard
+        case 2: return .good
+        default: return .neutral
+        }
+    }
+
+    private var dueText: String {
+        let nowMs = RemStore.nowMs()
+        if card.state == 0 { return "New card" }
+        if card.due <= nowMs { return "Due now" }
+        let date = Date(timeIntervalSince1970: TimeInterval(card.due) / 1000.0)
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    private func formattedDate(_ epochMs: Int64) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
+        return date.formatted(date: .abbreviated, time: .omitted)
     }
 }
