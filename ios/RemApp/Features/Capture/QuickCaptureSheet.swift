@@ -56,9 +56,7 @@ struct QuickCaptureSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            sheetHeader
-
+        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if isPreview {
@@ -68,20 +66,40 @@ struct QuickCaptureSheet: View {
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 6)
+                .padding(.top, 8)
                 .padding(.bottom, 28)
             }
             .scrollDismissesKeyboard(.interactively)
-        }
-        .background(RemColor.bg)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if showKeyboardBar {
-                morphingKeyboardBar
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            .background(RemColor.bg)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismissKeyboard()
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .principal) {
+                    deckPickerPill
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSaving ? "Saving…" : "Save") {
+                        Task { await save() }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(!canSave)
+                }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if showKeyboardBar {
+                    morphingKeyboardBar
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.easeOut(duration: 0.16), value: showKeyboardBar)
+            .animation(.easeOut(duration: 0.15), value: isFormatBarMode)
         }
-        .animation(.easeOut(duration: 0.16), value: showKeyboardBar)
-        .animation(.easeOut(duration: 0.15), value: isFormatBarMode)
+        .tint(RemColor.accent)
         .onAppear {
             if let card = editingCard {
                 selectedDeckId = card.deckId
@@ -111,39 +129,6 @@ struct QuickCaptureSheet: View {
     }
 
     // MARK: - Header
-
-    private var sheetHeader: some View {
-        HStack {
-            Button("Cancel") {
-                dismissKeyboard()
-                dismiss()
-            }
-            .font(.system(size: 15, weight: .medium))
-            .foregroundStyle(RemColor.muted)
-
-            Spacer()
-
-            deckPickerPill
-
-            Spacer()
-
-            Button {
-                Task { await save() }
-            } label: {
-                Text(isSaving ? "Saving…" : "Save")
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .foregroundStyle(canSave ? RemColor.onAccent : RemColor.faint)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 6.5)
-                    .background(canSave ? RemColor.accent : RemColor.bgInset)
-                    .clipShape(Capsule())
-            }
-            .disabled(!canSave)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 10)
-    }
 
     @ViewBuilder
     private var deckPickerPill: some View {

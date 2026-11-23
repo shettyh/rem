@@ -12,35 +12,37 @@ struct ReviewMenuSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 14) {
-                VStack(spacing: 0) {
+            Form {
+                Section {
                     if hasCurrentCard {
-                        menuRow(
-                            title: "Edit card",
-                            detail: "",
-                            action: {
-                                dismiss()
-                                onEdit()
-                            }
-                        )
-                        Divider().overlay(RemColor.border)
+                        Button {
+                            dismiss()
+                            onEdit()
+                        } label: {
+                            Label("Edit card", systemImage: "pencil")
+                                .foregroundStyle(RemColor.text)
+                        }
                     }
 
-                    menuRow(
-                        title: "Undo last grade",
-                        detail: canUndo ? "Restore" : "None yet",
-                        disabled: !canUndo,
-                        action: {
-                            dismiss()
-                            onUndo()
+                    Button {
+                        dismiss()
+                        onUndo()
+                    } label: {
+                        HStack {
+                            Label("Undo last grade", systemImage: "arrow.uturn.backward")
+                                .foregroundStyle(canUndo ? RemColor.text : RemColor.muted)
+                            Spacer()
+                            if !canUndo {
+                                Text("None yet")
+                                    .font(.footnote)
+                                    .foregroundStyle(RemColor.faint)
+                            }
                         }
-                    )
-
-                    Divider().overlay(RemColor.border)
+                    }
+                    .disabled(!canUndo)
 
                     HStack {
-                        Text("Text size")
-                            .font(.system(size: 15, weight: .medium))
+                        Label("Text size", systemImage: "textformat.size")
                             .foregroundStyle(RemColor.text)
                         Spacer()
                         Picker("Text size", selection: $appState.cardTextSize) {
@@ -51,70 +53,35 @@ struct ReviewMenuSheet: View {
                         .pickerStyle(.segmented)
                         .frame(width: 124)
                     }
-                    .padding(.horizontal, 15)
-                    .padding(.vertical, 12)
-
-                    if hasCurrentCard {
-                        Divider().overlay(RemColor.border)
-                        menuRow(
-                            title: "Suspend card",
-                            detail: "Skip in queue",
-                            destructive: true,
-                            action: {
-                                dismiss()
-                                onSuspend()
-                            }
-                        )
-                    }
                 }
-                .background(RemColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous)
-                        .strokeBorder(RemColor.border, lineWidth: 1)
-                )
+                .listRowBackground(RemColor.surface)
+                .listRowSeparatorTint(RemColor.border)
 
-                Spacer()
+                if hasCurrentCard {
+                    Section {
+                        Button(role: .destructive) {
+                            dismiss()
+                            onSuspend()
+                        } label: {
+                            Label("Suspend card", systemImage: "pause.circle")
+                        }
+                    }
+                    .listRowBackground(RemColor.surface)
+                }
             }
-            .padding(16)
-            .background(RemColor.bg)
+            .scrollContentBackground(.hidden)
+            .background(RemColor.groupedBg)
             .navigationTitle("Card & Session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                         .fontWeight(.semibold)
-                        .foregroundStyle(RemColor.accent)
                 }
             }
         }
-        .presentationDetents([.height(310)])
+        .tint(RemColor.accent)
+        .presentationDetents([.height(340)])
         .presentationDragIndicator(.visible)
-    }
-
-    private func menuRow(
-        title: String,
-        detail: String,
-        destructive: Bool = false,
-        disabled: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(destructive ? RemColor.danger : RemColor.text)
-                Spacer()
-                Text(detail)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(destructive ? RemColor.danger.opacity(0.8) : RemColor.muted)
-            }
-            .padding(.horizontal, 15)
-            .padding(.vertical, 14)
-            .contentShape(Rectangle())
-            .opacity(disabled ? 0.42 : 1.0)
-        }
-        .disabled(disabled)
-        .buttonStyle(.plain)
     }
 }

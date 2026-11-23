@@ -256,6 +256,7 @@ struct TodayView: View {
 
 struct DeckSummaryRow: View {
     let deck: DeckSummaryDto
+    var showChevron: Bool = true
 
     var body: some View {
         HStack(spacing: 10) {
@@ -279,13 +280,15 @@ struct DeckSummaryRow: View {
 
             HStack(spacing: 8) {
                 statusPill
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(RemColor.faint)
+                if showChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(RemColor.faint)
+                }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 13)
+        .padding(.horizontal, showChevron ? 14 : 0)
+        .padding(.vertical, showChevron ? 13 : 4)
         .contentShape(Rectangle())
     }
 

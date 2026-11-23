@@ -72,37 +72,32 @@ struct DeckOptionsSheet: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    generalSection
-                    dailyLimitsSection
-                    newCardsSection
-                    lapsesSection
-                    dangerZoneSection
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 14)
-                .padding(.bottom, 32)
+            Form {
+                generalSection
+                dailyLimitsSection
+                newCardsSection
+                lapsesSection
+                dangerZoneSection
             }
+            .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.interactively)
-            .background(RemColor.bg)
+            .background(RemColor.groupedBg)
             .navigationTitle("Deck options")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                        .foregroundStyle(RemColor.muted)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isSaving ? "Saving…" : "Save") {
                         Task { await saveChanges() }
                     }
                     .fontWeight(.semibold)
-                    .foregroundStyle(canSave ? RemColor.accent : RemColor.faint)
                     .disabled(!canSave)
                 }
             }
         }
+        .tint(RemColor.accent)
         .task {
             await loadDeck()
         }
@@ -123,85 +118,58 @@ struct DeckOptionsSheet: View {
     // MARK: - Sections
 
     private var generalSection: some View {
-        section("GENERAL") {
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Deck name")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(RemColor.muted)
+        Section("General") {
+            TextField("Deck name", text: $name)
+                .foregroundStyle(RemColor.text)
 
-                    TextField("Deck name", text: $name)
-                        .font(.system(size: 16))
-                        .foregroundStyle(RemColor.text)
-                        .padding(11)
-                        .background(RemColor.bgInset)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(RemColor.borderStrong, lineWidth: 1)
-                        )
-                }
-                .padding(14)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Color")
+                    .font(.subheadline)
+                    .foregroundStyle(RemColor.muted)
 
-                Divider().overlay(RemColor.border)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Color")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(RemColor.muted)
-
-                    HStack(spacing: 14) {
-                        ForEach(paletteOptions, id: \.self) { hex in
-                            let isSelected = selectedColor.lowercased() == hex.lowercased()
-                            Button {
-                                selectedColor = hex
-                            } label: {
-                                Circle()
-                                    .fill(Color(hexString: hex))
-                                    .frame(width: 28, height: 28)
-                                    .overlay(
-                                        Circle()
-                                            .strokeBorder(RemColor.text, lineWidth: isSelected ? 2.5 : 0)
-                                            .padding(-4)
-                                    )
-                            }
-                            .accessibilityLabel("Color \(hex)")
-                            .accessibilityAddTraits(isSelected ? .isSelected : [])
+                HStack(spacing: 14) {
+                    ForEach(paletteOptions, id: \.self) { hex in
+                        let isSelected = selectedColor.lowercased() == hex.lowercased()
+                        Button {
+                            selectedColor = hex
+                        } label: {
+                            Circle()
+                                .fill(Color(hexString: hex))
+                                .frame(width: 28, height: 28)
+                                .overlay(
+                                    Circle()
+                                        .strokeBorder(RemColor.text, lineWidth: isSelected ? 2.5 : 0)
+                                        .padding(-4)
+                                )
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Color \(hex)")
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
-                    .padding(.vertical, 2)
                 }
-                .padding(14)
-
-                Divider().overlay(RemColor.border)
-
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Desired retention")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(RemColor.text)
-                        Text("Target recall probability. Higher values schedule more frequent reviews.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(RemColor.muted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 4)
-                    RemStepperControl(
-                        value: $desiredRetentionPercent,
-                        range: 70...99,
-                        step: 1,
-                        label: "Desired retention",
-                        formattedValue: "\(desiredRetentionPercent)%"
-                    )
-                }
-                .padding(14)
-
-                Divider().overlay(RemColor.border)
-
-                personalizedSchedulingRow
-                    .padding(14)
+                .padding(.vertical, 4)
             }
+
+            Stepper(value: $desiredRetentionPercent, in: 70...99, step: 1) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("Desired retention")
+                            .foregroundStyle(RemColor.text)
+                        Spacer()
+                        Text("\(desiredRetentionPercent)%")
+                            .font(.subheadline.weight(.semibold).monospacedDigit())
+                            .foregroundStyle(RemColor.accent)
+                    }
+                    Text("Higher values schedule more frequent reviews.")
+                        .font(.caption)
+                        .foregroundStyle(RemColor.muted)
+                }
+            }
+
+            personalizedSchedulingRow
         }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
     }
 
     private var personalizedSchedulingRow: some View {
@@ -210,25 +178,17 @@ struct DeckOptionsSheet: View {
         let canOptimize = fsrsStatus?.canOptimize ?? false
 
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Personalized scheduling")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(RemColor.text)
-                    Text(hasWeights ? "Personalized schedule" : "Default schedule")
-                        .font(.system(size: 12))
-                        .foregroundStyle(RemColor.muted)
-                    Text("\(reviewCount) recorded \(reviewCount == 1 ? "review" : "reviews")")
-                        .font(.system(size: 12))
-                        .foregroundStyle(RemColor.muted)
-                    if !canOptimize {
-                        Text("Optimize after reviewing a card on a later day.")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(RemColor.faint)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Personalized scheduling")
+                    .foregroundStyle(RemColor.text)
+                Text("\(hasWeights ? "Personalized" : "Default") schedule · \(reviewCount) recorded \(reviewCount == 1 ? "review" : "reviews")")
+                    .font(.caption)
+                    .foregroundStyle(RemColor.muted)
+                if !canOptimize {
+                    Text("Optimize after reviewing a card on a later day.")
+                        .font(.caption)
+                        .foregroundStyle(RemColor.faint)
                 }
-                Spacer(minLength: 4)
             }
 
             HStack(spacing: 10) {
@@ -239,290 +199,159 @@ struct DeckOptionsSheet: View {
                         if isOptimizing {
                             ProgressView()
                                 .controlSize(.small)
-                                .tint(RemColor.onAccent)
                         }
                         Text(isOptimizing ? "Optimizing…" : "Optimize")
-                            .font(.system(size: 13, weight: .semibold))
                     }
-                    .foregroundStyle(canOptimize && !isOptimizing ? RemColor.onAccent : RemColor.muted)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(canOptimize && !isOptimizing ? RemColor.accent : RemColor.bgInset)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(RemColor.accent)
+                .controlSize(.small)
                 .disabled(!canOptimize || isOptimizing || isSaving)
 
                 if hasWeights {
-                    Button {
+                    Button("Reset") {
                         Task { await resetFsrs() }
-                    } label: {
-                        Text("Reset")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(RemColor.text)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(RemColor.surface)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .strokeBorder(RemColor.borderStrong, lineWidth: 1)
-                            )
                     }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                     .disabled(isOptimizing || isSaving)
                 }
             }
         }
+        .padding(.vertical, 2)
     }
 
     private var dailyLimitsSection: some View {
-        section("DAILY LIMITS") {
-            VStack(spacing: 0) {
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("New cards/day")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(RemColor.text)
-                        Text("Cap on new cards introduced daily.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(RemColor.muted)
-                    }
-                    Spacer(minLength: 4)
-                    RemStepperControl(
-                        value: $newPerDay,
-                        range: 0...9999,
-                        step: 5,
-                        label: "New cards per day",
-                        formattedValue: "\(newPerDay)"
-                    )
+        Section("Daily Limits") {
+            Stepper(value: $newPerDay, in: 0...9999, step: 5) {
+                HStack {
+                    Text("New cards/day")
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    Text("\(newPerDay)")
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(RemColor.muted)
                 }
-                .padding(14)
+            }
 
-                Divider().overlay(RemColor.border)
-
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Maximum reviews/day")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(RemColor.text)
-                        Text("Cap on due reviews shown each day.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(RemColor.muted)
-                    }
-                    Spacer(minLength: 4)
-                    RemStepperControl(
-                        value: $maxReviews,
-                        range: 0...9999,
-                        step: 10,
-                        label: "Maximum reviews per day",
-                        formattedValue: "\(maxReviews)"
-                    )
+            Stepper(value: $maxReviews, in: 0...9999, step: 10) {
+                HStack {
+                    Text("Maximum reviews/day")
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    Text("\(maxReviews)")
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(RemColor.muted)
                 }
-                .padding(14)
             }
         }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
     }
 
     private var newCardsSection: some View {
-        section("NEW CARDS") {
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Learning steps")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(RemColor.text)
-                        Spacer()
-                        Text("e.g. 1m 10m 1d")
-                            .font(.system(size: 11.5, design: .monospaced))
-                            .foregroundStyle(RemColor.faint)
-                    }
-                    Text("Intervals a new card steps through before graduating. Space-separated.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(RemColor.muted)
-
-                    TextField("1m 10m", text: $learnSteps)
-                        .font(.system(size: 14, design: .monospaced))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .padding(10)
-                        .background(RemColor.bgInset)
-                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .strokeBorder(RemColor.borderStrong, lineWidth: 1)
-                        )
-
-                    stepChipsRow(raw: learnSteps, isLapse: false)
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Learning steps")
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    Text("e.g. 1m 10m 1d")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(RemColor.faint)
                 }
-                .padding(14)
 
-                Divider().overlay(RemColor.border)
+                TextField("1m 10m", text: $learnSteps)
+                    .font(.subheadline.monospaced())
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(9)
+                    .background(RemColor.bgInset)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Insertion order")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(RemColor.text)
-                        Text("Order new cards enter the queue.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(RemColor.muted)
-                    }
-                    Spacer(minLength: 4)
-                    Picker("Insertion order", selection: $insertionOrder) {
-                        Text("Seq").tag(InsertionOrderDto.sequential)
-                        Text("Random").tag(InsertionOrderDto.random)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 148)
-                }
-                .padding(14)
+                stepChipsRow(raw: learnSteps, isLapse: false)
             }
+            .padding(.vertical, 2)
+
+            Picker("Insertion order", selection: $insertionOrder) {
+                Text("Sequential").tag(InsertionOrderDto.sequential)
+                Text("Random").tag(InsertionOrderDto.random)
+            }
+        } header: {
+            Text("New Cards")
+        } footer: {
+            Text("Space-separated intervals a new card steps through before graduating.")
         }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
     }
 
     private var lapsesSection: some View {
-        section("LAPSES") {
-            VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Relearn steps")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(RemColor.text)
-                        Spacer()
-                        Text("e.g. 10m")
-                            .font(.system(size: 11.5, design: .monospaced))
-                            .foregroundStyle(RemColor.faint)
-                    }
-                    Text("Steps a lapsed card relearns through. Space-separated.")
-                        .font(.system(size: 12))
+        Section("Lapses") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Relearn steps")
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    Text("e.g. 10m")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(RemColor.faint)
+                }
+
+                TextField("10m", text: $relearnSteps)
+                    .font(.subheadline.monospaced())
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .padding(9)
+                    .background(RemColor.bgInset)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                stepChipsRow(raw: relearnSteps, isLapse: true)
+            }
+            .padding(.vertical, 2)
+
+            Stepper(value: $minimumInterval, in: 1...365, step: 1) {
+                HStack {
+                    Text("Minimum interval")
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    Text("\(minimumInterval)d")
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
                         .foregroundStyle(RemColor.muted)
-
-                    TextField("10m", text: $relearnSteps)
-                        .font(.system(size: 14, design: .monospaced))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .padding(10)
-                        .background(RemColor.bgInset)
-                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .strokeBorder(RemColor.borderStrong, lineWidth: 1)
-                        )
-
-                    stepChipsRow(raw: relearnSteps, isLapse: true)
                 }
-                .padding(14)
+            }
 
-                Divider().overlay(RemColor.border)
-
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Minimum interval")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(RemColor.text)
-                        Text("Floor for intervals after a lapse.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(RemColor.muted)
-                    }
-                    Spacer(minLength: 4)
-                    RemStepperControl(
-                        value: $minimumInterval,
-                        range: 1...365,
-                        step: 1,
-                        label: "Minimum interval",
-                        formattedValue: "\(minimumInterval)d"
-                    )
+            Stepper(value: $leechThreshold, in: 1...99, step: 1) {
+                HStack {
+                    Text("Leech threshold")
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    Text("\(leechThreshold)")
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(RemColor.muted)
                 }
-                .padding(14)
+            }
 
-                Divider().overlay(RemColor.border)
-
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Leech threshold")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(RemColor.text)
-                        Text("Lapses before a card is flagged a leech.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(RemColor.muted)
-                    }
-                    Spacer(minLength: 4)
-                    RemStepperControl(
-                        value: $leechThreshold,
-                        range: 1...99,
-                        step: 1,
-                        label: "Leech threshold",
-                        formattedValue: "\(leechThreshold)"
-                    )
-                }
-                .padding(14)
-
-                Divider().overlay(RemColor.border)
-
-                HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Leech action")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(RemColor.text)
-                        Text("What happens when a leech is found.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(RemColor.muted)
-                    }
-                    Spacer(minLength: 4)
-                    Picker("Leech action", selection: $leechAction) {
-                        Text("Tag").tag(LeechActionDto.tag)
-                        Text("Suspend").tag(LeechActionDto.suspend)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 148)
-                }
-                .padding(14)
+            Picker("Leech action", selection: $leechAction) {
+                Text("Tag").tag(LeechActionDto.tag)
+                Text("Suspend").tag(LeechActionDto.suspend)
             }
         }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
     }
 
     private var dangerZoneSection: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text("DANGER ZONE")
-                .font(.system(size: 11, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(RemColor.danger)
-                .padding(.horizontal, 2)
-
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Delete this deck")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(RemColor.text)
-                    Text("Permanently removes the deck and all its cards.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(RemColor.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 4)
-                Button(role: .destructive) {
-                    showDeleteConfirm = true
-                } label: {
-                    Text("Delete")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(RemColor.danger)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(RemColor.againBg)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(RemColor.danger.opacity(0.3), lineWidth: 1)
-                        )
-                }
+        Section {
+            Button(role: .destructive) {
+                showDeleteConfirm = true
+            } label: {
+                Label("Delete this deck", systemImage: "trash")
             }
-            .padding(14)
-            .background(RemColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous)
-                    .strokeBorder(RemColor.danger.opacity(0.28), lineWidth: 1)
-            )
+        } footer: {
+            Text("Permanently removes the deck and all its cards locally and on synced devices.")
         }
+        .listRowBackground(RemColor.surface)
     }
 
     // MARK: - Helpers
@@ -536,7 +365,7 @@ struct DeckOptionsSheet: View {
                     ForEach(Array(tokens.enumerated()), id: \.offset) { _, token in
                         let valid = DeckStepParser.isValidToken(token)
                         Text(token)
-                            .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                            .font(.caption.weight(.semibold).monospaced())
                             .foregroundStyle(
                                 !valid
                                     ? RemColor.again
@@ -554,23 +383,6 @@ struct DeckOptionsSheet: View {
                 }
             }
             .padding(.top, 2)
-        }
-    }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(.system(size: 11, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(RemColor.muted)
-                .padding(.horizontal, 2)
-            content()
-                .background(RemColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous)
-                        .strokeBorder(RemColor.border, lineWidth: 1)
-                )
         }
     }
 
@@ -656,57 +468,5 @@ struct DeckOptionsSheet: View {
             fsrsStatus = try? await appState.store.getDeckFsrsStatus(deckId: deckId)
         }
         isOptimizing = false
-    }
-}
-
-struct RemStepperControl: View {
-    @Binding var value: Int
-    let range: ClosedRange<Int>
-    let step: Int
-    let label: String
-    let formattedValue: String
-
-    private var canDecrement: Bool { value > range.lowerBound }
-    private var canIncrement: Bool { value < range.upperBound }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Button {
-                value = max(range.lowerBound, value - step)
-            } label: {
-                Image(systemName: "minus")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(canDecrement ? RemColor.text : RemColor.faint)
-                    .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .disabled(!canDecrement)
-            .accessibilityLabel("Decrease \(label)")
-
-            Text(formattedValue)
-                .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                .foregroundStyle(RemColor.text)
-                .frame(minWidth: 44)
-                .multilineTextAlignment(.center)
-                .monospacedDigit()
-
-            Button {
-                value = min(range.upperBound, value + step)
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(canIncrement ? RemColor.text : RemColor.faint)
-                    .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
-            }
-            .disabled(!canIncrement)
-            .accessibilityLabel("Increase \(label)")
-        }
-        .background(RemColor.bgInset)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(RemColor.borderStrong, lineWidth: 1)
-        )
     }
 }

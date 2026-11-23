@@ -15,18 +15,14 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    cloudSyncSection
-                    readingAndHabitSection
-                    yourDataSection
-                    legalFooterSection
-                }
-                .padding(.horizontal, 18)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
+            Form {
+                cloudSyncSection
+                readingAndHabitSection
+                yourDataSection
+                legalFooterSection
             }
-            .background(RemColor.bg)
+            .scrollContentBackground(.hidden)
+            .background(RemColor.groupedBg)
             .navigationTitle("Settings")
             .onAppear {
             if appState.expandCustomServerInSettings {
@@ -101,289 +97,250 @@ struct SettingsView: View {
 
     private var cloudSyncSection: some View {
         let isSignedIn = appState.syncStatus?.signedIn == true
-        return section("CLOUD SYNC") {
+        return Section("Cloud Sync") {
             if isSignedIn {
-                signedInCard
+                signedInRows
             } else {
                 signedOutCard
             }
         }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
     }
 
-    private var signedInCard: some View {
+    @ViewBuilder
+    private var signedInRows: some View {
         let ent = appState.entitlement
         let entState = appState.effectiveEntitlementState
         let isPaused = appState.isSyncPaused
         let trialDays = Int(ent?.trialDays ?? 30)
         let daysLeft = daysRemaining(ent?.expiresAt)
 
-        return VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(entState == .selfHosted ? "Self-hosted sync" : "rem Premium")
-                        .font(.system(size: 14.5, weight: .semibold))
-                        .foregroundStyle(RemColor.text)
-                    Text(signedInSubtitle)
-                        .font(.system(size: 12))
-                        .foregroundStyle(RemColor.muted)
-                    if let planSubtitle = planDetailLine(ent: ent, state: entState, daysLeft: daysLeft) {
-                        Text(planSubtitle)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(RemColor.faint)
-                    }
-                    if let err = appState.lastSyncError, !isPaused {
-                        Text(err)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(RemColor.again)
-                            .padding(.top, 2)
-                    }
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(entState == .selfHosted ? "Self-hosted sync" : "rem Premium")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(RemColor.text)
+                Text(signedInSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(RemColor.muted)
+                if let planSubtitle = planDetailLine(ent: ent, state: entState, daysLeft: daysLeft) {
+                    Text(planSubtitle)
+                        .font(.caption2)
+                        .foregroundStyle(RemColor.faint)
                 }
-                Spacer()
-                entitlementBadge(ent: ent, state: entState, daysLeft: daysLeft)
+                if let err = appState.lastSyncError, !isPaused {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundStyle(RemColor.again)
+                        .padding(.top, 2)
+                }
             }
-            .padding(14)
+            Spacer()
+            entitlementBadge(ent: ent, state: entState, daysLeft: daysLeft)
+        }
+        .padding(.vertical, 2)
 
-            if entState == .none || entState == .expired || entState == .pastDue {
-                Divider().overlay(RemColor.border)
+        if entState == .none || entState == .expired || entState == .pastDue {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(pausedCardTitle(state: entState))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(RemColor.text)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(pausedCardTitle(state: entState))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(RemColor.text)
+                Text(pausedCardBody(state: entState, provider: ent?.provider, trialDays: trialDays))
+                    .font(.footnote)
+                    .foregroundStyle(RemColor.muted)
+                    .lineSpacing(2)
 
-                    Text(pausedCardBody(state: entState, provider: ent?.provider, trialDays: trialDays))
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(RemColor.muted)
-                        .lineSpacing(2)
+                let showTrialButton = (entState == .none || entState == .expired)
+                    && (ent?.canStartTrial ?? (entState == .none))
 
-                    let showTrialButton = (entState == .none || entState == .expired)
-                        && (ent?.canStartTrial ?? (entState == .none))
-
-                    if showTrialButton {
-                        Button {
-                            Task { await appState.startTrial() }
-                        } label: {
-                            HStack(spacing: 8) {
-                                if appState.isStartingTrial {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .tint(RemColor.onAccent)
-                                }
-                                Text(appState.isStartingTrial ? "Starting trial…" : "Start \(trialDays)-day free trial")
-                            }
-                        }
-                        .buttonStyle(RemPrimaryButtonStyle())
-                        .disabled(appState.isStartingTrial || appState.isCheckingEntitlement)
-                        .padding(.top, 2)
-                    }
-
-                    if appState.canShowAppleSubscribe {
-                        let upgradeTitle = appState.storeKit.localizedPrice.map {
-                            "Upgrade to Premium — \($0)/year"
-                        } ?? "Upgrade to Premium"
-                        if showTrialButton {
-                            Button {
-                                showPremiumPaywall = true
-                            } label: {
-                                Text(upgradeTitle)
-                            }
-                            .buttonStyle(RemSecondaryButtonStyle())
-                            .disabled(appState.isStartingTrial || appState.storeKit.isPurchasing)
-                        } else {
-                            Button {
-                                showPremiumPaywall = true
-                            } label: {
-                                Text(upgradeTitle)
-                            }
-                            .buttonStyle(RemPrimaryButtonStyle())
-                            .disabled(appState.storeKit.isPurchasing)
-                            .padding(.top, 2)
-                        }
-                    }
-
-                    if entState == .pastDue && appState.canShowAppleManageSubscription {
-                        Button {
-                            Task { await appState.manageAppleSubscription() }
-                        } label: {
-                            Text("Manage subscription")
-                        }
-                        .buttonStyle(RemPrimaryButtonStyle())
-                        .padding(.top, 2)
-                    }
-
+                if showTrialButton {
                     Button {
-                        Task { _ = await appState.restoreApplePurchases() }
+                        Task { await appState.startTrial() }
                     } label: {
-                        HStack(spacing: 6) {
-                            if appState.storeKit.isRestoring {
-                                ProgressView().controlSize(.mini)
+                        HStack(spacing: 8) {
+                            if appState.isStartingTrial {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(RemColor.onAccent)
                             }
-                            Text(appState.storeKit.isRestoring ? "Restoring purchases…" : "Restore purchases")
-                                .font(.system(size: 12.5, weight: .semibold))
-                                .foregroundStyle(RemColor.accent)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 2)
-                    }
-                    .disabled(appState.storeKit.isRestoring || appState.storeKit.isPurchasing)
-                }
-                .padding(13)
-                .background(entState == .pastDue ? RemColor.hardBg : RemColor.bgInset)
-                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                        .strokeBorder(
-                            entState == .pastDue ? RemColor.hard.opacity(0.28) : RemColor.border,
-                            lineWidth: 1
-                        )
-                )
-                .padding(14)
-            }
-
-            Divider().overlay(RemColor.border)
-
-            if isPaused || entState == .pastDue {
-                Button {
-                    Task { await appState.checkAccessAndRetrySync() }
-                } label: {
-                    HStack {
-                        Text("Check access / Retry sync")
-                            .font(.system(size: 14))
-                            .foregroundStyle(RemColor.text)
-                        Spacer()
-                        if appState.isCheckingEntitlement || appState.isSyncing {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Text("Check")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(RemColor.accent)
+                            Text(appState.isStartingTrial ? "Starting trial…" : "Start \(trialDays)-day free trial")
                         }
                     }
-                    .padding(14)
-                    .contentShape(Rectangle())
+                    .buttonStyle(RemPrimaryButtonStyle())
+                    .disabled(appState.isStartingTrial || appState.isCheckingEntitlement)
+                    .padding(.top, 2)
                 }
-                .disabled(appState.isCheckingEntitlement || appState.isSyncing)
-            } else {
-                Button {
-                    Task { await appState.syncNow(silent: false) }
-                } label: {
-                    HStack {
-                        Text("Sync now")
-                            .font(.system(size: 14))
-                            .foregroundStyle(RemColor.text)
-                        Spacer()
-                        if appState.isSyncing {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Text(appState.lastSyncError != nil ? "Retry" : "Run")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(RemColor.accent)
-                        }
-                    }
-                    .padding(14)
-                    .contentShape(Rectangle())
-                }
-                .disabled(appState.isSyncing)
 
                 if appState.canShowAppleSubscribe {
-                    Divider().overlay(RemColor.border)
-
-                    Button {
-                        showPremiumPaywall = true
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Upgrade to rem Premium")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(RemColor.text)
-                                Text(upgradeRowSubtitle(daysLeft: daysLeft))
-                                    .font(.system(size: 11.5))
-                                    .foregroundStyle(RemColor.muted)
-                            }
-                            Spacer()
-                            Text("Upgrade")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(RemColor.accent)
+                    let upgradeTitle = appState.storeKit.localizedPrice.map {
+                        "Upgrade to Premium — \($0)/year"
+                    } ?? "Upgrade to Premium"
+                    if showTrialButton {
+                        Button {
+                            showPremiumPaywall = true
+                        } label: {
+                            Text(upgradeTitle)
                         }
-                        .padding(14)
-                        .contentShape(Rectangle())
+                        .buttonStyle(RemSecondaryButtonStyle())
+                        .disabled(appState.isStartingTrial || appState.storeKit.isPurchasing)
+                    } else {
+                        Button {
+                            showPremiumPaywall = true
+                        } label: {
+                            Text(upgradeTitle)
+                        }
+                        .buttonStyle(RemPrimaryButtonStyle())
+                        .disabled(appState.storeKit.isPurchasing)
+                        .padding(.top, 2)
                     }
-                } else if appState.canShowAppleManageSubscription {
-                    Divider().overlay(RemColor.border)
+                }
 
+                if entState == .pastDue && appState.canShowAppleManageSubscription {
                     Button {
                         Task { await appState.manageAppleSubscription() }
                     } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Manage subscription")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(RemColor.text)
-                                if let dateStr = formattedShortDate(ent?.expiresAt) {
-                                    let verb = (ent?.cancelAtPeriodEnd ?? false) ? "Ends" : "Renews"
-                                    Text("\(verb) \(dateStr) · App Store")
-                                        .font(.system(size: 11.5))
-                                        .foregroundStyle(RemColor.muted)
-                                } else {
-                                    Text("App Store")
-                                        .font(.system(size: 11.5))
-                                        .foregroundStyle(RemColor.muted)
-                                }
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(RemColor.faint)
+                        Text("Manage subscription")
+                    }
+                    .buttonStyle(RemPrimaryButtonStyle())
+                    .padding(.top, 2)
+                }
+
+                Button {
+                    Task { _ = await appState.restoreApplePurchases() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if appState.storeKit.isRestoring {
+                            ProgressView().controlSize(.mini)
                         }
-                        .padding(14)
-                        .contentShape(Rectangle())
+                        Text(appState.storeKit.isRestoring ? "Restoring purchases…" : "Restore purchases")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(RemColor.accent)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
+                }
+                .buttonStyle(.plain)
+                .disabled(appState.storeKit.isRestoring || appState.storeKit.isPurchasing)
+            }
+            .padding(12)
+            .background(entState == .pastDue ? RemColor.hardBg : RemColor.bgInset)
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(
+                        entState == .pastDue ? RemColor.hard.opacity(0.28) : RemColor.border,
+                        lineWidth: 1
+                    )
+            )
+            .padding(.vertical, 4)
+        }
+
+        if isPaused || entState == .pastDue {
+            Button {
+                Task { await appState.checkAccessAndRetrySync() }
+            } label: {
+                HStack {
+                    Text("Check access / Retry sync")
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    if appState.isCheckingEntitlement || appState.isSyncing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Check")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(RemColor.accent)
                     }
                 }
             }
-
-            Divider().overlay(RemColor.border)
-
-            HStack {
-                Text("Server")
-                    .font(.system(size: 14))
-                    .foregroundStyle(RemColor.text)
-                Spacer()
-                Text(displayServerName)
-                    .font(.system(size: 12.5, design: displayServerName == "rem Cloud" ? .default : .monospaced))
-                    .foregroundStyle(RemColor.muted)
-                    .lineLimit(1)
-            }
-            .padding(14)
-
-            Divider().overlay(RemColor.border)
-
+            .disabled(appState.isCheckingEntitlement || appState.isSyncing)
+        } else {
             Button {
-                Task { await appState.signOut() }
+                Task { await appState.syncNow(silent: false) }
             } label: {
                 HStack {
-                    Text("Sign out (keep local cards)")
-                        .font(.system(size: 14))
+                    Text("Sync now")
                         .foregroundStyle(RemColor.text)
                     Spacer()
+                    if appState.isSyncing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text(appState.lastSyncError != nil ? "Retry" : "Run")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(RemColor.accent)
+                    }
                 }
-                .padding(14)
-                .contentShape(Rectangle())
             }
+            .disabled(appState.isSyncing)
 
-            Divider().overlay(RemColor.border)
-
-            Button(role: .destructive) {
-                showDeleteAccountConfirm = true
-            } label: {
-                HStack {
-                    Text("Delete cloud account")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(RemColor.danger)
-                    Spacer()
+            if appState.canShowAppleSubscribe {
+                Button {
+                    showPremiumPaywall = true
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Upgrade to rem Premium")
+                                .foregroundStyle(RemColor.text)
+                            Text(upgradeRowSubtitle(daysLeft: daysLeft))
+                                .font(.caption)
+                                .foregroundStyle(RemColor.muted)
+                        }
+                        Spacer()
+                        Text("Upgrade")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(RemColor.accent)
+                    }
                 }
-                .padding(14)
-                .contentShape(Rectangle())
+            } else if appState.canShowAppleManageSubscription {
+                Button {
+                    Task { await appState.manageAppleSubscription() }
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Manage subscription")
+                                .foregroundStyle(RemColor.text)
+                            if let dateStr = formattedShortDate(ent?.expiresAt) {
+                                let verb = (ent?.cancelAtPeriodEnd ?? false) ? "Ends" : "Renews"
+                                Text("\(verb) \(dateStr) · App Store")
+                                    .font(.caption)
+                                    .foregroundStyle(RemColor.muted)
+                            } else {
+                                Text("App Store")
+                                    .font(.caption)
+                                    .foregroundStyle(RemColor.muted)
+                            }
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(RemColor.faint)
+                    }
+                }
             }
+        }
+
+        HStack {
+            Text("Server")
+                .foregroundStyle(RemColor.text)
+            Spacer()
+            Text(displayServerName)
+                .font(displayServerName == "rem Cloud" ? .subheadline : .caption.monospaced())
+                .foregroundStyle(RemColor.muted)
+                .lineLimit(1)
+        }
+
+        Button {
+            Task { await appState.signOut() }
+        } label: {
+            Text("Sign out (keep local cards)")
+                .foregroundStyle(RemColor.text)
+        }
+
+        Button(role: .destructive) {
+            showDeleteAccountConfirm = true
+        } label: {
+            Text("Delete cloud account")
         }
     }
 
@@ -391,10 +348,10 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 11) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Local-only mode")
-                    .font(.system(size: 14.5, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(RemColor.text)
                 Text("Your decks stay on this iPhone. Sign in to sync decks, study progress, and images across your devices.")
-                    .font(.system(size: 12.5))
+                    .font(.footnote)
                     .foregroundStyle(RemColor.muted)
                     .lineSpacing(2)
             }
@@ -447,32 +404,13 @@ struct SettingsView: View {
             .buttonStyle(RemSecondaryButtonStyle())
             .disabled(appState.isAuthenticating)
 
-            Divider().overlay(RemColor.border)
-                .padding(.top, 2)
-
-            Button {
-                withAnimation(.easeOut(duration: 0.16)) {
-                    useCustomServer.toggle()
-                }
-            } label: {
-                HStack {
-                    Text("Custom server")
-                        .font(.system(size: 12.5, weight: .medium))
-                        .foregroundStyle(RemColor.faint)
-                    Spacer()
-                    Image(systemName: useCustomServer ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(RemColor.faint)
-                }
-            }
-
-            if useCustomServer {
+            DisclosureGroup("Custom server", isExpanded: $useCustomServer) {
                 VStack(alignment: .leading, spacing: 7) {
                     TextField(
                         "https://sync.example.com",
                         text: $customServerUrl
                     )
-                    .font(.system(size: 12.5, design: .monospaced))
+                    .font(.footnote.monospaced())
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -491,150 +429,126 @@ struct SettingsView: View {
                             .foregroundStyle(RemColor.faint)
                             .underline()
                     }
-                    .font(.system(size: 11.5))
+                    .font(.caption)
                 }
+                .padding(.top, 6)
             }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(RemColor.muted)
         }
-        .padding(14)
+        .padding(.vertical, 4)
     }
 
     private var readingAndHabitSection: some View {
-        section("READING & HABIT") {
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Card text size")
-                        .font(.system(size: 14))
-                        .foregroundStyle(RemColor.text)
-                    Spacer()
-                    Picker("Text size", selection: $appState.cardTextSize) {
-                        ForEach(CardTextSize.allCases) { size in
-                            Text(size.shortLabel).tag(size)
-                        }
+        Section("Reading & Habit") {
+            HStack {
+                Text("Card text size")
+                    .foregroundStyle(RemColor.text)
+                Spacer()
+                Picker("Text size", selection: $appState.cardTextSize) {
+                    ForEach(CardTextSize.allCases) { size in
+                        Text(size.shortLabel).tag(size)
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 124)
                 }
-                .padding(14)
+                .pickerStyle(.segmented)
+                .frame(width: 124)
+            }
 
-                Divider().overlay(RemColor.border)
-
-                HStack {
-                    Text("Theme")
-                        .font(.system(size: 14))
-                        .foregroundStyle(RemColor.text)
-                    Spacer()
-                    Picker("Theme", selection: $appState.appearance) {
-                        ForEach(AppAppearance.allCases) { mode in
-                            Text(mode.label).tag(mode)
-                        }
+            HStack {
+                Text("Theme")
+                    .foregroundStyle(RemColor.text)
+                Spacer()
+                Picker("Theme", selection: $appState.appearance) {
+                    ForEach(AppAppearance.allCases) { mode in
+                        Text(mode.label).tag(mode)
                     }
-                    .pickerStyle(.segmented)
-                    .frame(width: 186)
                 }
-                .padding(14)
+                .pickerStyle(.segmented)
+                .frame(width: 186)
+            }
 
-                Divider().overlay(RemColor.border)
-
-                Toggle(isOn: $appState.hapticsEnabled) {
-                    Text("Haptic grade feedback")
-                        .font(.system(size: 14))
-                        .foregroundStyle(RemColor.text)
-                }
+            Toggle("Haptic grade feedback", isOn: $appState.hapticsEnabled)
                 .tint(RemColor.accent)
-                .padding(14)
 
-                Divider().overlay(RemColor.border)
-
-                Toggle(isOn: Binding(
-                    get: { appState.reminderEnabled },
-                    set: { next in Task { await appState.setReminderEnabled(next) } }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Daily reminder")
-                            .font(.system(size: 14))
-                            .foregroundStyle(RemColor.text)
-                        Text("Only notifies if cards are still due")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(RemColor.muted)
-                    }
-                }
-                .tint(RemColor.accent)
-                .padding(14)
-
-                if appState.reminderEnabled {
-                    Divider().overlay(RemColor.border)
-                    DatePicker(
-                        "Reminder time",
-                        selection: $appState.reminderDate,
-                        displayedComponents: .hourAndMinute
-                    )
-                    .font(.system(size: 14))
-                    .tint(RemColor.accent)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+            Toggle(isOn: Binding(
+                get: { appState.reminderEnabled },
+                set: { next in Task { await appState.setReminderEnabled(next) } }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Daily reminder")
+                        .foregroundStyle(RemColor.text)
+                    Text("Only notifies if cards are still due")
+                        .font(.caption)
+                        .foregroundStyle(RemColor.muted)
                 }
             }
+            .tint(RemColor.accent)
+
+            if appState.reminderEnabled {
+                DatePicker(
+                    "Reminder time",
+                    selection: $appState.reminderDate,
+                    displayedComponents: .hourAndMinute
+                )
+                .tint(RemColor.accent)
+            }
         }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
     }
 
     private var yourDataSection: some View {
-        section("YOUR DATA") {
-            VStack(spacing: 0) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("On this iPhone")
-                            .font(.system(size: 14))
-                            .foregroundStyle(RemColor.text)
-                        Text(storageSubtitle)
-                            .font(.system(size: 12))
-                            .foregroundStyle(RemColor.muted)
-                    }
-                    Spacer()
+        Section("Your Data") {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("On this iPhone")
+                    .foregroundStyle(RemColor.text)
+                Text(storageSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(RemColor.muted)
+            }
+
+            Button {
+                Task {
+                    shareBackupURL = await appState.exportBackupFile()
                 }
-                .padding(14)
-
-                Divider().overlay(RemColor.border)
-
-                Button {
-                    Task {
-                        shareBackupURL = await appState.exportBackupFile()
-                    }
-                } label: {
-                    HStack {
-                        Text("Export backup")
-                            .font(.system(size: 14))
-                            .foregroundStyle(RemColor.text)
-                        Spacer()
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 13.5))
-                            .foregroundStyle(RemColor.muted)
-                    }
-                    .padding(14)
-                    .contentShape(Rectangle())
+            } label: {
+                HStack {
+                    Text("Export backup")
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    Image(systemName: "square.and.arrow.up")
+                        .foregroundStyle(RemColor.muted)
                 }
             }
         }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
     }
 
     private var legalFooterSection: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                Spacer()
-                Link("Privacy Policy", destination: RemDocs.privacyPolicyURL)
-                Text("·").foregroundStyle(RemColor.borderStrong)
-                Link("Terms of Use", destination: RemDocs.termsOfUseURL)
-                Spacer()
-            }
-            .font(.system(size: 12.5, weight: .medium))
-            .foregroundStyle(RemColor.muted)
+        Section {
+            EmptyView()
+        } footer: {
+            VStack(spacing: 8) {
+                HStack(spacing: 12) {
+                    Spacer()
+                    Link("Privacy Policy", destination: RemDocs.privacyPolicyURL)
+                    Text("·").foregroundStyle(RemColor.borderStrong)
+                    Link("Terms of Use", destination: RemDocs.termsOfUseURL)
+                    Spacer()
+                }
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(RemColor.muted)
 
-            if let versionLabel = appVersionLabel {
-                Text(versionLabel)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(RemColor.faint)
+                if let versionLabel = appVersionLabel {
+                    Text(versionLabel)
+                        .font(.caption)
+                        .foregroundStyle(RemColor.faint)
+                }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 4)
         }
-        .padding(.top, 4)
     }
 
     // MARK: - Helpers
@@ -663,23 +577,6 @@ struct SettingsView: View {
             return "\(price) via App Store"
         case (nil, nil):
             return "Annual plan via App Store"
-        }
-    }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(.system(size: 11, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(RemColor.muted)
-                .padding(.horizontal, 2)
-            content()
-                .background(RemColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous)
-                        .strokeBorder(RemColor.border, lineWidth: 1)
-                )
         }
     }
 

@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 
 struct StatsView: View {
@@ -5,12 +6,18 @@ struct StatsView: View {
     @State private var rangeDays: UInt32 = 30
     @State private var selectedDeckId: String? = nil
     @State private var stats: StatsDto?
+    @State private var selectedActivityDay: String? = nil
 
     private var selectedDeckName: String {
         guard let selectedDeckId,
               let deck = appState.decks.first(where: { $0.id == selectedDeckId })
         else { return "All decks" }
         return deck.name
+    }
+
+    private var selectedActivityEntry: DailyActivityDto? {
+        guard let selectedActivityDay, let stats else { return nil }
+        return stats.dailyActivity.first { $0.day == selectedActivityDay }
     }
 
     var body: some View {
@@ -75,41 +82,59 @@ struct StatsView: View {
 
                     RemCardSurface(padding: 16) {
                         VStack(alignment: .leading, spacing: 12) {
-                            HStack {
+                            HStack(alignment: .top) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Review activity")
-                                        .font(.system(size: 14, weight: .semibold))
+                                        .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(RemColor.text)
-                                    Text("Reviews completed per local day")
-                                        .font(.system(size: 11.5))
-                                        .foregroundStyle(RemColor.muted)
+                                    if let selected = selectedActivityEntry {
+                                        Text("\(shortDayLabel(selected.day)) · \(selected.count) \(selected.count == 1 ? "review" : "reviews")")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(RemColor.accent)
+                                    } else {
+                                        Text("Touch and drag to inspect daily reviews")
+                                            .font(.caption)
+                                            .foregroundStyle(RemColor.muted)
+                                    }
                                 }
                                 Spacer()
                                 Text("last \(rangeDays) days")
-                                    .font(.system(size: 12))
+                                    .font(.caption)
                                     .foregroundStyle(RemColor.muted)
                             }
 
-                            let maxCount = max(1, stats.dailyActivity.map(\.count).max() ?? 1)
-                            HStack(alignment: .bottom, spacing: rangeDays > 45 ? 1.5 : 3) {
-                                ForEach(stats.dailyActivity, id: \.day) { entry in
-                                    let ratio = CGFloat(entry.count) / CGFloat(maxCount)
-                                    RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                                        .fill(entry.count == 0 ? RemColor.border : RemColor.accent)
-                                        .frame(height: entry.count == 0 ? 4 : max(8, 86 * ratio))
+                            Chart(stats.dailyActivity, id: \.day) { entry in
+                                BarMark(
+                                    x: .value("Day", entry.day),
+                                    y: .value("Reviews", Int(entry.count))
+                                )
+                                .foregroundStyle(
+                                    selectedActivityDay == nil || selectedActivityDay == entry.day
+                                        ? RemColor.accent
+                                        : RemColor.accent.opacity(0.35)
+                                )
+                                .cornerRadius(3)
+                            }
+                            .chartXSelection(value: $selectedActivityDay)
+                            .chartXAxis {
+                                AxisMarks(values: axisDayLabels(from: stats.dailyActivity)) { value in
+                                    if let raw = value.as(String.self) {
+                                        AxisValueLabel(shortDayLabel(raw))
+                                            .font(.caption2)
+                                            .foregroundStyle(RemColor.faint)
+                                    }
                                 }
                             }
-                            .frame(height: 88, alignment: .bottom)
-
-                            if let first = stats.dailyActivity.first?.day, let last = stats.dailyActivity.last?.day {
-                                HStack {
-                                    Text(shortDayLabel(first))
-                                    Spacer()
-                                    Text(shortDayLabel(last))
+                            .chartYAxis {
+                                AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) {
+                                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                                        .foregroundStyle(RemColor.border)
+                                    AxisValueLabel()
+                                        .font(.caption2)
+                                        .foregroundStyle(RemColor.faint)
                                 }
-                                .font(.system(size: 11))
-                                .foregroundStyle(RemColor.faint)
                             }
+                            .frame(height: 128)
                         }
                     }
 
@@ -217,6 +242,13 @@ struct StatsView: View {
                 .foregroundStyle(RemColor.muted)
                 .frame(width: 38, alignment: .trailing)
         }
+    }
+
+    private func axisDayLabels(from entries: [DailyActivityDto]) -> [String] {
+        guard let first = entries.first?.day else { return [] }
+        guard let last = entries.last?.day, entries.count > 1 else { return [first] }
+        let mid = entries[entries.count / 2].day
+        return [first, mid, last]
     }
 
     private func shortDayLabel(_ iso: String) -> String {

@@ -16,38 +16,85 @@ struct ReviewScreen: View {
     @State private var editingCard: CardDto?
     @State private var lightboxAsset: CachedAssetImage?
 
-    var body: some View {
-        VStack(spacing: 0) {
-            header
+    private var sessionProgress: (currentIndex: Int, total: Int, fraction: Double) {
+        let total = max(1, Int((viewState?.reviewed ?? 0) + (viewState?.remaining ?? 0)))
+        let currentIndex = min(total, Int(viewState?.reviewed ?? 0) + (viewState?.current == nil ? 0 : 1))
+        let fraction = viewState?.current == nil ? 1.0 : Double(currentIndex) / Double(total)
+        return (currentIndex, total, fraction)
+    }
 
-            if let loadError {
-                VStack(spacing: 12) {
-                    Text("Could not start session")
-                        .font(.headline)
-                        .foregroundStyle(RemColor.text)
-                    Text(loadError)
-                        .font(.footnote)
-                        .foregroundStyle(RemColor.muted)
-                        .multilineTextAlignment(.center)
-                    Button("Back to Today") { dismiss() }
-                        .buttonStyle(RemSecondaryButtonStyle())
-                        .frame(maxWidth: 200)
-                }
-                .padding(24)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let viewState {
-                if let card = viewState.current {
-                    reviewCanvas(card: card, viewState: viewState)
-                    bottomDock(viewState: viewState)
-                } else {
-                    sessionCompleteView(viewState: viewState)
-                }
-            } else {
-                ProgressView()
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                progressBar
+
+                if let loadError {
+                    VStack(spacing: 12) {
+                        Text("Could not start session")
+                            .font(.headline)
+                            .foregroundStyle(RemColor.text)
+                        Text(loadError)
+                            .font(.footnote)
+                            .foregroundStyle(RemColor.muted)
+                            .multilineTextAlignment(.center)
+                        Button("Back to Today") { dismiss() }
+                            .buttonStyle(RemSecondaryButtonStyle())
+                            .frame(maxWidth: 200)
+                    }
+                    .padding(24)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let viewState {
+                    if let card = viewState.current {
+                        reviewCanvas(card: card, viewState: viewState)
+                        bottomDock(viewState: viewState)
+                    } else {
+                        sessionCompleteView(viewState: viewState)
+                    }
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .background(RemColor.bg)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("End session")
+                }
+
+                ToolbarItem(placement: .principal) {
+                    let info = sessionProgress
+                    VStack(spacing: 1) {
+                        Text(viewState?.current == nil ? "Session complete" : (viewState?.deckName ?? "Review"))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(RemColor.text)
+                            .lineLimit(1)
+                        if viewState?.current != nil {
+                            Text("\(info.currentIndex) / \(info.total)")
+                                .font(.caption2.weight(.semibold).monospaced())
+                                .foregroundStyle(RemColor.muted)
+                        }
+                    }
+                }
+
+                if viewState?.current != nil || (viewState?.canUndo == true) {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showMenuSheet = true
+                        } label: {
+                            Image(systemName: "ellipsis")
+                        }
+                        .accessibilityLabel("Card and session options")
+                    }
+                }
             }
         }
-        .background(RemColor.bg)
+        .tint(RemColor.accent)
         .task { await startSession() }
         .sheet(isPresented: $showMenuSheet) {
             ReviewMenuSheet(
@@ -80,63 +127,18 @@ struct ReviewScreen: View {
         }
     }
 
-    private var header: some View {
-        let total = max(1, Int((viewState?.reviewed ?? 0) + (viewState?.remaining ?? 0)))
-        let currentIndex = min(total, Int(viewState?.reviewed ?? 0) + (viewState?.current == nil ? 0 : 1))
-        let progress = viewState?.current == nil ? 1.0 : Double(currentIndex) / Double(total)
-
-        return VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    if viewState?.current != nil {
-                        Text("\(currentIndex) / \(total)")
-                            .font(.system(size: 12.5, weight: .bold, design: .monospaced))
-                            .foregroundStyle(RemColor.text)
-                    }
-                    Text(viewState?.current == nil ? "Session complete" : (viewState?.deckName ?? "Review"))
-                        .font(.system(size: 13.5, weight: .medium))
-                        .foregroundStyle(RemColor.muted)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                if viewState?.current != nil || (viewState?.canUndo == true) {
-                    Button {
-                        showMenuSheet = true
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(RemColor.muted)
-                            .frame(width: 34, height: 34)
-                    }
-                    .accessibilityLabel("Card and session options")
-                }
-
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(RemColor.muted)
-                        .frame(width: 34, height: 34)
-                }
-                .accessibilityLabel("End session")
+    private var progressBar: some View {
+        let progress = sessionProgress.fraction
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Rectangle().fill(RemColor.border)
+                Rectangle()
+                    .fill(RemColor.accent)
+                    .frame(width: geo.size.width * progress)
+                    .animation(.easeOut(duration: 0.22), value: progress)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Rectangle().fill(RemColor.border)
-                    Rectangle()
-                        .fill(RemColor.accent)
-                        .frame(width: geo.size.width * progress)
-                        .animation(.easeOut(duration: 0.22), value: progress)
-                }
-            }
-            .frame(height: 2)
         }
+        .frame(height: 2)
     }
 
     private func reviewCanvas(card: CardDto, viewState: StudyViewDto) -> some View {
