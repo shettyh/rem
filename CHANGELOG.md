@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.23.0 (2026-11-23)
+
+## What's Changed
+* feat(ios): use native TabView and top-right toolbar Quick Capture by @shettyh in https://github.com/shettyh/rem/pull/236
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.22.1...v0.23.0
+
 ## 0.22.1 (2026-11-23)
 
 ## What's Changed
