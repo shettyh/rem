@@ -14,59 +14,58 @@ struct StatsView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("Stats")
-                        .font(.system(size: 28, weight: .bold))
-                        .tracking(-0.6)
-                        .foregroundStyle(RemColor.text)
-                    Spacer()
-                    Picker("Range", selection: $rangeDays) {
-                        Text("7D").tag(UInt32(7))
-                        Text("30D").tag(UInt32(30))
-                        Text("90D").tag(UInt32(90))
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 162)
-                }
-
-                if !appState.decks.isEmpty {
-                    Menu {
-                        Button {
-                            selectedDeckId = nil
-                        } label: {
-                            Label("All decks", systemImage: selectedDeckId == nil ? "checkmark" : "")
-                        }
-                        Divider()
-                        ForEach(appState.decks, id: \.id) { deck in
-                            Button {
-                                selectedDeckId = deck.id
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        if !appState.decks.isEmpty {
+                            Menu {
+                                Button {
+                                    selectedDeckId = nil
+                                } label: {
+                                    Label("All decks", systemImage: selectedDeckId == nil ? "checkmark" : "")
+                                }
+                                Divider()
+                                ForEach(appState.decks, id: \.id) { deck in
+                                    Button {
+                                        selectedDeckId = deck.id
+                                    } label: {
+                                        Label(deck.name, systemImage: selectedDeckId == deck.id ? "checkmark" : "")
+                                    }
+                                }
                             } label: {
-                                Label(deck.name, systemImage: selectedDeckId == deck.id ? "checkmark" : "")
+                                HStack(spacing: 6) {
+                                    Text(selectedDeckName)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(RemColor.text)
+                                        .lineLimit(1)
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(RemColor.muted)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(RemColor.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                        .strokeBorder(RemColor.border, lineWidth: 1)
+                                )
                             }
                         }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(selectedDeckName)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(RemColor.text)
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(RemColor.muted)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(RemColor.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .strokeBorder(RemColor.border, lineWidth: 1)
-                        )
-                    }
-                }
 
-                if let stats {
+                        Spacer()
+
+                        Picker("Range", selection: $rangeDays) {
+                            Text("7D").tag(UInt32(7))
+                            Text("30D").tag(UInt32(30))
+                            Text("90D").tag(UInt32(90))
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 162)
+                    }
+
+                    if let stats {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                         kpiCard(value: "\(stats.reviews)", label: "Reviews")
                         kpiCard(value: stats.recallRatePercent.map { "\($0)%" } ?? "—", label: "Recall rate")
@@ -161,13 +160,25 @@ struct StatsView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, minHeight: 160)
                 }
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 10)
-            .padding(.bottom, 104)
+            .background(RemColor.bg)
+            .navigationTitle("Stats")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        appState.openQuickCapture()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("New card")
+                }
+            }
+            .task(id: "\(rangeDays)-\(selectedDeckId ?? "all")") { await loadStats() }
         }
-        .background(RemColor.bg)
-        .task(id: "\(rangeDays)-\(selectedDeckId ?? "all")") { await loadStats() }
     }
 
     private func kpiCard(value: String, label: String) -> some View {

@@ -1,92 +1,36 @@
 import SwiftUI
 
-/// 4 tabs (`Today`, `Decks`, `Stats`, `Settings`) + dedicated bottom center `+` Quick Capture button.
+/// Native iOS `TabView` with 4 top-level tabs (`Today`, `Decks`, `Stats`, `Settings`).
+/// Quick Capture (`+`) lives in the native navigation bar toolbar.
 struct RootTabView: View {
     @Bindable var appState: AppState
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Group {
-                switch appState.selectedTab {
-                case .today:
-                    TodayView(appState: appState)
-                case .decks:
-                    DecksView(appState: appState)
-                case .stats:
-                    StatsView(appState: appState)
-                case .settings:
-                    SettingsView(appState: appState)
+        TabView(selection: $appState.selectedTab) {
+            TodayView(appState: appState)
+                .tabItem {
+                    Label("Today", systemImage: "calendar")
                 }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RemColor.bg)
+                .tag(RemTab.today)
 
-            RemBottomTabBar(
-                selectedTab: $appState.selectedTab,
-                onTapCapture: {
-                    appState.openQuickCapture()
+            DecksView(appState: appState)
+                .tabItem {
+                    Label("Decks", systemImage: "rectangle.stack")
                 }
-            )
-        }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
-    }
-}
+                .tag(RemTab.decks)
 
-struct RemBottomTabBar: View {
-    @Binding var selectedTab: RemTab
-    let onTapCapture: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(RemColor.border)
-                .frame(height: 1)
-
-            HStack(spacing: 0) {
-                tabButton(.today, title: "Today", systemImage: "calendar")
-                tabButton(.decks, title: "Decks", systemImage: "rectangle.stack")
-
-                Button(action: onTapCapture) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(RemColor.text)
-                            .frame(width: 40, height: 40)
-                            .shadow(color: Color.black.opacity(0.14), radius: 8, y: 3)
-                        Image(systemName: "plus")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(RemColor.bg)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
+            StatsView(appState: appState)
+                .tabItem {
+                    Label("Stats", systemImage: "chart.bar")
                 }
-                .accessibilityLabel("New card")
+                .tag(RemTab.stats)
 
-                tabButton(.stats, title: "Stats", systemImage: "chart.bar")
-                tabButton(.settings, title: "Settings", systemImage: "gearshape")
-            }
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
+            SettingsView(appState: appState)
+                .tabItem {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .tag(RemTab.settings)
         }
-        .background(.ultraThinMaterial)
-        .background(RemColor.surface.opacity(0.72))
-    }
-
-    private func tabButton(_ tab: RemTab, title: String, systemImage: String) -> some View {
-        let isSelected = selectedTab == tab
-        return Button {
-            selectedTab = tab
-        } label: {
-            VStack(spacing: 3) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
-                Text(title)
-                    .font(.system(size: 10.5, weight: isSelected ? .semibold : .medium))
-            }
-            .foregroundStyle(isSelected ? RemColor.accent : RemColor.muted)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-        }
+        .tint(RemColor.accent)
     }
 }

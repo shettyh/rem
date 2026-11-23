@@ -16,37 +16,6 @@ struct DecksView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("Decks")
-                        .font(.system(size: 28, weight: .bold))
-                        .tracking(-0.6)
-                        .foregroundStyle(RemColor.text)
-
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 14))
-                            .foregroundStyle(RemColor.muted)
-                        TextField("Search decks…", text: $searchText)
-                            .font(.system(size: 14))
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                        if !searchText.isEmpty {
-                            Button {
-                                searchText = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(RemColor.faint)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(RemColor.bgInset)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(RemColor.border, lineWidth: 1)
-                    )
-
                     if filteredDecks.isEmpty {
                         RemCardSurface(padding: 20) {
                             VStack(spacing: 6) {
@@ -102,11 +71,22 @@ struct DecksView: View {
                     .buttonStyle(RemSecondaryButtonStyle())
                 }
                 .padding(.horizontal, 18)
-                .padding(.top, 10)
-                .padding(.bottom, 104)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
             .background(RemColor.bg)
-            .navigationBarHidden(true)
+            .navigationTitle("Decks")
+            .searchable(text: $searchText, prompt: "Search decks")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        appState.openQuickCapture()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("New card")
+                }
+            }
             .navigationDestination(for: String.self) { deckId in
                 DeckDetailView(appState: appState, deckId: deckId)
             }

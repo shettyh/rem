@@ -14,24 +14,21 @@ struct SettingsView: View {
     @State private var shareBackupURL: URL?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Settings")
-                    .font(.system(size: 28, weight: .bold))
-                    .tracking(-0.6)
-                    .foregroundStyle(RemColor.text)
-
-                cloudSyncSection
-                readingAndHabitSection
-                yourDataSection
-                legalFooterSection
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    cloudSyncSection
+                    readingAndHabitSection
+                    yourDataSection
+                    legalFooterSection
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 10)
-            .padding(.bottom, 104)
-        }
-        .background(RemColor.bg)
-        .onAppear {
+            .background(RemColor.bg)
+            .navigationTitle("Settings")
+            .onAppear {
             if appState.expandCustomServerInSettings {
                 useCustomServer = true
                 appState.expandCustomServerInSettings = false
@@ -96,6 +93,7 @@ struct SettingsView: View {
             if let url = shareBackupURL {
                 ActivityShareSheet(items: [url])
             }
+        }
         }
     }
 
