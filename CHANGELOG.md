@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.1 (2026-11-23)
+
+## What's Changed
+* fix(ios): preserve Sign in with Apple entitlement in TestFlight archives by @shettyh in https://github.com/shettyh/rem/pull/234
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.22.0...v0.22.1
+
 ## 0.22.0 (2026-11-22)
 
 ## What's Changed
