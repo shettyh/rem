@@ -2,11 +2,31 @@ import Charts
 import SwiftUI
 
 struct StatsView: View {
+    private struct ActivityPoint: Identifiable {
+        let id: String
+        let date: Date
+        let count: Int
+    }
+
+    private static let isoDayParser: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar.current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let shortDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
     @Bindable var appState: AppState
     @State private var rangeDays: UInt32 = 30
     @State private var selectedDeckId: String? = nil
     @State private var stats: StatsDto?
-    @State private var selectedActivityDay: String? = nil
+    @State private var selectedActivityDate: Date? = nil
 
     private var selectedDeckName: String {
         guard let selectedDeckId,
@@ -15,9 +35,27 @@ struct StatsView: View {
         return deck.name
     }
 
-    private var selectedActivityEntry: DailyActivityDto? {
-        guard let selectedActivityDay, let stats else { return nil }
-        return stats.dailyActivity.first { $0.day == selectedActivityDay }
+    private var activityPoints: [ActivityPoint] {
+        guard let stats else { return [] }
+        return stats.dailyActivity.compactMap { entry in
+            guard let date = Self.isoDayParser.date(from: entry.day) else { return nil }
+            return ActivityPoint(id: entry.day, date: date, count: Int(entry.count))
+        }
+    }
+
+    private var selectedActivityPoint: ActivityPoint? {
+        guard let selectedActivityDate else { return nil }
+        return activityPoints.first {
+            Calendar.current.isDate($0.date, inSameDayAs: selectedActivityDate)
+        }
+    }
+
+    private var xAxisStrideDays: Int {
+        switch rangeDays {
+        case ...7: return 2
+        case ...30: return 7
+        default: return 28
+        }
     }
 
     var body: some View {
@@ -81,14 +119,19 @@ struct StatsView: View {
                     }
 
                     RemCardSurface(padding: 16) {
+                        let points = activityPoints
+                        let maxCount = points.map(\.count).max() ?? 0
+                        let yUpperBound = max(4, maxCount)
+                        let selected = selectedActivityPoint
+
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .top) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Review activity")
                                         .font(.subheadline.weight(.semibold))
                                         .foregroundStyle(RemColor.text)
-                                    if let selected = selectedActivityEntry {
-                                        Text("\(shortDayLabel(selected.day)) · \(selected.count) \(selected.count == 1 ? "review" : "reviews")")
+                                    if let selected {
+                                        Text("\(Self.shortDayFormatter.string(from: selected.date)) · \(selected.count) \(selected.count == 1 ? "review" : "reviews")")
                                             .font(.caption.weight(.semibold))
                                             .foregroundStyle(RemColor.accent)
                                     } else {
@@ -103,26 +146,35 @@ struct StatsView: View {
                                     .foregroundStyle(RemColor.muted)
                             }
 
-                            Chart(stats.dailyActivity, id: \.day) { entry in
-                                BarMark(
-                                    x: .value("Day", entry.day),
-                                    y: .value("Reviews", Int(entry.count))
-                                )
-                                .foregroundStyle(
-                                    selectedActivityDay == nil || selectedActivityDay == entry.day
-                                        ? RemColor.accent
-                                        : RemColor.accent.opacity(0.35)
-                                )
-                                .cornerRadius(3)
+                            Chart {
+                                if let selected {
+                                    RuleMark(x: .value("Selected", selected.date, unit: .day))
+                                        .foregroundStyle(RemColor.accent.opacity(0.25))
+                                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                                }
+
+                                ForEach(points) { point in
+                                    BarMark(
+                                        x: .value("Day", point.date, unit: .day),
+                                        y: .value("Reviews", point.count)
+                                    )
+                                    .foregroundStyle(
+                                        selected == nil || selected?.id == point.id
+                                            ? RemColor.accent
+                                            : RemColor.accent.opacity(0.32)
+                                    )
+                                    .cornerRadius(3)
+                                }
                             }
-                            .chartXSelection(value: $selectedActivityDay)
+                            .chartXSelection(value: $selectedActivityDate)
+                            .chartYScale(domain: 0...yUpperBound)
                             .chartXAxis {
-                                AxisMarks(values: axisDayLabels(from: stats.dailyActivity)) { value in
-                                    if let raw = value.as(String.self) {
-                                        AxisValueLabel(shortDayLabel(raw))
-                                            .font(.caption2)
-                                            .foregroundStyle(RemColor.faint)
-                                    }
+                                AxisMarks(values: .stride(by: .day, count: xAxisStrideDays)) { _ in
+                                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                                        .foregroundStyle(RemColor.border.opacity(0.5))
+                                    AxisValueLabel(format: .dateTime.month(.abbreviated).day(), centered: false)
+                                        .font(.caption2)
+                                        .foregroundStyle(RemColor.faint)
                                 }
                             }
                             .chartYAxis {
@@ -134,7 +186,7 @@ struct StatsView: View {
                                         .foregroundStyle(RemColor.faint)
                                 }
                             }
-                            .frame(height: 128)
+                            .frame(height: 136)
                         }
                     }
 
@@ -244,23 +296,8 @@ struct StatsView: View {
         }
     }
 
-    private func axisDayLabels(from entries: [DailyActivityDto]) -> [String] {
-        guard let first = entries.first?.day else { return [] }
-        guard let last = entries.last?.day, entries.count > 1 else { return [first] }
-        let mid = entries[entries.count / 2].day
-        return [first, mid, last]
-    }
-
-    private func shortDayLabel(_ iso: String) -> String {
-        let parser = DateFormatter()
-        parser.dateFormat = "yyyy-MM-dd"
-        guard let date = parser.date(from: iso) else { return iso }
-        let out = DateFormatter()
-        out.dateFormat = "MMM d"
-        return out.string(from: date)
-    }
-
     private func loadStats() async {
+        selectedActivityDate = nil
         do {
             self.stats = try await appState.store.getStats(deckId: selectedDeckId, days: rangeDays)
         } catch {
