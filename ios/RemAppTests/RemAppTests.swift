@@ -553,4 +553,55 @@ final class RemAppTests: XCTestCase {
         XCTAssertEqual(CloudSyncFormatter.billingProviderDisplayName("polar"), "Web")
         XCTAssertNil(CloudSyncFormatter.billingProviderDisplayName("trial"))
     }
+
+    func testUndoLastGradeRemovesReviewLogFromStatsAndFsrsStatus() async throws {
+        let (dir, store) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let now: Int64 = 1_764_000_000_000
+        let deck = try await store.createDeck(name: "Undo Stats", color: "#5a47e8", nowMs: now)
+        _ = try await store.updateDeck(
+            id: deck.id,
+            name: nil,
+            color: nil,
+            settings: DeckSettingsPatchDto(
+                newPerDay: 20,
+                maxReviews: 200,
+                learnSteps: "",
+                insertionOrder: .sequential,
+                relearnSteps: "",
+                minimumInterval: 1,
+                leechThreshold: 8,
+                leechAction: .suspend,
+                buryRelated: true,
+                showTimer: false,
+                desiredRetention: 0.9,
+                maximumInterval: 36_500
+            ),
+            nowMs: now + 5
+        )
+        _ = try await store.createCard(
+            deckId: deck.id,
+            front: "Q1",
+            back: "A1",
+            tags: [],
+            nowMs: now + 10
+        )
+
+        let session = try await store.startStudy(deckId: deck.id, nowMs: now + 100)
+        _ = try session.reveal(nowMs: now + 150)
+        _ = try session.grade(grade: .good, nowMs: now + 200)
+
+        let statsAfterGrade = try await store.getStats(deckId: deck.id, days: 30, nowMs: now + 250)
+        XCTAssertEqual(statsAfterGrade.reviews, 1)
+        let fsrsAfterGrade = try await store.getDeckFsrsStatus(deckId: deck.id)
+        XCTAssertEqual(fsrsAfterGrade.reviewCount, 1)
+
+        _ = try session.undoLastGrade(nowMs: now + 300)
+
+        let statsAfterUndo = try await store.getStats(deckId: deck.id, days: 30, nowMs: now + 350)
+        XCTAssertEqual(statsAfterUndo.reviews, 0)
+        let fsrsAfterUndo = try await store.getDeckFsrsStatus(deckId: deck.id)
+        XCTAssertEqual(fsrsAfterUndo.reviewCount, 0)
+    }
 }

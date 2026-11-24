@@ -8,6 +8,7 @@ import {
   handleStartTrial,
 } from './entitlements'
 import { renderPrivacyPage, renderSupportPage, renderTermsPage } from './legalPages'
+import { cleanupExpiredRecords } from './maintenance'
 import {
   deleteAccountData,
   getAuthProviders,
@@ -291,5 +292,13 @@ export default {
     }
 
     return jsonResponse({ error: 'not_found' }, 404)
+  },
+
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    await cleanupExpiredRecords(env)
   },
 } satisfies ExportedHandler<Env>

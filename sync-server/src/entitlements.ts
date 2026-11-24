@@ -1,3 +1,4 @@
+import { checkInviteRateLimit, extractClientIp } from './maintenance'
 import type {
   AccountInfo,
   EntitlementInfo,
@@ -521,6 +522,28 @@ export async function handleRedeemInvite(
         message: 'Invite codes require a signed-in rem Premium account.',
       },
       400,
+    )
+  }
+
+  const rateLimit = await checkInviteRateLimit(
+    env.DB,
+    userId,
+    extractClientIp(request),
+    now,
+  )
+  if (!rateLimit.allowed) {
+    return new Response(
+      JSON.stringify({
+        error: 'rate_limited',
+        message: 'Too many invite code attempts. Please wait a few minutes and try again.',
+      }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': String(rateLimit.retryAfterSec),
+        },
+      },
     )
   }
 

@@ -1103,10 +1103,10 @@ pub(crate) fn enqueue_new_op(
     transaction: &Transaction<'_>,
     op: &SyncOp,
     now: i64,
-) -> Result<(), CollectionError> {
+) -> Result<String, CollectionError> {
     let op_id = Uuid::new_v4().to_string();
     enqueue_outbox_op(transaction, &op_id, op, now)?;
-    Ok(())
+    Ok(op_id)
 }
 
 pub(crate) fn enqueue_outbox_op(
