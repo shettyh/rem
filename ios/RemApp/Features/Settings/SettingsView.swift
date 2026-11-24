@@ -3,19 +3,12 @@ import SwiftUI
 import UIKit
 
 struct SettingsView: View {
-    private static let relativeSyncFormatter: RelativeDateTimeFormatter = {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter
-    }()
-
     @Bindable var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var useCustomServer: Bool = false
     @State private var customServerUrl: String = ""
     @State private var pendingAppleNonce: String = ""
-    @State private var showDeleteAccountConfirm: Bool = false
     @State private var showPremiumPaywall: Bool = false
     @State private var shareBackupURL: URL?
 
@@ -31,71 +24,60 @@ struct SettingsView: View {
             .background(RemColor.groupedBg)
             .navigationTitle("Settings")
             .onAppear {
-            if appState.expandCustomServerInSettings {
-                useCustomServer = true
-                appState.expandCustomServerInSettings = false
-            }
-            if let bound = appState.syncStatus?.serverUrl,
-               let def = appState.syncStatus?.defaultServerUrl,
-               bound.trimmingCharacters(in: CharacterSet(charactersIn: "/")) != def.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
-                useCustomServer = true
-                if customServerUrl.isEmpty {
-                    customServerUrl = bound
+                if appState.expandCustomServerInSettings {
+                    useCustomServer = true
+                    appState.expandCustomServerInSettings = false
                 }
-            }
-            if appState.syncStatus?.signedIn == true {
-                Task {
-                    await appState.refreshAccount(triggerSyncIfUnlocked: appState.isSyncPaused)
-                    if appState.canShowAppleSubscribe {
-                        await appState.storeKit.loadProducts()
+                if CloudSyncFormatter.isCustomServer(
+                    serverUrl: appState.syncStatus?.serverUrl,
+                    defaultServerUrl: appState.syncStatus?.defaultServerUrl
+                ), let bound = appState.syncStatus?.serverUrl {
+                    useCustomServer = true
+                    if customServerUrl.isEmpty {
+                        customServerUrl = bound
+                    }
+                }
+                if appState.syncStatus?.signedIn == true {
+                    Task {
+                        await appState.refreshAccount(triggerSyncIfUnlocked: appState.isSyncPaused)
+                        if appState.canShowAppleSubscribe {
+                            await appState.storeKit.loadProducts()
+                        }
                     }
                 }
             }
-        }
-        .alert("Delete cloud account?", isPresented: $showDeleteAccountConfirm) {
-            Button("Delete cloud data", role: .destructive) {
-                Task { await appState.deleteCloudAccount() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            if appState.canShowAppleManageSubscription {
-                Text("Permanently removes your synced data and images from the sync server. Your local cards on this iPhone remain intact. Deleting your cloud account does not cancel your App Store subscription — cancel it in iOS Settings → Apple Account → Subscriptions.")
-            } else {
-                Text("Permanently removes your synced data and images from the sync server. Your local cards on this iPhone remain intact.")
-            }
-        }
-        .alert(
-            "Switch cloud account?",
-            isPresented: Binding(
-                get: { appState.pendingAccountSwitch != nil },
-                set: { if !$0 { appState.pendingAccountSwitch = nil } }
-            )
-        ) {
-            if let mismatch = appState.pendingAccountSwitch {
-                Button("Reset & sign in with Apple") {
-                    Task { await appState.switchAccountWithReauth(provider: .apple, serverUrl: mismatch.serverUrl) }
+            .alert(
+                "Switch cloud account?",
+                isPresented: Binding(
+                    get: { appState.pendingAccountSwitch != nil },
+                    set: { if !$0 { appState.pendingAccountSwitch = nil } }
+                )
+            ) {
+                if let mismatch = appState.pendingAccountSwitch {
+                    Button("Reset & sign in with Apple") {
+                        Task { await appState.switchAccountWithReauth(provider: .apple, serverUrl: mismatch.serverUrl) }
+                    }
+                    Button("Reset & sign in with Google") {
+                        Task { await appState.switchAccountWithReauth(provider: .google, serverUrl: mismatch.serverUrl) }
+                    }
                 }
-                Button("Reset & sign in with Google") {
-                    Task { await appState.switchAccountWithReauth(provider: .google, serverUrl: mismatch.serverUrl) }
+                Button("Cancel", role: .cancel) {
+                    appState.pendingAccountSwitch = nil
+                }
+            } message: {
+                Text("This iPhone is currently linked to another cloud account. Switching keeps your local cards and connects the new account.")
+            }
+            .sheet(isPresented: $showPremiumPaywall) {
+                PremiumPaywallSheet(appState: appState)
+            }
+            .sheet(isPresented: Binding(
+                get: { shareBackupURL != nil },
+                set: { if !$0 { shareBackupURL = nil } }
+            )) {
+                if let url = shareBackupURL {
+                    ActivityShareSheet(items: [url])
                 }
             }
-            Button("Cancel", role: .cancel) {
-                appState.pendingAccountSwitch = nil
-            }
-        } message: {
-            Text("This iPhone is currently linked to another cloud account. Switching keeps your local cards and connects the new account.")
-        }
-        .sheet(isPresented: $showPremiumPaywall) {
-            PremiumPaywallSheet(appState: appState)
-        }
-        .sheet(isPresented: Binding(
-            get: { shareBackupURL != nil },
-            set: { if !$0 { shareBackupURL = nil } }
-        )) {
-            if let url = shareBackupURL {
-                ActivityShareSheet(items: [url])
-            }
-        }
         }
     }
 
@@ -103,15 +85,41 @@ struct SettingsView: View {
 
     private var cloudSyncSection: some View {
         let isSignedIn = appState.syncStatus?.signedIn == true
-        return Section("Cloud Sync") {
+        return Section {
             if isSignedIn {
                 signedInRows
             } else {
                 signedOutCard
             }
+        } header: {
+            Text("Cloud Sync")
+        } footer: {
+            if isSignedIn {
+                cloudSyncFooter
+            }
         }
         .listRowBackground(RemColor.surface)
         .listRowSeparatorTint(RemColor.border)
+    }
+
+    @ViewBuilder
+    private var cloudSyncFooter: some View {
+        let isPaused = appState.isSyncPaused
+        let pending = appState.syncStatus?.pendingOutboxCount ?? 0
+        if let err = appState.lastSyncError, !isPaused {
+            Text(err)
+                .font(.caption)
+                .foregroundStyle(RemColor.again)
+        } else if !isPaused && pending > 0 {
+            let changeWord = pending == 1 ? "change" : "changes"
+            Text("\(pending) \(changeWord) waiting to sync")
+                .font(.caption)
+                .foregroundStyle(RemColor.muted)
+        } else if !isPaused, let last = appState.lastSyncedAt {
+            Text("Last synced \(CloudSyncFormatter.relativeLastSynced(last))")
+                .font(.caption)
+                .foregroundStyle(RemColor.muted)
+        }
     }
 
     @ViewBuilder
@@ -120,32 +128,29 @@ struct SettingsView: View {
         let entState = appState.effectiveEntitlementState
         let isPaused = appState.isSyncPaused
         let trialDays = Int(ent?.trialDays ?? 30)
-        let daysLeft = daysRemaining(ent?.expiresAt)
+        let daysLeft = CloudSyncFormatter.daysRemaining(ent?.expiresAt)
 
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(entState == .selfHosted ? "Self-hosted sync" : "rem Premium")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(RemColor.text)
-                Text(signedInSubtitle)
-                    .font(.caption)
-                    .foregroundStyle(RemColor.muted)
-                if let planSubtitle = planDetailLine(ent: ent, state: entState, daysLeft: daysLeft) {
-                    Text(planSubtitle)
-                        .font(.caption2)
-                        .foregroundStyle(RemColor.faint)
+        NavigationLink {
+            CloudAccountView(appState: appState)
+        } label: {
+            HStack(spacing: 12) {
+                RemLogoBadge(size: 36)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(accountRowTitle(state: entState))
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(RemColor.text)
+                    if let subtitle = accountRowSubtitle(ent: ent, state: entState, daysLeft: daysLeft) {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(RemColor.muted)
+                            .lineLimit(1)
+                    }
                 }
-                if let err = appState.lastSyncError, !isPaused {
-                    Text(err)
-                        .font(.caption)
-                        .foregroundStyle(RemColor.again)
-                        .padding(.top, 2)
-                }
+                Spacer(minLength: 8)
+                syncStatusBadge(state: entState)
             }
-            Spacer()
-            entitlementBadge(ent: ent, state: entState, daysLeft: daysLeft)
+            .padding(.vertical, 2)
         }
-        .padding(.vertical, 2)
 
         if entState == .none || entState == .expired || entState == .pastDue {
             VStack(alignment: .leading, spacing: 10) {
@@ -248,38 +253,18 @@ struct SettingsView: View {
                 Task { await appState.checkAccessAndRetrySync() }
             } label: {
                 HStack {
-                    Text("Check access / Retry sync")
-                        .foregroundStyle(RemColor.text)
+                    Text(appState.isCheckingEntitlement || appState.isSyncing ? "Checking access…" : "Check access & retry sync")
+                        .foregroundStyle(
+                            (appState.isCheckingEntitlement || appState.isSyncing) ? RemColor.muted : RemColor.accent
+                        )
                     Spacer()
                     if appState.isCheckingEntitlement || appState.isSyncing {
                         ProgressView().controlSize(.small)
-                    } else {
-                        Text("Check")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(RemColor.accent)
                     }
                 }
             }
             .disabled(appState.isCheckingEntitlement || appState.isSyncing)
         } else {
-            Button {
-                Task { await appState.syncNow(silent: false) }
-            } label: {
-                HStack {
-                    Text("Sync now")
-                        .foregroundStyle(RemColor.text)
-                    Spacer()
-                    if appState.isSyncing {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text(appState.lastSyncError != nil ? "Retry" : "Run")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(RemColor.accent)
-                    }
-                }
-            }
-            .disabled(appState.isSyncing)
-
             if appState.canShowAppleSubscribe {
                 Button {
                     showPremiumPaywall = true
@@ -287,32 +272,9 @@ struct SettingsView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Upgrade to rem Premium")
-                                .foregroundStyle(RemColor.text)
-                            Text(upgradeRowSubtitle(daysLeft: daysLeft))
-                                .font(.caption)
-                                .foregroundStyle(RemColor.muted)
-                        }
-                        Spacer()
-                        Text("Upgrade")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(RemColor.accent)
-                    }
-                }
-            } else if appState.canShowAppleManageSubscription {
-                Button {
-                    Task { await appState.manageAppleSubscription() }
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Manage subscription")
-                                .foregroundStyle(RemColor.text)
-                            if let dateStr = formattedShortDate(ent?.expiresAt) {
-                                let verb = (ent?.cancelAtPeriodEnd ?? false) ? "Ends" : "Renews"
-                                Text("\(verb) \(dateStr) · App Store")
-                                    .font(.caption)
-                                    .foregroundStyle(RemColor.muted)
-                            } else {
-                                Text("App Store")
+                                .foregroundStyle(RemColor.accent)
+                            if let price = appState.storeKit.localizedPrice {
+                                Text("\(price)/year via App Store")
                                     .font(.caption)
                                     .foregroundStyle(RemColor.muted)
                             }
@@ -324,29 +286,20 @@ struct SettingsView: View {
                     }
                 }
             }
-        }
 
-        HStack {
-            Text("Server")
-                .foregroundStyle(RemColor.text)
-            Spacer()
-            Text(displayServerName)
-                .font(displayServerName == "rem Cloud" ? .subheadline : .caption.monospaced())
-                .foregroundStyle(RemColor.muted)
-                .lineLimit(1)
-        }
-
-        Button {
-            Task { await appState.signOut() }
-        } label: {
-            Text("Sign out (keep local cards)")
-                .foregroundStyle(RemColor.text)
-        }
-
-        Button(role: .destructive) {
-            showDeleteAccountConfirm = true
-        } label: {
-            Text("Delete cloud account")
+            Button {
+                Task { await appState.syncNow(silent: false) }
+            } label: {
+                HStack {
+                    Text(syncActionLabel)
+                        .foregroundStyle(appState.isSyncing ? RemColor.muted : RemColor.accent)
+                    Spacer()
+                    if appState.isSyncing {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+            }
+            .disabled(appState.isSyncing)
         }
     }
 
@@ -572,51 +525,56 @@ struct SettingsView: View {
         return nil
     }
 
-    private func upgradeRowSubtitle(daysLeft: Int?) -> String {
-        let pricePart = appState.storeKit.localizedPrice.map { "\($0)/year" }
-        switch (daysLeft, pricePart) {
-        case let (days?, price?):
-            return "\(days)d left · \(price)"
-        case let (days?, nil):
-            return "\(days)d left · Annual plan via App Store"
-        case let (nil, price?):
-            return "\(price) via App Store"
-        case (nil, nil):
-            return "Annual plan via App Store"
+    private var syncActionLabel: String {
+        if appState.isSyncing {
+            return "Syncing…"
+        }
+        return appState.lastSyncError != nil ? "Retry sync" : "Sync now"
+    }
+
+    private func accountRowTitle(state: EntitlementStateDto) -> String {
+        switch state {
+        case .selfHosted: return "Self-hosted sync"
+        case .none: return "rem Cloud"
+        case .active, .trialing, .invite, .pastDue, .expired: return "rem Premium"
         }
     }
 
-    private func daysRemaining(_ expiresAt: Int64?) -> Int? {
-        guard let expiresAt else { return nil }
-        let nowMs = RemStore.nowMs()
-        let remainingMs = max(0, expiresAt - nowMs)
-        return max(1, Int((remainingMs + 86_400_000 - 1) / 86_400_000))
-    }
-
-    private func formattedShortDate(_ epochMs: Int64?) -> String? {
-        guard let epochMs else { return nil }
-        let date = Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
-        return date.formatted(date: .abbreviated, time: .omitted)
-    }
-
-    private func entitlementBadge(
+    private func accountRowSubtitle(
         ent: EntitlementInfoDto?,
         state: EntitlementStateDto,
         daysLeft: Int?
-    ) -> some View {
+    ) -> String? {
+        switch state {
+        case .active:
+            if let dateStr = CloudSyncFormatter.formattedShortDate(ent?.expiresAt) {
+                let verb = (ent?.cancelAtPeriodEnd ?? false) ? "Ends" : "Renews"
+                return "\(verb) \(dateStr)"
+            }
+            return "Active"
+        case .trialing:
+            return daysLeft.map { "Free trial · \($0)d left" } ?? "Free trial"
+        case .invite:
+            return daysLeft.map { "Free access · \($0)d left" } ?? "Free access"
+        case .pastDue:
+            return "Payment issue"
+        case .expired:
+            return "Subscription ended"
+        case .none:
+            return "Not active"
+        case .selfHosted:
+            return CloudSyncFormatter.displayServerHost(serverUrl: appState.syncStatus?.serverUrl) ?? "Custom server"
+        }
+    }
+
+    private func syncStatusBadge(state: EntitlementStateDto) -> some View {
         let pending = appState.syncStatus?.pendingOutboxCount ?? 0
         switch state {
-        case .trialing:
-            return RemPillBadge(text: daysLeft.map { "Trial · \($0)d left" } ?? "Trial", tone: .good)
-        case .invite:
-            return RemPillBadge(text: daysLeft.map { "Invite · \($0)d left" } ?? "Free access", tone: .good)
         case .pastDue:
-            return RemPillBadge(text: "Payment issue", tone: .hard)
-        case .expired:
-            return RemPillBadge(text: "Sync paused", tone: .hard)
-        case .none:
-            return RemPillBadge(text: "Not active", tone: .hard)
-        case .active, .selfHosted:
+            return RemPillBadge(text: "Past due", tone: .hard)
+        case .expired, .none:
+            return RemPillBadge(text: "Paused", tone: .hard)
+        case .active, .trialing, .invite, .selfHosted:
             if appState.lastSyncError != nil {
                 return RemPillBadge(text: pending > 0 ? "Pending" : "Error", tone: pending > 0 ? .hard : .again)
             }
@@ -624,30 +582,6 @@ struct SettingsView: View {
                 return RemPillBadge(text: "\(pending) pending", tone: .hard)
             }
             return RemPillBadge(text: "Synced", tone: .good)
-        }
-    }
-
-    private func planDetailLine(
-        ent: EntitlementInfoDto?,
-        state: EntitlementStateDto,
-        daysLeft: Int?
-    ) -> String? {
-        switch state {
-        case .trialing:
-            return daysLeft.map { "30-day free trial · \($0)d remaining" } ?? "Free trial active"
-        case .invite:
-            return daysLeft.map { "Free access · \($0)d remaining" } ?? "Free access across all devices"
-        case .active:
-            let via = ent?.provider == "apple" ? "rem Premium · App Store" : "rem Premium · Web"
-            if let dateStr = formattedShortDate(ent?.expiresAt) {
-                let verb = (ent?.cancelAtPeriodEnd ?? false) ? "Ends" : "Renews"
-                return "\(via) · \(verb) \(dateStr)"
-            }
-            return via
-        case .pastDue:
-            return "Renewal issue · Local cards stay safe"
-        case .expired, .none, .selfHosted:
-            return nil
         }
     }
 
@@ -676,36 +610,6 @@ struct SettingsView: View {
         }
     }
 
-    private var signedInSubtitle: String {
-        guard let status = appState.syncStatus else { return "Connected" }
-        let providerLabel: String = {
-            switch status.provider {
-            case "apple": return "Apple"
-            case "google": return "Google"
-            default: return "Cloud"
-            }
-        }()
-        let identity = status.email ?? "Signed in with \(providerLabel)"
-        if status.pendingOutboxCount > 0 {
-            let changeWord = status.pendingOutboxCount == 1 ? "change" : "changes"
-            return "\(identity) · \(status.pendingOutboxCount) \(changeWord) waiting to sync"
-        }
-        if let last = appState.lastSyncedAt {
-            return "\(identity) · \(Self.relativeSyncFormatter.localizedString(for: last, relativeTo: Date()))"
-        }
-        return identity
-    }
-
-    private var displayServerName: String {
-        guard let status = appState.syncStatus else { return "rem Cloud" }
-        guard let url = status.serverUrl else { return "rem Cloud" }
-        if url.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            == status.defaultServerUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
-            return "rem Cloud"
-        }
-        return url.replacingOccurrences(of: "https://", with: "")
-    }
-
     private var storageSubtitle: String {
         guard let summary = appState.storageSummary else { return "Calculating…" }
         let cardWord = summary.totalCards == 1 ? "card" : "cards"
@@ -716,6 +620,339 @@ struct SettingsView: View {
             return "\(summary.totalCards) \(cardWord)"
         }
         return "\(summary.totalCards) \(cardWord) · \(summary.assetCount) \(imageWord) · \(sizeText)"
+    }
+}
+
+// MARK: - Account Detail Screen
+
+struct CloudAccountView: View {
+    @Bindable var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var showSignOutConfirm: Bool = false
+    @State private var showDeleteAccountConfirm: Bool = false
+    @State private var showPremiumPaywall: Bool = false
+
+    var body: some View {
+        let ent = appState.entitlement
+        let entState = appState.effectiveEntitlementState
+
+        Form {
+            if entState != .selfHosted {
+                subscriptionSection(ent: ent, state: entState)
+            }
+            accountIdentitySection
+            signOutSection
+            deleteAccountSection
+        }
+        .scrollContentBackground(.hidden)
+        .background(RemColor.groupedBg)
+        .navigationTitle("Account")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            if appState.canShowAppleSubscribe && appState.storeKit.product == nil {
+                Task { await appState.storeKit.loadProducts() }
+            }
+        }
+        .onChange(of: appState.syncStatus?.signedIn) { _, isSignedIn in
+            if isSignedIn != true {
+                dismiss()
+            }
+        }
+        .alert("Sign out?", isPresented: $showSignOutConfirm) {
+            Button("Sign Out", role: .destructive) {
+                Task {
+                    await appState.signOut()
+                    if appState.syncStatus?.signedIn != true {
+                        dismiss()
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your decks and cards will stay on this iPhone. Cloud sync will pause until you sign in again.")
+        }
+        .alert("Delete cloud account?", isPresented: $showDeleteAccountConfirm) {
+            Button("Delete cloud data", role: .destructive) {
+                Task {
+                    await appState.deleteCloudAccount()
+                    if appState.syncStatus?.signedIn != true {
+                        dismiss()
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if appState.canShowAppleManageSubscription {
+                Text("Permanently removes your synced data and images from the sync server. Your local cards on this iPhone remain intact. Deleting your cloud account does not cancel your App Store subscription — cancel it in iOS Settings → Apple Account → Subscriptions.")
+            } else {
+                Text("Permanently removes your synced data and images from the sync server. Your local cards on this iPhone remain intact.")
+            }
+        }
+        .sheet(isPresented: $showPremiumPaywall) {
+            PremiumPaywallSheet(appState: appState)
+        }
+    }
+
+    private func subscriptionSection(ent: EntitlementInfoDto?, state: EntitlementStateDto) -> some View {
+        Section("Subscription") {
+            HStack {
+                Text("Plan")
+                    .foregroundStyle(RemColor.text)
+                Spacer()
+                Text(planDisplayName(state: state))
+                    .foregroundStyle(state == .pastDue ? RemColor.hard : RemColor.muted)
+            }
+
+            if let billedVia = CloudSyncFormatter.billingProviderDisplayName(ent?.provider) {
+                HStack {
+                    Text("Billed via")
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    Text(billedVia)
+                        .foregroundStyle(RemColor.muted)
+                }
+            }
+
+            if let dateLabel = renewalDateLabel(ent: ent, state: state),
+               let dateStr = CloudSyncFormatter.formattedShortDate(ent?.expiresAt) {
+                HStack {
+                    Text(dateLabel)
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    Text(dateStr)
+                        .foregroundStyle(RemColor.muted)
+                }
+            }
+
+            if appState.canShowAppleManageSubscription {
+                Button {
+                    Task { await appState.manageAppleSubscription() }
+                } label: {
+                    HStack {
+                        Text("Manage subscription")
+                            .foregroundStyle(RemColor.text)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(RemColor.faint)
+                    }
+                }
+            } else if appState.canShowAppleSubscribe {
+                Button {
+                    showPremiumPaywall = true
+                } label: {
+                    HStack {
+                        Text("Upgrade to rem Premium")
+                            .foregroundStyle(RemColor.accent)
+                        Spacer()
+                        if let price = appState.storeKit.localizedPrice {
+                            Text("\(price)/yr")
+                                .font(.subheadline)
+                                .foregroundStyle(RemColor.muted)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(RemColor.faint)
+                    }
+                }
+            }
+
+            if appState.canShowAppleSubscribe || state == .expired || state == .none {
+                Button {
+                    Task { _ = await appState.restoreApplePurchases() }
+                } label: {
+                    HStack {
+                        Text(appState.storeKit.isRestoring ? "Restoring purchases…" : "Restore purchases")
+                            .foregroundStyle(appState.storeKit.isRestoring ? RemColor.muted : RemColor.accent)
+                        Spacer()
+                        if appState.storeKit.isRestoring {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                }
+                .disabled(appState.storeKit.isRestoring || appState.storeKit.isPurchasing)
+            }
+        }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
+    }
+
+    private var accountIdentitySection: some View {
+        let status = appState.syncStatus
+        let visibleEmail = CloudSyncFormatter.visibleEmail(status?.email)
+        let isCustomServer = CloudSyncFormatter.isCustomServer(
+            serverUrl: status?.serverUrl,
+            defaultServerUrl: status?.defaultServerUrl
+        )
+
+        return Section("Cloud Account") {
+            HStack {
+                Text("Signed in with")
+                    .foregroundStyle(RemColor.text)
+                Spacer()
+                Text(CloudSyncFormatter.providerDisplayName(status?.provider))
+                    .foregroundStyle(RemColor.muted)
+            }
+
+            if let email = visibleEmail {
+                HStack {
+                    Text("Email")
+                        .foregroundStyle(RemColor.text)
+                    Spacer(minLength: 12)
+                    Text(email)
+                        .foregroundStyle(RemColor.muted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            if isCustomServer, let host = CloudSyncFormatter.displayServerHost(serverUrl: status?.serverUrl) {
+                HStack {
+                    Text("Server")
+                        .foregroundStyle(RemColor.text)
+                    Spacer(minLength: 12)
+                    Text(host)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(RemColor.muted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
+    }
+
+    private var signOutSection: some View {
+        Section {
+            Button {
+                showSignOutConfirm = true
+            } label: {
+                Text("Sign out")
+                    .foregroundStyle(RemColor.text)
+            }
+        }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
+    }
+
+    private var deleteAccountSection: some View {
+        Section {
+            Button(role: .destructive) {
+                showDeleteAccountConfirm = true
+            } label: {
+                Text("Delete cloud account")
+            }
+        } footer: {
+            Text("Signing out or deleting your cloud account never deletes cards stored on this iPhone.")
+                .font(.caption)
+                .foregroundStyle(RemColor.muted)
+        }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
+    }
+
+    private func planDisplayName(state: EntitlementStateDto) -> String {
+        switch state {
+        case .active: return "rem Premium"
+        case .trialing: return "Free trial"
+        case .invite: return "Free access"
+        case .pastDue: return "Payment issue"
+        case .expired: return "Expired"
+        case .none: return "Not active"
+        case .selfHosted: return "Self-hosted"
+        }
+    }
+
+    private func renewalDateLabel(ent: EntitlementInfoDto?, state: EntitlementStateDto) -> String? {
+        switch state {
+        case .trialing: return "Trial ends"
+        case .invite: return "Access ends"
+        case .expired: return "Ended"
+        case .active, .pastDue: return (ent?.cancelAtPeriodEnd ?? false) ? "Ends" : "Renews"
+        case .none, .selfHosted: return nil
+        }
+    }
+}
+
+// MARK: - Formatting Helpers
+
+enum CloudSyncFormatter {
+    private static let relativeSyncFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+
+    static func relativeLastSynced(_ date: Date, now: Date = Date()) -> String {
+        if now.timeIntervalSince(date) < 60 {
+            return "just now"
+        }
+        return relativeSyncFormatter.localizedString(for: date, relativeTo: now)
+    }
+
+    /// Returns a clean user-facing email, hiding empty values and Apple Hide My Email relay addresses.
+    static func visibleEmail(_ rawEmail: String?) -> String? {
+        guard let trimmed = rawEmail?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty
+        else {
+            return nil
+        }
+        if trimmed.lowercased().hasSuffix("@privaterelay.appleid.com") {
+            return nil
+        }
+        return trimmed
+    }
+
+    static func daysRemaining(_ expiresAt: Int64?, nowMs: Int64 = RemStore.nowMs()) -> Int? {
+        guard let expiresAt else { return nil }
+        let remainingMs = max(0, expiresAt - nowMs)
+        return max(1, Int((remainingMs + 86_400_000 - 1) / 86_400_000))
+    }
+
+    static func formattedShortDate(_ epochMs: Int64?) -> String? {
+        guard let epochMs else { return nil }
+        let date = Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
+        return date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    static func isCustomServer(serverUrl: String?, defaultServerUrl: String?) -> Bool {
+        guard let serverUrl, let defaultServerUrl else { return false }
+        let normalizedServer = serverUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        let normalizedDefault = defaultServerUrl.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        return !normalizedServer.isEmpty && normalizedServer != normalizedDefault
+    }
+
+    static func displayServerHost(serverUrl: String?) -> String? {
+        guard let serverUrl else { return nil }
+        let trimmed = serverUrl
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.lowercased().hasPrefix("https://") {
+            return String(trimmed.dropFirst("https://".count))
+        }
+        if trimmed.lowercased().hasPrefix("http://") {
+            return String(trimmed.dropFirst("http://".count))
+        }
+        return trimmed
+    }
+
+    static func providerDisplayName(_ provider: String?) -> String {
+        switch provider?.lowercased() {
+        case "apple": return "Apple"
+        case "google": return "Google"
+        default: return "Cloud"
+        }
+    }
+
+    static func billingProviderDisplayName(_ provider: String?) -> String? {
+        switch provider?.lowercased() {
+        case "apple": return "App Store"
+        case "polar", "web", "stripe": return "Web"
+        default: return nil
+        }
     }
 }
 

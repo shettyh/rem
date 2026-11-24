@@ -526,4 +526,31 @@ final class RemAppTests: XCTestCase {
         XCTAssertFalse(fsrsStatus.canOptimize)
         XCTAssertFalse(fsrsStatus.hasPersonalizedWeights)
     }
+
+    func testCloudSyncFormatterHidesPrivateRelayAndFormatsRelativeTime() {
+        XCTAssertNil(CloudSyncFormatter.visibleEmail("7w2pfz25mf@privaterelay.appleid.com"))
+        XCTAssertNil(CloudSyncFormatter.visibleEmail("  USER@PrivateRelay.AppleID.com  "))
+        XCTAssertNil(CloudSyncFormatter.visibleEmail("   "))
+        XCTAssertNil(CloudSyncFormatter.visibleEmail(nil))
+        XCTAssertEqual(CloudSyncFormatter.visibleEmail(" alice@example.com "), "alice@example.com")
+
+        let now = Date(timeIntervalSince1970: 1_764_000_000)
+        XCTAssertEqual(CloudSyncFormatter.relativeLastSynced(now, now: now), "just now")
+        XCTAssertEqual(CloudSyncFormatter.relativeLastSynced(now.addingTimeInterval(2), now: now), "just now")
+        XCTAssertEqual(CloudSyncFormatter.relativeLastSynced(now.addingTimeInterval(-59), now: now), "just now")
+        XCTAssertNotEqual(CloudSyncFormatter.relativeLastSynced(now.addingTimeInterval(-120), now: now), "just now")
+
+        XCTAssertFalse(CloudSyncFormatter.isCustomServer(
+            serverUrl: "https://rem-sync.shettyh.fyi/",
+            defaultServerUrl: "https://rem-sync.shettyh.fyi"
+        ))
+        XCTAssertTrue(CloudSyncFormatter.isCustomServer(
+            serverUrl: "https://sync.example.com/",
+            defaultServerUrl: "https://rem-sync.shettyh.fyi"
+        ))
+        XCTAssertEqual(CloudSyncFormatter.displayServerHost(serverUrl: "https://sync.example.com/"), "sync.example.com")
+        XCTAssertEqual(CloudSyncFormatter.billingProviderDisplayName("apple"), "App Store")
+        XCTAssertEqual(CloudSyncFormatter.billingProviderDisplayName("polar"), "Web")
+        XCTAssertNil(CloudSyncFormatter.billingProviderDisplayName("trial"))
+    }
 }
