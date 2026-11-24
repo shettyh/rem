@@ -9,9 +9,13 @@ struct TodayView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(formattedDate)
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(RemColor.muted)
+                        HStack(alignment: .center, spacing: 12) {
+                            Text(formattedDate)
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(RemColor.muted)
+                            Spacer()
+                            SyncStatusChip(appState: appState)
+                        }
                         Text(greetingText)
                             .font(.largeTitle.bold())
                             .tracking(-0.6)
@@ -40,9 +44,6 @@ struct TodayView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    SyncStatusChip(appState: appState)
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         appState.openQuickCapture()
@@ -335,25 +336,41 @@ struct SyncStatusChip: View {
                 appState.selectedTab = .settings
             }
         } label: {
-            HStack(spacing: 5) {
-                if appState.isSyncing {
-                    ProgressView()
-                        .controlSize(.mini)
-                } else {
-                    Circle()
-                        .fill(dotColor)
-                        .frame(width: 6, height: 6)
-                }
-                Text(labelText)
-                    .font(.system(size: 11.5, weight: .semibold))
-                    .foregroundStyle(textColor)
+            if needsAttention {
+                statusLabel(font: .caption.weight(.semibold))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3.5)
+                    .background(bgColor)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().strokeBorder(borderColor, lineWidth: 1))
+            } else {
+                statusLabel(font: .footnote.weight(.medium))
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(bgColor)
-            .clipShape(Capsule())
-            .overlay(Capsule().strokeBorder(borderColor, lineWidth: 1))
         }
+        .buttonStyle(.plain)
+        .accessibilityHint(isCloud && !isPaused ? "Sync now" : "Open sync settings")
+    }
+
+    private func statusLabel(font: Font) -> some View {
+        HStack(spacing: 5) {
+            if appState.isSyncing {
+                ProgressView()
+                    .controlSize(.mini)
+            } else {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 6, height: 6)
+            }
+            Text(labelText)
+                .font(font)
+                .foregroundStyle(textColor)
+        }
+    }
+
+    private var needsAttention: Bool {
+        !appState.isSyncing && isCloud && (isPaused || appState.lastSyncError != nil)
     }
 
     private var isCloud: Bool {
@@ -390,6 +407,7 @@ struct SyncStatusChip: View {
     }
 
     private var textColor: Color {
+        if appState.isSyncing || !isCloud { return RemColor.muted }
         if isPaused { return RemColor.hard }
         if appState.lastSyncError != nil {
             return pendingCount > 0 ? RemColor.hard : RemColor.again
