@@ -175,6 +175,7 @@ enum RemDocs {
     static let selfHostingGuideURL = URL(string: "https://github.com/shettyh/rem/blob/main/sync-server/README.md")!
     static let privacyPolicyURL = URL(string: "https://rem-sync.shettyh.fyi/privacy")!
     static let termsOfUseURL = URL(string: "https://rem-sync.shettyh.fyi/terms")!
+    static let supportURL = URL(string: "https://rem-sync.shettyh.fyi/support")!
 }
 
 /// Official 4-color Google "G" mark drawn as crisp vector paths for Sign-In buttons.
