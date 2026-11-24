@@ -7,7 +7,7 @@ import {
   handleRedeemInvite,
   handleStartTrial,
 } from './entitlements'
-import { renderPrivacyPage, renderTermsPage } from './legalPages'
+import { renderPrivacyPage, renderSupportPage, renderTermsPage } from './legalPages'
 import {
   deleteAccountData,
   getAuthProviders,
@@ -74,6 +74,10 @@ export default {
 
     if (request.method === 'GET' && (url.pathname === '/terms' || url.pathname === '/terms/')) {
       return renderTermsPage()
+    }
+
+    if (request.method === 'GET' && (url.pathname === '/support' || url.pathname === '/support/')) {
+      return renderSupportPage()
     }
 
     // Public auth routes

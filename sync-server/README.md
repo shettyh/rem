@@ -10,7 +10,7 @@ Each authenticated user is physically isolated in their own SQLite-backed Durabl
 | --- | --- |
 | `GET /health` | Liveness check |
 | `GET /premium`, `GET /cloud` | rem Premium overview & logged-in web portal (trial activation + invite-code redemption) |
-| `GET /privacy`, `GET /terms` | Privacy Policy & Terms of Use pages (linked from iOS App Store subscription sheet) |
+| `GET /privacy`, `GET /terms`, `GET /support` | Privacy Policy, Terms of Use & Support pages (App Store Connect & iOS subscription sheet) |
 | `GET /v1/auth/providers` | Reports enabled sign-in providers (`google`, `apple`, `devToken`) |
 | `GET /v1/auth/:provider/start` | Starts Google or Apple OAuth + PKCE login (`127.0.0.1` loopback, `rem://auth/callback`, or same-origin `/premium` & `/cloud`) |
 | `GET\|POST /v1/auth/:provider/callback` | Verifies OIDC ID token (JWKS), upserts D1 account, issues one-time PKCE code |
