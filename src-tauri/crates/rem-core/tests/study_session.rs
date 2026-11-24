@@ -607,3 +607,120 @@ fn a_second_session_cannot_grade_a_stale_card() {
         (1, 0)
     );
 }
+
+#[test]
+fn undo_last_grade_removes_review_log_decrements_daily_stats_and_restores_leech_state() {
+    let (_temp, collection) = collection();
+    let deck = collection.create_deck("Undo", NOW - 100).unwrap();
+    collection
+        .update_deck(
+            &deck.id,
+            DeckPatch {
+                settings: Some(DeckSettings {
+                    learn_steps: String::new(),
+                    relearn_steps: String::new(),
+                    leech_threshold: 1,
+                    leech_action: rem_core::LeechAction::Suspend,
+                    ..deck.settings.clone()
+                }),
+                ..DeckPatch::default()
+            },
+            NOW - 90,
+        )
+        .unwrap();
+
+    // 1. New card: grade Good, then undo -> review log removed and new_introduced decremented.
+    let new_card = collection
+        .create_card(&deck.id, "New Q", "New A", vec![], NOW - 80)
+        .unwrap();
+    let mut session =
+        StudySession::start(&collection, StudyRequest::deck(deck.id.clone()), NOW).unwrap();
+    session.reveal(NOW).unwrap();
+    assert!(matches!(
+        session.grade(&collection, Grade::Good, NOW + 1).unwrap(),
+        StudyGradeOutcome::Graded { .. }
+    ));
+    assert_eq!(collection.list_review_logs(&deck.id).unwrap().len(), 1);
+    assert_eq!(
+        collection
+            .get_daily_stat(&deck.id, &local_day(NOW))
+            .unwrap(),
+        (1, 0)
+    );
+
+    let undone = session.undo_last_grade(&collection, NOW + 2).unwrap();
+    assert_eq!(undone.reviewed, 0);
+    assert_eq!(undone.current.as_ref().unwrap().id, new_card.id);
+    assert_eq!(undone.current.as_ref().unwrap().scheduling.reps, 0);
+    assert!(collection.list_review_logs(&deck.id).unwrap().is_empty());
+    assert_eq!(
+        collection
+            .get_daily_stat(&deck.id, &local_day(NOW))
+            .unwrap(),
+        (0, 0)
+    );
+
+    // Re-grading after undo records exactly one review log with the corrected grade.
+    session.reveal(NOW + 3).unwrap();
+    assert!(matches!(
+        session.grade(&collection, Grade::Easy, NOW + 4).unwrap(),
+        StudyGradeOutcome::Graded { .. }
+    ));
+    let logs = collection.list_review_logs(&deck.id).unwrap();
+    assert_eq!(logs.len(), 1);
+    assert_eq!(logs[0].grade, Grade::Easy);
+    assert_eq!(
+        collection
+            .get_daily_stat(&deck.id, &local_day(NOW))
+            .unwrap(),
+        (1, 0)
+    );
+
+    // 2. Mature review card triggering leech suspend: undo restores tags, suspended, reviews_done, and removes log.
+    let review_card = collection
+        .create_card(
+            &deck.id,
+            "Mature Q",
+            "Mature A",
+            vec!["rust".into()],
+            NOW - 70,
+        )
+        .unwrap();
+    set_scheduling(&collection, &review_card.id, scheduling(2, NOW - 1));
+    let mut review_session =
+        StudySession::start(&collection, StudyRequest::deck(deck.id.clone()), NOW + 10).unwrap();
+    review_session.reveal(NOW + 10).unwrap();
+    let StudyGradeOutcome::Graded { view } = review_session
+        .grade(&collection, Grade::Again, NOW + 11)
+        .unwrap()
+    else {
+        panic!("expected leech grade to succeed");
+    };
+    assert_eq!(view.notice, Some(rem_core::LeechAction::Suspend));
+    let after_leech = collection.get_card(&review_card.id).unwrap().unwrap();
+    assert!(after_leech.suspended);
+    assert!(after_leech.tags.iter().any(|t| t == "leech"));
+    assert_eq!(collection.list_review_logs(&deck.id).unwrap().len(), 2);
+    assert_eq!(
+        collection
+            .get_daily_stat(&deck.id, &local_day(NOW + 11))
+            .unwrap(),
+        (1, 1)
+    );
+
+    let undone_leech = review_session
+        .undo_last_grade(&collection, NOW + 12)
+        .unwrap();
+    assert_eq!(undone_leech.notice, None);
+    let restored = collection.get_card(&review_card.id).unwrap().unwrap();
+    assert!(!restored.suspended);
+    assert_eq!(restored.tags, vec!["rust"]);
+    assert_eq!(restored.last_again_at, None);
+    assert_eq!(collection.list_review_logs(&deck.id).unwrap().len(), 1);
+    assert_eq!(
+        collection
+            .get_daily_stat(&deck.id, &local_day(NOW + 11))
+            .unwrap(),
+        (1, 0)
+    );
+}

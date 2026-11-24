@@ -3,6 +3,7 @@ use rand::seq::SliceRandom;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
+use crate::review_store::ReviewUndo;
 use crate::store::card_from_row;
 use crate::{
     calculate_fsrs_next_states, Card, CardPatch, Collection, CollectionError, DailyField,
@@ -96,6 +97,11 @@ struct StudyItem {
 struct LastGradeUndo {
     previous_item: StudyItem,
     previous_notice: Option<LeechAction>,
+    review_log_id: Option<String>,
+    daily: Option<DailyIncrement>,
+    outbox_op_id: Option<String>,
+    previous_suspended_hlc: String,
+    previous_scheduling_hlc: String,
 }
 
 #[derive(Debug)]
@@ -282,6 +288,7 @@ impl StudySession {
             }),
             _ => None,
         };
+        let daily_for_undo = daily.clone();
         let commit = ReviewCommit {
             card_id: current.card.id.clone(),
             deck_id: current.card.deck_id.clone(),
@@ -291,8 +298,8 @@ impl StudySession {
             daily,
         };
 
-        match collection.commit_review_if_revision(commit, current.local_revision) {
-            Ok(_) => {}
+        let receipt = match collection.commit_review_if_revision(commit, current.local_revision) {
+            Ok(receipt) => receipt,
             Err(CollectionError::Conflict { .. }) => {
                 let card_id = current.card.id.clone();
                 self.discard_current();
@@ -303,7 +310,7 @@ impl StudySession {
                 });
             }
             Err(error) => return Err(error),
-        }
+        };
 
         let previous_notice = self.notice;
         self.notice = leech.as_ref().map(|(action, _tags, _suspended)| *action);
@@ -325,6 +332,11 @@ impl StudySession {
         self.last_grade = Some(LastGradeUndo {
             previous_item,
             previous_notice,
+            review_log_id: receipt.log.map(|entry| entry.id),
+            daily: daily_for_undo,
+            outbox_op_id: receipt.outbox_op_id,
+            previous_suspended_hlc: receipt.previous_suspended_hlc,
+            previous_scheduling_hlc: receipt.previous_scheduling_hlc,
         });
 
         let still_stepping = !graded.card.suspended
@@ -339,7 +351,8 @@ impl StudySession {
     }
 
     /// Undo the most recent grade committed in this session, restoring the card's prior
-    /// scheduling state in `collection` and re-presenting it as the current card.
+    /// scheduling state, removing its review log and daily-cap increment, retracting any
+    /// unsent sync outbox op, and re-presenting the card as current.
     pub fn undo_last_grade(
         &mut self,
         collection: &Collection,
@@ -350,17 +363,20 @@ impl StudySession {
             .take()
             .ok_or_else(|| CollectionError::InvalidInput("no recent grade to undo".into()))?;
         let prev_card = &undo.previous_item.card;
-        collection.update_card(
-            &prev_card.id,
-            CardPatch {
-                tags: Some(prev_card.tags.clone()),
-                suspended: Some(prev_card.suspended),
-                last_again_at: Some(prev_card.last_again_at),
-                scheduling: Some(prev_card.scheduling.clone()),
-                ..CardPatch::default()
-            },
-            now,
-        )?;
+        collection.undo_review(ReviewUndo {
+            card_id: prev_card.id.clone(),
+            deck_id: prev_card.deck_id.clone(),
+            previous_tags: prev_card.tags.clone(),
+            previous_suspended: prev_card.suspended,
+            previous_last_again_at: prev_card.last_again_at,
+            previous_scheduling: prev_card.scheduling.clone(),
+            review_log_id: undo.review_log_id,
+            daily: undo.daily,
+            outbox_op_id: undo.outbox_op_id,
+            previous_suspended_hlc: undo.previous_suspended_hlc,
+            previous_scheduling_hlc: undo.previous_scheduling_hlc,
+            undone_at: now,
+        })?;
         let (reloaded_card, reloaded_revision) =
             load_card_with_revision(collection, &prev_card.id)?.ok_or_else(|| {
                 CollectionError::NotFound {

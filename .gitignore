@@ -5,7 +5,11 @@ dist
 test-artifacts
 .superpowers
 .vitest-attachments
+.worktrees/
 **/__screenshots__
+*.cer
+*.p12
+*.p8
 src-tauri/target/
 src-tauri/binaries/
 ios/Frameworks/

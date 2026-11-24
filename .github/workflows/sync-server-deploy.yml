@@ -1,0 +1,114 @@
+name: Sync Server Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'sync-server/**'
+      - '!sync-server/README.md'
+      - '.github/workflows/sync-server-deploy.yml'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Validate build & wrangler bundle without applying migrations or deploying'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: sync-server-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Cloudflare Worker & D1 Migrations
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: sync-server
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sync-server/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (vitest-pool-workers)
+        run: npm test
+
+      - name: Check Cloudflare deploy credentials
+        id: creds
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ -n "${CLOUDFLARE_API_TOKEN}" ] && [ -n "${CLOUDFLARE_ACCOUNT_ID}" ] && [ -n "${CLOUDFLARE_D1_DATABASE_ID}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              echo "::error::Missing required Cloudflare secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, and CLOUDFLARE_D1_DATABASE_ID."
+              exit 1
+            fi
+            echo "::notice::Skipping Cloudflare Worker deploy because CLOUDFLARE_* secrets are not configured on this repository."
+          fi
+
+      - name: Apply D1 migrations and deploy Worker
+        if: steps.creds.outputs.configured == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: |
+          set -euo pipefail
+          tmp_config="$(mktemp "${RUNNER_TEMP}/wrangler-deploy.XXXXXX.toml")"
+          trap 'rm -f "$tmp_config"' EXIT
+          chmod 600 "$tmp_config"
+
+          node -e '
+            const fs = require("node:fs");
+            const dbId = process.env.CLOUDFLARE_D1_DATABASE_ID.trim();
+            if (!/^[0-9a-f-]{36}$/i.test(dbId)) {
+              throw new Error("CLOUDFLARE_D1_DATABASE_ID must be a valid D1 UUID");
+            }
+            const raw = fs.readFileSync("wrangler.toml", "utf8");
+            const patched = raw.replace(
+              /database_id\s*=\s*"[^"]+"/,
+              `database_id = "${dbId}"`
+            );
+            if (patched === raw) {
+              throw new Error("Failed to patch database_id in wrangler.toml");
+            }
+            fs.writeFileSync(process.argv[1], patched, { mode: 0o600 });
+          ' "$tmp_config"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            npx wrangler deploy --config "$tmp_config" --dry-run
+          else
+            npx wrangler d1 migrations apply rem-sync-auth --remote --config "$tmp_config"
+            npx wrangler deploy --config "$tmp_config"
+          fi
+
+      - name: Smoke-test deployed /health endpoint
+        if: steps.creds.outputs.configured == 'true' && inputs.dry_run != true && vars.SYNC_SERVER_HEALTH_URL != ''
+        env:
+          HEALTH_URL: ${{ vars.SYNC_SERVER_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          body="$(curl -fsSL --retry 3 --retry-delay 2 "$HEALTH_URL")"
+          echo "Health response: $body"
+          echo "$body" | grep -q '"ok":true'

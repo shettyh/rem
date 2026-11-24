@@ -7,7 +7,7 @@ compatibility: Requires the rem CLI on PATH and an existing target deck.
 
 # rem card capture
 
-Use only the public `rem` command. Do not edit SQLite or Git files directly.
+Use only the public `rem` command. Do not edit SQLite files directly.
 
 Agent-authored content is untrusted by default. Propose drafts for human approval; use direct
 `rem card add` only when the user explicitly asks to bypass the draft inbox.
@@ -72,7 +72,7 @@ memorable.
    fails or its output is malformed, report that no draft creation was confirmed.
 
 The result is pending human approval, not a scheduled card. The user can review it from **Drafts**
-in the desktop sidebar. Drafts are local-only and do not reach Git sync or backup. Never claim they
+in the desktop sidebar. Drafts are local-only and do not reach Cloud sync or backup. Never claim they
 were accepted, scheduled, or synced.
 
 ## Explicit direct-card requests
@@ -80,8 +80,8 @@ were accepted, scheduled, or synced.
 Only when the user explicitly asks to bypass approval, use `rem card add` with the same deck
 selection, learning-quality, and dry-run rules. Dry-run the exact input first, then write it without
 `--dry-run`. Require `version: 1` and `command: "card.add"` before reporting `created` or the
-successful `duplicate` no-op. Directly created cards are scheduled immediately and reach Git on the
-desktop app's next sync.
+successful `duplicate` no-op. Directly created cards are scheduled immediately and reach the sync
+server on the next `rem sync` or desktop sync when Cloud sync is enabled.
 
 Run `rem --help`, `rem draft add --help`, or `rem card add --help` for the installed command
 reference. See the [full CLI reference](https://github.com/shettyh/rem/blob/main/docs/cli.md) for

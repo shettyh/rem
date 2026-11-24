@@ -4,8 +4,10 @@ import migrationSql from '../migrations/0001_auth.sql?raw'
 import entitlementsMigrationSql from '../migrations/0002_entitlements.sql?raw'
 import earlyAccessMigrationSql from '../migrations/0003_early_access.sql?raw'
 import trialInvitesBillingMigrationSql from '../migrations/0004_trial_invites_billing.sql?raw'
+import rateLimitsMigrationSql from '../migrations/0006_rate_limits_and_cleanup.sql?raw'
 import { signHs256Jwt } from '../src/auth'
 import worker from '../src/index'
+import { INVITE_USER_MAX_ATTEMPTS } from '../src/maintenance'
 import { isAllowedClientRedirectUri } from '../src/oauth'
 import type { AccountInfo, Env } from '../src/types'
 
@@ -17,6 +19,7 @@ async function applyMigrations() {
     entitlementsMigrationSql,
     earlyAccessMigrationSql,
     trialInvitesBillingMigrationSql,
+    rateLimitsMigrationSql,
   ]) {
     const statements = raw
       .split(';')
@@ -477,5 +480,60 @@ describe('Unified entitlements, optional 30-day trial, and invite codes', () => 
     expect(
       isAllowedClientRedirectUri('http://127.0.0.1:41234/auth/callback', 'https://rem-sync.shettyh.fyi'),
     ).toBe(true)
+  })
+
+  it('rate-limits repeated invite redemption probes per user and returns 429 with Retry-After', async () => {
+    const token = await createUser('usr_invite_rl_1', 'rl1@example.com')
+    const otherToken = await createUser('usr_invite_rl_2', 'rl2@example.com')
+
+    for (let i = 0; i < INVITE_USER_MAX_ATTEMPTS; i++) {
+      const resp = await callWorker(
+        'https://sync.example.com/v1/invites/redeem',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': '203.0.113.10',
+          },
+          body: JSON.stringify({ code: `REM-MISS-000${i}` }),
+        },
+        GATED_ENV,
+      )
+      expect(resp.status).toBe(404)
+    }
+
+    const blocked = await callWorker(
+      'https://sync.example.com/v1/invites/redeem',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.10',
+        },
+        body: JSON.stringify({ code: 'REM-MISS-OVER' }),
+      },
+      GATED_ENV,
+    )
+    expect(blocked.status).toBe(429)
+    expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0)
+    expect(await blocked.json()).toMatchObject({ error: 'rate_limited' })
+
+    // A different user from a different IP is unaffected.
+    const unaffected = await callWorker(
+      'https://sync.example.com/v1/invites/redeem',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${otherToken}`,
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.11',
+        },
+        body: JSON.stringify({ code: 'REM-MISS-OTHER' }),
+      },
+      GATED_ENV,
+    )
+    expect(unaffected.status).toBe(404)
   })
 })

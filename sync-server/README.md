@@ -105,3 +105,9 @@ npm run invites -- list --remote
 # Revoke a code
 npm run invites -- revoke REM-ABCD-EFGH --remote
 ```
+
+## Security, scheduled maintenance & CI deploys
+
+- **Invite redemption rate limiting:** `POST /v1/invites/redeem` enforces a D1-backed fixed-window throttle (10 attempts / 15 min per user and 20 attempts / 15 min per client IP via `CF-Connecting-IP` / `X-Forwarded-For`), returning `HTTP 429` with `Retry-After`.
+- **Daily auth/table cleanup:** `wrangler.toml` registers a daily cron trigger (`0 3 * * *`) invoking `scheduled()`, which purges expired `oauth_codes`, expired refresh tokens, refresh tokens revoked more than 7 days ago (preserving recent revocations for token-family reuse detection), and stale `rate_limits` buckets.
+- **Automated deploys (`.github/workflows/sync-server-deploy.yml`):** Pushes to `main` touching `sync-server/` (or manual `workflow_dispatch`) run typecheck + `vitest-pool-workers`, apply remote D1 migrations, and deploy the Worker when `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_D1_DATABASE_ID` secrets are configured (and optionally smoke-check `vars.SYNC_SERVER_HEALTH_URL`). Forks without those secrets skip deploy cleanly.

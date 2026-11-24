@@ -974,3 +974,77 @@ fn manual_unsuspend_after_leech_is_not_clobbered_by_older_leech_review() {
     assert!(!final_card.suspended);
     assert_eq!(final_card.tags, vec!["leech"]);
 }
+
+#[test]
+fn undo_before_sync_retracts_unsent_review_op_so_peer_never_sees_phantom_review() {
+    let (_ta, dev_a) = open_collection();
+    let (_tb, dev_b) = open_collection();
+    let mut server = FakeSyncServer::default();
+
+    dev_a
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+    dev_b
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+
+    let deck = dev_a.create_deck("Sync Undo", 1_010).unwrap();
+    dev_a
+        .update_deck(
+            &deck.id,
+            DeckPatch {
+                settings: Some(DeckSettings {
+                    learn_steps: String::new(),
+                    ..deck.settings.clone()
+                }),
+                ..DeckPatch::default()
+            },
+            1_015,
+        )
+        .unwrap();
+    let card = dev_a
+        .create_card(&deck.id, "Q", "A", vec![], 1_020)
+        .unwrap();
+    server.sync_both(&dev_a, &dev_b);
+    assert_eq!(dev_a.pending_outbox_count().unwrap(), 0);
+
+    // Grade Again by mistake on Device A, then undo before syncing.
+    let mut session =
+        rem_core::StudySession::start(&dev_a, rem_core::StudyRequest::deck(deck.id.clone()), 2_000)
+            .unwrap();
+    session.reveal(2_000).unwrap();
+    assert!(matches!(
+        session.grade(&dev_a, Grade::Again, 2_001).unwrap(),
+        rem_core::StudyGradeOutcome::Graded { .. }
+    ));
+    assert_eq!(dev_a.pending_outbox_count().unwrap(), 1);
+
+    session.undo_last_grade(&dev_a, 2_002).unwrap();
+    assert_eq!(dev_a.pending_outbox_count().unwrap(), 0);
+    assert!(dev_a.list_review_logs(&deck.id).unwrap().is_empty());
+
+    // Syncing after undo leaves both devices with zero review logs and reps == 0.
+    server.sync_both(&dev_a, &dev_b);
+    assert_collections_converged(&dev_a, &dev_b);
+    assert!(dev_b.list_review_logs(&deck.id).unwrap().is_empty());
+    assert_eq!(
+        dev_b.get_card(&card.id).unwrap().unwrap().scheduling.reps,
+        0
+    );
+
+    // Re-grading Easy afterwards pushes one clean review op and converges on Device B.
+    session.reveal(2_010).unwrap();
+    assert!(matches!(
+        session.grade(&dev_a, Grade::Easy, 2_011).unwrap(),
+        rem_core::StudyGradeOutcome::Graded { .. }
+    ));
+    server.sync_both(&dev_a, &dev_b);
+    assert_collections_converged(&dev_a, &dev_b);
+    let logs_b = dev_b.list_review_logs(&deck.id).unwrap();
+    assert_eq!(logs_b.len(), 1);
+    assert_eq!(logs_b[0].grade, Grade::Easy);
+    assert_eq!(
+        dev_b.get_card(&card.id).unwrap().unwrap().scheduling.reps,
+        1
+    );
+}

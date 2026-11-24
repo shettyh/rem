@@ -5,7 +5,13 @@ import entitlementsMigrationSql from '../migrations/0002_entitlements.sql?raw'
 import earlyAccessMigrationSql from '../migrations/0003_early_access.sql?raw'
 import trialInvitesBillingMigrationSql from '../migrations/0004_trial_invites_billing.sql?raw'
 import appleRefreshTokenMigrationSql from '../migrations/0005_apple_refresh_token.sql?raw'
+import rateLimitsMigrationSql from '../migrations/0006_rate_limits_and_cleanup.sql?raw'
 import worker from '../src/index'
+import {
+  cleanupExpiredRecords,
+  RATE_LIMIT_RETENTION_MS,
+  REVOKED_REFRESH_TOKEN_RETENTION_MS,
+} from '../src/maintenance'
 import type { Env } from '../src/types'
 
 const TEST_ENV = env as unknown as Env
@@ -103,6 +109,7 @@ async function applyAuthMigration() {
     earlyAccessMigrationSql,
     trialInvitesBillingMigrationSql,
     appleRefreshTokenMigrationSql,
+    rateLimitsMigrationSql,
   ]) {
     const statements = raw
       .split(';')
@@ -957,5 +964,79 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       gatedEnv,
     )
     expect(approvedSync.status).toBe(200)
+  })
+
+  it('scheduled cleanup purges expired oauth_codes, expired/old revoked refresh_tokens, and stale rate limits while preserving active and recently revoked tokens', async () => {
+    const now = Date.now()
+    const userId = 'usr_cleanup_test'
+    await TEST_ENV.DB!.prepare(
+      'INSERT OR IGNORE INTO users(id, email, created_at) VALUES (?1, ?2, ?3)',
+    )
+      .bind(userId, 'cleanup@example.com', now)
+      .run()
+
+    // Seed expired and live oauth_codes.
+    await TEST_ENV.DB!.prepare(
+      `INSERT INTO oauth_codes(code_hash, user_id, provider, email, code_challenge, redirect_uri, expires_at, created_at)
+       VALUES ('expired_code', ?1, 'google', 'cleanup@example.com', 'ch', 'rem://auth/callback', ?2, ?3),
+              ('live_code', ?1, 'google', 'cleanup@example.com', 'ch', 'rem://auth/callback', ?4, ?3)`,
+    )
+      .bind(userId, now - 10_000, now - 60_000, now + 60_000)
+      .run()
+
+    // Seed active, expired, recently revoked (keep for replay detection), and old revoked (purge) refresh tokens.
+    await TEST_ENV.DB!.prepare(
+      `INSERT INTO refresh_tokens(token_hash, family_id, user_id, device_id, expires_at, revoked_at, created_at)
+       VALUES ('rt_active', 'fam1', ?1, 'd1', ?2, NULL, ?3),
+              ('rt_expired', 'fam2', ?1, 'd1', ?4, NULL, ?3),
+              ('rt_revoked_recent', 'fam3', ?1, 'd1', ?2, ?5, ?3),
+              ('rt_revoked_old', 'fam4', ?1, 'd1', ?2, ?6, ?3)`,
+    )
+      .bind(
+        userId,
+        now + 86_400_000,
+        now - 1000,
+        now - 5_000,
+        now - 60_000,
+        now - REVOKED_REFRESH_TOKEN_RETENTION_MS - 60_000,
+      )
+      .run()
+
+    // Seed stale and recent rate-limit buckets.
+    await TEST_ENV.DB!.prepare(
+      `INSERT INTO rate_limits(scope, bucket_key, window_start, attempts)
+       VALUES ('invite_user', 'old_user', ?1, 4),
+              ('invite_user', 'fresh_user', ?2, 2)`,
+    )
+      .bind(now - RATE_LIMIT_RETENTION_MS - 1_000, now)
+      .run()
+
+    const report = await cleanupExpiredRecords(TEST_ENV, now)
+    expect(report.oauthCodes).toBeGreaterThanOrEqual(1)
+    expect(report.refreshTokens).toBeGreaterThanOrEqual(2)
+    expect(report.rateLimits).toBeGreaterThanOrEqual(1)
+
+    const remainingCodes = (
+      await TEST_ENV.DB!.prepare('SELECT code_hash FROM oauth_codes WHERE user_id = ?1')
+        .bind(userId)
+        .all<{ code_hash: string }>()
+    ).results.map((r) => r.code_hash)
+    expect(remainingCodes).toEqual(['live_code'])
+
+    const remainingTokens = (
+      await TEST_ENV.DB!.prepare(
+        'SELECT token_hash FROM refresh_tokens WHERE user_id = ?1 ORDER BY token_hash',
+      )
+        .bind(userId)
+        .all<{ token_hash: string }>()
+    ).results.map((r) => r.token_hash)
+    expect(remainingTokens).toEqual(['rt_active', 'rt_revoked_recent'])
+
+    const remainingBuckets = (
+      await TEST_ENV.DB!.prepare(
+        "SELECT bucket_key FROM rate_limits WHERE bucket_key IN ('old_user', 'fresh_user')",
+      ).all<{ bucket_key: string }>()
+    ).results.map((r) => r.bucket_key)
+    expect(remainingBuckets).toEqual(['fresh_user'])
   })
 })

@@ -1,6 +1,6 @@
 # rem — Current State & Future Vision
 
-_Last reviewed: 2026-11-22 · based on `v0.18.0` plus FSRS-7, macOS signing/notarization, bundled single-install CLI, Tauri auto-updater, and Homebrew tap_
+_Last reviewed: 2026-11-24 · based on `v0.25.3` plus `rem-core` undo rollback hardening and `sync-server` maintenance/deploy automation_
 
 This document is the canonical product snapshot for future planning. Dated files under
 `docs/superpowers/` record the decisions and implementation history behind individual slices;
@@ -96,8 +96,9 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 - Flat deck organization with colors, live due counts, deck progress rings, and cross-deck study.
 - FSRS-7 calculation and optimization live in `rem-core`; SM-2 has been removed.
 - A shared Rust `StudySession` owns due selection, daily caps, learning/relearning steps, FSRS
-  choices, custom study, leeches, review persistence, undo snapshots, counters, requeueing, and
-  stale-card conflicts.
+  choices, custom study, leeches, review persistence, atomic undo (restoring card state, removing
+  the undone review log and daily-cap increment, and retracting unsent sync outbox ops), counters,
+  requeueing, and stale-card conflicts.
 - The desktop review page, `rem study` TUI, and iOS `ReviewScreen` are all thin adapters over the
   same `StudySession` implementation.
 - `rem study` reviews all decks; `rem study --deck <id-or-exact-name>` reviews one deck. The
@@ -107,27 +108,30 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 - Custom desktop study modes include study ahead, additional new cards, forgotten cards, and
   non-rescheduling new-card preview.
 - Per-deck controls cover desired retention, learning/relearning steps, new/review limits, insertion
-  order, minimum/maximum intervals, leech behavior, and personalized FSRS weights.
+  order, minimum/maximum intervals, leech behavior, and personalized FSRS weights on both desktop
+  and iOS.
 
-### iOS companion app (v1)
+### iOS companion app
 
 - Native SwiftUI iPhone app (`ios/RemApp/`, iOS 17+) following the Quiet Paper Light/Dark visual
-  system matching desktop design tokens.
-- Navigation uses 4 tabs (`Today`, `Decks`, `Stats`, `Settings`) plus a dedicated center `+` Quick
-  Capture button, hiding chrome during full-screen review.
+  system using native iOS `TabView`, `Form`, `List`, toolbars, Swift Charts, and a `UIScrollView`
+  pinch-to-zoom lightbox.
+- Navigation uses a 4-tab native `TabView` (`Today`, `Decks`, `Stats`, `Settings`) with top-right
+  toolbar `+` Quick Capture and inline Today sync status, hiding chrome during full-screen review.
 - **First-run & local-first:** No startup login wall — users can start locally on device SQLite,
   connect to `rem Cloud`, or configure a self-hosted sync server URL.
-- **Focused review:** Tap-to-reveal + 4-button FSRS-6 grade dock with live intervals, optional
+- **Focused review:** Tap-to-reveal + 4-button FSRS-7 grade dock with live intervals, optional
   haptics, adjustable card text size (`S / M / L`), in-review card editing, undo last grade, card
-  suspension, dark syntax-highlighted code blocks, and offline `asset:<hash>` image/GIF rendering
-  with a pinch-to-zoom lightbox.
-- **Quick capture & deck browsing:** Fast card creation/editing with Write/Preview toggle, Markdown
-  keyboard toolbar, tag editor, iOS Photos image attachment (SHA-256 stored in SQLite), and deck/tag
-  filtering.
-- **Stats, habits & sync:** 7D/30D/90D Stats dashboard with per-deck breakdown, Apple/Google OAuth
-  via `ASWebAuthenticationSession` + iOS Keychain (`FfiCredentialStore`), automatic and pull-to-refresh
-  Cloud Sync, local daily reminders via `UNUserNotificationCenter` (scheduled when due > 0), and
-  JSON backup export via the iOS share sheet.
+  suspension, card info sheet, dark syntax-highlighted code blocks, and offline `asset:<hash>`
+  image/GIF rendering with a pinch-to-zoom lightbox.
+- **Quick capture, deck browsing & FSRS options:** Fast card creation/editing with Write/Preview
+  toggle, Markdown keyboard toolbar, tag editor, iOS Photos image attachment (SHA-256 stored in
+  SQLite), deck/tag filtering, and full deck editing + FSRS deck options & weight optimization.
+- **Stats, habits, billing & App Store readiness:** 7D/30D/90D Swift Charts Stats dashboard with
+  per-deck breakdown, native Sign in with Apple (`ASAuthorizationController` + token revocation on
+  account delete), Google OAuth + iOS Keychain, StoreKit 2 IAP (`com.shettyh.rem.premium.yearly`),
+  Settings Account drill-down, Privacy Manifest (`PrivacyInfo.xcprivacy`), local daily reminders via
+  `UNUserNotificationCenter`, and JSON backup export via the iOS share sheet.
 
 ### Insight and history
 
@@ -136,27 +140,34 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
   activity, recall rate, streak, active days, grade distribution, and deck breakdown.
 - Daily-cap counters are local to each device; review history is included in backup and sync.
 
-### Data, backup, and sync
+### Data, backup, sync, and billing
 
 - Native desktop, CLI, and iOS operations use SQLite through `rem-core`; the TypeScript `Storage`
   interface keeps React independent of native commands, and Dexie remains a browser-test adapter.
-- SQLite schema v3 contains local-only drafts, per-card optimistic `local_revision` values,
-  per-domain Hybrid Logical Clocks (HLCs), and local `sync_meta` / `sync_outbox` / `synced_assets`
-  bookkeeping tables.
+- SQLite schema v4 contains FSRS-7 scheduling state, local-only drafts, per-card optimistic
+  `local_revision` values, per-domain Hybrid Logical Clocks (HLCs), and local `sync_meta` /
+  `sync_outbox` / `synced_assets` bookkeeping tables.
 - Deck-scoped JSON export/import preserves scheduling and review history, with confirmation before a
-  same-named deck is replaced.
+  same-named deck is replaced (import is desktop-only today; export is supported on desktop and iOS).
 - Legacy Git sync has been removed in favor of optional Cloud sync (`Local only` vs. `Cloud sync`).
   The shared `rem-sync` crate talks to the open-source Cloudflare Workers + SQLite Durable Objects +
   D1 + R2 backend in `sync-server/` (either hosted `rem Cloud` or a self-hosted deployment).
-- Hosted `rem Cloud` supports server-side entitlement gating (`REQUIRE_SUBSCRIPTION`), early-access
-  approvals in D1, and a same-origin `/cloud` waitlist page.
-- Google and Apple OAuth (PKCE + short-lived JWTs + rotating refresh tokens) store credentials in
-  the OS Keychain (desktop `keyring` and iOS Security framework via `rem-ffi`); commutative
-  per-domain HLC merges and tombstones resolve concurrent edits and reviews automatically without
-  halting conflict dialogs.
+- Hosted `rem Premium` implements a structured entitlement state machine (`GET /v1/account`), an
+  opt-in one-time 30-day no-card free trial (`POST /v1/trial/start`), Crockford invite codes with
+  D1-backed rate limiting (`POST /v1/invites/redeem` + admin CLI), Polar MoR checkout/portal/webhooks
+  for Desktop & Web, Apple StoreKit 2 JWS verification + App Store Server Notifications v2 webhooks
+  for iOS, and `/premium` (`/cloud`), `/privacy`, `/terms`, and `/support` web pages.
+- Google OAuth and Sign in with Apple (PKCE + native iOS `ASAuthorizationController` + short-lived
+  JWTs + rotating refresh tokens) store credentials in the OS Keychain; commutative per-domain HLC
+  merges and tombstones resolve concurrent edits and reviews automatically without halting conflict
+  dialogs.
+- `sync-server` runs a daily Cloudflare Cron Trigger (`scheduled()`) to purge expired `oauth_codes`,
+  expired/old revoked `refresh_tokens`, and stale rate-limit buckets, and deploys via an automated
+  GitHub Actions workflow (`.github/workflows/sync-server-deploy.yml`) with remote D1 migrations.
 - Unapproved drafts and local daily-cap counters are intentionally excluded from backup and cloud sync.
 - Manual sync from Settings, automatic sync triggers (startup/foreground, debounced writes,
-  focus/online, periodic, post-review), account deletion, and `rem sync` CLI commands are implemented.
+  focus/online, periodic, post-review), account deletion (including Apple token revocation and
+  best-effort Polar cancellation), and `rem sync` CLI commands are implemented.
 
 ### Desktop experience and delivery
 
@@ -165,9 +176,10 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 - Installers build for Apple Silicon and Intel macOS (Developer ID signed & notarized), Linux, and Windows.
 - The `rem` CLI binary is bundled directly inside desktop packages (`rem.app/Contents/MacOS/rem` on macOS) so Homebrew (`brew install --cask shettyh/tap/rem`) and `install.sh` provide a single installation that stays updated in lockstep with the desktop app; standalone CLI archives are also published on GitHub Releases.
 - Signed in-app auto-updates (`tauri-plugin-updater`) check `latest.json` on GitHub Releases and update both desktop and linked CLI together.
-- CI covers TypeScript/unit tests, real-browser flows, Rust formatting, Clippy, Rust workspace tests,
-  frontend builds, iOS `RemCore.xcframework` + `RemAppTests` Simulator tests, security auditing,
-  cross-platform desktop/CLI release builds, and cloud-signed iOS TestFlight uploads.
+- CI covers TypeScript/unit tests, real-browser flows, `sync-server` Workers tests, Rust formatting,
+  Clippy, Rust workspace tests, frontend builds, iOS `RemCore.xcframework` + `RemAppTests` Simulator
+  tests, security auditing, cross-platform desktop/CLI release builds, automated `sync-server`
+  deploys, and cloud-signed iOS TestFlight uploads.
 
 ## Completed milestones
 
@@ -189,16 +201,27 @@ All four slices in
 and [`2026-11-21-ios-companion-design.md`](superpowers/specs/2026-11-21-ios-companion-design.md)
 are implemented:
 
-1. **`rem-core` sync engine** — SQLite schema v3, HLCs, 7 commutative op types, transactional
-   `sync_outbox`, `apply_remote_ops`, and bootstrap generator.
+1. **`rem-core` sync engine** — SQLite HLCs, 7 commutative op types, transactional `sync_outbox`,
+   `apply_remote_ops`, and bootstrap generator.
 2. **Cloudflare `sync-server` + `rem-sync`** — Worker, per-user SQLite `UserSyncDO`, R2 content-addressed
    asset routes, D1 auth/entitlements, and Rust `rem-sync` client.
 3. **Auth, Desktop UI, CLI sync & Git sync retirement** — Apple + Google OAuth, OS Keychain, hosted
-   `rem Cloud` default + self-hosted server URL, `/cloud` waitlist & entitlement gate, `rem sync` CLI,
-   and clean removal of legacy Git sync.
+   `rem Cloud` default + self-hosted server URL, `rem sync` CLI, and clean removal of legacy Git sync.
 4. **Native SwiftUI iOS Companion (v1)** — `rem-ffi` UniFFI crate, `RemCore.xcframework` build script,
    and full SwiftUI iPhone app covering onboarding, Today, Decks, Review, Quick Capture, Stats,
    Settings, Cloud OAuth, local reminders, and backup export.
+
+### 3. Distribution, `rem Premium` Billing & iOS Native App Store Readiness (`v0.19.0`–`v0.25.3`)
+
+1. **Single-install distribution & FSRS-7** — FSRS-7 migration (SQLite schema v4), signed & notarized
+   macOS releases, bundled `rem` CLI, signed Tauri auto-updater, and automated Homebrew cask tap.
+2. **`rem Premium` entitlements & billing** — unified entitlement state machine, optional 30-day
+   no-card trial, Crockford invite codes + rate limiting, Polar checkout/portal/webhooks, Apple
+   StoreKit 2 IAP + ASN v2 webhooks, and `/premium`, `/privacy`, `/terms`, `/support` web pages.
+3. **iOS native polish & App Store compliance** — native `TabView`, `Form`/`List` surfaces, Swift
+   Charts, Study screen & Settings Account drill-down redesigns, full FSRS Deck Options + optimizer,
+   native Sign in with Apple + revocation, Privacy Manifest, iOS Simulator CI, and automated
+   TestFlight uploads.
 
 ## Known gaps and incomplete behavior
 
@@ -206,88 +229,110 @@ These are real gaps in the resulting product, not features already delivered.
 
 | Area | Current limitation |
 |---|---|
+| Desktop & TUI study parity | `StudySession::undo_last_grade()` and `suspend_current()` exist in `rem-core` and are wired on iOS, but Desktop (`ReviewPage`) and `rem study` TUI do not expose Undo (`⌘Z`/`u`) or in-review Suspend yet. |
+| iOS study & backup parity | Custom Study modes (already in `rem-core`) and JSON backup import are desktop-only; iOS currently supports regular study and backup export only. |
+| Cross-deck search | Card search is scoped to a single deck on both Desktop and iOS; there is no global search across all decks. |
+| Cloud sync v1.1 | `UserSyncDO` keeps an unbounded append-only `ops` log (new devices replay from `seq = 0` in 500-op batches) and clients rely on focus/polling triggers rather than compacted `/v1/bootstrap` snapshots and real-time WebSocket pokes. |
+| iOS habit & capture extensions | WidgetKit Home/Lock Screen widgets (requiring App Group SQLite migration) and a Safari/system Share Sheet capture extension are not yet built. |
 | Draft feedback | Rejection reasons, acceptance/edit-rate summaries, and agent-readable quality feedback are not recorded. |
 | Draft provenance | Rationale/source/producer metadata is not retained on the accepted card. |
 | Duplicate help | Draft/card duplicate checks are exact normalized matches, not semantic suggestions. |
 | Draft portability | Pending drafts are local-only and cannot be triaged from another machine or the TUI. |
 | Habit support | No daily reminders or native notifications on desktop (iOS supports local daily reminders via `UNUserNotificationCenter`). |
-| Review options | **Show answer timer** is stored but not rendered. |
-| Related-card burying | The setting is stored but cannot be correctly enforced without a note/template/sibling model. |
+| Review options | **Show answer timer** is stored in `DeckSettings` but not rendered. |
+| Related-card burying | `bury_related` is stored in `DeckSettings` but cannot be enforced without a note/template/sibling model. |
 | Organization | Decks are flat; namespaces, nested decks, and folders do not exist. |
-| Cloud sync v1.1 | Server-side op compaction (`/v1/bootstrap`), real-time WebSocket pokes, automated billing webhooks, and an optional non-Cloudflare self-host server are deferred beyond initial early access. |
-| iOS companion v1.1 | WidgetKit Home/Lock Screen widgets, Share Sheet capture extension, per-deck FSRS settings/optimizer UI, and Custom Study modes are deferred past v1. |
-| CI & Distribution | Windows installers and CLI binaries do not yet have an Authenticode signature; public App Store release (beyond TestFlight) is not yet submitted. |
+| CI & Distribution | Windows installers and CLI binaries do not yet have an Authenticode signature; public App Store 1.0 release (beyond TestFlight) is not yet submitted. |
 
 ## Future direction
 
-### Phase 1 — Ship, distribute, and validate the multi-device loop
+### Phase 1 — App Store Launch & Production Validation
 
-1. Cut the next desktop/CLI release including Cloud Sync and the desktop/iOS UX polish pass.
-2. Smoke-test installed releases across all surfaces: external agent draft → desktop acceptance →
-   desktop/TUI study, and physical iPhone ↔ desktop/CLI Cloud Sync convergence (offline grading,
-   photo/asset sync, reconnect, and force-quit recovery).
-3. Wire iOS builds/tests into CI and set up Apple Developer signing for TestFlight / App Store
-   distribution (and macOS notarization / Windows Authenticode signing when ready).
-4. Observe whether draft inbox age stays bounded and whether agent proposals are accepted with small
-   edits.
+1. Submit the iOS 1.0 companion build for public App Store release (building on the TestFlight
+   and App Store compliance work shipped in `v0.22–v0.25.3`).
+2. End-to-end smoke-test live production flows across all surfaces: Polar checkout ↔ iOS unlock,
+   StoreKit 2 purchase ↔ Desktop unlock, external agent draft → desktop acceptance → desktop/TUI
+   study, and physical iPhone ↔ desktop/CLI offline sync + photo/asset convergence.
+3. Configure `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_D1_DATABASE_ID`, and
+   `SYNC_SERVER_HEALTH_URL` in GitHub Actions so `sync-server` migrations and deploys stay in lockstep
+   with `main`.
 
-**Outcome:** the complete local + multi-device agent/human learning loop is trustworthy in packaged
-releases across desktop, terminal, and iPhone.
+**Outcome:** `rem` is publicly available on Desktop, CLI, and the iOS App Store, with trustworthy
+managed Cloud sync and repeatable production operations.
 
-### Phase 2 — Cloud Sync v1.1, iOS v1.1, and daily habit ergonomics
+### Phase 2 — Cross-Surface Study Parity (Small Rust Lift, High Daily UX Payoff)
 
-Prioritize high-leverage multi-device polish and evidence-backed habit features:
+Close the highest-friction mismatches between Desktop, iOS, and `rem study` by surfacing capabilities
+already built in `rem-core`:
 
-1. **Cloud Sync v1.1:** server-side op compaction (`/v1/bootstrap` + gzipped R2 snapshots),
-   Hibernatable WebSocket real-time pokes, automated billing webhooks (and optional non-Cloudflare
-   VPS/Docker server if self-hosters need it).
-2. **iOS Companion v1.1:** WidgetKit Home/Lock Screen widgets (with App Group SQLite migration),
-   Safari/system Share Sheet capture extension, per-deck FSRS settings & weight optimizer UI, and
-   Custom Study modes.
-3. **Draft quality & desktop habit polish** (only as real usage justifies them):
-   - Optional rejection reasons and aggregate acceptance/edit-rate summaries.
-   - Accepted-card provenance when it demonstrably helps trust or later quality analysis.
-   - A TUI draft inbox or `$EDITOR` handoff if terminal-only users need approval away from desktop.
-   - Desktop native reminders and rendering the stored answer-timer setting.
+1. **Undo (`⌘Z`/`u`) & Suspend in Desktop and `rem study` TUI:** wire `StudySession::undo_last_grade()`
+   and `suspend_current()` through `src-tauri/src/study.rs`, Desktop `ReviewPage`, and `rem-cli`'s
+   `tui.rs` so recovering from a mis-tapped grade works identically everywhere.
+2. **Custom Study & JSON Backup Import on iOS:** expose `CustomStudyRequest` (`studyAhead`,
+   `increaseNew`, `reviewForgotten`, `previewNew`) and backup import through `rem-ffi` and iOS
+   Deck/Settings UI.
+3. **Desktop habit polish** (as usage justifies): optional desktop native daily reminders and
+   rendering the stored answer-timer setting.
 
-**Outcome:** multi-device sync feels instantaneous, iOS covers power-user daily study and quick
-capture from anywhere, and humans sustain the review habit with less friction.
+*(Maintainability note when touching Settings/CLI: decompose `src/features/settings/SettingsPage.tsx`,
+`ios/RemApp/Features/Settings/SettingsView.swift`, and `src-tauri/crates/rem-cli/src/main.rs` into
+focused submodules as new controls are added.)*
 
-### Phase 3 — Strengthen the knowledge model
+**Outcome:** studying, recovering from mistakes, cramming/previewing, and restoring backups feel
+equally complete on desktop, terminal, and iPhone.
 
-1. Introduce a note/template/sibling model only after defining user-facing value and migration.
-2. Enforce related-card burying on top of that model.
-3. Add nested decks or namespaces if flat decks limit real collections.
-4. Extract a sync-provider seam only when adding a second remote backend.
+### Phase 3 — Cloud Sync v1.1 (Instant Sync & Bounded Startup)
 
-**Outcome:** rem can express related cards and larger collections without compromising the simple
-card/deck experience.
+1. **Server-side op compaction & `/v1/bootstrap`:** periodically compact `UserSyncDO`'s `ops` log
+   into gzipped R2 state snapshots so new devices and long-lived accounts with thousands of reviews
+   bootstrap in a single download rather than replaying every historical op from `seq = 0`.
+2. **Real-time Hibernatable WebSocket pokes:** add a lightweight Durable Object WebSocket channel
+   that sends a small "new seq available" poke to connected devices so Desktop ↔ iPhone updates feel
+   instantaneous without continuous polling.
+3. **Optional non-Cloudflare self-host server** only if self-hosters demonstrate demand for a
+   VPS/Docker deployment target.
 
-### Phase 4 — Add local intelligence
+**Outcome:** multi-device sync feels instantaneous and stays fast regardless of collection age.
+
+### Phase 4 — iOS Habit & Capture Multipliers
+
+1. **App Group SQLite migration:** move the iOS SQLite collection into a shared App Group container
+   with safe WAL coordination between the main app and extensions.
+2. **WidgetKit Home & Lock Screen widgets:** glanceable due counts and streak indicators that tap
+   directly into Today or Review.
+3. **Safari / system Share Sheet capture extension:** capture quotes, snippets, or URLs from Safari,
+   Notes, or readers into a chosen deck in two taps.
+
+**Outcome:** iOS becomes a zero-friction capture inbox and daily habit anchor, not just a review client.
+
+### Phase 5 — Global Cross-Deck Search & Knowledge Organization
+
+1. **Global cross-deck search:** add a fast `search_cards` query (backed by SQLite FTS5 or indexed
+   search in `rem-core`) powering `⌘K` quick-find on Desktop and global search on iOS.
+2. **Draft workflow refinements** (as real usage justifies): optional rejection reasons,
+   acceptance/edit-rate summaries, retained provenance on accepted cards, and a TUI draft inbox or
+   `$EDITOR` handoff for terminal-first users.
+3. **Knowledge model evolution** (only after clear user-facing value and migration design):
+   - Introduce a note/template/sibling model and enforce `bury_related` on top of it.
+   - Add nested decks or namespaces if flat decks limit real collections.
+
+**Outcome:** large multi-deck collections stay easy to search, organize, and navigate without losing
+the calm card/deck experience.
+
+### Phase 6 — Local Intelligence & Assisted Source-to-Draft Authoring
 
 Start with rebuildable local embeddings rather than a scheduler or automatic author:
 
 1. Semantic duplicate suggestions (while preserving exact duplicate outcomes as the hard rule).
-2. Search across decks.
-3. Related-card suggestions during review.
-4. Topic-aware interleaving experiments.
+2. Semantic search and related-card suggestions during review.
+3. Topic-aware interleaving experiments.
+4. If users need generation inside rem beyond external agents + CLI, add a small `CardGenerator`
+   boundary that imports selected text/files into the existing try/edit/accept/reject Drafts inbox
+   without silently uploading deck content. An MCP adapter is justified only when a real client
+   cannot invoke the local CLI reliably.
 
-**Outcome:** rem helps users find overlap and connections without sending the collection to a
-service.
-
-### Phase 5 — Assisted source-to-draft authoring
-
-The draft trust seam and provider-neutral CLI now exist. If users need generation inside rem, add a
-small `CardGenerator` boundary that only creates reviewable drafts:
-
-1. Import selected text or files.
-2. Generate a small source-grounded candidate set.
-3. Reuse the existing try/edit/accept/reject inbox.
-4. Keep provider use explicit and never silently upload deck content.
-
-An MCP adapter is justified only when a real client cannot invoke the local CLI reliably.
-
-**Outcome:** source material can become useful recall prompts faster without weakening human control.
+**Outcome:** rem surfaces overlap and connections locally and turns source material into recall
+prompts faster without weakening human control.
 
 ## Explicit non-goals for now
 
