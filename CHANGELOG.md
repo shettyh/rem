@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.1 (2026-11-24)
+
+## What's Changed
+* fix(ios,sync): add DiskSpace privacy manifest entry and App Store /support page by @shettyh in https://github.com/shettyh/rem/pull/245
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.25.0...v0.25.1
+
 ## 0.25.0 (2026-11-24)
 
 ## What's Changed
