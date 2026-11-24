@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.5 (2026-11-24)
+
+## What's Changed
+* fix(ci): keep temp wrangler config in sync-server/ and preserve dashboard vars by @shettyh in https://github.com/shettyh/rem/pull/253
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.25.4...v0.25.5
+
 ## 0.25.4 (2026-11-24)
 
 ## What's Changed
