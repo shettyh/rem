@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.24.0 (2026-11-23)
+
+## What's Changed
+* feat(ios): adopt native forms, lists, toolbars, Swift Charts, and UIScrollView lightbox by @shettyh in https://github.com/shettyh/rem/pull/238
+* fix(ios): fix Review activity chart X-axis overlap and empty-state scale by @shettyh in https://github.com/shettyh/rem/pull/239
+* feat(ios): redesign Study screen and unify native tab surfaces by @shettyh in https://github.com/shettyh/rem/pull/240
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.23.0...v0.24.0
+
 ## 0.23.0 (2026-11-23)
 
 ## What's Changed
