@@ -40,7 +40,7 @@ xcodegen generate --spec ios/project.yml
 
 - Marketing version lives in `ios/Config/Version.xcconfig` (`MARKETING_VERSION`) and is kept in sync with desktop/CLI releases by Release Please.
 - `ios/RemApp/Resources/Info.plist` references `$(MARKETING_VERSION)` / `$(CURRENT_PROJECT_VERSION)` and sets `ITSAppUsesNonExemptEncryption = false` (only standard OS TLS/HTTPS and Keychain are used).
-- `ios/RemApp/Resources/PrivacyInfo.xcprivacy` declares required-reason API usage (`NSPrivacyAccessedAPICategoryUserDefaults`, reason `CA92.1`).
+- `ios/RemApp/Resources/PrivacyInfo.xcprivacy` declares required-reason API usage (`NSPrivacyAccessedAPICategoryUserDefaults` reason `CA92.1`, `NSPrivacyAccessedAPICategoryFileTimestamp` reason `C617.1`, and `NSPrivacyAccessedAPICategoryDiskSpace` reason `E174.1`).
 - `AppIcon-1024.png` is stored as opaque 24-bit RGB without an alpha channel (`ITMS-90717`).
 
 ## CI & TestFlight Distribution

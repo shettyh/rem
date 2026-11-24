@@ -920,7 +920,7 @@ describe('Apple StoreKit 2 JWS verification & App Store Server Notifications v2'
     })
   })
 
-  it('serves Privacy Policy (/privacy) and Terms of Use (/terms) pages for App Store compliance', async () => {
+  it('serves Privacy Policy (/privacy), Terms of Use (/terms), and Support (/support) pages for App Store compliance', async () => {
     const appleEnv = makeAppleEnv(pki)
 
     const privacy = await callWorker('https://sync.example.com/privacy', undefined, appleEnv)
@@ -928,7 +928,8 @@ describe('Apple StoreKit 2 JWS verification & App Store Server Notifications v2'
     expect(privacy.headers.get('Content-Type')).toContain('text/html')
     const privacyHtml = await privacy.text()
     expect(privacyHtml).toContain('Privacy Policy')
-    expect(privacyHtml).toContain('Delete cloud account')
+    expect(privacyHtml).toContain('Cloud Sync &rarr; Account &rarr; Delete cloud account')
+    expect(privacyHtml).toContain('mailto:manjunathshetty@live.com')
     expect(privacyHtml).not.toContain('/premium')
     expect(privacyHtml).not.toContain('/cloud')
     expect(privacyHtml).not.toMatch(/polar/i)
@@ -939,8 +940,21 @@ describe('Apple StoreKit 2 JWS verification & App Store Server Notifications v2'
     const termsHtml = await terms.text()
     expect(termsHtml).toContain('Terms of Use')
     expect(termsHtml).toContain('stdeula')
+    expect(termsHtml).toContain('mailto:manjunathshetty@live.com')
     expect(termsHtml).not.toContain('/premium')
     expect(termsHtml).not.toContain('/cloud')
     expect(termsHtml).not.toMatch(/polar/i)
+
+    const support = await callWorker('https://sync.example.com/support', undefined, appleEnv)
+    expect(support.status).toBe(200)
+    expect(support.headers.get('Content-Type')).toContain('text/html')
+    const supportHtml = await support.text()
+    expect(supportHtml).toContain('Support')
+    expect(supportHtml).toContain('mailto:manjunathshetty@live.com')
+    expect(supportHtml).toContain('Restore purchases')
+    expect(supportHtml).toContain('Delete cloud account')
+    expect(supportHtml).not.toContain('/premium')
+    expect(supportHtml).not.toContain('/cloud')
+    expect(supportHtml).not.toMatch(/polar/i)
   })
 })

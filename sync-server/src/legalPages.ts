@@ -1,3 +1,5 @@
+const SUPPORT_EMAIL = 'manjunathshetty@live.com'
+
 function renderLegalDocument(title: string, subtitle: string, bodyHtml: string): Response {
   const html = `<!doctype html>
 <html lang="en">
@@ -100,6 +102,7 @@ function renderLegalDocument(title: string, subtitle: string, bodyHtml: string):
       <footer>
         <a href="/privacy">Privacy Policy</a>
         <a href="/terms">Terms of Use</a>
+        <a href="/support">Support</a>
       </footer>
     </main>
   </body>
@@ -113,7 +116,7 @@ function renderLegalDocument(title: string, subtitle: string, bodyHtml: string):
 export function renderPrivacyPage(): Response {
   return renderLegalDocument(
     'Privacy Policy',
-    'Last updated: November 22, 2026',
+    'Last updated: November 24, 2026',
     `
       <h2>Local-First by Default</h2>
       <p>rem stores your decks, flashcards, review history, and images locally on your device in SQLite. You do not need an account to use rem locally.</p>
@@ -129,7 +132,10 @@ export function renderPrivacyPage(): Response {
       <p>rem does not include third-party advertising SDKs, cross-app tracking, or data brokers. We never sell or share your study content or personal information.</p>
 
       <h2>Account Deletion &amp; Data Export</h2>
-      <p>You can export a complete JSON backup of your collection at any time from Settings. You can permanently delete your cloud account and all synced cloud data and images directly inside Settings &rarr; Delete cloud account on Desktop or iOS.</p>
+      <p>You can export a complete JSON backup of your collection at any time from Settings. You can permanently delete your cloud account and all synced cloud data and images directly inside <strong>Settings &rarr; Cloud Sync &rarr; Account &rarr; Delete cloud account</strong> on iOS (or <strong>Settings &rarr; Cloud sync &rarr; Delete cloud account</strong> on Desktop). Local cards stored on your device remain intact.</p>
+
+      <h2>Contact</h2>
+      <p>Questions about privacy or your data? Email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>
     `,
   )
 }
@@ -137,7 +143,7 @@ export function renderPrivacyPage(): Response {
 export function renderTermsPage(): Response {
   return renderLegalDocument(
     'Terms of Use',
-    'Last updated: November 22, 2026',
+    'Last updated: November 24, 2026',
     `
       <h2>Open-Source Software &amp; Hosted Cloud Sync</h2>
       <p>The rem application and sync server source code are available under the Apache-2.0 License. Local storage and self-hosted sync remain free forever. <strong>rem Premium</strong> is an optional paid subscription that provides managed Cloud Sync across your devices.</p>
@@ -155,6 +161,32 @@ export function renderTermsPage(): Response {
 
       <h2>Acceptable Use</h2>
       <p>Managed Cloud Sync is intended for personal spaced-repetition study collections within the documented 500 MB per-account media storage quota. Abuse or automated misuse of the hosted sync service may result in suspension.</p>
+
+      <h2>Contact</h2>
+      <p>For support or questions regarding these terms, email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>
+    `,
+  )
+}
+
+export function renderSupportPage(): Response {
+  return renderLegalDocument(
+    'Support',
+    'Help with rem for iPhone, Desktop, and Cloud Sync',
+    `
+      <h2>Contact Us</h2>
+      <p>Need help with rem, Cloud Sync, or your subscription? Reach out anytime:</p>
+      <ul>
+        <li><strong>Email:</strong> <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a></li>
+        <li><strong>Bug reports &amp; feature requests:</strong> <a href="https://github.com/shettyh/rem/issues" rel="noopener noreferrer">github.com/shettyh/rem/issues</a></li>
+      </ul>
+
+      <h2>Common Questions</h2>
+      <ul>
+        <li><strong>Using rem offline:</strong> All decks, flashcards, review history, and images are stored locally on your device. No account is required.</li>
+        <li><strong>Restoring an App Store subscription:</strong> Sign in with the same account in <strong>Settings &rarr; Cloud Sync</strong> and tap <strong>Restore purchases</strong>.</li>
+        <li><strong>Managing or canceling a subscription:</strong> Open <strong>Settings &rarr; Cloud Sync &rarr; Account &rarr; Manage subscription</strong> inside rem, or go to <strong>iOS Settings &rarr; Apple Account &rarr; Subscriptions</strong>.</li>
+        <li><strong>Exporting or deleting your data:</strong> Export a JSON backup from <strong>Settings &rarr; Export backup</strong>. To permanently remove your synced cloud data and account, open <strong>Settings &rarr; Cloud Sync &rarr; Account &rarr; Delete cloud account</strong> (your local cards on your device are never deleted).</li>
+      </ul>
     `,
   )
 }
