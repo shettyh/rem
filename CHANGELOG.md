@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.25.0 (2026-11-24)
+
+## What's Changed
+* feat(ios): redesign Settings Cloud Sync section with Account drill-down by @shettyh in https://github.com/shettyh/rem/pull/242
+* fix(ios): move Today sync status inline with date header by @shettyh in https://github.com/shettyh/rem/pull/244
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.24.0...v0.25.0
+
 ## 0.24.0 (2026-11-23)
 
 ## What's Changed
