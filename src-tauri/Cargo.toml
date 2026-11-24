@@ -5,7 +5,7 @@ resolver = "2"
 
 [package]
 name = "app"
-version = "0.25.3"
+version = "0.25.4"
 default-run = "app"
 description = "A Tauri App"
 authors = ["you"]

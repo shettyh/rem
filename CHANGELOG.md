@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.4 (2026-11-24)
+
+## What's Changed
+* fix(core,sync): atomic undo rollback, sync-server hardening, and site refresh by @shettyh in https://github.com/shettyh/rem/pull/251
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.25.3...v0.25.4
+
 ## 0.25.3 (2026-11-24)
 
 ## What's Changed

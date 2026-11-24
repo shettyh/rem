@@ -1,6 +1,6 @@
 [package]
 name = "rem-sync"
-version = "0.25.3"
+version = "0.25.4"
 description = "Cloud sync client, OAuth/Keychain auth, and asset uploader for rem"
 license = "Apache-2.0"
 edition = "2021"
