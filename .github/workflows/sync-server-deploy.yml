@@ -75,7 +75,9 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run || false }}
         run: |
           set -euo pipefail
-          tmp_config="$(mktemp "${RUNNER_TEMP}/wrangler-deploy.XXXXXX.toml")"
+          # Keep the generated config inside sync-server/ so Wrangler resolves
+          # relative paths (`main`, `migrations_dir`) against this directory.
+          tmp_config="$(mktemp "./wrangler.ci.XXXXXX.toml")"
           trap 'rm -f "$tmp_config"' EXIT
           chmod 600 "$tmp_config"
 
@@ -97,10 +99,10 @@ jobs:
           ' "$tmp_config"
 
           if [ "$DRY_RUN" = "true" ]; then
-            npx wrangler deploy --config "$tmp_config" --dry-run
+            npx wrangler deploy --config "$tmp_config" --keep-vars --dry-run
           else
-            npx wrangler d1 migrations apply rem-sync-auth --remote --config "$tmp_config"
-            npx wrangler deploy --config "$tmp_config"
+            npx wrangler d1 migrations apply rem-sync-auth --remote --config "$tmp_config" -y
+            npx wrangler deploy --config "$tmp_config" --keep-vars
           fi
 
       - name: Smoke-test deployed /health endpoint
