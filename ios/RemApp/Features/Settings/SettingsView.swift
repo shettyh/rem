@@ -494,6 +494,8 @@ struct SettingsView: View {
                     Link("Privacy Policy", destination: RemDocs.privacyPolicyURL)
                     Text("·").foregroundStyle(RemColor.borderStrong)
                     Link("Terms of Use", destination: RemDocs.termsOfUseURL)
+                    Text("·").foregroundStyle(RemColor.borderStrong)
+                    Link("Support", destination: RemDocs.supportURL)
                     Spacer()
                 }
                 .font(.footnote.weight(.medium))
