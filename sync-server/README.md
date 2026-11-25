@@ -9,7 +9,7 @@ Each authenticated user is physically isolated in their own SQLite-backed Durabl
 | Route | Purpose |
 | --- | --- |
 | `GET /health` | Liveness check |
-| `GET /premium`, `GET /cloud` | rem Premium overview & logged-in web portal (trial activation + invite-code redemption) |
+| `GET /premium`, `GET /cloud` | rem Premium overview & logged-in web portal (trial activation & billing) |
 | `GET /privacy`, `GET /terms`, `GET /support` | Privacy Policy, Terms of Use & Support pages (App Store Connect & iOS subscription sheet) |
 | `GET /v1/auth/providers` | Reports enabled sign-in providers (`google`, `apple`, `devToken`) |
 | `GET /v1/auth/:provider/start` | Starts Google or Apple OAuth + PKCE login (`127.0.0.1` loopback, `rem://auth/callback`, or same-origin `/premium` & `/cloud`) |
@@ -20,7 +20,6 @@ Each authenticated user is physically isolated in their own SQLite-backed Durabl
 | `GET /v1/account` | Returns authenticated account profile (`id`, `email`, `providers`, `authMethod`, structured `entitlement`, and legacy fields) |
 | `DELETE /v1/account` | Permanently deletes user R2 assets, `UserSyncDO` storage, and D1 auth/entitlement records |
 | `POST /v1/trial/start` | Opt-in start of the one-time no-card free trial (`TRIAL_DAYS`, default `30`) |
-| `POST /v1/invites/redeem` | Atomically redeems an invite code (`REM-XXXX-XXXX`) and unlocks sync |
 | `POST /v1/billing/polar/checkout` | Creates a Polar Checkout Session for rem Premium (`$5/year`) and returns `{ checkoutUrl }` |
 | `POST /v1/billing/polar/portal` | Creates a Polar Customer Portal session for existing Polar subscribers and returns `{ portalUrl }` |
 | `POST /v1/webhooks/polar` | Receives Polar subscription webhooks (Standard Webhooks HMAC-SHA256 verified + idempotent via `billing_events`) |
@@ -70,7 +69,7 @@ npx wrangler secret put APPLE_CLIENT_ID
 npx wrangler secret put APPLE_TEAM_ID
 npx wrangler secret put APPLE_KEY_ID
 npx wrangler secret put APPLE_PRIVATE_KEY
-# Optional: gate sync/R2 access behind rem Premium / trial / invites (default: open for self-hosting)
+# Optional: gate sync/R2 access behind rem Premium / trial (default: open for self-hosting)
 npx wrangler secret put REQUIRE_SUBSCRIPTION # set to "true" to enforce entitlements (HTTP 402 otherwise)
 npx wrangler secret put ALLOWED_EMAILS       # optional comma-separated owner/VIP emails always allowed to sync
 npx wrangler secret put UPGRADE_URL          # optional pricing URL (e.g. https://rem-sync.shettyh.fyi/premium)
@@ -87,27 +86,7 @@ npx wrangler secret put POLAR_WEBHOOK_SECRET # Polar Standard Webhooks endpoint 
 npm run deploy
 ```
 
-## Managing invite codes in D1
+## Scheduled maintenance & CI deploys
 
-Use the built-in CLI (`sync-server/scripts/invites.mjs`) to generate, list, and revoke Crockford-style invite codes (`REM-XXXX-XXXX`):
-
-```bash
-cd sync-server
-# Create a single-use 1-year invite code on production D1
-npm run invites -- create --uses 1 --days 365 --note "beta tester" --remote
-
-# Create an indefinite free access invite code
-npm run invites -- create --uses 1 --forever --note "contributor" --remote
-
-# List recent invite codes and redemption counts
-npm run invites -- list --remote
-
-# Revoke a code
-npm run invites -- revoke REM-ABCD-EFGH --remote
-```
-
-## Security, scheduled maintenance & CI deploys
-
-- **Invite redemption rate limiting:** `POST /v1/invites/redeem` enforces a D1-backed fixed-window throttle (10 attempts / 15 min per user and 20 attempts / 15 min per client IP via `CF-Connecting-IP` / `X-Forwarded-For`), returning `HTTP 429` with `Retry-After`.
-- **Daily auth/table cleanup:** `wrangler.toml` registers a daily cron trigger (`0 3 * * *`) invoking `scheduled()`, which purges expired `oauth_codes`, expired refresh tokens, refresh tokens revoked more than 7 days ago (preserving recent revocations for token-family reuse detection), and stale `rate_limits` buckets.
+- **Daily auth/table cleanup:** `wrangler.toml` registers a daily cron trigger (`0 3 * * *`) invoking `scheduled()`, which purges expired `oauth_codes`, expired refresh tokens, and refresh tokens revoked more than 7 days ago (preserving recent revocations for token-family reuse detection).
 - **Automated deploys (`.github/workflows/sync-server-deploy.yml`):** Pushes to `main` touching `sync-server/` (or manual `workflow_dispatch`) run typecheck + `vitest-pool-workers`, apply remote D1 migrations, and deploy the Worker when `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_D1_DATABASE_ID` secrets are configured (and optionally smoke-check `vars.SYNC_SERVER_HEALTH_URL`). Forks without those secrets skip deploy cleanly.

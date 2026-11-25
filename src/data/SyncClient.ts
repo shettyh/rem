@@ -11,7 +11,6 @@ export type EntitlementState =
   | 'self_hosted'
   | 'none'
   | 'trialing'
-  | 'invite'
   | 'active'
   | 'past_due'
   | 'expired'
@@ -85,7 +84,6 @@ export interface SyncClient {
   syncNow(): Promise<SyncStatus>
   refreshAccount(): Promise<SyncStatus>
   startTrial(): Promise<SyncStatus>
-  redeemInvite(code: string): Promise<SyncStatus>
   openPolarCheckout(): Promise<void>
   openPolarPortal(): Promise<void>
   signOut(): Promise<SyncStatus>
@@ -135,10 +133,6 @@ export class TauriSyncClient implements SyncClient {
 
   startTrial(): Promise<SyncStatus> {
     return invoke<SyncStatus>('sync_start_trial')
-  }
-
-  redeemInvite(code: string): Promise<SyncStatus> {
-    return invoke<SyncStatus>('sync_redeem_invite', { code })
   }
 
   openPolarCheckout(): Promise<void> {
@@ -245,10 +239,6 @@ export class LocalOnlySyncClient implements SyncClient {
   }
 
   async startTrial(): Promise<SyncStatus> {
-    throw new Error('Cloud sync is only available in the desktop app.')
-  }
-
-  async redeemInvite(): Promise<SyncStatus> {
     throw new Error('Cloud sync is only available in the desktop app.')
   }
 

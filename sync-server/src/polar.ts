@@ -247,16 +247,6 @@ export async function handleCreatePolarCheckout(
     )
   }
 
-  if (ent.state === 'invite' && ent.expiresAt === null) {
-    return jsonResponse(
-      {
-        error: 'already_has_free_access',
-        message: 'Your account already has indefinite free rem Premium access.',
-      },
-      409,
-    )
-  }
-
   const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?1')
     .bind(userId)
     .first<{ email: string | null }>()

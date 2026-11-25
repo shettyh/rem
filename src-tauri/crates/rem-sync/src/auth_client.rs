@@ -17,8 +17,8 @@ use crate::credentials::{normalize_server_url, StoredCredentials};
 use crate::error::SyncError;
 use crate::protocol::{
     AccountProfile, AppleNativeAuthRequest, AuthProviders, AuthTokenResponse, LogoutRequest,
-    OAuthProvider, PolarCheckoutResponse, PolarPortalResponse, RedeemInviteRequest,
-    TokenExchangeRequest, TokenRefreshRequest, VerifyAppleTransactionRequest,
+    OAuthProvider, PolarCheckoutResponse, PolarPortalResponse, TokenExchangeRequest,
+    TokenRefreshRequest, VerifyAppleTransactionRequest,
 };
 
 const AUTH_HTTP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -49,7 +49,6 @@ pub trait AuthClient {
     fn logout(&self, refresh_token: &str) -> Result<(), SyncError>;
     fn get_account(&self, bearer_token: &str) -> Result<AccountProfile, SyncError>;
     fn start_trial(&self, bearer_token: &str) -> Result<AccountProfile, SyncError>;
-    fn redeem_invite(&self, bearer_token: &str, code: &str) -> Result<AccountProfile, SyncError>;
     fn create_polar_checkout(&self, bearer_token: &str) -> Result<String, SyncError>;
     fn create_polar_portal(&self, bearer_token: &str) -> Result<String, SyncError>;
     fn verify_apple_transaction(
@@ -216,22 +215,6 @@ impl AuthClient for HttpAuthClient {
             .client
             .post(self.endpoint("/v1/trial/start"))
             .header(AUTHORIZATION, format!("Bearer {}", bearer_token.trim()))
-            .send()
-            .map_err(|err| SyncError::Transport(err.to_string()))?;
-        let response = check_auth_status(response)?;
-        response
-            .json::<AccountProfile>()
-            .map_err(|err| SyncError::InvalidResponse(err.to_string()))
-    }
-
-    fn redeem_invite(&self, bearer_token: &str, code: &str) -> Result<AccountProfile, SyncError> {
-        let response = self
-            .client
-            .post(self.endpoint("/v1/invites/redeem"))
-            .header(AUTHORIZATION, format!("Bearer {}", bearer_token.trim()))
-            .json(&RedeemInviteRequest {
-                code: code.to_owned(),
-            })
             .send()
             .map_err(|err| SyncError::Transport(err.to_string()))?;
         let response = check_auth_status(response)?;

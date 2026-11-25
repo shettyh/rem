@@ -144,15 +144,13 @@ final class AppState {
     }
 
     /// Whether iOS Settings should offer native StoreKit 2 subscription purchase.
-    /// Hidden when already active (including Polar web subscribers), indefinite free invite,
+    /// Hidden when already active (including Polar web subscribers or allowlisted accounts),
     /// past_due, or self-hosted to prevent double-billing.
     var canShowAppleSubscribe: Bool {
         guard syncStatus?.signedIn == true else { return false }
         switch effectiveEntitlementState {
         case .none, .trialing, .expired:
             return true
-        case .invite:
-            return entitlement?.expiresAt != nil
         case .active, .pastDue, .selfHosted:
             return false
         }
@@ -476,7 +474,6 @@ final class AppState {
         case .selfHosted: return "self_hosted"
         case .none: return "none"
         case .trialing: return "trialing"
-        case .invite: return "invite"
         case .active: return "active"
         case .pastDue: return "past_due"
         case .expired: return "expired"
@@ -488,7 +485,6 @@ final class AppState {
         case "self_hosted": return .selfHosted
         case "none": return EntitlementStateDto.none
         case "trialing": return .trialing
-        case "invite": return .invite
         case "active": return .active
         case "past_due": return .pastDue
         case "expired": return .expired

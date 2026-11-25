@@ -557,7 +557,7 @@ struct SettingsView: View {
         switch state {
         case .selfHosted: return "Self-hosted sync"
         case .none: return "rem Cloud"
-        case .active, .trialing, .invite, .pastDue, .expired: return "rem Premium"
+        case .active, .trialing, .pastDue, .expired: return "rem Premium"
         }
     }
 
@@ -575,8 +575,6 @@ struct SettingsView: View {
             return "Active"
         case .trialing:
             return daysLeft.map { "Free trial · \($0)d left" } ?? "Free trial"
-        case .invite:
-            return daysLeft.map { "Free access · \($0)d left" } ?? "Free access"
         case .pastDue:
             return "Payment issue"
         case .expired:
@@ -595,7 +593,7 @@ struct SettingsView: View {
             return RemPillBadge(text: "Past due", tone: .hard)
         case .expired, .none:
             return RemPillBadge(text: "Paused", tone: .hard)
-        case .active, .trialing, .invite, .selfHosted:
+        case .active, .trialing, .selfHosted:
             if appState.lastSyncError != nil {
                 return RemPillBadge(text: pending > 0 ? "Pending" : "Error", tone: pending > 0 ? .hard : .again)
             }
@@ -878,7 +876,6 @@ struct CloudAccountView: View {
         switch state {
         case .active: return "rem Premium"
         case .trialing: return "Free trial"
-        case .invite: return "Free access"
         case .pastDue: return "Payment issue"
         case .expired: return "Expired"
         case .none: return "Not active"
@@ -889,7 +886,6 @@ struct CloudAccountView: View {
     private func renewalDateLabel(ent: EntitlementInfoDto?, state: EntitlementStateDto) -> String? {
         switch state {
         case .trialing: return "Trial ends"
-        case .invite: return "Access ends"
         case .expired: return "Ended"
         case .active, .pastDue: return (ent?.cancelAtPeriodEnd ?? false) ? "Ends" : "Renews"
         case .none, .selfHosted: return nil

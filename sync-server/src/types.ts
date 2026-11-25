@@ -15,7 +15,7 @@ export interface Env {
   MAX_ASSET_BYTES?: string
   /** Maximum total stored asset bytes per user (default 500 MB). */
   MAX_USER_QUOTA_BYTES?: string
-  /** When "true", only subscribed, trialing, or invited users may sync or access R2 assets (HTTP 402 otherwise). */
+  /** When "true", only subscribed, trialing, or allowlisted users may sync or access R2 assets (HTTP 402 otherwise). */
   REQUIRE_SUBSCRIPTION?: string
   /** Optional comma-separated emails always permitted to sync when REQUIRE_SUBSCRIPTION="true". */
   ALLOWED_EMAILS?: string
@@ -112,7 +112,6 @@ export type EntitlementState =
   | 'self_hosted'
   | 'none'
   | 'trialing'
-  | 'invite'
   | 'active'
   | 'past_due'
   | 'expired'
@@ -173,10 +172,6 @@ export interface TokenRefreshRequest {
 
 export interface LogoutRequest {
   refreshToken: string
-}
-
-export interface RedeemInviteRequest {
-  code: string
 }
 
 export interface PolarCheckoutResponse {

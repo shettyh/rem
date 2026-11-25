@@ -154,7 +154,7 @@ describe('Polar billing (checkout, portal, webhooks, and account deletion)', () 
     })
   })
 
-  it('blocks Polar checkout for active Apple subscribers and indefinite invite holders', async () => {
+  it('blocks Polar checkout for active Apple subscribers and allowlisted users', async () => {
     const appleToken = await createUser('usr_apple_sub', 'apple@example.com')
     const now = Date.now()
     await TEST_ENV.DB!.prepare(
@@ -173,22 +173,17 @@ describe('Polar billing (checkout, portal, webhooks, and account deletion)', () 
     expect(appleBlocked.status).toBe(409)
     expect(await appleBlocked.json()).toMatchObject({ error: 'already_subscribed_apple' })
 
-    const inviteToken = await createUser('usr_forever_invite', 'vip@example.com')
-    await TEST_ENV.DB!.prepare(
-      `INSERT INTO user_entitlements (
-         user_id, status, plan, provider, provider_customer_id, provider_subscription_id,
-         current_period_end, cancel_at_period_end, trial_started_at, original_transaction_id, updated_at
-       ) VALUES (?1, 'active', 'invite_free', 'invite', NULL, NULL, NULL, 0, NULL, NULL, ?2)`,
+    const allowlistToken = await createUser('usr_allowlisted_vip', 'vip@example.com')
+    const allowlistBlocked = await callWorker(
+      'https://sync.example.com/v1/billing/polar/checkout',
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${allowlistToken}` },
+      },
+      { ...POLAR_ENV, ALLOWED_EMAILS: 'vip@example.com' },
     )
-      .bind('usr_forever_invite', now)
-      .run()
-
-    const inviteBlocked = await callWorker('https://sync.example.com/v1/billing/polar/checkout', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${inviteToken}` },
-    })
-    expect(inviteBlocked.status).toBe(409)
-    expect(await inviteBlocked.json()).toMatchObject({ error: 'already_has_free_access' })
+    expect(allowlistBlocked.status).toBe(409)
+    expect(await allowlistBlocked.json()).toMatchObject({ error: 'already_subscribed' })
   })
 
   it('rejects invalid signatures, tampered bodies, and stale timestamps on Polar webhooks', async () => {

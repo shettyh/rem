@@ -336,33 +336,6 @@ pub fn start_trial_with_client(
     })
 }
 
-/// Redeem an invite code (`POST /v1/invites/redeem`), automatically refreshing expired OAuth JWTs.
-pub fn redeem_invite_authenticated(
-    collection: &Collection,
-    store: &dyn CredentialStore,
-    code: &str,
-    now_ms: i64,
-) -> Result<AccountProfile, SyncError> {
-    let state = collection.sync_state()?;
-    let server_url = state
-        .server_url
-        .ok_or_else(|| SyncError::NotConfigured("server_url is not set".into()))?;
-    let auth_client = HttpAuthClient::new(&server_url)?;
-    redeem_invite_with_client(collection, store, &auth_client, code, now_ms)
-}
-
-pub fn redeem_invite_with_client(
-    collection: &Collection,
-    store: &dyn CredentialStore,
-    auth_client: &dyn AuthClient,
-    code: &str,
-    now_ms: i64,
-) -> Result<AccountProfile, SyncError> {
-    with_authed_token(collection, store, auth_client, now_ms, |token| {
-        auth_client.redeem_invite(token, code)
-    })
-}
-
 /// Create a Polar Checkout Session (`POST /v1/billing/polar/checkout`), automatically refreshing expired OAuth JWTs.
 pub fn create_polar_checkout_authenticated(
     collection: &Collection,

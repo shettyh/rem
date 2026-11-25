@@ -9,7 +9,6 @@ import rateLimitsMigrationSql from '../migrations/0006_rate_limits_and_cleanup.s
 import worker from '../src/index'
 import {
   cleanupExpiredRecords,
-  RATE_LIMIT_RETENTION_MS,
   REVOKED_REFRESH_TOKEN_RETENTION_MS,
 } from '../src/maintenance'
 import type { Env } from '../src/types'
@@ -898,7 +897,7 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       const html = await page.text()
       expect(html).toContain('rem Premium')
       expect(html).toContain('/v1/trial/start')
-      expect(html).toContain('/v1/invites/redeem')
+      expect(html).not.toContain('/v1/invites/redeem')
     }
 
     const retiredWaitlist = await callWorker(
@@ -921,7 +920,7 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       email: 'beta@example.com',
     })
 
-    // Legacy approved row in early_access continues to grant indefinite invite access.
+    // Legacy approved row in early_access continues to grant active allowlisted access.
     await TEST_ENV.DB!.prepare(
       `INSERT INTO early_access(email, status, created_at, updated_at)
        VALUES ('beta@example.com', 'approved', ?1, ?1)
@@ -942,7 +941,7 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       subscriptionRequired: true,
       subscriptionStatus: 'allowlisted',
       entitlement: {
-        state: 'invite',
+        state: 'active',
         syncEnabled: true,
         provider: 'allowlist',
         plan: 'early_access',
@@ -966,7 +965,7 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
     expect(approvedSync.status).toBe(200)
   })
 
-  it('scheduled cleanup purges expired oauth_codes, expired/old revoked refresh_tokens, and stale rate limits while preserving active and recently revoked tokens', async () => {
+  it('scheduled cleanup purges expired oauth_codes and expired/old revoked refresh_tokens while preserving active and recently revoked tokens', async () => {
     const now = Date.now()
     const userId = 'usr_cleanup_test'
     await TEST_ENV.DB!.prepare(
@@ -1002,19 +1001,9 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
       )
       .run()
 
-    // Seed stale and recent rate-limit buckets.
-    await TEST_ENV.DB!.prepare(
-      `INSERT INTO rate_limits(scope, bucket_key, window_start, attempts)
-       VALUES ('invite_user', 'old_user', ?1, 4),
-              ('invite_user', 'fresh_user', ?2, 2)`,
-    )
-      .bind(now - RATE_LIMIT_RETENTION_MS - 1_000, now)
-      .run()
-
     const report = await cleanupExpiredRecords(TEST_ENV, now)
     expect(report.oauthCodes).toBeGreaterThanOrEqual(1)
     expect(report.refreshTokens).toBeGreaterThanOrEqual(2)
-    expect(report.rateLimits).toBeGreaterThanOrEqual(1)
 
     const remainingCodes = (
       await TEST_ENV.DB!.prepare('SELECT code_hash FROM oauth_codes WHERE user_id = ?1')
@@ -1031,12 +1020,5 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
         .all<{ token_hash: string }>()
     ).results.map((r) => r.token_hash)
     expect(remainingTokens).toEqual(['rt_active', 'rt_revoked_recent'])
-
-    const remainingBuckets = (
-      await TEST_ENV.DB!.prepare(
-        "SELECT bucket_key FROM rate_limits WHERE bucket_key IN ('old_user', 'fresh_user')",
-      ).all<{ bucket_key: string }>()
-    ).results.map((r) => r.bucket_key)
-    expect(remainingBuckets).toEqual(['fresh_user'])
   })
 })

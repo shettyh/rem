@@ -109,11 +109,6 @@ function describeEntitlementBadge(
         label: days ? `Trial · ${days}d left` : 'Trial',
         className: 'settings-badge is-active',
       }
-    case 'invite':
-      return {
-        label: days ? `Invite · ${days}d left` : 'Free access',
-        className: 'settings-badge is-active',
-      }
     case 'active':
       return { label: 'Active', className: 'settings-badge is-active' }
     case 'past_due':
@@ -161,7 +156,6 @@ export function SettingsPage() {
   const [checkingHosted, setCheckingHosted] = useState(false)
   const [hostedError, setHostedError] = useState<string | null>(null)
   const [devToken, setDevToken] = useState('')
-  const [inviteCode, setInviteCode] = useState('')
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [mismatch, setMismatch] = useState<AccountMismatchInfo | null>(null)
@@ -404,24 +398,6 @@ export function SettingsPage() {
     }
   }
 
-  async function handleRedeemInvite(e: FormEvent) {
-    e.preventDefault()
-    const trimmed = inviteCode.trim().toUpperCase()
-    if (!trimmed) {
-      setSyncError('Enter an invite code.')
-      return
-    }
-    setSyncError(null)
-    setSyncMessage(null)
-    try {
-      await sync.redeemInvite(trimmed)
-      setInviteCode('')
-      setSyncMessage('Invite code redeemed. Cloud sync is now active.')
-    } catch (err) {
-      setSyncError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
   async function handleSignOut() {
     setSyncError(null)
     setSyncMessage(null)
@@ -560,9 +536,6 @@ export function SettingsPage() {
       ? 'settings-badge'
       : 'settings-badge is-active'
 
-  const showInviteInput =
-    isCloudConnected && (entState === 'none' || entState === 'trialing' || entState === 'expired')
-
   const syncStatusDescription = (() => {
     if (!syncStatus) return ''
     if (isSyncPaused) {
@@ -574,8 +547,6 @@ export function SettingsPage() {
     switch (entState) {
       case 'trialing':
         return `rem Premium · Trial (${daysLeft ?? trialDays}d left) · ${syncTail}`
-      case 'invite':
-        return `rem Premium · ${daysLeft ? `Invite (${daysLeft}d left)` : 'Free access'} · ${syncTail}`
       case 'active': {
         const via =
           entitlement?.provider === 'apple' ? 'Managed via Apple App Store' : 'rem Premium'
@@ -838,9 +809,9 @@ export function SettingsPage() {
                         </strong>
                         <p>
                           {entState === 'none'
-                            ? `All local features and self-hosting stay free forever. Start a ${trialDays}-day free trial (no card required) or redeem an invite code.`
+                            ? `All local features and self-hosting stay free forever. Start a ${trialDays}-day free trial (no card required) or subscribe to rem Premium.`
                             : entState === 'trialing'
-                              ? 'Your collection is syncing across all devices. You can upgrade or redeem an invite code anytime.'
+                              ? 'Your collection is syncing across all devices. You can upgrade to rem Premium anytime.'
                               : entState === 'past_due'
                                 ? entitlement?.provider === 'apple'
                                   ? 'Your App Store subscription needs attention. Update payment details in Apple Subscriptions. Local cards stay safe on this device.'
@@ -896,37 +867,6 @@ export function SettingsPage() {
                         )}
                       </div>
                     </div>
-
-                    {showInviteInput && (
-                      <form
-                        className="settings-invite-form"
-                        onSubmit={(e) => void handleRedeemInvite(e)}
-                      >
-                        <label className="field-label" htmlFor="sync-invite-code">
-                          Have an invite code?
-                        </label>
-                        <div className="settings-invite-row">
-                          <input
-                            id="sync-invite-code"
-                            className="text-input"
-                            type="text"
-                            autoComplete="off"
-                            spellCheck={false}
-                            placeholder="REM-XXXX-XXXX"
-                            value={inviteCode}
-                            onChange={(e) => setInviteCode(e.target.value)}
-                            disabled={sync.busy}
-                          />
-                          <button
-                            className="btn btn-sm"
-                            type="submit"
-                            disabled={sync.busy || inviteCode.trim().length === 0}
-                          >
-                            Redeem
-                          </button>
-                        </div>
-                      </form>
-                    )}
                   </div>
                 )}
 

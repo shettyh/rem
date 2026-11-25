@@ -553,11 +553,11 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
         </div>
 
         <div class="card" id="account-card">
-          <p class="card-kicker">Account &amp; invite codes</p>
+          <p class="card-kicker">Account &amp; billing</p>
           <h2 id="card-title">Manage rem Premium</h2>
           <p class="card-desc" id="card-desc">
-            Sign in to start your ${trialDays}-day free trial, redeem an invite code, or check your
-            rem Premium status. Changes unlock Desktop, CLI, and iPhone automatically.
+            Sign in to start your ${trialDays}-day free trial, subscribe, or check your rem Premium
+            status. Changes unlock Desktop, CLI, and iPhone automatically.
           </p>
 
           <div id="signed-out-panel" class="stack">
@@ -590,23 +590,6 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
               Manage billing ↗
             </button>
 
-            <form class="field hidden" id="invite-form" novalidate>
-              <label for="invite-code">Have an invite code?</label>
-              <div class="inline-form">
-                <input
-                  id="invite-code"
-                  name="code"
-                  type="text"
-                  autocomplete="off"
-                  spellcheck="false"
-                  placeholder="REM-XXXX-XXXX"
-                />
-                <button type="submit" class="btn btn-secondary btn-compact" id="btn-redeem">
-                  Redeem
-                </button>
-              </div>
-            </form>
-
             <div class="divider"></div>
             <button type="button" class="btn btn-link" id="btn-sign-out">Sign out</button>
           </div>
@@ -614,9 +597,9 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
           <p class="feedback" id="account-feedback" role="status" aria-live="polite"></p>
 
           <p class="footnote">
-            After starting a trial or redeeming an invite code here, return to
-            <strong>rem</strong> on Desktop or iPhone — sync activates automatically (or choose
-            <strong>Check access</strong> in Settings).
+            After starting a trial or subscribing here, return to <strong>rem</strong> on Desktop
+            or iPhone — sync activates automatically (or choose <strong>Check access</strong> in
+            Settings).
           </p>
         </div>
       </section>
@@ -652,7 +635,7 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
                 Zero-setup managed Cloud Sync across Desktop, CLI, and iPhone. Start a ${trialDays}-day
                 free trial with no card required, then ${safePrice} to keep syncing and support rem.
               </p>
-              <a class="tier-link" href="#account-card">Start trial or redeem invite ↑</a>
+              <a class="tier-link" href="#account-card">Start free trial ↑</a>
             </article>
 
             <article>
@@ -702,9 +685,6 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
         const btnStartTrial = document.getElementById('btn-start-trial')
         const btnSubscribePolar = document.getElementById('btn-subscribe-polar')
         const btnManageBilling = document.getElementById('btn-manage-billing')
-        const inviteForm = document.getElementById('invite-form')
-        const inviteInput = document.getElementById('invite-code')
-        const btnRedeem = document.getElementById('btn-redeem')
         const btnSignOut = document.getElementById('btn-sign-out')
         const feedback = document.getElementById('account-feedback')
 
@@ -818,30 +798,24 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
             (state === 'past_due' ? '' : ' btn-secondary') +
             (ent.canManageBilling ? '' : ' hidden')
 
-          const showInviteForm = state === 'none' || state === 'trialing' || state === 'expired'
-          inviteForm.classList.toggle('hidden', !showInviteForm)
-
           if (state === 'self_hosted') {
             statusBadge.textContent = 'Self-hosted'
             statusBadge.className = 'badge is-ok'
             statusDetail.textContent = 'Sync is enabled on this self-hosted server.'
-          } else if (state === 'invite') {
-            statusBadge.textContent = dLeft ? 'Invite · ' + dLeft + 'd left' : 'Free access'
-            statusBadge.className = 'badge is-ok'
-            statusDetail.textContent = dLeft
-              ? 'Your invite grant is active across Desktop, CLI, and iPhone.'
-              : 'Your account has indefinite free Cloud Sync access across all devices.'
           } else if (state === 'trialing') {
             statusBadge.textContent = 'Trial · ' + (dLeft || 1) + 'd left'
             statusBadge.className = 'badge is-ok'
             statusDetail.textContent =
               'Your free trial is active across Desktop, CLI, and iPhone.'
           } else if (state === 'active') {
-            statusBadge.textContent = 'Premium active'
+            statusBadge.textContent = ent.provider === 'allowlist' ? 'Active' : 'Premium active'
             statusBadge.className = 'badge is-ok'
             if (ent.provider === 'apple') {
               statusDetail.textContent =
                 'Active via Apple App Store. Manage renewal in iOS Subscriptions.'
+            } else if (ent.provider === 'allowlist') {
+              statusDetail.textContent =
+                'Cloud Sync is active for your account across Desktop, CLI, and iPhone.'
             } else {
               const dateLabel = ent.expiresAt
                 ? new Date(ent.expiresAt).toLocaleDateString(undefined, {
@@ -872,7 +846,7 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
             statusDetail.textContent =
               'Start your ' +
               (ent.trialDays || ${trialDays}) +
-              '-day free trial (no card required), upgrade to Premium, or redeem an invite code below.'
+              '-day free trial (no card required) or upgrade to Premium below.'
           }
         }
 
@@ -1002,42 +976,6 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
             setFeedback(err instanceof Error ? err.message : 'Failed to start trial.', 'error')
           } finally {
             btnStartTrial.disabled = false
-          }
-        })
-
-        inviteForm.addEventListener('submit', async (event) => {
-          event.preventDefault()
-          const code = inviteInput.value.trim().toUpperCase()
-          if (!code) {
-            setFeedback('Enter an invite code.', 'error')
-            inviteInput.focus()
-            return
-          }
-          btnRedeem.disabled = true
-          setFeedback('', '')
-          try {
-            const resp = await authedFetch('/v1/invites/redeem', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ code }),
-            })
-            const data = await resp.json().catch(() => ({}))
-            if (!resp.ok) {
-              throw new Error(data.message || data.error || 'Could not redeem invite code.')
-            }
-            inviteInput.value = ''
-            renderAccount(data)
-            setFeedback(
-              'Invite code redeemed! Your account is unlocked across Desktop, CLI, and iPhone.',
-              'success',
-            )
-          } catch (err) {
-            setFeedback(
-              err instanceof Error ? err.message : 'Failed to redeem invite code.',
-              'error',
-            )
-          } finally {
-            btnRedeem.disabled = false
           }
         })
 

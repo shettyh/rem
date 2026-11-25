@@ -1,17 +1,14 @@
-import { checkInviteRateLimit, extractClientIp } from './maintenance'
 import type {
   AccountInfo,
   EntitlementInfo,
   EntitlementState,
   Env,
-  RedeemInviteRequest,
   SubscriptionStatus,
 } from './types'
 
 const DEFAULT_TRIAL_DAYS = 30
 const DEFAULT_PRICE_DISPLAY = '$5/year'
 const DAY_MS = 86_400_000
-const INVITE_CODE_RE = /^[A-Z0-9-]{4,64}$/
 
 export interface SyncEntitlementResult {
   syncEnabled: boolean
@@ -31,16 +28,6 @@ interface EntitlementRow {
   cancel_at_period_end: number | null
   trial_started_at: number | null
   original_transaction_id: string | null
-}
-
-interface InviteCodeRow {
-  code: string
-  max_uses: number
-  uses_count: number
-  grant_days: number | null
-  plan_label: string
-  expires_at: number | null
-  revoked_at: number | null
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -156,8 +143,7 @@ function makeEntitlementInfo(
     polarConfigured &&
     fields.state !== 'self_hosted' &&
     fields.state !== 'active' &&
-    !(fields.state === 'past_due' && fields.provider === 'apple') &&
-    !(fields.state === 'invite' && fields.expiresAt === null)
+    !(fields.state === 'past_due' && fields.provider === 'apple')
 
   return {
     state: fields.state,
@@ -230,7 +216,7 @@ export async function checkSyncEntitlement(
 
   if (isEmailAllowlisted(env, normalizedEmail)) {
     const entitlement = makeEntitlementInfo(env, {
-      state: 'invite',
+      state: 'active',
       syncEnabled: true,
       provider: 'allowlist',
       plan: 'allowlist',
@@ -256,7 +242,7 @@ export async function checkSyncEntitlement(
         .first<{ status: string }>()
       if (earlyAccess?.status === 'approved') {
         const entitlement = makeEntitlementInfo(env, {
-          state: 'invite',
+          state: 'active',
           syncEnabled: true,
           provider: 'allowlist',
           plan: 'early_access',
@@ -349,13 +335,13 @@ export async function checkSyncEntitlement(
     }
   }
 
-  // 3c. Invite or manual grant
+  // 3c. Manual / complimentary active grant
   if (!isPaidProvider && provider !== 'trial' && row.status === 'active' && periodValid) {
     const entitlement = makeEntitlementInfo(env, {
-      state: 'invite',
+      state: 'active',
       syncEnabled: true,
-      provider: provider ?? 'invite',
-      plan: plan ?? 'invite_free',
+      provider: provider ?? 'allowlist',
+      plan: plan ?? 'allowlist',
       expiresAt,
       cancelAtPeriodEnd: false,
       canStartTrial: false,
@@ -457,7 +443,7 @@ export async function handleStartTrial(
 
   const current = await getAccountInfo(env, userId, authMethod, now)
   const state = current.entitlement.state
-  if (state === 'self_hosted' || state === 'active' || state === 'invite' || state === 'trialing') {
+  if (state === 'self_hosted' || state === 'active' || state === 'trialing') {
     return jsonResponse(current)
   }
 
@@ -503,171 +489,6 @@ export async function handleStartTrial(
       409,
     )
   }
-
-  const updated = await getAccountInfo(env, userId, authMethod, now)
-  return jsonResponse(updated)
-}
-
-export async function handleRedeemInvite(
-  request: Request,
-  env: Env,
-  userId: string,
-  authMethod: 'jwt' | 'dev_token',
-  now = Date.now(),
-): Promise<Response> {
-  if (authMethod === 'dev_token' || !env.DB) {
-    return jsonResponse(
-      {
-        error: 'invites_unavailable',
-        message: 'Invite codes require a signed-in rem Premium account.',
-      },
-      400,
-    )
-  }
-
-  const rateLimit = await checkInviteRateLimit(
-    env.DB,
-    userId,
-    extractClientIp(request),
-    now,
-  )
-  if (!rateLimit.allowed) {
-    return new Response(
-      JSON.stringify({
-        error: 'rate_limited',
-        message: 'Too many invite code attempts. Please wait a few minutes and try again.',
-      }),
-      {
-        status: 429,
-        headers: {
-          'Content-Type': 'application/json',
-          'Retry-After': String(rateLimit.retryAfterSec),
-        },
-      },
-    )
-  }
-
-  let body: RedeemInviteRequest
-  try {
-    body = (await request.json()) as RedeemInviteRequest
-  } catch {
-    return jsonResponse({ error: 'invalid_json', message: 'Invalid request body.' }, 400)
-  }
-
-  const code = typeof body?.code === 'string' ? body.code.trim().toUpperCase() : ''
-  if (!code || !INVITE_CODE_RE.test(code)) {
-    return jsonResponse(
-      { error: 'invalid_invite_code', message: 'Enter a valid invite code.' },
-      400,
-    )
-  }
-
-  // Prevent overwriting an active paid subscription or wasting an invite use.
-  const current = await checkSyncEntitlement(env, userId, authMethod, now)
-  if (
-    current.entitlement.state === 'active' &&
-    (current.entitlement.provider === 'apple' || current.entitlement.provider === 'polar')
-  ) {
-    return jsonResponse(
-      {
-        error: 'already_subscribed',
-        message: 'Your account already has an active rem Premium subscription.',
-      },
-      409,
-    )
-  }
-
-  const invite = await env.DB.prepare(
-    `SELECT code, max_uses, uses_count, grant_days, plan_label, expires_at, revoked_at
-     FROM invite_codes WHERE code = ?1`,
-  )
-    .bind(code)
-    .first<InviteCodeRow>()
-
-  if (!invite) {
-    return jsonResponse({ error: 'invite_not_found', message: 'Invite code not found.' }, 404)
-  }
-  if (invite.revoked_at !== null) {
-    return jsonResponse(
-      { error: 'invite_revoked', message: 'This invite code has been revoked.' },
-      409,
-    )
-  }
-  if (invite.expires_at !== null && invite.expires_at <= now) {
-    return jsonResponse(
-      { error: 'invite_expired', message: 'This invite code has expired.' },
-      409,
-    )
-  }
-
-  const alreadyRedeemed = await env.DB.prepare(
-    'SELECT 1 AS found FROM invite_redemptions WHERE code = ?1 AND user_id = ?2',
-  )
-    .bind(code, userId)
-    .first<{ found: number }>()
-  if (alreadyRedeemed) {
-    return jsonResponse(
-      { error: 'invite_already_redeemed', message: 'You have already redeemed this invite code.' },
-      409,
-    )
-  }
-
-  // Atomically claim one use of the invite code.
-  const claimed = await env.DB.prepare(
-    `UPDATE invite_codes
-     SET uses_count = uses_count + 1
-     WHERE code = ?1
-       AND revoked_at IS NULL
-       AND (expires_at IS NULL OR expires_at > ?2)
-       AND uses_count < max_uses`,
-  )
-    .bind(code, now)
-    .run()
-
-  if ((claimed.meta.changes ?? 0) !== 1) {
-    return jsonResponse(
-      { error: 'invite_exhausted', message: 'This invite code has reached its redemption limit.' },
-      409,
-    )
-  }
-
-  try {
-    await env.DB.prepare(
-      'INSERT INTO invite_redemptions(code, user_id, redeemed_at) VALUES (?1, ?2, ?3)',
-    )
-      .bind(code, userId, now)
-      .run()
-  } catch {
-    // Roll back the claimed use if a concurrent request redeemed the same code for this user.
-    await env.DB.prepare(
-      'UPDATE invite_codes SET uses_count = MAX(0, uses_count - 1) WHERE code = ?1',
-    )
-      .bind(code)
-      .run()
-    return jsonResponse(
-      { error: 'invite_already_redeemed', message: 'You have already redeemed this invite code.' },
-      409,
-    )
-  }
-
-  const periodEnd = invite.grant_days !== null ? now + invite.grant_days * DAY_MS : null
-  const planLabel = invite.plan_label || 'invite_free'
-
-  await env.DB.prepare(
-    `INSERT INTO user_entitlements (
-       user_id, status, plan, provider, provider_customer_id, provider_subscription_id,
-       current_period_end, cancel_at_period_end, trial_started_at, original_transaction_id, updated_at
-     ) VALUES (?1, 'active', ?2, 'invite', NULL, NULL, ?3, 0, NULL, NULL, ?4)
-     ON CONFLICT(user_id) DO UPDATE SET
-       status = 'active',
-       plan = excluded.plan,
-       provider = 'invite',
-       current_period_end = excluded.current_period_end,
-       cancel_at_period_end = 0,
-       updated_at = excluded.updated_at`,
-  )
-    .bind(userId, planLabel, periodEnd, now)
-    .run()
 
   const updated = await getAccountInfo(env, userId, authMethod, now)
   return jsonResponse(updated)

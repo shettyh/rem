@@ -32,17 +32,16 @@ pub use error::SyncError;
 pub use protocol::{
     AccountProfile, AuthAccount, AuthProviders, AuthTokenResponse, DownloadedAsset,
     EntitlementInfo, EntitlementState, LogoutRequest, MissingAssetsRequest, MissingAssetsResponse,
-    OAuthProvider, PolarCheckoutResponse, PolarPortalResponse, RedeemInviteRequest, SyncRequest,
-    SyncRequestOp, SyncResponse, TokenExchangeRequest, TokenRefreshRequest,
-    VerifyAppleTransactionRequest,
+    OAuthProvider, PolarCheckoutResponse, PolarPortalResponse, SyncRequest, SyncRequestOp,
+    SyncResponse, TokenExchangeRequest, TokenRefreshRequest, VerifyAppleTransactionRequest,
 };
 pub use session::{
     connect_collection, create_polar_checkout_authenticated, create_polar_checkout_with_client,
     create_polar_portal_authenticated, create_polar_portal_with_client, delete_cloud_account,
     delete_cloud_account_with_client, fetch_account_authenticated, fetch_account_with_client,
-    redeem_invite_authenticated, redeem_invite_with_client, sign_out, sign_out_with_client,
-    start_trial_authenticated, start_trial_with_client, sync_authenticated, sync_with_credentials,
-    verify_apple_transaction_authenticated, verify_apple_transaction_with_client, verify_dev_token,
-    verify_dev_token_with_client, ConnectResult,
+    sign_out, sign_out_with_client, start_trial_authenticated, start_trial_with_client,
+    sync_authenticated, sync_with_credentials, verify_apple_transaction_authenticated,
+    verify_apple_transaction_with_client, verify_dev_token, verify_dev_token_with_client,
+    ConnectResult,
 };
 pub use transport::{HttpTransport, SyncTransport};

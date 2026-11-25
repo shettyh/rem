@@ -36,7 +36,6 @@ export interface SyncContextValue {
   refreshStatus: () => Promise<SyncStatus | null>
   refreshAccount: () => Promise<SyncStatus>
   startTrial: () => Promise<SyncStatus>
-  redeemInvite: (code: string) => Promise<SyncStatus>
   openPolarCheckout: () => Promise<void>
   openPolarPortal: () => Promise<void>
   fetchProviders: (serverUrl: string) => Promise<AuthProviders>
@@ -262,20 +261,6 @@ export function SyncProvider({
     }
   }, [client, updateStatus])
 
-  const redeemInvite = useCallback(
-    async (code: string) => {
-      setBusy(true)
-      try {
-        const next = await client.redeemInvite(code)
-        updateStatus(next)
-        return next
-      } finally {
-        setBusy(false)
-      }
-    },
-    [client, updateStatus],
-  )
-
   const openPolarCheckout = useCallback(async () => {
     setBusy(true)
     try {
@@ -371,7 +356,6 @@ export function SyncProvider({
       refreshStatus,
       refreshAccount,
       startTrial,
-      redeemInvite,
       openPolarCheckout,
       openPolarPortal,
       fetchProviders,
@@ -391,7 +375,6 @@ export function SyncProvider({
       refreshStatus,
       refreshAccount,
       startTrial,
-      redeemInvite,
       openPolarCheckout,
       openPolarPortal,
       fetchProviders,
