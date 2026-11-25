@@ -276,38 +276,6 @@ struct RemCardSurface<Content: View>: View {
     }
 }
 
-struct RemPrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(RemColor.onAccent)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 13.5)
-            .padding(.horizontal, 16)
-            .background(configuration.isPressed ? RemColor.accentHover : RemColor.accent)
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            .scaleEffect(configuration.isPressed ? 0.985 : 1.0)
-            .animation(.easeOut(duration: 0.11), value: configuration.isPressed)
-    }
-}
-
-struct RemSecondaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(RemColor.text)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 11.5)
-            .padding(.horizontal, 14)
-            .background(configuration.isPressed ? RemColor.bgInset : RemColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(RemColor.borderStrong, lineWidth: 1)
-            )
-    }
-}
-
 struct RemGradeButtonStyle: ButtonStyle {
     let tint: Color
     let tintBg: Color

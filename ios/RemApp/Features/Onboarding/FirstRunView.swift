@@ -4,76 +4,93 @@ struct FirstRunView: View {
     @Bindable var appState: AppState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Spacer().frame(height: 36)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                RemLogoBadge(size: 52)
+                    .padding(.top, 44)
+                    .padding(.bottom, 22)
 
-            RemLogoBadge(size: 48)
-                .padding(.bottom, 22)
+                Text("Welcome to rem.")
+                    .font(.largeTitle.bold())
+                    .tracking(-0.6)
+                    .foregroundStyle(RemColor.text)
+                    .padding(.bottom, 10)
 
-            Text("Welcome to rem.")
-                .font(.system(size: 32, weight: .bold))
-                .tracking(-0.8)
-                .foregroundStyle(RemColor.text)
-                .padding(.bottom, 10)
+                Text("Calm, adaptive spaced repetition. Study offline anytime—sync across your devices whenever you want.")
+                    .font(.body)
+                    .foregroundStyle(RemColor.muted)
+                    .padding(.bottom, 32)
 
-            Text("Calm, adaptive spaced repetition. Study offline anytime—sync across your devices whenever you want.")
-                .font(.system(size: 15))
-                .lineSpacing(3)
-                .foregroundStyle(RemColor.muted)
-                .padding(.bottom, 24)
-
-            VStack(spacing: 0) {
-                featureRow(
-                    title: "Private & offline by default",
-                    subtitle: "Your cards live on this iPhone. No account required."
-                )
-                Divider().overlay(RemColor.border)
-                featureRow(
-                    title: "Optional cloud sync",
-                    subtitle: "Keep decks, progress, and images in sync across Mac and iPhone."
-                )
+                VStack(alignment: .leading, spacing: 22) {
+                    featureRow(
+                        systemImage: "iphone",
+                        title: "Private & offline by default",
+                        subtitle: "Your cards live on this iPhone. No account required."
+                    )
+                    featureRow(
+                        systemImage: "icloud",
+                        title: "Optional cloud sync",
+                        subtitle: "Keep decks, progress, and images in sync across Mac and iPhone."
+                    )
+                }
             }
-            .background(RemColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous)
-                    .strokeBorder(RemColor.border, lineWidth: 1)
-            )
-
-            Spacer()
-
-            VStack(spacing: 10) {
-                Button("Start locally") {
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 12) {
+                Button {
                     appState.hasDismissedOnboarding = true
                     appState.selectedTab = .today
                     appState.showNewDeckSheet = true
+                } label: {
+                    Text("Start locally")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(RemPrimaryButtonStyle())
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
 
-                Button("Sign in to rem Premium") {
+                Button {
                     appState.hasDismissedOnboarding = true
                     appState.selectedTab = .settings
+                } label: {
+                    Text("Sign in to rem Premium")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(RemSecondaryButtonStyle())
+                .buttonStyle(.bordered)
+                .controlSize(.large)
             }
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
             .padding(.bottom, 20)
+            .background(RemColor.bg)
         }
-        .padding(.horizontal, 22)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(RemColor.bg)
+        .tint(RemColor.accent)
     }
 
-    private func featureRow(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(RemColor.text)
-            Text(subtitle)
-                .font(.system(size: 12.5))
-                .foregroundStyle(RemColor.muted)
+    private func featureRow(systemImage: String, title: String, subtitle: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundStyle(RemColor.accent)
+                .frame(width: 32, alignment: .center)
+                .padding(.top, 2)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(RemColor.text)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(RemColor.muted)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 15)
-        .padding(.vertical, 13)
     }
 }

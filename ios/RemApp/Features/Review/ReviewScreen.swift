@@ -498,10 +498,16 @@ struct ReviewScreen: View {
                 )
                 .padding(.top, 4)
 
-                Button("Back to Today") {
+                Button {
                     dismiss()
+                } label: {
+                    Text("Back to Today")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(RemPrimaryButtonStyle())
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(RemColor.accent)
                 .frame(maxWidth: 240)
                 .padding(.top, 6)
             }
