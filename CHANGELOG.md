@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.26.0 (2026-11-25)
+
+## What's Changed
+* feat(skill): improve card-writing guidance for cleaner, higher-recall cards by @shettyh in https://github.com/shettyh/rem/pull/258
+* feat(ios): use native SwiftUI buttons and onboarding layout by @shettyh in https://github.com/shettyh/rem/pull/260
+* docs(site,readme): highlight Agent Skill + CLI workflow and refresh product details by @shettyh in https://github.com/shettyh/rem/pull/261
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.25.6...v0.26.0
+
 ## 0.25.6 (2026-11-25)
 
 ## What's Changed
