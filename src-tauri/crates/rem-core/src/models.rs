@@ -52,13 +52,13 @@ impl Default for DeckSettings {
     fn default() -> Self {
         Self {
             new_per_day: 20,
-            max_reviews: 200,
+            max_reviews: 9_999,
             learn_steps: "1m 10m".into(),
             insertion_order: InsertionOrder::Sequential,
             relearn_steps: "10m".into(),
             minimum_interval: 1,
             leech_threshold: 8,
-            leech_action: LeechAction::Suspend,
+            leech_action: LeechAction::Tag,
             bury_related: true,
             show_timer: false,
             desired_retention: 0.9,

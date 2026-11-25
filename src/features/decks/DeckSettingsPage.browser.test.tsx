@@ -83,8 +83,8 @@ test('persists daily-limit, new-card, and lapse edits', async () => {
   await learn.element().blur()
   await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.learnSteps).toBe('1m 10m 1h')
 
-  await page.getByRole('button', { name: 'TAG' }).click()
-  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.leechAction).toBe('tag')
+  await page.getByRole('button', { name: 'SUSPEND' }).click()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.leechAction).toBe('suspend')
 })
 
 test('starts the selected custom-study preset', async () => {

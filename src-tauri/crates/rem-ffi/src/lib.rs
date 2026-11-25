@@ -983,13 +983,13 @@ mod tests {
             .unwrap();
         assert_eq!(deck.settings.desired_retention, 0.9);
         assert_eq!(deck.settings.new_per_day, 20);
-        assert_eq!(deck.settings.max_reviews, 200);
+        assert_eq!(deck.settings.max_reviews, 9999);
         assert_eq!(deck.settings.learn_steps, "1m 10m");
         assert_eq!(deck.settings.insertion_order, InsertionOrderDto::Sequential);
         assert_eq!(deck.settings.relearn_steps, "10m");
         assert_eq!(deck.settings.minimum_interval, 1);
         assert_eq!(deck.settings.leech_threshold, 8);
-        assert_eq!(deck.settings.leech_action, LeechActionDto::Suspend);
+        assert_eq!(deck.settings.leech_action, LeechActionDto::Tag);
         assert!(!deck.settings.has_personalized_weights);
 
         // Reject out-of-range retention
@@ -1001,7 +1001,7 @@ mod tests {
             relearn_steps: "15m".into(),
             minimum_interval: 2,
             leech_threshold: 5,
-            leech_action: LeechActionDto::Tag,
+            leech_action: LeechActionDto::Suspend,
             bury_related: true,
             show_timer: false,
             desired_retention: 0.50,
@@ -1021,7 +1021,7 @@ mod tests {
             relearn_steps: "15m".into(),
             minimum_interval: 2,
             leech_threshold: 5,
-            leech_action: LeechActionDto::Tag,
+            leech_action: LeechActionDto::Suspend,
             bury_related: true,
             show_timer: false,
             desired_retention: 0.92,
@@ -1046,7 +1046,7 @@ mod tests {
         assert_eq!(updated.settings.relearn_steps, "15m");
         assert_eq!(updated.settings.minimum_interval, 2);
         assert_eq!(updated.settings.leech_threshold, 5);
-        assert_eq!(updated.settings.leech_action, LeechActionDto::Tag);
+        assert_eq!(updated.settings.leech_action, LeechActionDto::Suspend);
 
         // Reload via get_deck
         let reloaded = client.get_deck(deck.id.clone()).unwrap().unwrap();

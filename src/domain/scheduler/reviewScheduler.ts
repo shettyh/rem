@@ -17,6 +17,20 @@ function stepTo(base: FSRSState, state: number, step: number, dueMs: number, now
   return { ...base, state, step, due: now + dueMs, lastReview: now }
 }
 
+/**
+ * Anki-standard Hard delay on a learning/relearning step:
+ * - On step 0 with ≥2 steps: average of step 0 and step 1 (e.g. `1m 10m` → `5.5m`).
+ * - On step 0 with 1 step: 1.5× step 0, capped at `+1d` (e.g. `10m` → `15m`).
+ * - On later steps: repeat the current step.
+ */
+function hardStepDelay(steps: number[], index: number): number {
+  if (index === 0) {
+    if (steps.length >= 2) return Math.floor((steps[0] + steps[1]) / 2)
+    return steps[0] + Math.min(Math.floor(steps[0] / 2), MS_PER_DAY)
+  }
+  return steps[index]
+}
+
 /** Clamp an FSRS due date to [minDays, maxDays] whole days from now. */
 function clampDays(state: FSRSState, now: number, minDays: number, maxDays: number): FSRSState {
   const days = Math.min(Math.max(Math.round((state.due - now) / MS_PER_DAY), minDays), maxDays)
@@ -44,7 +58,7 @@ export async function nextStates(
     const li = Math.min(i, L.length - 1)
     return {
       again: stepTo(scheduling, 1, 0, L[0], now),
-      hard: stepTo(scheduling, 1, li, L[li], now),
+      hard: stepTo(scheduling, 1, li, hardStepDelay(L, li), now),
       good: i + 1 < L.length ? stepTo(scheduling, 1, i + 1, L[i + 1], now) : fsrs.good,
       easy: fsrs.easy,
     }
@@ -64,7 +78,7 @@ export async function nextStates(
     const ri = Math.min(i, R.length - 1)
     return {
       again: stepTo(scheduling, 3, 0, R[0], now),
-      hard: stepTo(scheduling, 3, ri, R[ri], now),
+      hard: stepTo(scheduling, 3, ri, hardStepDelay(R, ri), now),
       good: i + 1 < R.length ? stepTo(scheduling, 3, i + 1, R[i + 1], now) : clampDays(fsrs.good, now, min, max),
       easy: clampDays(fsrs.easy, now, min, max),
     }
