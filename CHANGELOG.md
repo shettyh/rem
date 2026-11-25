@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.25.6 (2026-11-25)
+
+## What's Changed
+* fix(core,ui,ios): align default deck learning config and step Hard behavior with Anki/FSRS by @shettyh in https://github.com/shettyh/rem/pull/255
+* fix(sync,ui,ios): serialize token refresh and fix Settings/Today layout alignment by @shettyh in https://github.com/shettyh/rem/pull/257
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.25.5...v0.25.6
+
 ## 0.25.5 (2026-11-24)
 
 ## What's Changed
