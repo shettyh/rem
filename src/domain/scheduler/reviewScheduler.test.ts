@@ -18,13 +18,21 @@ function newCard(now: number): FSRSState {
 }
 
 describe('nextStates — learning', () => {
-  it('new card: again → step 0 in 1m, good → step 1 in 10m (no FSRS, reps stays 0)', async () => {
+  it('new card: again → 1m, hard → avg(1m, 10m) = 5.5m, good → 10m (no FSRS, reps stays 0)', async () => {
     const now = 1_000_000
     const ns = await nextStates(newCard(now), S, now)
     expect(ns.again).toMatchObject({ state: 1, step: 0, due: now + 60_000, reps: 0 })
+    expect(ns.hard).toMatchObject({ state: 1, step: 0, due: now + 330_000, reps: 0 })
     expect(ns.good).toMatchObject({ state: 1, step: 1, due: now + 600_000, reps: 0 })
   })
-  it('hard repeats the current step', async () => {
+  it('hard on a single learning step uses 1.5x (capped at +1d)', async () => {
+    const now = 1_000_000
+    const short = await nextStates(newCard(now), { ...S, learnSteps: '10m' }, now)
+    expect(short.hard).toMatchObject({ state: 1, step: 0, due: now + 900_000 })
+    const long = await nextStates(newCard(now), { ...S, learnSteps: '3d' }, now)
+    expect(long.hard).toMatchObject({ state: 1, step: 0, due: now + 4 * DAY })
+  })
+  it('hard repeats the current step after step 0', async () => {
     const now = 1_000_000
     const ns = await nextStates({ ...newCard(now), state: 1, step: 1 }, S, now)
     expect(ns.hard).toMatchObject({ state: 1, step: 1, due: now + 600_000 })
@@ -75,6 +83,8 @@ describe('nextStates — review lapse + relearning', () => {
     const now = 5_000_000
     const relearn: FSRSState = { ...review, state: 3, step: 0 }
     const ns = await nextStates(relearn, S, now) // relearnSteps '10m' → single step, so good graduates
+    expect(ns.again).toMatchObject({ state: 3, step: 0, due: now + 600_000 })
+    expect(ns.hard).toMatchObject({ state: 3, step: 0, due: now + 900_000 })
     expect(ns.good).toMatchObject({ state: 2, step: 0 })
     expect(ns.good.due).toBe(now + 3 * DAY) // fake good = +3d, minimumInterval 3 → clamp keeps 3d
   })

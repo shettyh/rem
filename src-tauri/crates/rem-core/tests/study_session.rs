@@ -166,6 +166,10 @@ fn a_new_card_again_uses_learning_steps_and_requeues_within_learn_ahead() {
         (1, 0, NOW + 60_000)
     );
     assert_eq!(
+        (next.hard.state, next.hard.step, next.hard.due),
+        (1, 0, NOW + 330_000)
+    );
+    assert_eq!(
         (next.good.state, next.good.step, next.good.due),
         (1, 1, NOW + 600_000)
     );
@@ -183,6 +187,54 @@ fn a_new_card_again_uses_learning_steps_and_requeues_within_learn_ahead() {
             .get_daily_stat(&deck.id, &local_day(NOW))
             .unwrap(),
         (1, 0)
+    );
+}
+
+#[test]
+fn hard_on_single_relearn_step_uses_one_and_a_half_times_step_and_later_step_repeats() {
+    let (_temp, collection) = collection();
+    let deck = collection.create_deck("Steps", NOW - 100).unwrap();
+
+    // Relearning step 0 with single default step "10m": Hard = 1.5x (15m), Again = 10m.
+    let relearn = collection
+        .create_card(&deck.id, "Relearn Q", "Relearn A", vec![], NOW - 80)
+        .unwrap();
+    set_scheduling(&collection, &relearn.id, scheduling(3, NOW - 10));
+
+    let mut session =
+        StudySession::start(&collection, StudyRequest::deck(deck.id.clone()), NOW).unwrap();
+    let next = session.reveal(NOW).unwrap().next_states.unwrap();
+    assert_eq!(
+        (next.again.state, next.again.step, next.again.due),
+        (3, 0, NOW + 600_000)
+    );
+    assert_eq!(
+        (next.hard.state, next.hard.step, next.hard.due),
+        (3, 0, NOW + 900_000)
+    );
+
+    // Learning step 1 of default "1m 10m": Hard repeats current step (10m).
+    let learning = collection
+        .create_card(&deck.id, "Learn Q", "Learn A", vec![], NOW - 70)
+        .unwrap();
+    set_scheduling(
+        &collection,
+        &learning.id,
+        FsrsState {
+            step: 1,
+            ..scheduling(1, NOW - 20)
+        },
+    );
+    let mut learn_session =
+        StudySession::start(&collection, StudyRequest::deck(deck.id), NOW).unwrap();
+    let learn_next = learn_session.reveal(NOW).unwrap().next_states.unwrap();
+    assert_eq!(
+        (
+            learn_next.hard.state,
+            learn_next.hard.step,
+            learn_next.hard.due
+        ),
+        (1, 1, NOW + 600_000)
     );
 }
 

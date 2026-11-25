@@ -37,13 +37,13 @@ struct DeckOptionsSheet: View {
 
     @State private var desiredRetentionPercent: Int = 90
     @State private var newPerDay: Int = 20
-    @State private var maxReviews: Int = 200
+    @State private var maxReviews: Int = 9999
     @State private var learnSteps: String = "1m 10m"
     @State private var insertionOrder: InsertionOrderDto = .sequential
     @State private var relearnSteps: String = "10m"
     @State private var minimumInterval: Int = 1
     @State private var leechThreshold: Int = 8
-    @State private var leechAction: LeechActionDto = .suspend
+    @State private var leechAction: LeechActionDto = .tag
     @State private var buryRelated: Bool = true
     @State private var showTimer: Bool = false
     @State private var maximumInterval: UInt32 = 36_500
@@ -256,7 +256,7 @@ struct DeckOptionsSheet: View {
                     Text("Learning steps")
                         .foregroundStyle(RemColor.text)
                     Spacer()
-                    Text("e.g. 1m 10m 1d")
+                    Text("e.g. 1m 10m")
                         .font(.caption.monospaced())
                         .foregroundStyle(RemColor.faint)
                 }

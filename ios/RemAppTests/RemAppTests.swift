@@ -476,9 +476,9 @@ final class RemAppTests: XCTestCase {
         let created = try XCTUnwrap(createdDeck)
         XCTAssertEqual(created.settings.desiredRetention, 0.9, accuracy: 0.0001)
         XCTAssertEqual(created.settings.newPerDay, 20)
-        XCTAssertEqual(created.settings.maxReviews, 200)
+        XCTAssertEqual(created.settings.maxReviews, 9999)
         XCTAssertEqual(created.settings.insertionOrder, .sequential)
-        XCTAssertEqual(created.settings.leechAction, .suspend)
+        XCTAssertEqual(created.settings.leechAction, .tag)
 
         let patch = DeckSettingsPatchDto(
             newPerDay: 30,
@@ -488,7 +488,7 @@ final class RemAppTests: XCTestCase {
             relearnSteps: "15m",
             minimumInterval: 2,
             leechThreshold: 5,
-            leechAction: .tag,
+            leechAction: .suspend,
             buryRelated: true,
             showTimer: false,
             desiredRetention: 0.93,
@@ -512,7 +512,7 @@ final class RemAppTests: XCTestCase {
         XCTAssertEqual(updated.settings.relearnSteps, "15m")
         XCTAssertEqual(updated.settings.minimumInterval, 2)
         XCTAssertEqual(updated.settings.leechThreshold, 5)
-        XCTAssertEqual(updated.settings.leechAction, .tag)
+        XCTAssertEqual(updated.settings.leechAction, .suspend)
 
         let reloadedDeck = try await store.getDeck(id: created.id)
         let reloaded = try XCTUnwrap(reloadedDeck)

@@ -680,7 +680,7 @@ fn next_states(
         let index = step.min(steps.len() - 1);
         return Ok(StudyNextStates {
             again: step_to(state, 1, 0, steps[0], now),
-            hard: step_to(state, 1, index as u32, steps[index], now),
+            hard: step_to(state, 1, index as u32, hard_step_delay(&steps, index), now),
             good: if step + 1 < steps.len() {
                 step_to(state, 1, (step + 1) as u32, steps[step + 1], now)
             } else {
@@ -703,7 +703,7 @@ fn next_states(
         let index = step.min(steps.len() - 1);
         return Ok(StudyNextStates {
             again: step_to(state, 3, 0, steps[0], now),
-            hard: step_to(state, 3, index as u32, steps[index], now),
+            hard: step_to(state, 3, index as u32, hard_step_delay(&steps, index), now),
             good: if step + 1 < steps.len() {
                 step_to(state, 3, (step + 1) as u32, steps[step + 1], now)
             } else {
@@ -725,6 +725,22 @@ fn next_states(
         good: fsrs.good,
         easy: fsrs.easy,
     })
+}
+
+/// Anki-standard Hard delay on a learning/relearning step:
+/// - On step 0 with ≥2 steps: average of step 0 and step 1 (e.g. `1m 10m` → `5.5m`).
+/// - On step 0 with 1 step: 1.5× step 0, capped at `+1d` (e.g. `10m` → `15m`).
+/// - On later steps: repeat the current step.
+fn hard_step_delay(steps: &[i64], index: usize) -> i64 {
+    if index == 0 {
+        if steps.len() >= 2 {
+            steps[0].saturating_add(steps[1]) / 2
+        } else {
+            steps[0].saturating_add((steps[0] / 2).min(MS_PER_DAY))
+        }
+    } else {
+        steps[index]
+    }
 }
 
 fn step_to(previous: &FsrsState, state: u8, step: u32, delay: i64, now: i64) -> FsrsState {

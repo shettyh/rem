@@ -195,7 +195,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
           <div className="ds-card">
             <div className="ds-row">
               <div className="ds-row-title">Learning steps</div>
-              <span className="ds-row-sub" style={{ fontFamily: 'var(--font-mono)' }}>e.g. 1m 10m 1d</span>
+              <span className="ds-row-sub" style={{ fontFamily: 'var(--font-mono)' }}>e.g. 1m 10m</span>
             </div>
             <div className="ds-row-sub" style={{ margin: '3px 0 12px' }}>Intervals a new card steps through before graduating. Space-separated.</div>
             <input

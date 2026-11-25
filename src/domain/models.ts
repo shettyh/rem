@@ -36,13 +36,13 @@ export interface DeckSettings {
 
 export const DEFAULT_DECK_SETTINGS: DeckSettings = {
   newPerDay: 20,
-  maxReviews: 200,
+  maxReviews: 9999,
   learnSteps: '1m 10m',
   insertionOrder: 'sequential',
   relearnSteps: '10m',
   minimumInterval: 1,
   leechThreshold: 8,
-  leechAction: 'suspend',
+  leechAction: 'tag',
   buryRelated: true,
   showTimer: false,
   desiredRetention: 0.9,
