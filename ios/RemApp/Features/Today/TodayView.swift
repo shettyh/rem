@@ -132,8 +132,8 @@ struct TodayView: View {
         } else if let summary {
             RemCardSurface(padding: 16) {
                 VStack(spacing: 14) {
-                    HStack(alignment: .firstTextBaseline) {
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    HStack(alignment: .center) {
+                        HStack(alignment: .center, spacing: 12) {
                             Text("\(summary.totalDue)")
                                 .font(.system(size: 40, weight: .bold))
                                 .tracking(-1.4)

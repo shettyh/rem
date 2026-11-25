@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
+
 use rem_core::{Collection, CollectionError, SyncMode};
 
 use crate::auth_client::{AuthClient, HttpAuthClient};
@@ -495,16 +498,54 @@ where
     }
 }
 
+fn refresh_lock_for(server_url: &str, account_id: &str) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let key = format!(
+        "{}|{}",
+        normalize_server_url(server_url).to_lowercase(),
+        account_id.trim()
+    );
+    let map = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = map.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    Arc::clone(guard.entry(key).or_insert_with(|| Arc::new(Mutex::new(()))))
+}
+
 fn refresh_and_persist(
     store: &dyn CredentialStore,
     auth_client: &dyn AuthClient,
     server_url: &str,
     account_id: &str,
     device_id: &str,
-    creds: &StoredCredentials,
+    stale_creds: &StoredCredentials,
     now_ms: i64,
 ) -> Result<StoredCredentials, SyncError> {
-    let Some(refresh_token) = creds.refresh_token() else {
+    let Some(stale_refresh) = stale_creds.refresh_token() else {
+        return Err(SyncError::Unauthorized);
+    };
+
+    let lock = refresh_lock_for(server_url, account_id);
+    let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    // Re-check persisted credentials after acquiring the lock: another concurrent
+    // request may have already rotated the single-use refresh token. Reusing the
+    // stale token would trigger server-side reuse detection and revoke the session.
+    let latest_creds = match store.load(server_url, account_id)? {
+        Some(current) => {
+            let rotated = current.refresh_token() != Some(stale_refresh)
+                || current.bearer_token() != stale_creds.bearer_token();
+            if rotated && !current.needs_refresh(now_ms, TOKEN_REFRESH_LEEWAY_MS) {
+                return Ok(current);
+            }
+            current
+        }
+        None => {
+            return Err(SyncError::NotAuthenticated(
+                "no stored credentials for this account".into(),
+            ));
+        }
+    };
+
+    let Some(refresh_token) = latest_creds.refresh_token() else {
         return Err(SyncError::Unauthorized);
     };
     let response = auth_client.refresh_token(refresh_token, device_id)?;

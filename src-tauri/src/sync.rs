@@ -225,6 +225,15 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
+fn format_sync_error(err: &SyncError) -> String {
+    match err {
+        SyncError::Unauthorized => {
+            "Your cloud session expired. Sign out and sign in again to reconnect.".to_owned()
+        }
+        other => other.to_string(),
+    }
+}
+
 fn emit_status(app: &AppHandle, snapshot: &SyncStatusSnapshot) {
     let _ = app.emit(EVENT_SYNC_STATE_CHANGED, snapshot);
 }
@@ -238,7 +247,14 @@ fn run_sync_locked(
         .sync_lock
         .lock()
         .map_err(|_| "sync lock poisoned".to_owned())?;
+    run_sync_with_lock_held(app, collection, manager)
+}
 
+fn run_sync_with_lock_held(
+    app: &AppHandle,
+    collection: &Collection,
+    manager: &SyncManager,
+) -> Result<SyncStatusSnapshot, String> {
     manager.set_activity(SyncActivity::Syncing, None);
     if let Ok(snap) = manager.snapshot(collection) {
         emit_status(app, &snap);
@@ -270,7 +286,7 @@ fn run_sync_locked(
             Err(message)
         }
         Err(err) => {
-            let msg = err.to_string();
+            let msg = format_sync_error(&err);
             manager.set_activity(SyncActivity::Error, Some(msg.clone()));
             if let Ok(snap) = manager.snapshot(collection) {
                 emit_status(app, &snap);
@@ -288,6 +304,10 @@ fn finish_connect(
     creds: StoredCredentials,
     reset_existing_binding: bool,
 ) -> Result<SignInOutcome, String> {
+    let _guard = manager
+        .sync_lock
+        .lock()
+        .map_err(|_| "sync lock poisoned".to_owned())?;
     let store = KeyringCredentialStore;
     let now = now_millis();
     match connect_collection(
@@ -319,7 +339,7 @@ fn finish_connect(
                 }
             }
 
-            match run_sync_locked(app, collection, manager) {
+            match run_sync_with_lock_held(app, collection, manager) {
                 Ok(snapshot) => Ok(SignInOutcome::Connected {
                     snapshot: Box::new(snapshot),
                     synced: true,
@@ -354,7 +374,7 @@ fn finish_connect(
                 incoming_provider,
             })
         }
-        Err(err) => Err(err.to_string()),
+        Err(err) => Err(format_sync_error(&err)),
     }
 }
 
@@ -469,9 +489,13 @@ pub async fn sync_refresh_account(app: AppHandle) -> Result<SyncStatusSnapshot, 
     tauri::async_runtime::spawn_blocking(move || {
         let collection = app.state::<Collection>();
         let manager = app.state::<SyncManager>();
+        let _guard = manager
+            .sync_lock
+            .lock()
+            .map_err(|_| "sync lock poisoned".to_owned())?;
         let store = KeyringCredentialStore;
         let profile = fetch_account_authenticated(&collection, &store, now_millis())
-            .map_err(|err| err.to_string())?;
+            .map_err(|err| format_sync_error(&err))?;
         manager.record_account_profile(&profile);
         let snap = manager.snapshot(&collection)?;
         emit_status(&app, &snap);
@@ -486,9 +510,13 @@ pub async fn sync_start_trial(app: AppHandle) -> Result<SyncStatusSnapshot, Stri
     tauri::async_runtime::spawn_blocking(move || {
         let collection = app.state::<Collection>();
         let manager = app.state::<SyncManager>();
+        let _guard = manager
+            .sync_lock
+            .lock()
+            .map_err(|_| "sync lock poisoned".to_owned())?;
         let store = KeyringCredentialStore;
         let profile = start_trial_authenticated(&collection, &store, now_millis())
-            .map_err(|err| err.to_string())?;
+            .map_err(|err| format_sync_error(&err))?;
         manager.record_account_profile(&profile);
         let can_sync = profile
             .entitlement
@@ -496,7 +524,7 @@ pub async fn sync_start_trial(app: AppHandle) -> Result<SyncStatusSnapshot, Stri
             .map(|e| e.sync_enabled)
             .unwrap_or(profile.sync_enabled);
         if can_sync {
-            run_sync_locked(&app, &collection, &manager)
+            run_sync_with_lock_held(&app, &collection, &manager)
         } else {
             let snap = manager.snapshot(&collection)?;
             emit_status(&app, &snap);
@@ -515,9 +543,13 @@ pub async fn sync_redeem_invite(
     tauri::async_runtime::spawn_blocking(move || {
         let collection = app.state::<Collection>();
         let manager = app.state::<SyncManager>();
+        let _guard = manager
+            .sync_lock
+            .lock()
+            .map_err(|_| "sync lock poisoned".to_owned())?;
         let store = KeyringCredentialStore;
         let profile = redeem_invite_authenticated(&collection, &store, &code, now_millis())
-            .map_err(|err| err.to_string())?;
+            .map_err(|err| format_sync_error(&err))?;
         manager.record_account_profile(&profile);
         let can_sync = profile
             .entitlement
@@ -525,7 +557,7 @@ pub async fn sync_redeem_invite(
             .map(|e| e.sync_enabled)
             .unwrap_or(profile.sync_enabled);
         if can_sync {
-            run_sync_locked(&app, &collection, &manager)
+            run_sync_with_lock_held(&app, &collection, &manager)
         } else {
             let snap = manager.snapshot(&collection)?;
             emit_status(&app, &snap);
@@ -546,7 +578,7 @@ pub async fn sync_sign_out(app: AppHandle) -> Result<SyncStatusSnapshot, String>
             .lock()
             .map_err(|_| "sync lock poisoned".to_owned())?;
         let store = KeyringCredentialStore;
-        sign_out(&collection, &store).map_err(|err| err.to_string())?;
+        sign_out(&collection, &store).map_err(|err| format_sync_error(&err))?;
         manager.clear_session_metadata();
         let snap = manager.snapshot(&collection)?;
         emit_status(&app, &snap);
@@ -565,9 +597,14 @@ pub fn sync_open_external_url(url: String) -> Result<(), String> {
 pub async fn sync_open_polar_checkout(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let collection = app.state::<Collection>();
+        let manager = app.state::<SyncManager>();
+        let _guard = manager
+            .sync_lock
+            .lock()
+            .map_err(|_| "sync lock poisoned".to_owned())?;
         let store = KeyringCredentialStore;
         let checkout_url = create_polar_checkout_authenticated(&collection, &store, now_millis())
-            .map_err(|err| err.to_string())?;
+            .map_err(|err| format_sync_error(&err))?;
         open_system_browser(&checkout_url).map_err(|err| err.to_string())
     })
     .await
@@ -578,9 +615,14 @@ pub async fn sync_open_polar_checkout(app: AppHandle) -> Result<(), String> {
 pub async fn sync_open_polar_portal(app: AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let collection = app.state::<Collection>();
+        let manager = app.state::<SyncManager>();
+        let _guard = manager
+            .sync_lock
+            .lock()
+            .map_err(|_| "sync lock poisoned".to_owned())?;
         let store = KeyringCredentialStore;
         let portal_url = create_polar_portal_authenticated(&collection, &store, now_millis())
-            .map_err(|err| err.to_string())?;
+            .map_err(|err| format_sync_error(&err))?;
         open_system_browser(&portal_url).map_err(|err| err.to_string())
     })
     .await
@@ -597,7 +639,8 @@ pub async fn sync_delete_account(app: AppHandle) -> Result<SyncStatusSnapshot, S
             .lock()
             .map_err(|_| "sync lock poisoned".to_owned())?;
         let store = KeyringCredentialStore;
-        delete_cloud_account(&collection, &store, now_millis()).map_err(|err| err.to_string())?;
+        delete_cloud_account(&collection, &store, now_millis())
+            .map_err(|err| format_sync_error(&err))?;
         manager.clear_session_metadata();
         let snap = manager.snapshot(&collection)?;
         emit_status(&app, &snap);
