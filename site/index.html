@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="rem is local-first spaced repetition across desktop, terminal, and iPhone — with source-grounded cards proposed by AI agents, FSRS-7 scheduling, and optional Cloud sync."
+      content="rem is local-first spaced repetition across desktop, terminal, and iPhone — with an AI agent skill and CLI for source-grounded card capture, FSRS-7 scheduling, and optional Cloud sync."
     />
     <meta name="theme-color" content="#f8f7f4" />
     <meta property="og:title" content="rem — build understanding that lasts" />
     <meta
       property="og:description"
-      content="Turn a codebase, research, or any topic into source-grounded recall prompts. Study on desktop, terminal, and iPhone."
+      content="Pair your AI agents with a calm local-first memory system. Capture source-grounded drafts via CLI, approve what sticks, and study with FSRS-7 on desktop, terminal, and iPhone."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://shettyh.github.io/rem/" />
@@ -36,6 +36,7 @@
         </a>
         <div class="nav-links">
           <a href="#workflow">How it works</a>
+          <a href="#agents">Agents &amp; CLI</a>
           <a href="#showcase">App tour</a>
           <a href="#features">Features</a>
           <a href="#install">Install</a>
@@ -53,12 +54,12 @@
     <main id="main">
       <section class="hero shell" id="top">
         <div class="hero-copy">
-          <p class="eyebrow"><span></span> Desktop · Terminal · iPhone</p>
+          <p class="eyebrow"><span></span> Desktop · Terminal · iPhone · Agent CLI</p>
           <h1>Understand any system. <em>Remember what matters.</em></h1>
           <p class="hero-lede">
-            Use your agent to turn a codebase, research, or any topic into source-grounded recall
-            prompts. You approve what enters your study plan; FSRS-7 keeps it sharp across desktop,
-            terminal, and iPhone.
+            Pair your coding and research agents with a calm, local-first memory system. The
+            <code>rem</code> CLI and skill turn real work into concise, source-grounded drafts —
+            you approve what sticks, and FSRS-7 keeps it sharp across desktop, terminal, and iPhone.
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/shettyh/rem/releases/latest">
@@ -67,7 +68,7 @@
                 <path d="M8 2v8m0 0 3-3m-3 3L5 7M3 13h10" />
               </svg>
             </a>
-            <a class="button button-secondary" href="#showcase">Explore the app tour</a>
+            <a class="button button-secondary" href="#agents">See Agent Skill + CLI</a>
           </div>
           <ul class="hero-facts" aria-label="Product highlights">
             <li>
@@ -76,7 +77,11 @@
             </li>
             <li>
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
-              Optional Cloud sync
+              Agent Skill + CLI
+            </li>
+            <li>
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
+              Cloud sync
             </li>
             <li>
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
@@ -134,6 +139,8 @@
         <div class="shell trust-list">
           <span>One shared Rust core</span>
           <span class="trust-divider"></span>
+          <strong>Agent Skill + CLI</strong>
+          <span class="trust-divider"></span>
           <strong>FSRS-7</strong>
           <span class="trust-divider"></span>
           <strong>Markdown</strong>
@@ -153,8 +160,9 @@
           <p class="eyebrow">A deliberate capture loop</p>
           <h2>Your agent can explore.<br /><em>You decide what sticks.</em></h2>
           <p>
-            Whether you are learning a codebase or a broader topic, generated content never becomes
-            a scheduled card by accident. Every prompt passes through an inspectable workflow.
+            Whether you are debugging a codebase, reading a paper, or learning a new language,
+            generated content never becomes a scheduled card by accident. Every prompt passes
+            through a clean, inspectable loop.
           </p>
         </div>
 
@@ -164,17 +172,21 @@
             <span class="step-icon">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17.5V20h2.5L18 8.5 15.5 6 4 17.5ZM14 7.5l2.5 2.5M13 20h7" /></svg>
             </span>
-            <h3>Explore a system or topic</h3>
-            <p>Work through code, documentation, research, or study material with your agent.</p>
+            <h3>Work in your agent</h3>
+            <p>
+              Debug code, read docs, or research a topic in Claude Code, Codex, pi, Cursor, or any
+              terminal agent.
+            </p>
           </li>
           <li>
             <span class="step-number">02</span>
             <span class="step-icon">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 0-4 12.74V19h8v-3.26A7 7 0 0 0 12 3ZM9 22h6M9 12h6M12 9v6" /></svg>
             </span>
-            <h3>Generate recall prompts</h3>
+            <h3>Skill + CLI propose drafts</h3>
             <p>
-              The agent proposes concise drafts grounded in the material, with rationale and sources.
+              <code>rem-card-capture</code> dry-runs at most 3 atomic drafts grounded in exact
+              files, lines, or URLs.
             </p>
           </li>
           <li>
@@ -182,8 +194,11 @@
             <span class="step-icon">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12.5 9 17l11-11M4 5h5M4 9h3" /></svg>
             </span>
-            <h3>Try and approve</h3>
-            <p>Answer it, edit it, and accept only what belongs in your study plan.</p>
+            <h3>Try, edit, and approve</h3>
+            <p>
+              Test yourself front-first in Drafts, inspect the rationale and sources, and accept
+              only what belongs.
+            </p>
           </li>
           <li>
             <span class="step-number">04</span>
@@ -192,10 +207,277 @@
             </span>
             <h3>Study anywhere</h3>
             <p>
-              FSRS-7 schedules each review identically across the desktop app, terminal, and iPhone.
+              FSRS-7 schedules accepted cards identically across the desktop app,
+              <code>rem study</code>, and iPhone.
             </p>
           </li>
         </ol>
+      </section>
+
+      <section class="section agents-section" id="agents" aria-labelledby="agents-heading">
+        <div class="shell">
+          <div class="agents-header">
+            <div class="section-heading">
+              <p class="eyebrow">Agent Skill + CLI</p>
+              <h2 id="agents-heading">
+                Already in your agent’s context.<br /><em>Engineered to keep AI slop out.</em>
+              </h2>
+              <p>
+                Most flashcard workflows fail at capture time — copying context into another app
+                breaks flow, while unguided LLMs produce bloated cards you dread reviewing. Pairing
+                the bundled <code>rem</code> CLI with the installable
+                <code>rem-card-capture</code> skill turns any CLI-capable agent into a disciplined
+                spaced-repetition collaborator.
+              </p>
+            </div>
+            <div class="agents-links">
+              <a
+                class="button button-secondary"
+                href="https://github.com/shettyh/rem/blob/main/skills/rem-card-capture/SKILL.md"
+              >
+                Read SKILL.md
+              </a>
+              <a
+                class="button button-secondary"
+                href="https://github.com/shettyh/rem/blob/main/docs/cli.md"
+              >
+                CLI reference
+              </a>
+            </div>
+          </div>
+
+          <div class="agents-layout">
+            <div class="agent-pillars">
+              <article class="agent-pillar">
+                <span class="pillar-index">01</span>
+                <div>
+                  <h3>Any agent, zero plumbing</h3>
+                  <p>
+                    Works directly with Claude Code, Codex, pi, Cursor, Amp, or shell scripts over
+                    a plain CLI — no MCP server, no API key lock-in, and works even while the
+                    desktop app is closed.
+                  </p>
+                </div>
+              </article>
+
+              <article class="agent-pillar">
+                <span class="pillar-index">02</span>
+                <div>
+                  <h3>Card craft built into the skill</h3>
+                  <p>
+                    <code>rem-card-capture</code> enforces the <strong>3-month / 5-second test</strong>,
+                    caps batches at 3 atomic recall targets (zero is valid), prefers mechanism,
+                    contrast, and diagnosis prompts over essays or yes/no trivia, and keeps Markdown
+                    clean for desktop, iPhone, and terminal.
+                  </p>
+                </div>
+              </article>
+
+              <article class="agent-pillar">
+                <span class="pillar-index">03</span>
+                <div>
+                  <h3>Machine-safe, retry-proof CLI</h3>
+                  <p>
+                    Agents resolve exact deck IDs, inspect pending drafts, validate every batch with
+                    <code>--dry-run</code> and <code>--output json</code> before writing, get
+                    retry-safe <code>duplicateCard</code> / <code>duplicateDraft</code> no-ops, and
+                    verify versioned <code>version: 1</code> JSON.
+                  </p>
+                </div>
+              </article>
+
+              <article class="agent-pillar">
+                <span class="pillar-index">04</span>
+                <div>
+                  <h3>Local drafts by default, direct CLI when you ask</h3>
+                  <p>
+                    Every proposal lands in the local-only <strong>Drafts</strong> inbox with
+                    rationale and exact file paths, line ranges, commits, or URLs. When you
+                    explicitly want immediate scheduling or scripted pipelines,
+                    <code>rem card add</code> and <code>rem sync</code> are right there.
+                  </p>
+                </div>
+              </article>
+            </div>
+
+            <div class="agent-console" data-agent-tabs>
+              <div class="agent-console-bar">
+                <div class="agent-console-dots" aria-hidden="true">
+                  <span class="traffic red"></span>
+                  <span class="traffic yellow"></span>
+                  <span class="traffic green"></span>
+                </div>
+                <div class="agent-tab-list" role="tablist" aria-label="Agent workflow examples">
+                  <button
+                    type="button"
+                    role="tab"
+                    class="agent-tab is-active"
+                    id="agent-tab-debug"
+                    aria-selected="true"
+                    aria-controls="agent-panel-debug"
+                    data-agent-tab="0"
+                  >
+                    After debugging
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    class="agent-tab"
+                    id="agent-tab-codebase"
+                    aria-selected="false"
+                    aria-controls="agent-panel-codebase"
+                    data-agent-tab="1"
+                  >
+                    Codebase &amp; RFCs
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    class="agent-tab"
+                    id="agent-tab-scripts"
+                    aria-selected="false"
+                    aria-controls="agent-panel-scripts"
+                    data-agent-tab="2"
+                  >
+                    Scripts &amp; sync
+                  </button>
+                </div>
+              </div>
+
+              <div class="agent-console-body">
+                <!-- Panel 1: Debugging -->
+                <div
+                  class="agent-panel is-active"
+                  id="agent-panel-debug"
+                  role="tabpanel"
+                  aria-labelledby="agent-tab-debug"
+                  data-agent-panel="0"
+                >
+                  <div class="prompt-bubble">
+                    <span class="prompt-role">You → Claude Code / Codex / pi</span>
+                    <p>
+                      “We just fixed that stale-grade race condition — capture what’s worth
+                      remembering in my Rust internals deck.”
+                    </p>
+                  </div>
+
+                  <pre class="console-code"><code><span class="c-muted"># 1. Skill resolves target deck and validates batch with --dry-run</span>
+<span class="c-prompt">$</span> rem deck list --output json
+<span class="c-prompt">$</span> rem draft add --deck rust-internals --producer claude-code \
+    --input-json - --dry-run --output json &lt;&lt;'JSON'
+[{
+  <span class="c-key">"front"</span>: <span class="c-str">"In rem, how does optimistic concurrency prevent desktop and terminal sessions from grading the same stale card twice?"</span>,
+  <span class="c-key">"back"</span>: <span class="c-str">"Each study item carries local_revision; committing succeeds only if it still matches, else returns a conflict without logging."</span>,
+  <span class="c-key">"tags"</span>: [<span class="c-str">"rust"</span>, <span class="c-str">"concurrency"</span>],
+  <span class="c-key">"rationale"</span>: <span class="c-str">"Core invariant across shared SQLite surfaces."</span>,
+  <span class="c-key">"sources"</span>: [{ <span class="c-key">"locator"</span>: <span class="c-str">"src-tauri/crates/rem-core/src/study.rs:142-168"</span> }]
+}]
+JSON
+
+<span class="c-muted"># 2. Dry-run passes → submits identical payload without --dry-run</span>
+<span class="c-ok">{ "version": 1, "command": "draft.add", "data": { "drafts": [{ "status": "created" }] } }</span></code></pre>
+
+                  <div class="console-outcome">
+                    <span class="outcome-pill is-ok">1 atomic draft pending</span>
+                    <span>Local-only until you test and accept it in Drafts</span>
+                  </div>
+                </div>
+
+                <!-- Panel 2: Codebase & RFCs -->
+                <div
+                  class="agent-panel"
+                  id="agent-panel-codebase"
+                  role="tabpanel"
+                  aria-labelledby="agent-tab-codebase"
+                  data-agent-panel="1"
+                  hidden
+                >
+                  <div class="prompt-bubble">
+                    <span class="prompt-role">You → Agent</span>
+                    <p>
+                      “Distill the key sync invariants from this design doc into rem drafts. Skip
+                      anything already in my deck or inbox.”
+                    </p>
+                  </div>
+
+                  <pre class="console-code"><code><span class="c-muted"># 1. Checks pending inbox first to avoid reworded near-duplicates</span>
+<span class="c-prompt">$</span> rem draft list --output json
+
+<span class="c-muted"># 2. Picks ≤3 high-recall contrast/why prompts (rejects trivia &amp; list dumps)</span>
+<span class="c-prompt">$</span> rem draft add --deck distributed-systems --producer codex \
+    --input-json - --output json &lt;&lt;'JSON'
+[
+  {
+    <span class="c-key">"front"</span>: <span class="c-str">"Why don't pending rem drafts sync to Cloud or appear in backups?"</span>,
+    <span class="c-key">"back"</span>: <span class="c-str">"Drafts are unapproved local operational state without scheduling data; a card enters sync only after human acceptance."</span>,
+    <span class="c-key">"sources"</span>: [{ <span class="c-key">"locator"</span>: <span class="c-str">"docs/cli.md#L77-L80"</span> }]
+  },
+  ...
+]
+JSON
+
+<span class="c-ok">{ "version": 1, "command": "draft.add", "data": { "drafts": [
+  { "status": "created" }, { "status": "duplicateCard" }
+] } }</span></code></pre>
+
+                  <div class="console-outcome">
+                    <span class="outcome-pill is-ok">Retry-safe dedup</span>
+                    <span>Existing cards take precedence; duplicates return exit 0 no-ops</span>
+                  </div>
+                </div>
+
+                <!-- Panel 3: Scripts & sync -->
+                <div
+                  class="agent-panel"
+                  id="agent-panel-scripts"
+                  role="tabpanel"
+                  aria-labelledby="agent-tab-scripts"
+                  data-agent-panel="2"
+                  hidden
+                >
+                  <div class="prompt-bubble">
+                    <span class="prompt-role">Terminal · Trusted scripts · CI</span>
+                    <p>
+                      Bypass drafts when you want immediate scheduling, review straight in your
+                      shell, and sync incrementally to your iPhone.
+                    </p>
+                  </div>
+
+                  <pre class="console-code"><code><span class="c-muted"># Direct scheduled capture for humans &amp; explicitly trusted scripts</span>
+<span class="c-prompt">$</span> rem card add --deck Systems --input-json notes.json --dry-run --output json
+<span class="c-prompt">$</span> rem card add --deck Systems --input-json notes.json --output json
+
+<span class="c-muted"># Study due cards right in the terminal (shared Rust FSRS-7 StudySession)</span>
+<span class="c-prompt">$</span> rem study --deck Systems
+
+<span class="c-muted"># Push/pull via OS Keychain or headless REM_SYNC_TOKEN</span>
+<span class="c-prompt">$</span> rem sync status
+<span class="c-prompt">$</span> rem sync</code></pre>
+
+                  <div class="console-outcome">
+                    <span class="outcome-pill is-ok">Shared SQLite + Keychain</span>
+                    <span>Works even when desktop is closed; converges with iPhone via HLC</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="agent-console-footer">
+                <div class="mini-install">
+                  <span class="mini-install-label">Install skill</span>
+                  <code>npx skills add shettyh/rem --skill rem-card-capture --global</code>
+                  <button
+                    type="button"
+                    class="copy-btn"
+                    data-copy="npx skills add shettyh/rem --skill rem-card-capture --global"
+                    aria-label="Copy skill install command"
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="section showcase-section" id="showcase" aria-labelledby="showcase-heading">
@@ -312,8 +594,9 @@
                   <p class="slide-tag">01 · Calm daily ritual</p>
                   <h3>Open rem, see what’s due,<br /><em>start in one tap or keystroke.</em></h3>
                   <p>
-                    Today keeps your queue inviting on both Mac and iPhone — estimated session time,
-                    deck progress rings, collapsible icon-rail sidebar, and instant cross-deck study.
+                    Today keeps your queue inviting on both desktop and iPhone — estimated session
+                    time, deck progress rings, inline sync status, collapsible icon-rail sidebar,
+                    and instant cross-deck study.
                   </p>
                   <ul class="check-list">
                     <li><span>✓</span> Estimated duration &amp; live due counts before you begin</li>
@@ -381,12 +664,13 @@
                   <h3>Distraction-free review<br />for <em>rich Markdown cards.</em></h3>
                   <p>
                     Navigation folds away during review on both desktop and iPhone so attention stays
-                    on the prompt, syntax-highlighted code, images, and FSRS-7 interval previews.
+                    on the prompt, syntax-highlighted code, offline images, and Anki/FSRS-aligned
+                    interval previews.
                   </p>
                   <ul class="check-list">
-                    <li><span>✓</span> Syntax-highlighted code blocks, quotes, and offline images</li>
+                    <li><span>✓</span> Syntax-highlighted code blocks, quotes, and zoomable images</li>
                     <li><span>✓</span> Keyboard 1–4 on desktop, haptic 4-button dock on iPhone</li>
-                    <li><span>✓</span> Undo last grade or edit any card right mid-session</li>
+                    <li><span>✓</span> Edit cards mid-session, with atomic grade undo on iPhone</li>
                   </ul>
                   <div class="surface-badges">
                     <span class="surface-badge is-dark">Dark mode</span>
@@ -453,8 +737,8 @@
                     Markdown card in seconds.
                   </p>
                   <ul class="check-list">
-                    <li><span>✓</span> Front-first draft triage with rationale and file provenance</li>
-                    <li><span>✓</span> Paper-canvas iPhone editor with live Preview &amp; Photos</li>
+                    <li><span>✓</span> Front-first draft triage with rationale and file/URL provenance</li>
+                    <li><span>✓</span> Paper-canvas iPhone editor with Write/Preview &amp; Photos</li>
                     <li><span>✓</span> Unapproved drafts stay strictly local until accepted</li>
                   </ul>
                   <div class="surface-badges">
@@ -518,7 +802,8 @@
                   <h3>Watch your recall<br />and <em>rhythm compound.</em></h3>
                   <p>
                     Track daily review activity, recall rate, active streaks, grade distribution,
-                    and per-deck performance across 7, 30, or 90-day windows — synced across devices.
+                    and per-deck performance across 7, 30, or 90-day windows — with native Swift
+                    Charts on iPhone and FSRS-7 weight optimization per deck.
                   </p>
                   <ul class="check-list">
                     <li><span>✓</span> Filter globally or focus on any individual deck</li>
@@ -527,7 +812,7 @@
                   </ul>
                   <div class="surface-badges">
                     <span class="surface-badge">Desktop Stats</span>
-                    <span class="surface-badge">iPhone Stats</span>
+                    <span class="surface-badge">iPhone Swift Charts</span>
                   </div>
                 </div>
 
@@ -586,12 +871,12 @@
                   <h3>Stay in the terminal.<br /><em>Pick up on your phone.</em></h3>
                   <p>
                     <code>rem study</code> drives the exact same Rust <code>StudySession</code> as
-                    the desktop and iPhone apps. Grade a few cards in your shell, sync incrementally,
-                    and finish the rest away from your desk.
+                    the desktop and iPhone apps. Grade a few cards in your shell, sync incrementally
+                    with <code>rem sync</code>, and finish the rest away from your desk.
                   </p>
                   <ul class="check-list">
-                    <li><span>✓</span> Rich terminal Markdown with FSRS interval previews</li>
-                    <li><span>✓</span> Scriptable CLI &amp; JSON batches for coding agents</li>
+                    <li><span>✓</span> Rich terminal Markdown with live FSRS-7 interval previews</li>
+                    <li><span>✓</span> Versioned JSON CLI &amp; skill-guided agent capture</li>
                     <li><span>✓</span> HLC-based Cloud Sync keeps every device converged</li>
                   </ul>
                   <div class="surface-badges">
@@ -663,23 +948,29 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 7v5c0 4.5 3.2 7.7 8 9 4.8-1.3 8-4.5 8-9V7l-8-4Zm-3 9 2 2 4-4" /></svg>
             </span>
             <h3>Local by default</h3>
-            <p>Your decks, cards, assets, and complete review history live on your device in SQLite.</p>
+            <p>
+              Your decks, cards, media assets, and complete review history live on your device in
+              SQLite — no account or cloud service required.
+            </p>
           </article>
           <article>
             <span class="feature-icon">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-14v5l4 2" /></svg>
             </span>
             <h3>FSRS-7 in Rust</h3>
-            <p>Modern scheduling with configurable retention, learning steps, daily limits, and weight optimization.</p>
+            <p>
+              Modern scheduling with Anki/FSRS-aligned steps, configurable retention, daily limits,
+              and per-deck weight optimization across desktop and iPhone.
+            </p>
           </article>
           <article>
             <span class="feature-icon">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 9l2.5 3L8 15m5 0h3" /></svg>
             </span>
-            <h3>Agent-first CLI</h3>
+            <h3>Agent Skill + CLI</h3>
             <p>
-              Create source-grounded drafts from codebases and research with Codex, Claude Code, pi,
-              or your own scripts.
+              <code>rem-card-capture</code> and the versioned JSON CLI let Claude Code, Codex, pi,
+              or scripts propose ≤3 atomic, source-grounded drafts with dry-runs and safe dedup.
             </p>
           </article>
           <article>
@@ -689,7 +980,8 @@
             <h3>Native iOS companion</h3>
             <p>
               SwiftUI iPhone app backed by the same Rust core via UniFFI — offline review, Quick
-              Capture with Photos, per-deck FSRS options, Swift Charts stats, and daily reminders.
+              Capture with Photos, per-deck FSRS options, Swift Charts stats, Sign in with Apple,
+              and daily reminders.
             </p>
           </article>
           <article>
@@ -700,7 +992,8 @@
             <p>
               Sync decks, reviews, and media across desktop, CLI, and iPhone via
               <a class="inline-link" href="https://rem-sync.shettyh.fyi/premium">rem Premium</a>
-              (30-day free trial, no card required) or your own self-hosted Cloudflare Worker.
+              (30-day free trial, no card required, $5/year) or self-host the Apache-2.0 Cloudflare
+              Worker for free.
             </p>
           </article>
           <article>
@@ -708,7 +1001,10 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13H5zM8 9h8M8 13h8M8 17h5" /></svg>
             </span>
             <h3>Rich Markdown &amp; backups</h3>
-            <p>Syntax-highlighted code, images, GIFs, tags, and full-fidelity portable JSON backups.</p>
+            <p>
+              WYSIWYG desktop editor and paper-canvas iPhone editor with syntax-highlighted code,
+              offline images and GIFs, tags, and full-fidelity portable JSON backups.
+            </p>
           </article>
         </div>
       </section>
@@ -717,10 +1013,11 @@
         <div class="shell install-shell">
           <div class="install-heading">
             <p class="eyebrow">Start remembering</p>
-            <h2>Native where you study.<br /><em>Simple where you capture.</em></h2>
+            <h2>Native where you study.<br /><em>Effortless with your agents.</em></h2>
             <p>
-              Install the desktop app and CLI together on macOS or Linux, download Windows packages
-              from GitHub Releases, or run the SwiftUI iOS companion via TestFlight or Xcode.
+              Install the desktop app and bundled <code>rem</code> CLI together on macOS or Linux,
+              add the <code>rem-card-capture</code> skill for your local agents, download Windows
+              packages from Releases, or run the SwiftUI iOS companion via TestFlight or Xcode.
             </p>
             <a class="button button-primary" href="https://github.com/shettyh/rem/releases/latest">
               View all downloads
@@ -732,35 +1029,76 @@
             <div class="command-card">
               <div class="command-label">
                 <span>macOS · Homebrew</span>
-                <span>Single install: App + CLI</span>
+                <div class="command-label-right">
+                  <span>Single install: App + CLI</span>
+                  <button
+                    type="button"
+                    class="copy-btn"
+                    data-copy="brew install --cask shettyh/tap/rem"
+                    aria-label="Copy Homebrew install command"
+                  >
+                    Copy
+                  </button>
+                </div>
               </div>
               <code><span>$</span> brew install --cask shettyh/tap/rem</code>
             </div>
             <div class="command-card">
               <div class="command-label">
                 <span>macOS &amp; Linux</span>
-                <span>Curl installer</span>
+                <div class="command-label-right">
+                  <span>Curl installer</span>
+                  <button
+                    type="button"
+                    class="copy-btn"
+                    data-copy="curl -fsSL https://raw.githubusercontent.com/shettyh/rem/main/install.sh | sh"
+                    aria-label="Copy curl install command"
+                  >
+                    Copy
+                  </button>
+                </div>
               </div>
               <code><span>$</span> curl -fsSL https://raw.githubusercontent.com/shettyh/rem/main/install.sh | sh</code>
             </div>
             <div class="command-card">
               <div class="command-label">
                 <span>Agent skill</span>
-                <span>Codex · Claude Code · pi</span>
+                <div class="command-label-right">
+                  <span>Claude Code · Codex · pi</span>
+                  <button
+                    type="button"
+                    class="copy-btn"
+                    data-copy="npx skills add shettyh/rem --skill rem-card-capture --global"
+                    aria-label="Copy agent skill install command"
+                  >
+                    Copy
+                  </button>
+                </div>
               </div>
               <code><span>$</span> npx skills add shettyh/rem --skill rem-card-capture --global</code>
             </div>
             <div class="command-card">
               <div class="command-label">
                 <span>iPhone companion</span>
-                <span>iOS 17+ · Xcode 16+</span>
+                <div class="command-label-right">
+                  <span>iOS 17+ · Xcode 16+</span>
+                  <button
+                    type="button"
+                    class="copy-btn"
+                    data-copy="bash tools/build-ios-xcframework.sh --debug && open ios/Rem.xcodeproj"
+                    aria-label="Copy iOS build command"
+                  >
+                    Copy
+                  </button>
+                </div>
               </div>
               <code><span>$</span> bash tools/build-ios-xcframework.sh --debug &amp;&amp; open ios/Rem.xcodeproj</code>
             </div>
             <p class="install-note">
               macOS releases are signed, notarized, bundle the <code>rem</code> CLI, and include
               in-app auto-updates. Windows installers are available from Releases (unsigned). See
-              <a href="https://github.com/shettyh/rem#code-signing">code signing</a> and the
+              <a href="https://github.com/shettyh/rem#code-signing">code signing</a>,
+              <a href="https://github.com/shettyh/rem/blob/main/docs/cli.md">CLI docs</a>, and the
               <a href="https://github.com/shettyh/rem/blob/main/ios/README.md">iOS build guide</a>.
             </p>
           </div>
@@ -787,6 +1125,7 @@
         <p>Local-first spaced repetition across desktop, terminal, and iPhone.</p>
         <div class="footer-links">
           <a href="https://rem-sync.shettyh.fyi/premium">Cloud sync</a>
+          <a href="https://github.com/shettyh/rem/blob/main/skills/rem-card-capture/SKILL.md">Agent skill</a>
           <a href="https://github.com/shettyh/rem/blob/main/docs/cli.md">CLI docs</a>
           <a href="https://github.com/shettyh/rem/blob/main/ios/README.md">iOS app</a>
           <a href="https://github.com/shettyh/rem/releases">Releases</a>
