@@ -1,4 +1,53 @@
 (() => {
+  // Interactive Agent Skill + CLI scenario tabs
+  const agentRoot = document.querySelector('[data-agent-tabs]');
+  if (agentRoot) {
+    const agentTabs = Array.from(agentRoot.querySelectorAll('[data-agent-tab]'));
+    const agentPanels = Array.from(agentRoot.querySelectorAll('[data-agent-panel]'));
+
+    function activateAgentTab(index) {
+      agentTabs.forEach((tab, idx) => {
+        const active = idx === index;
+        tab.classList.toggle('is-active', active);
+        tab.setAttribute('aria-selected', String(active));
+      });
+      agentPanels.forEach((panel, idx) => {
+        const active = idx === index;
+        panel.classList.toggle('is-active', active);
+        panel.hidden = !active;
+      });
+    }
+
+    agentTabs.forEach((tab) => {
+      tab.addEventListener('click', () => {
+        const idx = Number(tab.dataset.agentTab);
+        if (!Number.isNaN(idx)) activateAgentTab(idx);
+      });
+    });
+  }
+
+  // Copy-to-clipboard buttons for CLI & skill commands
+  document.querySelectorAll('[data-copy]').forEach((btn) => {
+    let resetTimer;
+    btn.addEventListener('click', async () => {
+      const text = btn.getAttribute('data-copy');
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = 'Copied';
+        btn.classList.add('is-copied');
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(() => {
+          btn.textContent = 'Copy';
+          btn.classList.remove('is-copied');
+        }, 1800);
+      } catch {
+        // Clipboard API unavailable (e.g., non-secure context)
+      }
+    });
+  });
+
+  // Interactive Desktop + iPhone Slide Showcase
   const deck = document.querySelector('[data-showcase]');
   if (!deck) return;
 
