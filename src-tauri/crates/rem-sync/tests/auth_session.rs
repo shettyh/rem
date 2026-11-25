@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -608,4 +609,270 @@ fn entitlement_calls_refresh_jwt_on_401_for_account_trial_and_invite() {
         Some("jws_len:11")
     );
     assert_eq!(*auth.refresh_count.lock().unwrap(), 6);
+}
+
+/// Simulates `sync-server`'s strict single-use rotating refresh tokens:
+/// presenting any already-used refresh token revokes the entire family.
+struct StrictRotatingAuthClient {
+    state: Mutex<StrictRotatingState>,
+    account_id: String,
+}
+
+struct StrictRotatingState {
+    valid_access: String,
+    active_refresh: String,
+    revoked_refreshes: HashSet<String>,
+    family_revoked: bool,
+    refresh_count: usize,
+}
+
+impl StrictRotatingAuthClient {
+    fn new(account_id: &str, access: &str, refresh: &str) -> Self {
+        Self {
+            state: Mutex::new(StrictRotatingState {
+                valid_access: access.to_owned(),
+                active_refresh: refresh.to_owned(),
+                revoked_refreshes: HashSet::new(),
+                family_revoked: false,
+                refresh_count: 0,
+            }),
+            account_id: account_id.to_owned(),
+        }
+    }
+
+    fn refresh_count(&self) -> usize {
+        self.state.lock().unwrap().refresh_count
+    }
+
+    fn is_valid_access(&self, token: &str) -> bool {
+        let state = self.state.lock().unwrap();
+        !state.family_revoked && state.valid_access == token
+    }
+}
+
+impl AuthClient for StrictRotatingAuthClient {
+    fn fetch_providers(&self) -> Result<AuthProviders, SyncError> {
+        unimplemented!()
+    }
+
+    fn exchange_code(
+        &self,
+        _code: &str,
+        _code_verifier: &str,
+        _redirect_uri: &str,
+        _device_id: &str,
+    ) -> Result<AuthTokenResponse, SyncError> {
+        unimplemented!()
+    }
+
+    fn exchange_apple_native(
+        &self,
+        _identity_token: &str,
+        _authorization_code: Option<&str>,
+        _nonce: &str,
+        _email: Option<&str>,
+        _device_id: &str,
+    ) -> Result<AuthTokenResponse, SyncError> {
+        unimplemented!()
+    }
+
+    fn refresh_token(
+        &self,
+        refresh_token: &str,
+        _device_id: &str,
+    ) -> Result<AuthTokenResponse, SyncError> {
+        // Hold a tiny delay to widen the race window if callers aren't serialized.
+        thread::sleep(Duration::from_millis(25));
+        let mut state = self.state.lock().unwrap();
+        if state.family_revoked {
+            return Err(SyncError::Unauthorized);
+        }
+        if state.revoked_refreshes.contains(refresh_token) {
+            state.family_revoked = true;
+            return Err(SyncError::Unauthorized);
+        }
+        if refresh_token != state.active_refresh {
+            return Err(SyncError::Unauthorized);
+        }
+        state.revoked_refreshes.insert(refresh_token.to_owned());
+        state.refresh_count += 1;
+        let next_access = format!("jwt-strict-{}", state.refresh_count);
+        let next_refresh = format!("rt-strict-{}", state.refresh_count);
+        state.valid_access = next_access.clone();
+        state.active_refresh = next_refresh.clone();
+        Ok(AuthTokenResponse {
+            access_token: next_access,
+            expires_in: 900,
+            refresh_token: next_refresh,
+            account: AuthAccount {
+                id: self.account_id.clone(),
+                email: Some("alice@example.com".into()),
+                provider: "google".into(),
+            },
+        })
+    }
+
+    fn logout(&self, _refresh_token: &str) -> Result<(), SyncError> {
+        Ok(())
+    }
+
+    fn get_account(&self, bearer_token: &str) -> Result<AccountProfile, SyncError> {
+        if !self.is_valid_access(bearer_token) {
+            return Err(SyncError::Unauthorized);
+        }
+        Ok(AccountProfile {
+            id: self.account_id.clone(),
+            email: Some("alice@example.com".into()),
+            providers: vec!["google".into()],
+            auth_method: "jwt".into(),
+            sync_enabled: true,
+            subscription_required: true,
+            subscription_status: Some("active".into()),
+            upgrade_url: None,
+            entitlement: None,
+        })
+    }
+
+    fn start_trial(&self, _bearer_token: &str) -> Result<AccountProfile, SyncError> {
+        unimplemented!()
+    }
+
+    fn redeem_invite(&self, _bearer_token: &str, _code: &str) -> Result<AccountProfile, SyncError> {
+        unimplemented!()
+    }
+
+    fn create_polar_checkout(&self, bearer_token: &str) -> Result<String, SyncError> {
+        if !self.is_valid_access(bearer_token) {
+            return Err(SyncError::Unauthorized);
+        }
+        Ok("https://polar.sh/checkout/chk_concurrent".into())
+    }
+
+    fn create_polar_portal(&self, bearer_token: &str) -> Result<String, SyncError> {
+        if !self.is_valid_access(bearer_token) {
+            return Err(SyncError::Unauthorized);
+        }
+        Ok("https://polar.sh/portal/ses_concurrent".into())
+    }
+
+    fn verify_apple_transaction(
+        &self,
+        _bearer_token: &str,
+        _signed_transaction_info: &str,
+    ) -> Result<AccountProfile, SyncError> {
+        unimplemented!()
+    }
+
+    fn delete_account(&self, _bearer_token: &str) -> Result<(), SyncError> {
+        unimplemented!()
+    }
+}
+
+#[test]
+fn concurrent_calls_serialize_refresh_without_triggering_token_reuse() {
+    let dir = TempDir::new().unwrap();
+    let db_path = dir.path().join("rem.sqlite");
+    let collection = Collection::open(&db_path).unwrap();
+    let store = Arc::new(MemoryCredentialStore::default());
+    let server_url = "https://sync-concurrent.example.com";
+
+    // Access token is already expired -> all concurrent callers want to refresh.
+    let creds = StoredCredentials::OAuth {
+        account_id: "usr_race".into(),
+        email: Some("alice@example.com".into()),
+        provider: "google".into(),
+        access_token: "jwt-old".into(),
+        access_expires_at: 1_000,
+        refresh_token: "rt-initial".into(),
+    };
+    connect_collection(&collection, store.as_ref(), server_url, &creds, 500, false).unwrap();
+
+    let auth = Arc::new(StrictRotatingAuthClient::new(
+        "usr_race",
+        "jwt-server-newer",
+        "rt-initial",
+    ));
+    let barrier = Arc::new(Barrier::new(3));
+
+    let t1 = {
+        let db_path = db_path.clone();
+        let store = Arc::clone(&store);
+        let auth = Arc::clone(&auth);
+        let barrier = Arc::clone(&barrier);
+        thread::spawn(move || {
+            let col = Collection::open(db_path).unwrap();
+            barrier.wait();
+            fetch_account_with_client(&col, store.as_ref(), auth.as_ref(), 2_000)
+                .map(|profile| profile.id)
+        })
+    };
+
+    let t2 = {
+        let db_path = db_path.clone();
+        let store = Arc::clone(&store);
+        let auth = Arc::clone(&auth);
+        let barrier = Arc::clone(&barrier);
+        thread::spawn(move || {
+            let col = Collection::open(db_path).unwrap();
+            barrier.wait();
+            create_polar_checkout_with_client(&col, store.as_ref(), auth.as_ref(), 2_000)
+        })
+    };
+
+    let t3 = {
+        let db_path = db_path.clone();
+        let store = Arc::clone(&store);
+        let auth = Arc::clone(&auth);
+        let barrier = Arc::clone(&barrier);
+        thread::spawn(move || {
+            let col = Collection::open(db_path).unwrap();
+            barrier.wait();
+            create_polar_portal_with_client(&col, store.as_ref(), auth.as_ref(), 2_000)
+        })
+    };
+
+    assert_eq!(t1.join().unwrap().unwrap(), "usr_race");
+    assert_eq!(
+        t2.join().unwrap().unwrap(),
+        "https://polar.sh/checkout/chk_concurrent"
+    );
+    assert_eq!(
+        t3.join().unwrap().unwrap(),
+        "https://polar.sh/portal/ses_concurrent"
+    );
+    assert_eq!(auth.refresh_count(), 1);
+
+    // Also test concurrent 401-triggered refresh when local expiry hasn't passed yet.
+    auth.state.lock().unwrap().valid_access = "jwt-server-invalidated".into();
+    let barrier2 = Arc::new(Barrier::new(2));
+    let r1 = {
+        let db_path = db_path.clone();
+        let store = Arc::clone(&store);
+        let auth = Arc::clone(&auth);
+        let barrier = Arc::clone(&barrier2);
+        thread::spawn(move || {
+            let col = Collection::open(db_path).unwrap();
+            barrier.wait();
+            fetch_account_with_client(&col, store.as_ref(), auth.as_ref(), 3_000)
+                .map(|profile| profile.id)
+        })
+    };
+    let r2 = {
+        let db_path = db_path.clone();
+        let store = Arc::clone(&store);
+        let auth = Arc::clone(&auth);
+        let barrier = Arc::clone(&barrier2);
+        thread::spawn(move || {
+            let col = Collection::open(db_path).unwrap();
+            barrier.wait();
+            create_polar_checkout_with_client(&col, store.as_ref(), auth.as_ref(), 3_000)
+        })
+    };
+
+    assert_eq!(r1.join().unwrap().unwrap(), "usr_race");
+    assert_eq!(
+        r2.join().unwrap().unwrap(),
+        "https://polar.sh/checkout/chk_concurrent"
+    );
+    assert_eq!(auth.refresh_count(), 2);
 }

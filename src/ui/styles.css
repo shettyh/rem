@@ -2827,8 +2827,8 @@ select.text-input,
 .stepper-btn:hover { background: var(--surface); color: var(--text); }
 .stepper-val { min-width: 56px; text-align: center; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
-.seg { display: flex; gap: 3px; background: var(--surface-inset); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
-.seg-btn { padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; background: transparent; color: var(--muted); }
+.seg { display: flex; flex-shrink: 0; gap: 3px; background: var(--surface-inset); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+.seg-btn { padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap; background: transparent; color: var(--muted); }
 .seg-btn:hover:not(.is-active) { background: var(--surface); color: var(--text); }
 .seg-btn.is-active { background: var(--text); color: var(--bg); }
 

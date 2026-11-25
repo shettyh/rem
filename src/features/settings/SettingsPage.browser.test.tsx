@@ -660,3 +660,23 @@ test('reports up-to-date and links the bundled rem CLI in one click', async () =
     .element(page.getByText('Linked at /Users/alex/.local/bin/rem. Updates automatically with rem.'))
     .toBeVisible()
 })
+
+test('keeps Local only and Cloud sync toggle buttons on a single line when switching to Cloud sync', async () => {
+  const storage = freshStorage()
+  const syncClient = makeMockSyncClient()
+  renderSettings(storage, syncClient)
+
+  const localBtn = page.getByRole('button', { name: 'Local only' })
+  const cloudBtn = page.getByRole('button', { name: 'Cloud sync' })
+
+  await cloudBtn.click()
+  await expect.element(page.getByRole('button', { name: 'Sign in with Apple' })).toBeVisible()
+
+  for (const locator of [localBtn, cloudBtn]) {
+    const el = locator.element()
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    expect(range.getClientRects().length).toBe(1)
+    expect(getComputedStyle(el).whiteSpace).toBe('nowrap')
+  }
+})

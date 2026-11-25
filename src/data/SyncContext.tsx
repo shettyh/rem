@@ -20,6 +20,7 @@ import {
 
 const WRITE_DEBOUNCE_MS = 3_000
 const FOCUS_SYNC_THROTTLE_MS = 30_000
+const ONLINE_SETTLE_DELAY_MS = 1_500
 const PERIODIC_SYNC_MS = 5 * 60_000
 
 function isSyncPaused(status: SyncStatus | null): boolean {
@@ -67,6 +68,7 @@ export function SyncProvider({
 
   const statusRef = useRef<SyncStatus | null>(null)
   const syncingRef = useRef(false)
+  const refreshingAccountRef = useRef(false)
   const skipLocalNotifyRef = useRef(false)
   const lastAutoSyncAtRef = useRef(0)
   const lastFocusRefreshAtRef = useRef(0)
@@ -154,6 +156,7 @@ export function SyncProvider({
   useEffect(() => {
     if (!autoSync || !client.supported) return
     let debounceTimer: number | null = null
+    let onlineTimer: number | null = null
 
     const scheduleLocalSync = () => {
       if (skipLocalNotifyRef.current) return
@@ -168,6 +171,23 @@ export function SyncProvider({
 
     const unsubStorage = storage.subscribe(scheduleLocalSync)
 
+    const refreshAccountOnWake = () => {
+      if (refreshingAccountRef.current) return
+      refreshingAccountRef.current = true
+      void client
+        .refreshAccount()
+        .then((refreshed) => {
+          updateStatus(refreshed)
+          if (!isSyncPaused(refreshed)) {
+            void triggerSync(true)
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          refreshingAccountRef.current = false
+        })
+    }
+
     const onWake = () => {
       const current = statusRef.current
       if (!current || current.mode !== 'cloud' || !current.signedIn) return
@@ -175,37 +195,30 @@ export function SyncProvider({
       if (pendingBillingReturnRef.current) {
         pendingBillingReturnRef.current = false
         lastFocusRefreshAtRef.current = now
-        void client
-          .refreshAccount()
-          .then((refreshed) => {
-            updateStatus(refreshed)
-            if (!isSyncPaused(refreshed)) {
-              void triggerSync(true)
-            }
-          })
-          .catch(() => {})
+        refreshAccountOnWake()
         return
       }
       if (isSyncPaused(current)) {
         if (now - lastFocusRefreshAtRef.current < FOCUS_SYNC_THROTTLE_MS) return
         lastFocusRefreshAtRef.current = now
-        void client
-          .refreshAccount()
-          .then((refreshed) => {
-            updateStatus(refreshed)
-            if (!isSyncPaused(refreshed)) {
-              void triggerSync(true)
-            }
-          })
-          .catch(() => {})
+        refreshAccountOnWake()
         return
       }
       if (now - lastAutoSyncAtRef.current < FOCUS_SYNC_THROTTLE_MS) return
       void triggerSync(true)
     }
 
+    const onOnline = () => {
+      // Give the OS network stack a brief moment after wake before firing HTTP calls.
+      if (onlineTimer !== null) window.clearTimeout(onlineTimer)
+      onlineTimer = window.setTimeout(() => {
+        onlineTimer = null
+        onWake()
+      }, ONLINE_SETTLE_DELAY_MS)
+    }
+
     window.addEventListener('focus', onWake)
-    window.addEventListener('online', onWake)
+    window.addEventListener('online', onOnline)
     const interval = window.setInterval(() => {
       const current = statusRef.current
       if (!current || current.mode !== 'cloud' || !current.signedIn || isSyncPaused(current)) return
@@ -215,8 +228,9 @@ export function SyncProvider({
     return () => {
       unsubStorage()
       if (debounceTimer !== null) window.clearTimeout(debounceTimer)
+      if (onlineTimer !== null) window.clearTimeout(onlineTimer)
       window.removeEventListener('focus', onWake)
-      window.removeEventListener('online', onWake)
+      window.removeEventListener('online', onOnline)
       window.clearInterval(interval)
     }
   }, [autoSync, client, storage, triggerSync, updateStatus])
