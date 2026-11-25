@@ -52,7 +52,6 @@ pub fn run() {
             sync::sync_now,
             sync::sync_refresh_account,
             sync::sync_start_trial,
-            sync::sync_redeem_invite,
             sync::sync_sign_out,
             sync::sync_delete_account,
             sync::sync_open_external_url,

@@ -5,9 +5,9 @@ import entitlementsMigrationSql from '../migrations/0002_entitlements.sql?raw'
 import earlyAccessMigrationSql from '../migrations/0003_early_access.sql?raw'
 import trialInvitesBillingMigrationSql from '../migrations/0004_trial_invites_billing.sql?raw'
 import rateLimitsMigrationSql from '../migrations/0006_rate_limits_and_cleanup.sql?raw'
+import dropInvitesMigrationSql from '../migrations/0007_drop_invites.sql?raw'
 import { signHs256Jwt } from '../src/auth'
 import worker from '../src/index'
-import { INVITE_USER_MAX_ATTEMPTS } from '../src/maintenance'
 import { isAllowedClientRedirectUri } from '../src/oauth'
 import type { AccountInfo, Env } from '../src/types'
 
@@ -20,6 +20,7 @@ async function applyMigrations() {
     earlyAccessMigrationSql,
     trialInvitesBillingMigrationSql,
     rateLimitsMigrationSql,
+    dropInvitesMigrationSql,
   ]) {
     const statements = raw
       .split(';')
@@ -63,7 +64,7 @@ const GATED_ENV: Env = {
   CLOUD_PRICE_DISPLAY: '$5/year',
 }
 
-describe('Unified entitlements, optional 30-day trial, and invite codes', () => {
+describe('Unified entitlements and optional 30-day trial', () => {
   beforeAll(async () => {
     await applyMigrations()
   })
@@ -195,187 +196,48 @@ describe('Unified entitlements, optional 30-day trial, and invite codes', () => 
     expect(await secondTrial.json()).toMatchObject({ error: 'trial_already_used' })
   })
 
-  it('redeems single-use and multi-use invite codes atomically, handles errors, and preserves trial_started_at', async () => {
-    const now = Date.now()
-    const u1 = await createUser('usr_inv_1', 'inv1@example.com')
-    const u2 = await createUser('usr_inv_2', 'inv2@example.com')
-    const u3 = await createUser('usr_inv_3', 'inv3@example.com')
+  it('grants active access to ALLOWED_EMAILS and deletes user_entitlements on account deletion', async () => {
+    const token = await createUser('usr_vip_1', 'vip@example.com')
+    const allowlistEnv: Env = {
+      ...GATED_ENV,
+      ALLOWED_EMAILS: 'vip@example.com',
+    }
 
-    await TEST_ENV.DB!.batch([
-      TEST_ENV.DB!.prepare(
-        `INSERT INTO invite_codes(code, max_uses, uses_count, grant_days, plan_label, note, expires_at, revoked_at, created_at)
-         VALUES ('REM-SINGLE-0001', 1, 0, NULL, 'founder_free', 'forever', NULL, NULL, ?1)`,
-      ).bind(now),
-      TEST_ENV.DB!.prepare(
-        `INSERT INTO invite_codes(code, max_uses, uses_count, grant_days, plan_label, note, expires_at, revoked_at, created_at)
-         VALUES ('REM-MULTI-0002', 2, 0, 90, 'beta_90d', '90 days', NULL, NULL, ?1)`,
-      ).bind(now),
-      TEST_ENV.DB!.prepare(
-        `INSERT INTO invite_codes(code, max_uses, uses_count, grant_days, plan_label, note, expires_at, revoked_at, created_at)
-         VALUES ('REM-REVOKED-003', 5, 0, NULL, 'invite_free', NULL, NULL, ?1, ?1)`,
-      ).bind(now),
-      TEST_ENV.DB!.prepare(
-        `INSERT INTO invite_codes(code, max_uses, uses_count, grant_days, plan_label, note, expires_at, revoked_at, created_at)
-         VALUES ('REM-EXPIRED-004', 5, 0, NULL, 'invite_free', NULL, ?1, NULL, ?2)`,
-      ).bind(now - 5000, now - 10000),
-    ])
-
-    // Invalid / missing / revoked / expired codes rejected cleanly.
-    const badFormat = await callWorker(
-      'https://sync.example.com/v1/invites/redeem',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${u1}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: '  ' }),
-      },
-      GATED_ENV,
+    const resp = await callWorker(
+      'https://sync.example.com/v1/account',
+      { headers: { Authorization: `Bearer ${token}` } },
+      allowlistEnv,
     )
-    expect(badFormat.status).toBe(400)
+    expect(resp.status).toBe(200)
+    const acc = (await resp.json()) as AccountInfo
+    expect(acc.entitlement).toMatchObject({
+      state: 'active',
+      syncEnabled: true,
+      provider: 'allowlist',
+      plan: 'allowlist',
+      expiresAt: null,
+      canStartTrial: false,
+      canSubscribePolar: false,
+      canManageBilling: false,
+    })
 
-    const notFound = await callWorker(
-      'https://sync.example.com/v1/invites/redeem',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${u1}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: 'REM-NOPE-9999' }),
-      },
-      GATED_ENV,
-    )
-    expect(notFound.status).toBe(404)
-
-    const revoked = await callWorker(
-      'https://sync.example.com/v1/invites/redeem',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${u1}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: 'REM-REVOKED-003' }),
-      },
-      GATED_ENV,
-    )
-    expect(revoked.status).toBe(409)
-    expect(await revoked.json()).toMatchObject({ error: 'invite_revoked' })
-
-    const expiredCode = await callWorker(
-      'https://sync.example.com/v1/invites/redeem',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${u1}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: 'REM-EXPIRED-004' }),
-      },
-      GATED_ENV,
-    )
-    expect(expiredCode.status).toBe(409)
-    expect(await expiredCode.json()).toMatchObject({ error: 'invite_expired' })
-
-    // User 1 starts a trial first, then redeems a time-boxed 90d multi-use invite (case/whitespace normalized).
+    // Deleting a user with a trial entitlement cleans up user_entitlements.
+    const delToken = await createUser('usr_del_ent', 'delent@example.com')
     await callWorker(
       'https://sync.example.com/v1/trial/start',
-      { method: 'POST', headers: { Authorization: `Bearer ${u1}` } },
+      { method: 'POST', headers: { Authorization: `Bearer ${delToken}` } },
       GATED_ENV,
     )
-
-    const redeem1 = await callWorker(
-      'https://sync.example.com/v1/invites/redeem',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${u1}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: '  rem-multi-0002 ' }),
-      },
-      GATED_ENV,
-    )
-    expect(redeem1.status).toBe(200)
-    const acc1 = (await redeem1.json()) as AccountInfo
-    expect(acc1.entitlement).toMatchObject({
-      state: 'invite',
-      syncEnabled: true,
-      provider: 'invite',
-      plan: 'beta_90d',
-      canStartTrial: false,
-    })
-    expect(acc1.entitlement.expiresAt).toBeGreaterThan(now + 89 * 86_400_000)
-
-    // Verify trial_started_at was preserved on usr_inv_1!
-    const entRow1 = await TEST_ENV.DB!.prepare(
-      'SELECT trial_started_at FROM user_entitlements WHERE user_id = ?1',
-    )
-      .bind('usr_inv_1')
-      .first<{ trial_started_at: number | null }>()
-    expect(entRow1?.trial_started_at).not.toBeNull()
-
-    // Same user cannot redeem the same code twice.
-    const dupRedeem = await callWorker(
-      'https://sync.example.com/v1/invites/redeem',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${u1}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: 'REM-MULTI-0002' }),
-      },
-      GATED_ENV,
-    )
-    expect(dupRedeem.status).toBe(409)
-    expect(await dupRedeem.json()).toMatchObject({ error: 'invite_already_redeemed' })
-
-    // User 2 claims the 2nd use of REM-MULTI-0002; User 3 gets invite_exhausted.
-    const redeem2 = await callWorker(
-      'https://sync.example.com/v1/invites/redeem',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${u2}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: 'REM-MULTI-0002' }),
-      },
-      GATED_ENV,
-    )
-    expect(redeem2.status).toBe(200)
-
-    const redeem3Exhausted = await callWorker(
-      'https://sync.example.com/v1/invites/redeem',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${u3}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: 'REM-MULTI-0002' }),
-      },
-      GATED_ENV,
-    )
-    expect(redeem3Exhausted.status).toBe(409)
-    expect(await redeem3Exhausted.json()).toMatchObject({ error: 'invite_exhausted' })
-
-    // User 3 redeems the indefinite single-use code.
-    const redeemForever = await callWorker(
-      'https://sync.example.com/v1/invites/redeem',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${u3}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: 'REM-SINGLE-0001' }),
-      },
-      GATED_ENV,
-    )
-    expect(redeemForever.status).toBe(200)
-    const acc3 = (await redeemForever.json()) as AccountInfo
-    expect(acc3.entitlement).toMatchObject({
-      state: 'invite',
-      syncEnabled: true,
-      provider: 'invite',
-      plan: 'founder_free',
-      expiresAt: null,
-    })
-
-    // Deleting User 3 cleans up both invite_redemptions and user_entitlements.
     const delResp = await callWorker(
       'https://sync.example.com/v1/account',
-      { method: 'DELETE', headers: { Authorization: `Bearer ${u3}` } },
+      { method: 'DELETE', headers: { Authorization: `Bearer ${delToken}` } },
       GATED_ENV,
     )
     expect(delResp.status).toBe(200)
-    const remainingRedemption = await TEST_ENV.DB!.prepare(
-      'SELECT code FROM invite_redemptions WHERE user_id = ?1',
-    )
-      .bind('usr_inv_3')
-      .first()
-    expect(remainingRedemption).toBeNull()
     const remainingEntitlement = await TEST_ENV.DB!.prepare(
       'SELECT user_id FROM user_entitlements WHERE user_id = ?1',
     )
-      .bind('usr_inv_3')
+      .bind('usr_del_ent')
       .first()
     expect(remainingEntitlement).toBeNull()
   })
@@ -480,60 +342,5 @@ describe('Unified entitlements, optional 30-day trial, and invite codes', () => 
     expect(
       isAllowedClientRedirectUri('http://127.0.0.1:41234/auth/callback', 'https://rem-sync.shettyh.fyi'),
     ).toBe(true)
-  })
-
-  it('rate-limits repeated invite redemption probes per user and returns 429 with Retry-After', async () => {
-    const token = await createUser('usr_invite_rl_1', 'rl1@example.com')
-    const otherToken = await createUser('usr_invite_rl_2', 'rl2@example.com')
-
-    for (let i = 0; i < INVITE_USER_MAX_ATTEMPTS; i++) {
-      const resp = await callWorker(
-        'https://sync.example.com/v1/invites/redeem',
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'CF-Connecting-IP': '203.0.113.10',
-          },
-          body: JSON.stringify({ code: `REM-MISS-000${i}` }),
-        },
-        GATED_ENV,
-      )
-      expect(resp.status).toBe(404)
-    }
-
-    const blocked = await callWorker(
-      'https://sync.example.com/v1/invites/redeem',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'CF-Connecting-IP': '203.0.113.10',
-        },
-        body: JSON.stringify({ code: 'REM-MISS-OVER' }),
-      },
-      GATED_ENV,
-    )
-    expect(blocked.status).toBe(429)
-    expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThan(0)
-    expect(await blocked.json()).toMatchObject({ error: 'rate_limited' })
-
-    // A different user from a different IP is unaffected.
-    const unaffected = await callWorker(
-      'https://sync.example.com/v1/invites/redeem',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${otherToken}`,
-          'Content-Type': 'application/json',
-          'CF-Connecting-IP': '203.0.113.11',
-        },
-        body: JSON.stringify({ code: 'REM-MISS-OTHER' }),
-      },
-      GATED_ENV,
-    )
-    expect(unaffected.status).toBe(404)
   })
 })

@@ -93,7 +93,7 @@ export function isAllowedClientRedirectUri(raw: string, requestOrigin?: string):
   }
   if (url.username || url.password || url.search || url.hash) return false
 
-  // Same-origin web PKCE callback for /premium and /cloud (used for web invite redemption & billing).
+  // Same-origin web PKCE callback for /premium and /cloud (used for web trial & billing).
   if (
     requestOrigin &&
     url.origin === requestOrigin &&
@@ -672,11 +672,6 @@ export async function deleteAccountData(env: Env, userId: string): Promise<void>
 
   // 3. Delete all auth/account rows in D1.
   if (env.DB) {
-    try {
-      await env.DB.prepare('DELETE FROM invite_redemptions WHERE user_id = ?1').bind(userId).run()
-    } catch {
-      // Ignore if invite_redemptions table has not been migrated yet.
-    }
     try {
       await env.DB.prepare('DELETE FROM user_entitlements WHERE user_id = ?1').bind(userId).run()
     } catch {

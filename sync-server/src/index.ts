@@ -1,12 +1,7 @@
 import { handleAppleWebhook, handleVerifyAppleTransaction } from './appleBilling'
 import { authenticateRequest, sha256HexBytes } from './auth'
 import { renderCloudPage } from './cloudPage'
-import {
-  checkSyncEntitlement,
-  getAccountInfo,
-  handleRedeemInvite,
-  handleStartTrial,
-} from './entitlements'
+import { checkSyncEntitlement, getAccountInfo, handleStartTrial } from './entitlements'
 import { renderPrivacyPage, renderSupportPage, renderTermsPage } from './legalPages'
 import { cleanupExpiredRecords } from './maintenance'
 import {
@@ -125,7 +120,7 @@ export default {
         {
           error: 'waitlist_retired',
           message:
-            'The early-access waitlist has been retired. Start a 30-day free trial or redeem an invite code at /premium.',
+            'The early-access waitlist has been retired. Start a 30-day free trial at /premium.',
           premiumUrl: `${url.origin}/premium`,
         },
         410,
@@ -151,10 +146,6 @@ export default {
 
     if (request.method === 'POST' && url.pathname === '/v1/trial/start') {
       return handleStartTrial(env, auth.userId, auth.authMethod)
-    }
-
-    if (request.method === 'POST' && url.pathname === '/v1/invites/redeem') {
-      return handleRedeemInvite(request, env, auth.userId, auth.authMethod)
     }
 
     if (request.method === 'POST' && url.pathname === '/v1/billing/polar/checkout') {

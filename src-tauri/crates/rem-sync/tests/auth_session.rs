@@ -9,12 +9,12 @@ use rem_core::{Collection, SyncMode};
 use rem_sync::{
     build_authorize_url, connect_collection, create_polar_checkout_with_client,
     create_polar_portal_with_client, delete_cloud_account_with_client, fetch_account_with_client,
-    generate_oauth_state, generate_pkce_pair, redeem_invite_with_client, sign_out_with_client,
-    start_trial_with_client, sync_with_credentials, validate_server_url,
-    verify_apple_transaction_with_client, verify_dev_token_with_client, AccountProfile,
-    AuthAccount, AuthClient, AuthProviders, AuthTokenResponse, CredentialStore, DownloadedAsset,
-    EntitlementInfo, EntitlementState, LoopbackOAuthServer, MemoryCredentialStore, OAuthProvider,
-    StoredCredentials, SyncError, SyncRequest, SyncResponse, SyncTransport,
+    generate_oauth_state, generate_pkce_pair, sign_out_with_client, start_trial_with_client,
+    sync_with_credentials, validate_server_url, verify_apple_transaction_with_client,
+    verify_dev_token_with_client, AccountProfile, AuthAccount, AuthClient, AuthProviders,
+    AuthTokenResponse, CredentialStore, DownloadedAsset, EntitlementInfo, EntitlementState,
+    LoopbackOAuthServer, MemoryCredentialStore, OAuthProvider, StoredCredentials, SyncError,
+    SyncRequest, SyncResponse, SyncTransport,
 };
 use tempfile::TempDir;
 
@@ -173,35 +173,6 @@ impl AuthClient for MockAuthClient {
                 provider: Some("trial".into()),
                 plan: Some("trial_30d".into()),
                 expires_at: Some(9_999_999),
-                cancel_at_period_end: false,
-                can_start_trial: false,
-                trial_days: 30,
-                price_display: "$5/year".into(),
-                can_subscribe_polar: false,
-                can_manage_billing: false,
-            }),
-        })
-    }
-
-    fn redeem_invite(&self, bearer_token: &str, code: &str) -> Result<AccountProfile, SyncError> {
-        if bearer_token != *self.valid_token.lock().unwrap() {
-            return Err(SyncError::Unauthorized);
-        }
-        Ok(AccountProfile {
-            id: self.account_id.clone(),
-            email: Some("alice@example.com".into()),
-            providers: vec!["google".into()],
-            auth_method: "jwt".into(),
-            sync_enabled: true,
-            subscription_required: true,
-            subscription_status: Some("active".into()),
-            upgrade_url: None,
-            entitlement: Some(EntitlementInfo {
-                state: EntitlementState::Invite,
-                sync_enabled: true,
-                provider: Some("invite".into()),
-                plan: Some(format!("code:{code}")),
-                expires_at: None,
                 cancel_at_period_end: false,
                 can_start_trial: false,
                 trial_days: 30,
@@ -525,7 +496,7 @@ fn loopback_oauth_server_receives_code_and_rejects_state_mismatch() {
 }
 
 #[test]
-fn entitlement_calls_refresh_jwt_on_401_for_account_trial_and_invite() {
+fn entitlement_calls_refresh_jwt_on_401_for_account_trial_and_billing() {
     let (_dir, collection) = open_temp_collection();
     let store = MemoryCredentialStore::default();
     let server_url = "https://sync.example.com";
@@ -558,34 +529,20 @@ fn entitlement_calls_refresh_jwt_on_401_for_account_trial_and_invite() {
     );
     assert_eq!(*auth.refresh_count.lock().unwrap(), 2);
 
-    // 3. redeem_invite refreshes on 401
-    *auth.valid_token.lock().unwrap() = "jwt-rotated-again".into();
-    let invite =
-        redeem_invite_with_client(&collection, &store, &auth, "REM-ABCD-EFGH", 4_000).unwrap();
-    assert_eq!(
-        invite.entitlement.as_ref().map(|e| e.state),
-        Some(EntitlementState::Invite)
-    );
-    assert_eq!(
-        invite.entitlement.as_ref().and_then(|e| e.plan.as_deref()),
-        Some("code:REM-ABCD-EFGH")
-    );
-    assert_eq!(*auth.refresh_count.lock().unwrap(), 3);
-
-    // 4. create_polar_checkout refreshes on 401
+    // 3. create_polar_checkout refreshes on 401
     *auth.valid_token.lock().unwrap() = "jwt-rotated-checkout".into();
     let checkout_url =
         create_polar_checkout_with_client(&collection, &store, &auth, 5_000).unwrap();
     assert_eq!(checkout_url, "https://polar.sh/checkout/chk_test_123");
-    assert_eq!(*auth.refresh_count.lock().unwrap(), 4);
+    assert_eq!(*auth.refresh_count.lock().unwrap(), 3);
 
-    // 5. create_polar_portal refreshes on 401
+    // 4. create_polar_portal refreshes on 401
     *auth.valid_token.lock().unwrap() = "jwt-rotated-portal".into();
     let portal_url = create_polar_portal_with_client(&collection, &store, &auth, 6_000).unwrap();
     assert_eq!(portal_url, "https://polar.sh/portal/ses_test_456");
-    assert_eq!(*auth.refresh_count.lock().unwrap(), 5);
+    assert_eq!(*auth.refresh_count.lock().unwrap(), 4);
 
-    // 6. verify_apple_transaction refreshes on 401
+    // 5. verify_apple_transaction refreshes on 401
     *auth.valid_token.lock().unwrap() = "jwt-rotated-apple".into();
     let verified =
         verify_apple_transaction_with_client(&collection, &store, &auth, "hdr.pay.sig", 7_000)
@@ -608,7 +565,7 @@ fn entitlement_calls_refresh_jwt_on_401_for_account_trial_and_invite() {
             .and_then(|e| e.plan.as_deref()),
         Some("jws_len:11")
     );
-    assert_eq!(*auth.refresh_count.lock().unwrap(), 6);
+    assert_eq!(*auth.refresh_count.lock().unwrap(), 5);
 }
 
 /// Simulates `sync-server`'s strict single-use rotating refresh tokens:
@@ -734,10 +691,6 @@ impl AuthClient for StrictRotatingAuthClient {
     }
 
     fn start_trial(&self, _bearer_token: &str) -> Result<AccountProfile, SyncError> {
-        unimplemented!()
-    }
-
-    fn redeem_invite(&self, _bearer_token: &str, _code: &str) -> Result<AccountProfile, SyncError> {
         unimplemented!()
     }
 

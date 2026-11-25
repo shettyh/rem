@@ -4,11 +4,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rem_core::{Collection, SyncMode};
 use rem_sync::{
     connect_collection, create_polar_checkout_authenticated, create_polar_portal_authenticated,
-    delete_cloud_account, fetch_account_authenticated, open_system_browser,
-    redeem_invite_authenticated, run_loopback_oauth, sign_out, start_trial_authenticated,
-    sync_authenticated, verify_dev_token, AccountProfile, AuthClient, AuthProviders,
-    CredentialStore, EntitlementInfo, EntitlementState, HttpAuthClient, KeyringCredentialStore,
-    OAuthProvider, StoredCredentials, SyncError, DEFAULT_CLOUD_SERVER_URL, DEFAULT_OAUTH_TIMEOUT,
+    delete_cloud_account, fetch_account_authenticated, open_system_browser, run_loopback_oauth,
+    sign_out, start_trial_authenticated, sync_authenticated, verify_dev_token, AccountProfile,
+    AuthClient, AuthProviders, CredentialStore, EntitlementInfo, EntitlementState, HttpAuthClient,
+    KeyringCredentialStore, OAuthProvider, StoredCredentials, SyncError, DEFAULT_CLOUD_SERVER_URL,
+    DEFAULT_OAUTH_TIMEOUT,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -533,39 +533,6 @@ pub async fn sync_start_trial(app: AppHandle) -> Result<SyncStatusSnapshot, Stri
     })
     .await
     .map_err(|err| format!("start trial task failed: {err}"))?
-}
-
-#[tauri::command]
-pub async fn sync_redeem_invite(
-    app: AppHandle,
-    code: String,
-) -> Result<SyncStatusSnapshot, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let collection = app.state::<Collection>();
-        let manager = app.state::<SyncManager>();
-        let _guard = manager
-            .sync_lock
-            .lock()
-            .map_err(|_| "sync lock poisoned".to_owned())?;
-        let store = KeyringCredentialStore;
-        let profile = redeem_invite_authenticated(&collection, &store, &code, now_millis())
-            .map_err(|err| format_sync_error(&err))?;
-        manager.record_account_profile(&profile);
-        let can_sync = profile
-            .entitlement
-            .as_ref()
-            .map(|e| e.sync_enabled)
-            .unwrap_or(profile.sync_enabled);
-        if can_sync {
-            run_sync_with_lock_held(&app, &collection, &manager)
-        } else {
-            let snap = manager.snapshot(&collection)?;
-            emit_status(&app, &snap);
-            Ok(snap)
-        }
-    })
-    .await
-    .map_err(|err| format!("redeem invite task failed: {err}"))?
 }
 
 #[tauri::command]

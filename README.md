@@ -103,7 +103,7 @@ See the full [`rem-card-capture` skill](skills/rem-card-capture/SKILL.md) and [C
 - **Shared study engine across every surface** — review in the desktop app, terminal (`rem study`), or iPhone with keyboard shortcuts or haptic touch grading, live interval previews, optimistic concurrency (`local_revision`), mid-session editing, and atomic grade undo on iOS.
 - **Native iOS companion** — SwiftUI iPhone app (`ios/`) backed by `rem-core` and `rem-sync` via UniFFI, featuring native `TabView`/`Form`/`List`, top-right Quick Capture with Photos, pinch-to-zoom image lightbox, full deck editing & per-deck FSRS-7 options, 7D/30D/90D Swift Charts stats, native Sign in with Apple, local daily reminders, and JSON backup export.
 - **Actionable statistics** — review activity, recall rate, streaks, grade distribution, and per-deck breakdowns across desktop and iOS.
-- **Optional Cloud sync** — incremental HLC-based sync for decks, reviews, and media across desktop, CLI, and iPhone using hosted [rem Premium](https://rem-sync.shettyh.fyi/premium) (30-day no-card free trial, $5/year on desktop/web or $4.99/year on iOS, plus invite codes) or your own free self-hosted Apache-2.0 [Cloudflare Worker](sync-server/README.md).
+- **Optional Cloud sync** — incremental HLC-based sync for decks, reviews, and media across desktop, CLI, and iPhone using hosted [rem Premium](https://rem-sync.shettyh.fyi/premium) (30-day no-card free trial, $5/year on desktop/web or $4.99/year on iOS) or your own free self-hosted Apache-2.0 [Cloudflare Worker](sync-server/README.md).
 - **Portable data** — import and export full-fidelity JSON backups preserving scheduling state and review history.
 - **Calm Quiet Paper design** — light and dark themes, collapsible icon-rail sidebar with deck progress rings on desktop, and distraction-free review.
 
@@ -175,7 +175,7 @@ rem stores local data in SQLite through its native Rust layer (`rem-core`) acros
 
 Cloud sync is optional and local-first by default (`Local only` vs. `Cloud sync` in **Settings**). When enabled, mutations are recorded in a transactional SQLite outbox with per-domain hybrid logical clocks (HLCs) and synced incrementally across desktop, CLI (`rem sync`), and iPhone without halting conflict dialogs:
 
-- **Hosted [rem Premium](https://rem-sync.shettyh.fyi/premium)** — sign in with Google or Apple (native Sign in with Apple on iOS, OAuth + PKCE on desktop/CLI, tokens stored only in your OS Keychain). Includes a one-time 30-day free trial with no card required, then $5/year (Polar on desktop/web) or $4.99/year (App Store on iOS), plus invite-code support.
+- **Hosted [rem Premium](https://rem-sync.shettyh.fyi/premium)** — sign in with Google or Apple (native Sign in with Apple on iOS, OAuth + PKCE on desktop/CLI, tokens stored only in your OS Keychain). Includes a one-time 30-day free trial with no card required, then $5/year (Polar on desktop/web) or $4.99/year (App Store on iOS).
 - **Self-hosted (free, open source)** — deploy the Apache-2.0 [`sync-server/`](sync-server/README.md) (Cloudflare Workers + per-user SQLite Durable Objects + D1 + R2) on your own Cloudflare account and point `rem` at your server URL.
 
 ## Development

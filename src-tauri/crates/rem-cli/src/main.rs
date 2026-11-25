@@ -1172,10 +1172,6 @@ fn format_entitlement_summary(ent: &EntitlementInfo, now_ms: i64) -> String {
             Some(days) => format!("Trial ({days}d left)"),
             None => "Trial".to_owned(),
         },
-        EntitlementState::Invite => match days_left {
-            Some(days) => format!("Free access ({days}d left)"),
-            None => "Free access".to_owned(),
-        },
         EntitlementState::Active => "Premium".to_owned(),
         EntitlementState::PastDue => "Paused (payment issue)".to_owned(),
         EntitlementState::Expired => "Paused (expired)".to_owned(),
@@ -1350,7 +1346,7 @@ fn sync_login(collection: &Collection, args: SyncLoginArgs) -> Result<(), CliErr
                 );
                 let premium_url = format!("{}/premium", connected.server_url.trim_end_matches('/'));
                 println!(
-                    "Cloud sync is paused. Open rem Desktop Settings → Cloud sync or visit {premium_url} to start your 30-day free trial or redeem an invite code."
+                    "Cloud sync is paused. Open rem Desktop Settings → Cloud sync or visit {premium_url} to start your 30-day free trial or subscribe."
                 );
             }
         }

@@ -155,29 +155,6 @@ function makeMockSyncClient(
       emit(next)
       return next
     }),
-    redeemInvite: vi.fn(async () => {
-      const next: SyncStatus = {
-        ...current,
-        subscriptionRequired: false,
-        lastSyncedAt: Date.now(),
-        lastError: null,
-        entitlement: {
-          state: 'invite',
-          syncEnabled: true,
-          provider: 'invite',
-          plan: 'invite_free',
-          expiresAt: null,
-          cancelAtPeriodEnd: false,
-          canStartTrial: false,
-          trialDays: 30,
-          priceDisplay: '$5/year',
-          canSubscribePolar: false,
-          canManageBilling: false,
-        },
-      }
-      emit(next)
-      return next
-    }),
     signOut: vi.fn(async () => {
       const next: SyncStatus = {
         ...current,
@@ -369,7 +346,6 @@ test('shows activation choices in none state, starts 30-day trial, and keeps sig
   await expect.element(page.getByText('Not active')).toBeVisible()
   await expect.element(page.getByText('Activate rem Premium')).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Start 30-day free trial' })).toBeVisible()
-  await expect.element(page.getByLabelText('Have an invite code?')).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Check access / Retry sync' })).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Delete cloud account…' })).toBeVisible()
@@ -384,7 +360,7 @@ test('shows activation choices in none state, starts 30-day trial, and keeps sig
   await expect.element(page.getByRole('button', { name: 'Sync now' })).toBeVisible()
 })
 
-test('redeems invite code from expired state and unlocks Free access', async () => {
+test('shows upgrade option in expired state without trial button', async () => {
   const storage = freshStorage()
   const syncClient = makeMockSyncClient({
     mode: 'cloud',
@@ -407,12 +383,6 @@ test('redeems invite code from expired state and unlocks Free access', async () 
   await expect.element(page.getByRole('button', { name: 'Upgrade to Premium — $5/year' })).toBeVisible()
   await expect.element(page.getByRole('button', { name: 'Start 30-day free trial' })).not.toBeInTheDocument()
   await expect.element(page.getByRole('button', { name: 'Delete cloud account…' })).toBeVisible()
-
-  await page.getByLabelText('Have an invite code?').fill('rem-abcd-efgh')
-  await page.getByRole('button', { name: 'Redeem' }).click()
-  expect(syncClient.redeemInvite).toHaveBeenCalledWith('REM-ABCD-EFGH')
-  await expect.element(page.getByText('Free access', { exact: true })).toBeVisible()
-  await expect.element(page.getByRole('button', { name: 'Sync now' })).toBeVisible()
 })
 
 test('shows active Apple subscription without Polar upgrade and supports check-access retry in past_due', async () => {

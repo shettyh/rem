@@ -78,7 +78,6 @@ pub enum EntitlementState {
     SelfHosted,
     None,
     Trialing,
-    Invite,
     Active,
     PastDue,
     Expired,
@@ -152,12 +151,6 @@ pub struct AccountProfile {
     pub upgrade_url: Option<String>,
     #[serde(default)]
     pub entitlement: Option<EntitlementInfo>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RedeemInviteRequest {
-    pub code: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

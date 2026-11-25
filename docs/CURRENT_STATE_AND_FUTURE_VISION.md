@@ -153,17 +153,16 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
   The shared `rem-sync` crate talks to the open-source Cloudflare Workers + SQLite Durable Objects +
   D1 + R2 backend in `sync-server/` (either hosted `rem Cloud` or a self-hosted deployment).
 - Hosted `rem Premium` implements a structured entitlement state machine (`GET /v1/account`), an
-  opt-in one-time 30-day no-card free trial (`POST /v1/trial/start`), Crockford invite codes with
-  D1-backed rate limiting (`POST /v1/invites/redeem` + admin CLI), Polar MoR checkout/portal/webhooks
+  opt-in one-time 30-day no-card free trial (`POST /v1/trial/start`), Polar MoR checkout/portal/webhooks
   for Desktop & Web, Apple StoreKit 2 JWS verification + App Store Server Notifications v2 webhooks
   for iOS, and `/premium` (`/cloud`), `/privacy`, `/terms`, and `/support` web pages.
 - Google OAuth and Sign in with Apple (PKCE + native iOS `ASAuthorizationController` + short-lived
   JWTs + rotating refresh tokens) store credentials in the OS Keychain; commutative per-domain HLC
   merges and tombstones resolve concurrent edits and reviews automatically without halting conflict
   dialogs.
-- `sync-server` runs a daily Cloudflare Cron Trigger (`scheduled()`) to purge expired `oauth_codes`,
-  expired/old revoked `refresh_tokens`, and stale rate-limit buckets, and deploys via an automated
-  GitHub Actions workflow (`.github/workflows/sync-server-deploy.yml`) with remote D1 migrations.
+- `sync-server` runs a daily Cloudflare Cron Trigger (`scheduled()`) to purge expired `oauth_codes`
+  and expired/old revoked `refresh_tokens`, and deploys via an automated GitHub Actions workflow
+  (`.github/workflows/sync-server-deploy.yml`) with remote D1 migrations.
 - Unapproved drafts and local daily-cap counters are intentionally excluded from backup and cloud sync.
 - Manual sync from Settings, automatic sync triggers (startup/foreground, debounced writes,
   focus/online, periodic, post-review), account deletion (including Apple token revocation and
@@ -216,8 +215,8 @@ are implemented:
 1. **Single-install distribution & FSRS-7** — FSRS-7 migration (SQLite schema v4), signed & notarized
    macOS releases, bundled `rem` CLI, signed Tauri auto-updater, and automated Homebrew cask tap.
 2. **`rem Premium` entitlements & billing** — unified entitlement state machine, optional 30-day
-   no-card trial, Crockford invite codes + rate limiting, Polar checkout/portal/webhooks, Apple
-   StoreKit 2 IAP + ASN v2 webhooks, and `/premium`, `/privacy`, `/terms`, `/support` web pages.
+   no-card trial, Polar checkout/portal/webhooks, Apple StoreKit 2 IAP + ASN v2 webhooks, and
+   `/premium`, `/privacy`, `/terms`, `/support` web pages.
 3. **iOS native polish & App Store compliance** — native `TabView`, `Form`/`List` surfaces, Swift
    Charts, Study screen & Settings Account drill-down redesigns, full FSRS Deck Options + optimizer,
    native Sign in with Apple + revocation, Privacy Manifest, iOS Simulator CI, and automated

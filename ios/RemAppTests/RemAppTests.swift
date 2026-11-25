@@ -389,14 +389,9 @@ final class RemAppTests: XCTestCase {
         XCTAssertFalse(appState.canShowAppleSubscribe)
         XCTAssertTrue(appState.canShowAppleManageSubscription)
 
-        // indefinite invite -> hide Subscribe & hide Manage
-        appState.entitlement = makeEntitlement(state: .invite, syncEnabled: true, provider: "invite", expiresAt: nil)
+        // allowlisted active -> hide Subscribe & hide Manage
+        appState.entitlement = makeEntitlement(state: .active, syncEnabled: true, provider: "allowlist", expiresAt: nil)
         XCTAssertFalse(appState.canShowAppleSubscribe)
-        XCTAssertFalse(appState.canShowAppleManageSubscription)
-
-        // time-limited invite -> allow Subscribe, hide Manage
-        appState.entitlement = makeEntitlement(state: .invite, syncEnabled: true, provider: "invite", expiresAt: 1_900_000_000_000)
-        XCTAssertTrue(appState.canShowAppleSubscribe)
         XCTAssertFalse(appState.canShowAppleManageSubscription)
 
         // past_due Apple -> hide Subscribe, show Manage
