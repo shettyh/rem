@@ -174,12 +174,15 @@ struct SettingsView: View {
                             if appState.isStartingTrial {
                                 ProgressView()
                                     .controlSize(.small)
-                                    .tint(RemColor.onAccent)
                             }
                             Text(appState.isStartingTrial ? "Starting trial…" : "Start \(trialDays)-day free trial")
+                                .fontWeight(.semibold)
                         }
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(RemPrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(RemColor.accent)
                     .disabled(appState.isStartingTrial || appState.isCheckingEntitlement)
                     .padding(.top, 2)
                 }
@@ -193,16 +196,24 @@ struct SettingsView: View {
                             showPremiumPaywall = true
                         } label: {
                             Text(upgradeTitle)
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(RemSecondaryButtonStyle())
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                        .tint(RemColor.accent)
                         .disabled(appState.isStartingTrial || appState.storeKit.isPurchasing)
                     } else {
                         Button {
                             showPremiumPaywall = true
                         } label: {
                             Text(upgradeTitle)
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(RemPrimaryButtonStyle())
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .tint(RemColor.accent)
                         .disabled(appState.storeKit.isPurchasing)
                         .padding(.top, 2)
                     }
@@ -213,8 +224,12 @@ struct SettingsView: View {
                         Task { await appState.manageAppleSubscription() }
                     } label: {
                         Text("Manage subscription")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(RemPrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(RemColor.accent)
                     .padding(.top, 2)
                 }
 
@@ -358,9 +373,13 @@ struct SettingsView: View {
                 HStack(spacing: 8) {
                     GoogleLogoMark(size: 16)
                     Text(appState.isAuthenticating ? "Signing in…" : "Continue with Google")
+                        .fontWeight(.semibold)
                 }
+                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(RemSecondaryButtonStyle())
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+            .tint(RemColor.text)
             .disabled(appState.isAuthenticating)
 
             DisclosureGroup("Custom server", isExpanded: $useCustomServer) {

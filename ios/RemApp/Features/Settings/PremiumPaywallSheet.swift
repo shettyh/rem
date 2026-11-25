@@ -80,12 +80,15 @@ struct PremiumPaywallSheet: View {
                             if appState.storeKit.isPurchasing || appState.storeKit.isLoadingProduct {
                                 ProgressView()
                                     .controlSize(.small)
-                                    .tint(RemColor.onAccent)
                             }
                             Text(subscribeButtonTitle)
+                                .fontWeight(.semibold)
                         }
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(RemPrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(RemColor.accent)
                     .disabled(
                         appState.storeKit.isPurchasing
                             || appState.storeKit.isRestoring

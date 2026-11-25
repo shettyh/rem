@@ -93,10 +93,16 @@ struct TodayView: View {
                         .font(.system(size: 13))
                         .foregroundStyle(RemColor.muted)
                         .multilineTextAlignment(.center)
-                    Button("Create first deck") {
+                    Button {
                         appState.showNewDeckSheet = true
+                    } label: {
+                        Text("Create first deck")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(RemPrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(RemColor.accent)
                     .padding(.top, 4)
                 }
             }
@@ -158,12 +164,16 @@ struct TodayView: View {
                     } label: {
                         HStack(spacing: 8) {
                             Text("Start review")
+                                .fontWeight(.semibold)
                             Image(systemName: "arrow.right")
-                                .font(.system(size: 13, weight: .semibold))
-                                .opacity(0.8)
+                                .font(.subheadline.weight(.semibold))
+                                .opacity(0.85)
                         }
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(RemPrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(RemColor.accent)
                 }
             }
         }
