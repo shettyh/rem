@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.26.1 (2026-11-25)
+
+## What's Changed
+* chore: remove unused invite code and redemption support by @shettyh in https://github.com/shettyh/rem/pull/262
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.26.0...v0.26.1
+
 ## 0.26.0 (2026-11-25)
 
 ## What's Changed
