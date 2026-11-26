@@ -21,6 +21,10 @@ export function renderRoute(opts: {
   autoSync?: boolean
   /** Optional updater client override for testing update and CLI states. */
   updaterClient?: UpdaterClient
+  /** Enable UpdaterProvider background checks (default false for deterministic tests). */
+  autoCheck?: boolean
+  /** Override UpdaterProvider startup check delay in milliseconds. */
+  updaterStartupDelayMs?: number
   /** Route pattern, e.g. '/decks/:deckId'. */
   path: string
   /** URL actually visited, e.g. '/decks/abc'. */
@@ -46,7 +50,11 @@ export function renderRoute(opts: {
     <div data-testid="screen">
       <StorageProvider storage={opts.storage}>
         <SyncProvider client={opts.syncClient} autoSync={opts.autoSync ?? false}>
-          <UpdaterProvider client={opts.updaterClient} autoCheck={false}>
+          <UpdaterProvider
+            client={opts.updaterClient}
+            autoCheck={opts.autoCheck ?? false}
+            startupDelayMs={opts.updaterStartupDelayMs}
+          >
             <RouterProvider router={router} />
           </UpdaterProvider>
         </SyncProvider>

@@ -141,7 +141,7 @@ Windows releases also include a standalone CLI zip if you want `rem.exe` directl
 
 ### Automatic updates
 
-Desktop builds check GitHub Releases (`latest.json`) for signed updates and let you download, install, and restart from **Settings → App & updates**. Because the `rem` CLI is bundled inside the app package, updating `rem` updates both the desktop app and linked CLI together.
+Desktop builds automatically check GitHub Releases (`latest.json`) for signed updates, download them in the background, and prompt you in the sidebar and **Settings → App & updates** when ready to restart. You can toggle **Automatic updates** off in **Settings → App & updates** to check and install updates manually instead. Because the `rem` CLI is bundled inside the app package, updating `rem` updates both the desktop app and linked CLI together.
 
 ### Agent skill
 

@@ -176,6 +176,7 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
 .sidebar.is-collapsed:not(.is-peeking) .side-badge,
 .sidebar.is-collapsed:not(.is-peeking) .side-add,
 .sidebar.is-collapsed:not(.is-peeking) .side-settings-label,
+.sidebar.is-collapsed:not(.is-peeking) .side-update-copy,
 .sidebar.is-collapsed:not(.is-peeking) .theme-toggle-label {
   display: none;
 }
@@ -222,6 +223,14 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
 }
 .sidebar.is-collapsed:not(.is-peeking) .side-sync-btn {
   width: 100%;
+}
+.sidebar.is-collapsed:not(.is-peeking) .side-update-wrap {
+  padding: 0 8px 8px;
+}
+.sidebar.is-collapsed:not(.is-peeking) .side-update-btn {
+  justify-content: center;
+  padding: 8px 0;
+  gap: 0;
 }
 
 .side-nav {
@@ -344,6 +353,60 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
   color: var(--muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+.side-update-wrap {
+  padding: 8px 12px 10px;
+}
+.side-update-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+.side-update-btn:hover:not(:disabled) {
+  background: var(--surface-inset);
+  border-color: var(--accent);
+}
+.side-update-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+.side-update-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.side-update-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.side-update-copy strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.side-update-copy small {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .side-footer {
