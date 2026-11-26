@@ -94,7 +94,11 @@ struct RootContainerView: View {
                 await appState.syncNow(silent: true)
             }
         }) { request in
-            ReviewScreen(appState: appState, deckId: request.deckId)
+            ReviewScreen(
+                appState: appState,
+                deckId: request.deckId,
+                customStudy: request.customStudy
+            )
         }
         .sheet(item: $appState.captureRequest) { request in
             QuickCaptureSheet(

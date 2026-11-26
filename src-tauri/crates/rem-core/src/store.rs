@@ -214,6 +214,9 @@ impl Collection {
                         tags: card.tags.clone(),
                         created_at: card.created_at,
                         initial_due: card.scheduling.due,
+                        rationale: card.rationale.clone(),
+                        sources: card.sources.clone(),
+                        proposed_by: card.proposed_by.clone(),
                         hlc: content_hlc,
                     },
                     now,
@@ -365,7 +368,8 @@ impl Collection {
             .map_err(|_| CollectionError::Poisoned)?;
         let mut statement = connection.prepare(
             "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                    suspended, last_again_at, scheduling_json, due
+                    suspended, last_again_at, scheduling_json, due,
+                    rationale, sources_json, proposed_by
              FROM cards
              WHERE deck_id = ?1 AND suspended = 0 AND due <= ?2
              ORDER BY due, rowid",
@@ -397,7 +401,8 @@ impl Collection {
             .map_err(|_| CollectionError::Poisoned)?;
         let mut statement = connection.prepare(
             "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                    suspended, last_again_at, scheduling_json, due
+                    suspended, last_again_at, scheduling_json, due,
+                    rationale, sources_json, proposed_by
              FROM cards WHERE id = ?1",
         )?;
         let mut rows = statement.query([id])?;
@@ -414,7 +419,8 @@ impl Collection {
             .map_err(|_| CollectionError::Poisoned)?;
         let mut statement = connection.prepare(
             "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                    suspended, last_again_at, scheduling_json, due
+                    suspended, last_again_at, scheduling_json, due,
+                    rationale, sources_json, proposed_by
              FROM cards WHERE deck_id = ?1 ORDER BY created_at, rowid",
         )?;
         let cards = statement
@@ -479,6 +485,9 @@ pub(crate) fn prepare_cards(
                 suspended: false,
                 last_again_at: None,
                 scheduling: FsrsState::initial(now),
+                rationale: None,
+                sources: Vec::new(),
+                proposed_by: None,
             })
         })
         .collect()
@@ -536,12 +545,13 @@ pub(crate) fn find_card_by_id_with_revision(
 ) -> rusqlite::Result<Option<(Card, u64)>> {
     let mut statement = transaction.prepare(
         "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                suspended, last_again_at, scheduling_json, due, local_revision
+                suspended, last_again_at, scheduling_json, due,
+                rationale, sources_json, proposed_by, local_revision
          FROM cards WHERE id = ?1",
     )?;
     let mut rows = statement.query([id])?;
     rows.next()?
-        .map(|row| Ok((card_from_row(row)?, row.get(11)?)))
+        .map(|row| Ok((card_from_row(row)?, row.get(14)?)))
         .transpose()
 }
 
@@ -554,7 +564,8 @@ pub(crate) fn find_exact_card(
 ) -> rusqlite::Result<Option<Card>> {
     let mut statement = connection.prepare(
         "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                suspended, last_again_at, scheduling_json, due
+                suspended, last_again_at, scheduling_json, due,
+                rationale, sources_json, proposed_by
          FROM cards
          WHERE deck_id = ?1 AND front = ?2 AND back = ?3 AND tags_json = ?4
          ORDER BY created_at, rowid LIMIT 1",
@@ -597,11 +608,14 @@ pub(crate) fn insert_card_with_hlc(
     scheduling_json: &str,
     content_hlc: &str,
 ) -> rusqlite::Result<()> {
+    let sources_json = serde_json::to_string(&card.sources)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     transaction.execute(
         "INSERT INTO cards(
             id, deck_id, front, back, created_at, updated_at, tags_json,
-            suspended, last_again_at, scheduling_json, due, content_hlc
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            suspended, last_again_at, scheduling_json, due, content_hlc,
+            rationale, sources_json, proposed_by
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             card.id,
             card.deck_id,
@@ -615,6 +629,9 @@ pub(crate) fn insert_card_with_hlc(
             scheduling_json,
             card.scheduling.due,
             content_hlc,
+            card.rationale,
+            sources_json,
+            card.proposed_by,
         ],
     )?;
     Ok(())
@@ -653,6 +670,12 @@ pub(crate) fn card_from_row(row: &Row<'_>) -> rusqlite::Result<Card> {
             "indexed due time does not match scheduling state".into(),
         ));
     }
+    let rationale: Option<String> = row.get(11)?;
+    let sources_json: String = row.get(12)?;
+    let sources = serde_json::from_str(&sources_json).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(12, Type::Text, Box::new(error))
+    })?;
+    let proposed_by: Option<String> = row.get(13)?;
     Ok(Card {
         id: row.get(0)?,
         deck_id: row.get(1)?,
@@ -664,6 +687,9 @@ pub(crate) fn card_from_row(row: &Row<'_>) -> rusqlite::Result<Card> {
         suspended: row.get(7)?,
         last_again_at: row.get(8)?,
         scheduling,
+        rationale,
+        sources,
+        proposed_by,
     })
 }
 

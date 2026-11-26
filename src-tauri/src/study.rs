@@ -81,6 +81,34 @@ pub fn study_advance_preview(
 }
 
 #[tauri::command]
+pub fn study_undo_last_grade(
+    collection: State<'_, Collection>,
+    sessions: State<'_, StudySessions>,
+    session_id: String,
+    now: i64,
+) -> Result<StudyView, String> {
+    with_session(&sessions, &session_id, |session| {
+        session
+            .undo_last_grade(&collection, now)
+            .map_err(|error| error.to_string())
+    })
+}
+
+#[tauri::command]
+pub fn study_suspend_current(
+    collection: State<'_, Collection>,
+    sessions: State<'_, StudySessions>,
+    session_id: String,
+    now: i64,
+) -> Result<StudyView, String> {
+    with_session(&sessions, &session_id, |session| {
+        session
+            .suspend_current(&collection, now)
+            .map_err(|error| error.to_string())
+    })
+}
+
+#[tauri::command]
 pub fn study_end(sessions: State<'_, StudySessions>, session_id: String) -> Result<(), String> {
     sessions
         .sessions

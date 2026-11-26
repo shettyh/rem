@@ -124,6 +124,9 @@ impl Collection {
                     suspended: backup_card.suspended,
                     last_again_at: backup_card.last_again_at,
                     scheduling: backup_card.scheduling,
+                    rationale: backup_card.rationale,
+                    sources: backup_card.sources,
+                    proposed_by: backup_card.proposed_by,
                 };
                 let has_non_initial_sched = card.scheduling.reps > 0
                     || card.scheduling.lapses > 0
@@ -181,6 +184,9 @@ impl Collection {
                             tags: card.tags.clone(),
                             created_at: card.created_at,
                             initial_due,
+                            rationale: card.rationale.clone(),
+                            sources: card.sources.clone(),
+                            proposed_by: card.proposed_by.clone(),
                             hlc: content_hlc,
                         },
                         now,

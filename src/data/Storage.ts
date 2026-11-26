@@ -2,6 +2,8 @@ import type {
   Asset,
   Card,
   CardDraft,
+  CardSearchHit,
+  CollectionStats,
   Deck,
   DeckSettings,
   DraftDecision,
@@ -75,6 +77,10 @@ export interface Storage {
   createCard(deckId: ID, front: string, back: string, tags?: string[]): Promise<Card>
   getCard(id: ID): Promise<Card | undefined>
   listCards(deckId: ID): Promise<Card[]>
+  searchCards(
+    query: string,
+    options?: { deckId?: ID; limit?: number },
+  ): Promise<CardSearchHit[]>
   updateCard(id: ID, patch: CardPatch): Promise<void>
   deleteCard(id: ID): Promise<void>
 
@@ -95,11 +101,14 @@ export interface Storage {
   revealStudy(sessionId: string): Promise<StudyView>
   gradeStudy(sessionId: string, grade: Grade): Promise<StudyGradeOutcome>
   advanceStudyPreview(sessionId: string): Promise<StudyView>
+  undoStudyGrade(sessionId: string): Promise<StudyView>
+  suspendStudyCard(sessionId: string): Promise<StudyView>
   endStudy(sessionId: string): Promise<void>
 
   /** Atomically persist card/counter changes and an optional FSRS training event. */
   commitReview(commit: ReviewCommit): Promise<ReviewLog | null>
   listReviewLogs(deckId: ID): Promise<ReviewLog[]>
+  getStats(deckId: ID | null, days: number, now?: number): Promise<CollectionStats>
 
   /** Cards in a deck due at or before `now`, soonest-due first. */
   dueCards(deckId: ID, now: number): Promise<Card[]>

@@ -5,6 +5,13 @@ import UIKit
 struct ReviewScreen: View {
     @Bindable var appState: AppState
     let deckId: String?
+    let customStudy: CustomStudySpec?
+
+    init(appState: AppState, deckId: String?, customStudy: CustomStudySpec? = nil) {
+        self.appState = appState
+        self.deckId = deckId
+        self.customStudy = customStudy
+    }
 
     @Environment(\.dismiss) private var dismiss
     @State private var session: RemStudySession?
@@ -280,6 +287,43 @@ struct ReviewScreen: View {
                                     }
                                     .padding(.top, 6)
                                 }
+
+                                if card.rationale != nil || !card.sources.isEmpty || card.proposedBy != nil {
+                                    DisclosureGroup {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            if let rationale = card.rationale, !rationale.isEmpty {
+                                                Text(rationale)
+                                                    .font(.footnote)
+                                                    .foregroundStyle(RemColor.text)
+                                            }
+                                            ForEach(Array(card.sources.enumerated()), id: \.offset) { _, source in
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    if let label = source.label, !label.isEmpty {
+                                                        Text(label)
+                                                            .font(.caption.weight(.semibold))
+                                                            .foregroundStyle(RemColor.muted)
+                                                    }
+                                                    Text(source.locator)
+                                                        .font(.caption.monospaced())
+                                                        .foregroundStyle(RemColor.muted)
+                                                }
+                                            }
+                                            if let proposedBy = card.proposedBy, !proposedBy.isEmpty {
+                                                Text("Proposed by \(proposedBy)")
+                                                    .font(.caption)
+                                                    .foregroundStyle(RemColor.faint)
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.top, 6)
+                                    } label: {
+                                        Text("Source & rationale")
+                                            .font(.footnote.weight(.medium))
+                                            .foregroundStyle(RemColor.muted)
+                                    }
+                                    .tint(RemColor.muted)
+                                    .padding(.top, 8)
+                                }
                             }
                             .transition(.opacity.combined(with: .offset(y: 6)))
                         }
@@ -347,6 +391,20 @@ struct ReviewScreen: View {
                         Task { await reveal() }
                     } label: {
                         Text("Show answer")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(RemColor.onAccent)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                            .background(RemColor.accent)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isMutating)
+                } else if viewState.preview {
+                    Button {
+                        Task { await advancePreview() }
+                    } label: {
+                        Text("Next card")
                             .font(.body.weight(.semibold))
                             .foregroundStyle(RemColor.onAccent)
                             .frame(maxWidth: .infinity)
@@ -472,20 +530,25 @@ struct ReviewScreen: View {
                 }
 
                 VStack(spacing: 6) {
-                    Text("All caught up.")
+                    Text(viewState.preview ? "Preview complete." : "All caught up.")
                         .font(.title.bold())
                         .tracking(-0.5)
                         .foregroundStyle(RemColor.text)
-                    Text(syncNote)
+                    Text(viewState.preview ? "No schedules were changed." : syncNote)
                         .font(.subheadline)
                         .foregroundStyle(RemColor.muted)
                         .multilineTextAlignment(.center)
                 }
 
                 HStack(spacing: 0) {
-                    sessionStatColumn(value: "\(viewState.reviewed)", label: "Reviewed")
-                    Divider().frame(height: 32).overlay(RemColor.border)
-                    sessionStatColumn(value: "\(recallPct)%", label: "Recall")
+                    sessionStatColumn(
+                        value: "\(viewState.reviewed)",
+                        label: viewState.preview ? "Previewed" : "Reviewed"
+                    )
+                    if !viewState.preview {
+                        Divider().frame(height: 32).overlay(RemColor.border)
+                        sessionStatColumn(value: "\(recallPct)%", label: "Recall")
+                    }
                     Divider().frame(height: 32).overlay(RemColor.border)
                     sessionStatColumn(value: Self.formatDuration(seconds: elapsedSeconds), label: "Time")
                 }
@@ -543,7 +606,16 @@ struct ReviewScreen: View {
 
     private func startSession() async {
         do {
-            let started = try await appState.store.startStudy(deckId: deckId)
+            let started: RemStudySession
+            if let customStudy, let deckId {
+                started = try await appState.store.startCustomStudy(
+                    deckId: deckId,
+                    mode: customStudy.mode,
+                    amount: customStudy.amount
+                )
+            } else {
+                started = try await appState.store.startStudy(deckId: deckId)
+            }
             let initial = try started.currentView(nowMs: RemStore.nowMs())
             self.session = started
             self.viewState = initial
@@ -552,6 +624,27 @@ struct ReviewScreen: View {
             self.sessionFinishedAt = initial.current == nil ? Date() : nil
         } catch {
             self.loadError = error.localizedDescription
+        }
+    }
+
+    private func advancePreview() async {
+        guard let session, !isMutating else { return }
+        isMutating = true
+        defer { isMutating = false }
+
+        if appState.hapticsEnabled {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+        do {
+            let next = try session.advancePreview(nowMs: RemStore.nowMs())
+            if next.current == nil {
+                sessionFinishedAt = Date()
+            }
+            withAnimation(.easeOut(duration: 0.16)) {
+                self.viewState = next
+            }
+        } catch {
+            appState.showToast(error.localizedDescription)
         }
     }
 

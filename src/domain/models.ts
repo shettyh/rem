@@ -110,6 +110,44 @@ export interface Card {
   /** Most recent Again grade, used by custom-study forgotten-card selection. */
   lastAgainAt: number | null
   scheduling: SchedulingState
+  /** Retained draft provenance when the card originated from an approved proposal. */
+  rationale?: string | null
+  sources?: DraftSource[]
+  proposedBy?: string | null
+}
+
+export interface CardSearchHit {
+  card: Card
+  deckName: string
+  deckColor: string
+}
+
+export interface CollectionStatsDaily {
+  day: string
+  timestampMs: number
+  count: number
+}
+
+export interface CollectionStatsDeck {
+  deckId: ID
+  deckName: string
+  deckColor: string
+  reviews: number
+  recallRate: number
+  recallRatePercent: number | null
+}
+
+export interface CollectionStats {
+  historyCount: number
+  totalReviews: number
+  recallRate: number | null
+  recallRatePercent: number | null
+  currentStreakDays: number
+  activeDays: number
+  grades: Record<Grade, number>
+  daily: CollectionStatsDaily[]
+  byDeck: CollectionStatsDeck[]
+  upcoming7d: CollectionStatsDaily[]
 }
 
 export interface DraftSource {
@@ -205,6 +243,7 @@ export interface StudyView {
   reviewed: number
   remaining: number
   preview: boolean
+  canUndo: boolean
   notice: LeechAction | null
 }
 

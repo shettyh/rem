@@ -9,11 +9,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use crossterm::{
     cursor::{Hide, Show},
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
+use rem_cli::draft_tui::{draw_draft, DraftApp, DraftControl, DraftInput};
 use rem_cli::tui::{draw, StudyApp, StudyControl, StudyInput, StudyScope};
 use rem_core::{
     default_database_path, normalize_user_tags, Card, CardDraft, Collection, CollectionError,
@@ -176,6 +177,8 @@ struct CardArgs {
 enum CardCommand {
     /// Add one card or an atomic JSON batch.
     Add(AddCardArgs),
+    /// Search cards across all decks (or within one deck).
+    Search(SearchCardsArgs),
 }
 
 #[derive(Args)]
@@ -190,6 +193,8 @@ enum DraftCommand {
     Add(Box<AddDraftArgs>),
     /// List pending drafts.
     List(ListDraftsArgs),
+    /// Interactively triage pending drafts in the terminal (front-first).
+    Review(ReviewDraftsArgs),
 }
 
 #[derive(Args)]
@@ -293,10 +298,32 @@ struct ListDecksArgs {
 }
 
 #[derive(Args)]
+struct SearchCardsArgs {
+    /// Search query (matches front, back, tags, and rationale).
+    query: String,
+    /// Restrict search to one deck by ID or exact unique name.
+    #[arg(long)]
+    deck: Option<String>,
+    /// Maximum number of results to return (default 50, max 200).
+    #[arg(long, default_value_t = 50)]
+    limit: usize,
+    /// Select human-readable or versioned machine output.
+    #[arg(long, value_enum, default_value_t)]
+    output: OutputFormat,
+}
+
+#[derive(Args)]
 struct ListDraftsArgs {
     /// Select human-readable or versioned machine output.
     #[arg(long, value_enum, default_value_t)]
     output: OutputFormat,
+}
+
+#[derive(Args)]
+struct ReviewDraftsArgs {
+    /// Review drafts for one deck by ID or exact unique name; defaults to all decks.
+    #[arg(long)]
+    deck: Option<String>,
 }
 
 #[derive(Clone, Copy, Default, ValueEnum)]
@@ -570,8 +597,10 @@ fn requested_command(args: &[OsString]) -> &'static str {
     ) {
         (Some(group), Some(command)) if group == "deck" && command == "list" => "deck.list",
         (Some(group), Some(command)) if group == "card" && command == "add" => "card.add",
+        (Some(group), Some(command)) if group == "card" && command == "search" => "card.search",
         (Some(group), Some(command)) if group == "draft" && command == "add" => "draft.add",
         (Some(group), Some(command)) if group == "draft" && command == "list" => "draft.list",
+        (Some(group), Some(command)) if group == "draft" && command == "review" => "draft.review",
         (Some(group), Some(command)) if group == "sync" && command == "status" => "sync.status",
         (Some(group), Some(command)) if group == "sync" && command == "login" => "sync.login",
         (Some(group), Some(command)) if group == "sync" && command == "logout" => "sync.logout",
@@ -584,13 +613,21 @@ impl Cli {
     fn command_name(&self) -> &'static str {
         match &self.command {
             Command::Deck(_) => "deck.list",
-            Command::Card(_) => "card.add",
+            Command::Card(CardArgs {
+                command: CardCommand::Add(_),
+            }) => "card.add",
+            Command::Card(CardArgs {
+                command: CardCommand::Search(_),
+            }) => "card.search",
             Command::Draft(DraftArgs {
                 command: DraftCommand::Add(_),
             }) => "draft.add",
             Command::Draft(DraftArgs {
                 command: DraftCommand::List(_),
             }) => "draft.list",
+            Command::Draft(DraftArgs {
+                command: DraftCommand::Review(_),
+            }) => "draft.review",
             Command::Study(_) => "study",
             Command::Sync(SyncArgs {
                 command: None | Some(SyncCommand::Run(_)),
@@ -619,12 +656,18 @@ impl Cli {
             Command::Card(CardArgs {
                 command: CardCommand::Add(args),
             }) => args.output,
+            Command::Card(CardArgs {
+                command: CardCommand::Search(args),
+            }) => args.output,
             Command::Draft(DraftArgs {
                 command: DraftCommand::Add(args),
             }) => args.output,
             Command::Draft(DraftArgs {
                 command: DraftCommand::List(args),
             }) => args.output,
+            Command::Draft(DraftArgs {
+                command: DraftCommand::Review(_),
+            }) => OutputFormat::Text,
             Command::Study(_) => OutputFormat::Text,
             Command::Sync(args) => match &args.command {
                 None => args.output,
@@ -647,12 +690,18 @@ fn run(cli: Cli) -> Result<(), CliError> {
         Command::Card(CardArgs {
             command: CardCommand::Add(args),
         }) => add_card(&collection, args),
+        Command::Card(CardArgs {
+            command: CardCommand::Search(args),
+        }) => search_cards(&collection, args),
         Command::Draft(DraftArgs {
             command: DraftCommand::Add(args),
         }) => add_draft(&collection, *args),
         Command::Draft(DraftArgs {
             command: DraftCommand::List(args),
         }) => list_drafts(&collection, args.output),
+        Command::Draft(DraftArgs {
+            command: DraftCommand::Review(args),
+        }) => review_drafts(&collection, args),
         Command::Study(args) => study(&collection, args),
         Command::Sync(args) => match args.command {
             None => run_sync(&collection, args.output),
@@ -683,6 +732,103 @@ fn study(collection: &Collection, args: StudyArgs) -> Result<(), CliError> {
     run_study_terminal(collection, app)
 }
 
+fn review_drafts(collection: &Collection, args: ReviewDraftsArgs) -> Result<(), CliError> {
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+        return Err(input_error(
+            "interactive_terminal_required",
+            "rem draft review requires an interactive terminal".into(),
+        ));
+    }
+
+    let filter_deck = match args.deck {
+        Some(reference) => Some(resolve_deck(collection, &reference)?),
+        None => None,
+    };
+    let app = DraftApp::start(
+        collection,
+        filter_deck
+            .as_ref()
+            .map(|deck| (deck.id.as_str(), deck.name.as_str())),
+    )?;
+    run_draft_terminal(collection, app)
+}
+
+fn run_draft_terminal(collection: &Collection, mut app: DraftApp) -> Result<(), CliError> {
+    enable_raw_mode().map_err(terminal_error)?;
+    let _restore = TerminalRestore;
+    let mut stdout = std::io::stdout();
+    execute!(stdout, EnterAlternateScreen, Hide).map_err(terminal_error)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend).map_err(terminal_error)?;
+
+    loop {
+        terminal
+            .draw(|frame| draw_draft(frame, &app))
+            .map_err(terminal_error)?;
+        let input = match event::read().map_err(terminal_error)? {
+            Event::Resize(_, _) => continue,
+            Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
+                KeyCode::Char('q') => DraftInput::Quit,
+                KeyCode::Char(' ') | KeyCode::Enter => DraftInput::Reveal,
+                KeyCode::Char('a') => DraftInput::Accept,
+                KeyCode::Char('r') => DraftInput::Reject,
+                KeyCode::Char('e') => DraftInput::Edit,
+                KeyCode::Char('n') | KeyCode::Tab => DraftInput::Skip,
+                KeyCode::Up | KeyCode::Char('k') => DraftInput::ScrollUp,
+                KeyCode::Down | KeyCode::Char('j') => DraftInput::ScrollDown,
+                _ => continue,
+            },
+            _ => continue,
+        };
+        match app.handle(collection, input, now_millis())? {
+            DraftControl::Continue => {}
+            DraftControl::Quit => break,
+            DraftControl::EditInEditor => {
+                if let Some(template) = app.format_current_for_editor() {
+                    let _ = disable_raw_mode();
+                    let _ = execute!(terminal.backend_mut(), Show, LeaveAlternateScreen);
+                    let edited = edit_in_external_editor(&template);
+                    enable_raw_mode().map_err(terminal_error)?;
+                    execute!(terminal.backend_mut(), EnterAlternateScreen, Hide)
+                        .map_err(terminal_error)?;
+                    terminal.clear().map_err(terminal_error)?;
+                    match edited {
+                        Ok(text) => app.apply_editor_output(&text),
+                        Err(message) => {
+                            app.apply_editor_output(&format!("# editor error: {message}\n"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn edit_in_external_editor(initial_content: &str) -> Result<String, String> {
+    let editor = env::var("VISUAL")
+        .or_else(|_| env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_owned());
+    let temp_path = env::temp_dir().join(format!("rem-draft-{}.md", now_millis()));
+    fs::write(&temp_path, initial_content).map_err(|error| error.to_string())?;
+    let mut parts = editor.split_whitespace();
+    let Some(program) = parts.next() else {
+        let _ = fs::remove_file(&temp_path);
+        return Err("EDITOR is empty".into());
+    };
+    let status = std::process::Command::new(program)
+        .args(parts)
+        .arg(&temp_path)
+        .status()
+        .map_err(|error| format!("failed to launch {program}: {error}"))?;
+    let updated = fs::read_to_string(&temp_path).map_err(|error| error.to_string());
+    let _ = fs::remove_file(&temp_path);
+    if !status.success() {
+        return Err(format!("{program} exited with status {status}"));
+    }
+    updated
+}
+
 fn run_study_terminal(collection: &Collection, mut app: StudyApp) -> Result<(), CliError> {
     enable_raw_mode().map_err(terminal_error)?;
     let _restore = TerminalRestore;
@@ -704,6 +850,11 @@ fn run_study_terminal(collection: &Collection, mut app: StudyApp) -> Result<(), 
                 KeyCode::Char('2') => StudyInput::Grade(Grade::Hard),
                 KeyCode::Char('3') => StudyInput::Grade(Grade::Good),
                 KeyCode::Char('4') => StudyInput::Grade(Grade::Easy),
+                KeyCode::Char('u') => StudyInput::Undo,
+                KeyCode::Char('z') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    StudyInput::Undo
+                }
+                KeyCode::Char('s') => StudyInput::Suspend,
                 KeyCode::Up | KeyCode::Char('k') => StudyInput::ScrollUp,
                 KeyCode::Down | KeyCode::Char('j') => StudyInput::ScrollDown,
                 _ => continue,
@@ -1125,6 +1276,34 @@ fn list_drafts(collection: &Collection, output: OutputFormat) -> Result<(), CliE
             version: OUTPUT_VERSION,
             command: "draft.list",
             data: DraftListData { drafts },
+        }),
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct CardSearchData {
+    hits: Vec<rem_core::CardSearchHit>,
+}
+
+fn search_cards(collection: &Collection, args: SearchCardsArgs) -> Result<(), CliError> {
+    let deck_id = match args.deck {
+        Some(reference) => Some(resolve_deck(collection, &reference)?.id),
+        None => None,
+    };
+    let hits = collection.search_cards(&args.query, deck_id.as_deref(), args.limit)?;
+    match args.output {
+        OutputFormat::Text if hits.is_empty() => println!("No matching cards."),
+        OutputFormat::Text => {
+            for hit in hits {
+                let front = hit.card.front.lines().next().unwrap_or_default();
+                println!("{}\t{}\t{}", hit.card.id, hit.deck_name, front);
+            }
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "card.search",
+            data: CardSearchData { hits },
         }),
     }
     Ok(())

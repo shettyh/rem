@@ -8,6 +8,8 @@ mod import_store;
 mod models;
 mod review_store;
 mod scheduler;
+mod search;
+mod stats;
 mod store;
 mod study;
 mod sync_ops;
@@ -27,6 +29,11 @@ pub use models::{
 pub use scheduler::{
     calculate_fsrs_next_states, optimize_fsrs_histories, DeckFsrsParams, FsrsNextStates,
     FsrsReviewHistory, FsrsReviewInput,
+};
+pub use search::CardSearchHit;
+pub use stats::{
+    CollectionStats, DailyActivity, DeckStatsEntry, DeckTodaySummary, ForecastDay, GradeCounts,
+    TodaySummary,
 };
 pub use study::{
     CustomStudyMode, CustomStudyRequest, StudyGradeOutcome, StudyNextStates, StudyRequest,

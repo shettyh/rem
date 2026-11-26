@@ -33,11 +33,13 @@ export function ReviewPage() {
   const sessionIdRef = useRef<string | null>(null)
   const gradingRef = useRef(false)
   const sessionStartRef = useRef(Date.now())
+  const lastGradedGradeRef = useRef<Grade | null>(null)
   const [view, setView] = useState<StudyView | null>(null)
   const [ready, setReady] = useState(false)
   const [revealedAt, setRevealedAt] = useState(0)
   const [schedError, setSchedError] = useState(false)
   const [conflictNotice, setConflictNotice] = useState(false)
+  const [actionNotice, setActionNotice] = useState<string | null>(null)
   const [sessionStats, setSessionStats] = useState({ total: 0, recalled: 0, elapsedMs: 0 })
 
   const deck = useStorageQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
@@ -50,6 +52,8 @@ export function ReviewPage() {
     let active = true
     let startedId: string | null = null
     sessionStartRef.current = Date.now()
+    lastGradedGradeRef.current = null
+    setActionNotice(null)
     setSessionStats({ total: 0, recalled: 0, elapsedMs: 0 })
     const request: StudyRequest = {
       deckId: deckId ?? null,
@@ -77,6 +81,7 @@ export function ReviewPage() {
     if (!sessionId || !view?.current || (view.revealed && !schedError)) return
     const now = Date.now()
     setRevealedAt(now)
+    setActionNotice(null)
     void storage.revealStudy(sessionId)
       .then((nextView) => {
         setView(nextView)
@@ -112,8 +117,10 @@ export function ReviewPage() {
         const outcome = await storage.gradeStudy(sessionId, grade)
         setView(outcome.view)
         setSchedError(false)
+        setActionNotice(null)
         setConflictNotice(outcome.status === 'conflict')
         if (outcome.status !== 'conflict') {
+          lastGradedGradeRef.current = grade
           setSessionStats((prev) => ({
             total: prev.total + 1,
             recalled: prev.recalled + (grade === 'again' ? 0 : 1),
@@ -127,6 +134,48 @@ export function ReviewPage() {
     [storage, view],
   )
 
+  const undoLastGrade = useCallback(async () => {
+    const sessionId = sessionIdRef.current
+    if (!sessionId || !view?.canUndo || gradingRef.current) return
+    gradingRef.current = true
+    try {
+      const nextView = await storage.undoStudyGrade(sessionId)
+      const undoneGrade = lastGradedGradeRef.current
+      lastGradedGradeRef.current = null
+      setView(nextView)
+      setSchedError(false)
+      setConflictNotice(false)
+      setActionNotice('Last grade undone.')
+      if (undoneGrade) {
+        setSessionStats((prev) => ({
+          total: Math.max(0, prev.total - 1),
+          recalled: Math.max(0, prev.recalled - (undoneGrade === 'again' ? 0 : 1)),
+          elapsedMs: Date.now() - sessionStartRef.current,
+        }))
+      }
+    } finally {
+      gradingRef.current = false
+    }
+  }, [storage, view?.canUndo])
+
+  const suspendCurrent = useCallback(async () => {
+    const sessionId = sessionIdRef.current
+    if (!sessionId || !view?.current || isPreview || gradingRef.current) return
+    gradingRef.current = true
+    try {
+      const nextView = await storage.suspendStudyCard(sessionId)
+      setView(nextView)
+      setSchedError(false)
+      setConflictNotice(false)
+      setActionNotice('Card suspended.')
+      if (nextView.current === null) {
+        setSessionStats((prev) => ({ ...prev, elapsedMs: Date.now() - sessionStartRef.current }))
+      }
+    } finally {
+      gradingRef.current = false
+    }
+  }, [storage, view?.current, isPreview])
+
   const editCurrent = useCallback(() => {
     const card = view?.current
     if (!card) return
@@ -139,10 +188,23 @@ export function ReviewPage() {
     function onKey(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement | null)?.tagName ?? ''
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const isUndoShortcut =
+        ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z')
+        || (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'u')
+      if (isUndoShortcut && view?.canUndo) {
+        e.preventDefault()
+        void undoLastGrade()
+        return
+      }
       if (!view?.current) return
-      if (e.key === 'e' || e.key === 'E') {
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'e' || e.key === 'E')) {
         e.preventDefault()
         editCurrent()
+        return
+      }
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && !isPreview && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault()
+        void suspendCurrent()
         return
       }
       if (!view.revealed && !schedError) {
@@ -166,7 +228,7 @@ export function ReviewPage() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [view, isPreview, schedError, reveal, advancePreview, grade, editCurrent])
+  }, [view, isPreview, schedError, reveal, advancePreview, grade, editCurrent, undoLastGrade, suspendCurrent])
 
   if (!ready || !view) return null
 
@@ -176,6 +238,7 @@ export function ReviewPage() {
     : view.notice === 'tag'
       ? 'Leech tagged.'
       : null
+  const statusMessage = leechMessage ?? actionNotice
   const contextLabel = customTitle ? `${deckName} · ${customTitle}` : deckName
   const terminalTitle = (
     <>
@@ -216,6 +279,7 @@ export function ReviewPage() {
                     ? 'Nothing due in this deck right now.'
                     : 'Nothing due across your decks right now.'}
               </p>
+              {statusMessage && <p className="review-complete-note" role="status">{statusMessage}</p>}
               <Link to={backTo} className="btn btn-ghost cta">{backLabel}</Link>
             </div>
           </div>
@@ -253,9 +317,21 @@ export function ReviewPage() {
                 <span>Time</span>
               </div>
             </div>
-            {leechMessage && <p className="review-complete-note" role="status">{leechMessage}</p>}
+            {statusMessage && <p className="review-complete-note" role="status">{statusMessage}</p>}
             {conflictNotice && <p className="review-complete-note" role="alert">A changed card was skipped instead of grading stale content.</p>}
-            <Link to={backTo} className="btn btn-primary cta">{backLabel}</Link>
+            <div className="review-complete-actions">
+              {!isPreview && view.canUndo && (
+                <button
+                  type="button"
+                  className="btn btn-ghost cta"
+                  title="Undo last grade (⌘Z)"
+                  onClick={() => void undoLastGrade()}
+                >
+                  Undo last grade
+                </button>
+              )}
+              <Link to={backTo} className="btn btn-primary cta">{backLabel}</Link>
+            </div>
           </div>
         </div>
       </>
@@ -280,6 +356,27 @@ export function ReviewPage() {
         title={title}
         actions={
           <>
+            {!isPreview && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  title="Undo last grade (⌘Z or U)"
+                  disabled={!view.canUndo}
+                  onClick={() => void undoLastGrade()}
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  title="Suspend card (S)"
+                  onClick={() => void suspendCurrent()}
+                >
+                  Suspend
+                </button>
+              </>
+            )}
             <button
               type="button"
               className="btn btn-ghost"
@@ -308,7 +405,7 @@ export function ReviewPage() {
       <div className={`review${displayedRevealed ? ' is-revealed' : ''}`}>
         <div className="review-scroll">
           <div className={`review-stage${displayedRevealed ? ' reveal-enter' : ''}`}>
-            {leechMessage && <p className="review-notice" role="status">{leechMessage}</p>}
+            {statusMessage && <p className="review-notice" role="status">{statusMessage}</p>}
             {conflictNotice && (
               <p className="review-notice" role="alert">
                 A changed card was skipped instead of grading stale content.
@@ -338,6 +435,29 @@ export function ReviewPage() {
                     <MarkdownView source={current.back} />
                   </div>
                 </section>
+                {(current.rationale || (current.sources && current.sources.length > 0) || current.proposedBy) && (
+                  <details className="review-provenance">
+                    <summary>Source &amp; rationale</summary>
+                    <div className="review-provenance-body">
+                      {current.rationale && (
+                        <p className="review-provenance-rationale">{current.rationale}</p>
+                      )}
+                      {current.sources && current.sources.length > 0 && (
+                        <ul className="review-provenance-sources">
+                          {current.sources.map((src, index) => (
+                            <li key={`${src.locator}-${index}`}>
+                              {src.label ? <strong>{src.label}: </strong> : null}
+                              <code>{src.locator}</code>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {current.proposedBy && (
+                        <p className="review-provenance-meta">Proposed by {current.proposedBy}</p>
+                      )}
+                    </div>
+                  </details>
+                )}
               </div>
             )}
           </div>

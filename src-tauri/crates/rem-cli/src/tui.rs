@@ -30,6 +30,8 @@ impl StudyScope {
 pub enum StudyInput {
     Reveal,
     Grade(Grade),
+    Undo,
+    Suspend,
     ScrollUp,
     ScrollDown,
     Quit,
@@ -49,6 +51,7 @@ pub struct StudyApp {
     scroll: u16,
     interval_base: Option<i64>,
     conflict_message: Option<String>,
+    status_message: Option<String>,
 }
 
 impl StudyApp {
@@ -67,6 +70,7 @@ impl StudyApp {
             scroll: 0,
             interval_base: None,
             conflict_message: None,
+            status_message: None,
         })
     }
 
@@ -87,6 +91,7 @@ impl StudyApp {
             StudyInput::Reveal if self.view.current.is_some() && !self.view.revealed => {
                 self.view = self.session.reveal(now)?;
                 self.interval_base = Some(now);
+                self.status_message = None;
                 self.scroll = 0;
             }
             StudyInput::Grade(grade)
@@ -98,18 +103,34 @@ impl StudyApp {
                     StudyGradeOutcome::Graded { view } => {
                         self.view = view;
                         self.conflict_message = None;
+                        self.status_message = None;
                     }
                     StudyGradeOutcome::Conflict { view, .. } => {
                         self.view = view;
                         self.conflict_message = Some(
                             "Card changed; stale review skipped without recording a review.".into(),
                         );
+                        self.status_message = None;
                     }
                 }
                 self.interval_base = None;
                 self.scroll = 0;
             }
-            StudyInput::Reveal | StudyInput::Grade(_) => {}
+            StudyInput::Undo if self.view.can_undo => {
+                self.view = self.session.undo_last_grade(collection, now)?;
+                self.conflict_message = None;
+                self.status_message = Some("Last grade undone.".into());
+                self.interval_base = None;
+                self.scroll = 0;
+            }
+            StudyInput::Suspend if self.view.current.is_some() => {
+                self.view = self.session.suspend_current(collection, now)?;
+                self.conflict_message = None;
+                self.status_message = Some("Card suspended.".into());
+                self.interval_base = None;
+                self.scroll = 0;
+            }
+            StudyInput::Reveal | StudyInput::Grade(_) | StudyInput::Undo | StudyInput::Suspend => {}
         }
         Ok(StudyControl::Continue)
     }
@@ -120,6 +141,10 @@ impl StudyApp {
 
     pub fn conflict_message(&self) -> Option<&str> {
         self.conflict_message.as_deref()
+    }
+
+    pub fn status_message(&self) -> Option<&str> {
+        self.status_message.as_deref()
     }
 }
 
@@ -150,6 +175,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &StudyApp) {
     };
     let notice = app
         .conflict_message()
+        .or_else(|| app.status_message())
         .map(str::to_owned)
         .or_else(|| match app.view.notice {
             Some(LeechAction::Tag) => Some("Leech tagged.".into()),
@@ -186,22 +212,37 @@ pub fn draw(frame: &mut Frame<'_>, app: &StudyApp) {
     );
 
     let footer = if app.view.current.is_none() {
+        let hint = if app.view.can_undo {
+            "u undo last grade · q exit"
+        } else {
+            "q exit"
+        };
         vec![
             Line::from(Span::styled(rule, Style::default().fg(Color::DarkGray))),
-            Line::from("q Exit"),
+            Line::from(hint),
             Line::default(),
         ]
     } else if app.view.revealed {
+        let secondary = if app.view.can_undo {
+            "u undo · s suspend · ↑/↓/j/k scroll · q end session"
+        } else {
+            "s suspend · ↑/↓/j/k scroll · q end session"
+        };
         vec![
             Line::from(Span::styled(rule, Style::default().fg(Color::DarkGray))),
             grade_choices(app),
-            Line::from("↑/↓/j/k scroll · q end session"),
+            Line::from(secondary),
         ]
     } else {
+        let secondary = if app.view.can_undo {
+            "u undo · s suspend · ↑/↓/j/k scroll · q end session"
+        } else {
+            "s suspend · ↑/↓/j/k scroll · q end session"
+        };
         vec![
             Line::from(Span::styled(rule, Style::default().fg(Color::DarkGray))),
             Line::from("Space/Enter reveal"),
-            Line::from("↑/↓/j/k scroll · q end session"),
+            Line::from(secondary),
         ]
     };
     frame.render_widget(Paragraph::new(footer), areas[2]);
@@ -235,6 +276,32 @@ fn content_lines(app: &StudyApp) -> Vec<Line<'static>> {
         lines.push(Line::default());
         lines.push(section_label("ANSWER"));
         lines.extend(markdown_lines(&card.back));
+        if card.rationale.is_some() || !card.sources.is_empty() || card.proposed_by.is_some() {
+            lines.push(Line::default());
+            lines.push(section_label("PROVENANCE"));
+            if let Some(rationale) = &card.rationale {
+                lines.push(Line::from(Span::styled(
+                    format!("Why: {rationale}"),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+            for source in &card.sources {
+                let text = match &source.label {
+                    Some(label) => format!("Source: {label} ({})", source.locator),
+                    None => format!("Source: {}", source.locator),
+                };
+                lines.push(Line::from(Span::styled(
+                    text,
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+            if let Some(producer) = &card.proposed_by {
+                lines.push(Line::from(Span::styled(
+                    format!("Proposed by: {producer}"),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+        }
     }
     lines
 }
@@ -295,7 +362,7 @@ fn format_interval(milliseconds: i64) -> String {
     format!("{}y", (days as f64 / 365.0).round() as i64)
 }
 
-fn markdown_lines(markdown: &str) -> Vec<Line<'static>> {
+pub(crate) fn markdown_lines(markdown: &str) -> Vec<Line<'static>> {
     MarkdownRenderer::render(markdown)
 }
 

@@ -21,9 +21,10 @@ use rem_sync::{
 
 pub use credentials::FfiCredentialStore;
 pub use types::{
-    AccountProfileDto, AssetDataDto, AuthProvidersDto, CardDto, ConnectResultDto, DailyActivityDto,
-    DeckDto, DeckFsrsStatusDto, DeckSettingsDto, DeckSettingsPatchDto, DeckStatsDto,
-    DeckSummaryDto, EntitlementInfoDto, EntitlementStateDto, GradeDto, GradeIntervalsDto,
+    AccountProfileDto, AssetDataDto, AuthProvidersDto, BackupPreviewDto, CardDto, CardSearchHitDto,
+    ConnectResultDto, CustomStudyModeDto, DailyActivityDto, DeckDto, DeckFsrsStatusDto,
+    DeckSettingsDto, DeckSettingsPatchDto, DeckStatsDto, DeckSummaryDto, DraftSourceDto,
+    EntitlementInfoDto, EntitlementStateDto, GradeDto, GradeIntervalsDto, ImportResultDto,
     InsertionOrderDto, LeechActionDto, LeechNoticeDto, OAuthProviderDto, OAuthStartDto,
     RemFfiError, StatsDto, StorageSummaryDto, StudyGradeOutcomeDto, StudyViewDto, SyncModeDto,
     SyncReportDto, SyncStatusDto, TodaySummaryDto,
@@ -231,6 +232,25 @@ impl RemClient {
         Ok(cards.into_iter().map(card_to_dto).collect())
     }
 
+    pub fn search_cards(
+        &self,
+        query: String,
+        deck_id: Option<String>,
+        limit: u32,
+    ) -> Result<Vec<CardSearchHitDto>, RemFfiError> {
+        let hits = self
+            .collection
+            .search_cards(&query, deck_id.as_deref(), limit as usize)?;
+        Ok(hits
+            .into_iter()
+            .map(|hit| CardSearchHitDto {
+                card: card_to_dto(hit.card),
+                deck_name: hit.deck_name,
+                deck_color: hit.deck_color,
+            })
+            .collect())
+    }
+
     pub fn get_card(&self, id: String) -> Result<Option<CardDto>, RemFfiError> {
         Ok(self.collection.get_card(&id)?.map(card_to_dto))
     }
@@ -314,6 +334,24 @@ impl RemClient {
         }))
     }
 
+    pub fn start_custom_study(
+        &self,
+        deck_id: String,
+        mode: CustomStudyModeDto,
+        amount: u32,
+        now_ms: i64,
+    ) -> Result<Arc<RemStudySession>, RemFfiError> {
+        let decks = self.collection.list_decks()?;
+        let deck_names = decks.into_iter().map(|d| (d.id, d.name)).collect();
+        let request = StudyRequest::custom(deck_id, mode.into(), amount);
+        let session = StudySession::start(&self.collection, request, now_ms)?;
+        Ok(Arc::new(RemStudySession {
+            collection: Arc::clone(&self.collection),
+            deck_names,
+            session: Mutex::new(session),
+        }))
+    }
+
     pub fn get_stats(
         &self,
         deck_id: Option<String>,
@@ -371,6 +409,9 @@ impl RemClient {
                     suspended: card.suspended,
                     last_again_at: card.last_again_at,
                     scheduling: card.scheduling,
+                    rationale: card.rationale,
+                    sources: card.sources,
+                    proposed_by: card.proposed_by,
                 })
                 .collect();
             backups.push(DeckBackup {
@@ -383,11 +424,56 @@ impl RemClient {
             });
         }
         let payload = serde_json::json!({
+            "format": "rem-backup",
             "version": 1,
+            "exportedAt": chrono::Utc::now().timestamp_millis(),
             "decks": backups,
         });
         serde_json::to_string_pretty(&payload).map_err(|err| RemFfiError::Storage {
             message: err.to_string(),
+        })
+    }
+
+    pub fn preview_backup_json(&self, json: String) -> Result<BackupPreviewDto, RemFfiError> {
+        let decks = parse_backup_json(&json)?;
+        let existing_names: std::collections::HashSet<String> = self
+            .collection
+            .list_decks()?
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        let mut added = Vec::new();
+        let mut replaced = Vec::new();
+        let mut total_cards: u32 = 0;
+        for deck in &decks {
+            total_cards = total_cards.saturating_add(deck.cards.len() as u32);
+            if !seen.insert(deck.name.clone()) {
+                continue;
+            }
+            if existing_names.contains(&deck.name) {
+                replaced.push(deck.name.clone());
+            } else {
+                added.push(deck.name.clone());
+            }
+        }
+        Ok(BackupPreviewDto {
+            added,
+            replaced,
+            total_cards,
+        })
+    }
+
+    pub fn import_backup_json(
+        &self,
+        json: String,
+        now_ms: i64,
+    ) -> Result<ImportResultDto, RemFfiError> {
+        let decks = parse_backup_json(&json)?;
+        let result = self.collection.import_decks(decks, now_ms)?;
+        Ok(ImportResultDto {
+            added: result.added,
+            replaced: result.replaced,
         })
     }
 
@@ -617,6 +703,14 @@ impl RemStudySession {
         Ok(self.map_view(view, session.can_undo(), now_ms))
     }
 
+    pub fn advance_preview(&self, now_ms: i64) -> Result<StudyViewDto, RemFfiError> {
+        let mut session = self.session.lock().map_err(|_| RemFfiError::Storage {
+            message: "study session lock poisoned".into(),
+        })?;
+        let view = session.advance_preview(now_ms)?;
+        Ok(self.map_view(view, session.can_undo(), now_ms))
+    }
+
     pub fn reload_current(&self, now_ms: i64) -> Result<StudyViewDto, RemFfiError> {
         let mut session = self.session.lock().map_err(|_| RemFfiError::Storage {
             message: "study session lock poisoned".into(),
@@ -643,6 +737,7 @@ impl RemStudySession {
             intervals,
             reviewed: view.reviewed,
             remaining: view.remaining,
+            preview: view.preview,
             can_undo,
             leech_notice: view.notice.map(Into::into),
         }
@@ -746,6 +841,40 @@ fn count_valid_steps(raw: &str) -> usize {
         .count()
 }
 
+fn parse_backup_json(raw: &str) -> Result<Vec<DeckBackup>, RemFfiError> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|_| RemFfiError::InvalidInput {
+            message: "Not a valid JSON file.".into(),
+        })?;
+    let Some(obj) = value.as_object() else {
+        return Err(RemFfiError::InvalidInput {
+            message: "Not a rem backup file.".into(),
+        });
+    };
+    if let Some(format) = obj.get("format") {
+        if format.as_str() != Some("rem-backup") {
+            return Err(RemFfiError::InvalidInput {
+                message: "Not a rem backup file.".into(),
+            });
+        }
+    }
+    if obj.get("version").and_then(|v| v.as_u64()) != Some(1) {
+        return Err(RemFfiError::InvalidInput {
+            message: "Unsupported backup version.".into(),
+        });
+    }
+    let Some(decks_val) = obj.get("decks") else {
+        return Err(RemFfiError::InvalidInput {
+            message: "Backup file is malformed.".into(),
+        });
+    };
+    serde_json::from_value::<Vec<DeckBackup>>(decks_val.clone()).map_err(|err| {
+        RemFfiError::InvalidInput {
+            message: format!("Backup file is malformed: {err}"),
+        }
+    })
+}
+
 fn deck_to_dto(deck: Deck) -> DeckDto {
     let settings_dto = DeckSettingsDto::from(&deck.settings);
     DeckDto {
@@ -782,6 +911,16 @@ fn card_to_dto(card: Card) -> CardDto {
         reps: card.scheduling.reps,
         lapses: card.scheduling.lapses,
         asset_hashes: hashes,
+        rationale: card.rationale,
+        sources: card
+            .sources
+            .into_iter()
+            .map(|s| DraftSourceDto {
+                locator: s.locator,
+                label: s.label,
+            })
+            .collect(),
+        proposed_by: card.proposed_by,
     }
 }
 
@@ -1107,5 +1246,61 @@ mod tests {
         // Reset clears personalized weights
         let reset = client.reset_deck_fsrs(deck.id.clone(), later + 40).unwrap();
         assert!(!reset.settings.has_personalized_weights);
+    }
+
+    #[test]
+    fn ffi_search_custom_study_and_backup_import_round_trip() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("phase2.sqlite3");
+        let client = RemClient::open(
+            db_path.to_string_lossy().into_owned(),
+            Box::new(InMemoryFfiStore::default()),
+        )
+        .unwrap();
+        let now = 1_732_500_000_000_i64;
+        let deck = client.create_deck("Rust".into(), None, now).unwrap();
+        client
+            .create_card(
+                deck.id.clone(),
+                "What is Send vs Sync?".into(),
+                "Send transfers ownership across threads; Sync shares references.".into(),
+                vec!["concurrency".into()],
+                now + 10,
+            )
+            .unwrap();
+
+        // Cross-deck search through FFI
+        let hits = client.search_cards("ownership".into(), None, 20).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].deck_name, "Rust");
+        assert_eq!(hits[0].card.tags, vec!["concurrency"]);
+
+        // Custom study: PreviewNew reveals and advances without persisting scheduling changes
+        let preview_session = client
+            .start_custom_study(deck.id.clone(), CustomStudyModeDto::PreviewNew, 5, now + 20)
+            .unwrap();
+        let initial = preview_session.current_view(now + 20).unwrap();
+        assert!(initial.preview);
+        assert_eq!(initial.remaining, 1);
+        let revealed = preview_session.reveal(now + 21).unwrap();
+        assert!(revealed.revealed);
+        assert!(revealed.intervals.is_none());
+        let done = preview_session.advance_preview(now + 22).unwrap();
+        assert!(done.current.is_none());
+        assert_eq!(done.reviewed, 1);
+
+        // Backup export -> preview -> import round-trip
+        let json = client.export_backup_json().unwrap();
+        let preview = client.preview_backup_json(json.clone()).unwrap();
+        assert!(preview.added.is_empty());
+        assert_eq!(preview.replaced, vec!["Rust"]);
+        assert_eq!(preview.total_cards, 1);
+
+        let imported = client.import_backup_json(json, now + 30).unwrap();
+        assert_eq!(imported.replaced, vec!["Rust"]);
+        assert_eq!(
+            client.search_cards("Send".into(), None, 10).unwrap().len(),
+            1
+        );
     }
 }

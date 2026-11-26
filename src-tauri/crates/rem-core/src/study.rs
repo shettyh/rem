@@ -71,6 +71,7 @@ pub struct StudyView {
     pub reviewed: u32,
     pub remaining: u32,
     pub preview: bool,
+    pub can_undo: bool,
     pub notice: Option<LeechAction>,
 }
 
@@ -201,6 +202,7 @@ impl StudySession {
             reviewed: self.reviewed,
             remaining: (self.queue.len() + usize::from(self.current.is_some())) as u32,
             preview: self.preview,
+            can_undo: self.can_undo(),
             notice: self.notice,
         }
     }
@@ -514,13 +516,14 @@ fn load_card_with_revision(
         .map_err(|_| CollectionError::Poisoned)?;
     let mut statement = connection.prepare(
         "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                suspended, last_again_at, scheduling_json, due, local_revision
+                suspended, last_again_at, scheduling_json, due,
+                rationale, sources_json, proposed_by, local_revision
          FROM cards
          WHERE id = ?1",
     )?;
     let mut rows = statement.query([card_id])?;
     rows.next()?
-        .map(|row| Ok::<_, rusqlite::Error>((card_from_row(row)?, row.get(11)?)))
+        .map(|row| Ok::<_, rusqlite::Error>((card_from_row(row)?, row.get(14)?)))
         .transpose()
         .map_err(Into::into)
 }
@@ -535,7 +538,8 @@ fn load_active_items(
         .map_err(|_| CollectionError::Poisoned)?;
     let mut statement = connection.prepare(
         "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                suspended, last_again_at, scheduling_json, due, local_revision
+                suspended, last_again_at, scheduling_json, due,
+                rationale, sources_json, proposed_by, local_revision
          FROM cards
          WHERE deck_id = ?1 AND suspended = 0
          ORDER BY due, rowid",
@@ -545,7 +549,7 @@ fn load_active_items(
             Ok(StudyItem {
                 card: card_from_row(row)?,
                 settings: deck.settings.clone(),
-                local_revision: row.get(11)?,
+                local_revision: row.get(14)?,
                 force_due: false,
             })
         })?

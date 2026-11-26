@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::scheduler::{build_fsrs_for_migration, migrate_card_scheduling_to_fsrs7};
 use crate::{DeckSettings, FsrsState, Grade};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
@@ -208,10 +208,36 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
             local_revision INTEGER NOT NULL DEFAULT 0 CHECK (local_revision >= 0),
             content_hlc TEXT NOT NULL DEFAULT '',
             suspended_hlc TEXT NOT NULL DEFAULT '',
-            scheduling_hlc TEXT NOT NULL DEFAULT ''
+            scheduling_hlc TEXT NOT NULL DEFAULT '',
+            rationale TEXT,
+            sources_json TEXT NOT NULL DEFAULT '[]',
+            proposed_by TEXT
         );
         CREATE INDEX cards_deck_created ON cards(deck_id, created_at);
         CREATE INDEX cards_deck_due ON cards(deck_id, due);
+
+        CREATE VIRTUAL TABLE cards_fts USING fts5(
+            front,
+            back,
+            tags,
+            rationale,
+            tokenize='unicode61'
+        );
+
+        CREATE TRIGGER cards_fts_ai AFTER INSERT ON cards BEGIN
+            INSERT INTO cards_fts(rowid, front, back, tags, rationale)
+            VALUES (NEW.rowid, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
+        END;
+
+        CREATE TRIGGER cards_fts_ad AFTER DELETE ON cards BEGIN
+            DELETE FROM cards_fts WHERE rowid = OLD.rowid;
+        END;
+
+        CREATE TRIGGER cards_fts_au AFTER UPDATE OF front, back, tags_json, rationale ON cards BEGIN
+            DELETE FROM cards_fts WHERE rowid = OLD.rowid;
+            INSERT INTO cards_fts(rowid, front, back, tags, rationale)
+            VALUES (NEW.rowid, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
+        END;
 
         CREATE TABLE review_logs (
             id TEXT PRIMARY KEY,
@@ -281,7 +307,7 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
         );
 
         INSERT INTO metadata(key, value) VALUES ('sync_revision', 0);
-        PRAGMA user_version = 4;
+        PRAGMA user_version = 5;
         ",
     )?;
     seed_sync_meta(&transaction)?;
@@ -351,7 +377,65 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), rusqlite::Error> {
         migrate_v3_to_v4_fsrs7(&transaction)?;
         transaction.execute_batch("PRAGMA user_version = 4;")?;
     }
+    if version < 5 {
+        migrate_v4_to_v5_provenance_and_fts(&transaction)?;
+        transaction.execute_batch("PRAGMA user_version = 5;")?;
+    }
     transaction.commit()
+}
+
+fn migrate_v4_to_v5_provenance_and_fts(
+    transaction: &Transaction<'_>,
+) -> Result<(), rusqlite::Error> {
+    let existing_columns: std::collections::HashSet<String> = {
+        let mut statement = transaction.prepare("PRAGMA table_info(cards)")?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter().collect()
+    };
+    if !existing_columns.contains("rationale") {
+        transaction.execute_batch("ALTER TABLE cards ADD COLUMN rationale TEXT;")?;
+    }
+    if !existing_columns.contains("sources_json") {
+        transaction.execute_batch(
+            "ALTER TABLE cards ADD COLUMN sources_json TEXT NOT NULL DEFAULT '[]';",
+        )?;
+    }
+    if !existing_columns.contains("proposed_by") {
+        transaction.execute_batch("ALTER TABLE cards ADD COLUMN proposed_by TEXT;")?;
+    }
+    transaction.execute_batch(
+        "
+        CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
+            front,
+            back,
+            tags,
+            rationale,
+            tokenize='unicode61'
+        );
+
+        DELETE FROM cards_fts;
+        INSERT INTO cards_fts(rowid, front, back, tags, rationale)
+        SELECT rowid, front, back, tags_json, COALESCE(rationale, '') FROM cards;
+
+        CREATE TRIGGER IF NOT EXISTS cards_fts_ai AFTER INSERT ON cards BEGIN
+            INSERT INTO cards_fts(rowid, front, back, tags, rationale)
+            VALUES (NEW.rowid, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS cards_fts_ad AFTER DELETE ON cards BEGIN
+            DELETE FROM cards_fts WHERE rowid = OLD.rowid;
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS cards_fts_au AFTER UPDATE OF front, back, tags_json, rationale ON cards BEGIN
+            DELETE FROM cards_fts WHERE rowid = OLD.rowid;
+            INSERT INTO cards_fts(rowid, front, back, tags, rationale)
+            VALUES (NEW.rowid, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
+        END;
+        ",
+    )?;
+    Ok(())
 }
 
 fn migrate_v3_to_v4_fsrs7(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {

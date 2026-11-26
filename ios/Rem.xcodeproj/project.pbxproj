@@ -11,6 +11,7 @@
 		07359559E477945E46C39210 /* NewDeckSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872ED05E3BF79C8E15E1BFD3 /* NewDeckSheet.swift */; };
 		0DDAD341758AB938466D3415 /* rem_ffi.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0B6EAAC09D301BB681E301 /* rem_ffi.swift */; };
 		11463BFEC7C471AC6282A1FB /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1815B3EB1508F3BED353BD /* AppState.swift */; };
+		17EE05E8532AACA44DB6FC79 /* CustomStudySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04D30181B2381A4DF9FEA2B /* CustomStudySheet.swift */; };
 		1C57FC6B61E61725F7433B5E /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */; };
 		2B9E2665163134C4960129C2 /* MarkdownBlockParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5ADA201F3DEEC39FFA0FB76 /* MarkdownBlockParser.swift */; };
 		371D90B56FFD3E4DD0071DEC /* PremiumPaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA8613AEACCC074B9C549649 /* PremiumPaywallSheet.swift */; };
@@ -88,6 +89,7 @@
 		B61826F3FB259AB3054EB2B6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B6F2429A3C21B7147D7B9238 /* AssetImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetImageCache.swift; sourceTree = "<group>"; };
 		B9D0EEF3129F4028DB95E9EE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C04D30181B2381A4DF9FEA2B /* CustomStudySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomStudySheet.swift; sourceTree = "<group>"; };
 		CC0B6EAAC09D301BB681E301 /* rem_ffi.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = rem_ffi.swift; sourceTree = "<group>"; };
 		D1025E01C7EF0E39CBDA2F19 /* QuickCaptureSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickCaptureSheet.swift; sourceTree = "<group>"; };
 		D2E11D38FDBD7F3BF4C3891B /* ImageLightboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageLightboxView.swift; sourceTree = "<group>"; };
@@ -271,6 +273,7 @@
 		B51DA2025556FF01C93B4A22 /* Decks */ = {
 			isa = PBXGroup;
 			children = (
+				C04D30181B2381A4DF9FEA2B /* CustomStudySheet.swift */,
 				DAC30A16A1E8B9680802B58F /* DeckDetailView.swift */,
 				36855D285827CEB531DABB0B /* DeckOptionsSheet.swift */,
 				DA01A89644F04D2536A7AC3D /* DecksView.swift */,
@@ -426,6 +429,7 @@
 				11463BFEC7C471AC6282A1FB /* AppState.swift in Sources */,
 				D993148BD033563EA25808C0 /* AssetImageCache.swift in Sources */,
 				FBDCF55221BFF338F38F94DB /* AuthSessionManager.swift in Sources */,
+				17EE05E8532AACA44DB6FC79 /* CustomStudySheet.swift in Sources */,
 				F705E41584E290A7FC6DFF96 /* DeckDetailView.swift in Sources */,
 				BC5481300B1E21BB8D4BB204 /* DeckOptionsSheet.swift in Sources */,
 				B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */,

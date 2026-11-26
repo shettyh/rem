@@ -111,4 +111,20 @@ export class ReviewSession {
     this._reviewed += 1
     this.current = null
   }
+
+  /** Discard the current card and remove any queued copies (used on suspend). */
+  discardCurrent(cardId: string): void {
+    this.queue = this.queue.filter((item) => item.card.id !== cardId)
+    this.current = null
+  }
+
+  /** Restore a previously graded card as current and push any displaced card back to the front. */
+  restoreGraded(previous: SessionCard): void {
+    if (this.current && this.current.card.id !== previous.card.id) {
+      this.queue.unshift(this.current)
+    }
+    this.queue = this.queue.filter((item) => item.card.id !== previous.card.id)
+    this.current = { ...previous, forceDue: true }
+    this._reviewed = Math.max(0, this._reviewed - 1)
+  }
 }

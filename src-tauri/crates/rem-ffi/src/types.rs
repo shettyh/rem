@@ -1,6 +1,8 @@
 use std::fmt;
 
-use rem_core::{CollectionError, DeckSettings, Grade, InsertionOrder, LeechAction, SyncMode};
+use rem_core::{
+    CollectionError, CustomStudyMode, DeckSettings, Grade, InsertionOrder, LeechAction, SyncMode,
+};
 use rem_sync::{AccountProfile, EntitlementInfo, EntitlementState, OAuthProvider, SyncError};
 
 #[derive(Debug, uniffi::Error)]
@@ -342,6 +344,12 @@ pub struct TodaySummaryDto {
     pub decks: Vec<DeckSummaryDto>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct DraftSourceDto {
+    pub locator: String,
+    pub label: Option<String>,
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct CardDto {
     pub id: String,
@@ -357,6 +365,16 @@ pub struct CardDto {
     pub reps: u32,
     pub lapses: u32,
     pub asset_hashes: Vec<String>,
+    pub rationale: Option<String>,
+    pub sources: Vec<DraftSourceDto>,
+    pub proposed_by: Option<String>,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct CardSearchHitDto {
+    pub card: CardDto,
+    pub deck_name: String,
+    pub deck_color: String,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -374,6 +392,25 @@ pub struct GradeIntervalsDto {
     pub easy: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum CustomStudyModeDto {
+    StudyAhead,
+    IncreaseNew,
+    ReviewForgotten,
+    PreviewNew,
+}
+
+impl From<CustomStudyModeDto> for CustomStudyMode {
+    fn from(value: CustomStudyModeDto) -> Self {
+        match value {
+            CustomStudyModeDto::StudyAhead => Self::StudyAhead,
+            CustomStudyModeDto::IncreaseNew => Self::IncreaseNew,
+            CustomStudyModeDto::ReviewForgotten => Self::ReviewForgotten,
+            CustomStudyModeDto::PreviewNew => Self::PreviewNew,
+        }
+    }
+}
+
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct StudyViewDto {
     pub current: Option<CardDto>,
@@ -382,8 +419,22 @@ pub struct StudyViewDto {
     pub intervals: Option<GradeIntervalsDto>,
     pub reviewed: u32,
     pub remaining: u32,
+    pub preview: bool,
     pub can_undo: bool,
     pub leech_notice: Option<LeechNoticeDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct BackupPreviewDto {
+    pub added: Vec<String>,
+    pub replaced: Vec<String>,
+    pub total_cards: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ImportResultDto {
+    pub added: Vec<String>,
+    pub replaced: Vec<String>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]

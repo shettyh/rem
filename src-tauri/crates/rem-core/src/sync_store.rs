@@ -460,6 +460,9 @@ fn apply_one_remote_op(
             tags,
             created_at,
             initial_due,
+            rationale,
+            sources,
+            proposed_by,
             hlc,
         } => {
             if is_tombstoned(transaction, id)? || is_tombstoned(transaction, deck_id)? {
@@ -480,13 +483,15 @@ fn apply_one_remote_op(
             let scheduling = FsrsState::initial(*initial_due);
             let tags_json = serde_json::to_string(&normalized_tags)?;
             let scheduling_json = serde_json::to_string(&scheduling)?;
+            let sources_json = serde_json::to_string(sources)?;
             let updated_at = (*created_at).max(wall_ms);
             transaction.execute(
                 "INSERT INTO cards(
                     id, deck_id, front, back, created_at, updated_at, tags_json,
                     suspended, last_again_at, scheduling_json, due,
-                    content_hlc, suspended_hlc, scheduling_hlc
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, NULL, ?8, ?9, ?10, '', '')",
+                    content_hlc, suspended_hlc, scheduling_hlc,
+                    rationale, sources_json, proposed_by
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, NULL, ?8, ?9, ?10, '', '', ?11, ?12, ?13)",
                 params![
                     id,
                     deck_id,
@@ -498,6 +503,9 @@ fn apply_one_remote_op(
                     scheduling_json,
                     scheduling.due,
                     hlc,
+                    rationale,
+                    sources_json,
+                    proposed_by,
                 ],
             )?;
             Ok(true)
@@ -730,6 +738,7 @@ fn enqueue_bootstrap_for_collection(
         let mut statement = transaction.prepare(
             "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
                     suspended, last_again_at, scheduling_json, due,
+                    rationale, sources_json, proposed_by,
                     content_hlc, suspended_hlc, scheduling_hlc
              FROM cards ORDER BY created_at, rowid",
         )?;
@@ -737,9 +746,9 @@ fn enqueue_bootstrap_for_collection(
             .query_map([], |row| {
                 Ok((
                     card_from_row(row)?,
-                    row.get::<_, String>(11)?,
-                    row.get::<_, String>(12)?,
-                    row.get::<_, String>(13)?,
+                    row.get::<_, String>(14)?,
+                    row.get::<_, String>(15)?,
+                    row.get::<_, String>(16)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -798,6 +807,9 @@ fn enqueue_bootstrap_for_collection(
                 tags: card.tags.clone(),
                 created_at: card.created_at,
                 initial_due,
+                rationale: card.rationale.clone(),
+                sources: card.sources.clone(),
+                proposed_by: card.proposed_by.clone(),
                 hlc: create_hlc,
             },
             now,
@@ -995,6 +1007,7 @@ fn find_card_with_hlcs(
     let mut statement = transaction.prepare(
         "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
                 suspended, last_again_at, scheduling_json, due,
+                rationale, sources_json, proposed_by,
                 content_hlc, suspended_hlc, scheduling_hlc
          FROM cards WHERE id = ?1",
     )?;
@@ -1003,9 +1016,9 @@ fn find_card_with_hlcs(
         .map(|row| {
             Ok((
                 card_from_row(row)?,
-                row.get(11)?,
-                row.get(12)?,
-                row.get(13)?,
+                row.get(14)?,
+                row.get(15)?,
+                row.get(16)?,
             ))
         })
         .transpose()

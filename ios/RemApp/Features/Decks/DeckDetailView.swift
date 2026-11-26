@@ -8,6 +8,7 @@ struct DeckDetailView: View {
     @State private var cards: [CardDto] = []
     @State private var searchText: String = ""
     @State private var selectedTag: String = "All"
+    @State private var showCustomStudy: Bool = false
     @State private var showDeleteConfirm: Bool = false
     @State private var cardPendingDelete: CardDto?
 
@@ -173,6 +174,12 @@ struct DeckDetailView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
                     Button {
+                        showCustomStudy = true
+                    } label: {
+                        Label("Custom study", systemImage: "sparkles")
+                    }
+
+                    Button {
                         appState.openEditDeck(deckId: deckId) {
                             dismiss()
                         }
@@ -208,6 +215,13 @@ struct DeckDetailView: View {
             if appState.activeDeckId == deckId {
                 appState.activeDeckId = nil
             }
+        }
+        .sheet(isPresented: $showCustomStudy) {
+            CustomStudySheet(
+                appState: appState,
+                deckId: deckId,
+                deckName: deckSummary?.name ?? "Deck"
+            )
         }
         .alert("Delete deck?", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {

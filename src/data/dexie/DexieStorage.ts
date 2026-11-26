@@ -2,6 +2,8 @@ import type {
   Asset,
   Card,
   CardDraft,
+  CardSearchHit,
+  CollectionStats,
   Deck,
   DraftDecision,
   DraftProposalOutcome,
@@ -23,7 +25,9 @@ import { deckColor } from '../../ui/deckColor'
 import { hashBytes } from '../assetHash'
 import { assetRefs } from '../assetRefs'
 import { getScheduler } from '../../domain/scheduler'
-import { BrowserStudySession } from '../../features/review/browserStudy'
+import { BrowserStudySession, type ReviewRollback } from '../../features/review/browserStudy'
+import { buildStats, type StatsRange } from '../../features/stats/stats'
+import { localDay } from '../../features/review/day'
 import type {
   CardPatch,
   DeckPatch,
@@ -118,6 +122,39 @@ export class DexieStorage implements Storage {
 
   listCards(deckId: ID): Promise<Card[]> {
     return this.db.cards.where('deckId').equals(deckId).sortBy('createdAt')
+  }
+
+  async searchCards(
+    query: string,
+    options?: { deckId?: ID; limit?: number },
+  ): Promise<CardSearchHit[]> {
+    const trimmed = query.trim().toLocaleLowerCase()
+    if (!trimmed) return []
+    const limit = Math.min(options?.limit ?? 50, 200)
+    const [decks, cards] = await Promise.all([
+      this.db.decks.toArray(),
+      options?.deckId
+        ? this.db.cards.where('deckId').equals(options.deckId).toArray()
+        : this.db.cards.toArray(),
+    ])
+    const deckById = new Map(decks.map((d) => [d.id, d]))
+    const tokens = trimmed.split(/\s+/).filter(Boolean)
+    const hits: CardSearchHit[] = []
+    for (const card of cards) {
+      const deck = deckById.get(card.deckId)
+      if (!deck) continue
+      const haystack = [
+        card.front,
+        card.back,
+        card.tags.join(' '),
+        card.rationale ?? '',
+      ].join('\n').toLocaleLowerCase()
+      if (tokens.every((token) => haystack.includes(token))) {
+        hits.push({ card, deckName: deck.name, deckColor: deck.color })
+      }
+    }
+    hits.sort((a, b) => b.card.updatedAt - a.card.updatedAt)
+    return hits.slice(0, limit)
   }
 
   async updateCard(id: ID, patch: CardPatch): Promise<void> {
@@ -238,6 +275,9 @@ export class DexieStorage implements Storage {
           suspended: false,
           lastAgainAt: null,
           scheduling: getScheduler().initial(now),
+          rationale: draft.rationale,
+          sources: draft.sources,
+          proposedBy: draft.proposedBy,
         }
         await this.db.cards.add(card)
         return { status: 'accepted', value: card }
@@ -248,7 +288,12 @@ export class DexieStorage implements Storage {
   }
 
   async startStudy(request: StudyRequest): Promise<StartedStudy> {
-    const session = await BrowserStudySession.start(this, request, Date.now())
+    const session = await BrowserStudySession.start(
+      this,
+      request,
+      Date.now(),
+      (rollback) => this.rollbackReview(rollback),
+    )
     const sessionId = `study-${crypto.randomUUID()}`
     this.studySessions.set(sessionId, session)
     return { sessionId, view: session.view() }
@@ -266,8 +311,34 @@ export class DexieStorage implements Storage {
     return this.studySession(sessionId).advancePreview(Date.now())
   }
 
+  undoStudyGrade(sessionId: string): Promise<StudyView> {
+    return this.studySession(sessionId).undoLastGrade()
+  }
+
+  suspendStudyCard(sessionId: string): Promise<StudyView> {
+    return this.studySession(sessionId).suspendCurrent(Date.now())
+  }
+
   async endStudy(sessionId: string): Promise<void> {
     this.studySessions.delete(sessionId)
+  }
+
+  private async rollbackReview(rollback: ReviewRollback): Promise<void> {
+    await this.db.transaction('rw', this.db.cards, this.db.dailyStats, this.db.reviewLogs, async () => {
+      await this.db.cards.update(rollback.cardId, { ...rollback.patch, updatedAt: Date.now() })
+      if (rollback.reviewLogId) {
+        await this.db.reviewLogs.delete(rollback.reviewLogId)
+      }
+      if (rollback.daily) {
+        const id = `${rollback.deckId}:${rollback.daily.day}`
+        const row = await this.db.dailyStats.get(id)
+        if (row) {
+          const field = rollback.daily.field
+          await this.db.dailyStats.put({ ...row, [field]: Math.max(0, row[field] - 1) })
+        }
+      }
+    })
+    this.notify()
   }
 
   async commitReview(commit: ReviewCommit): Promise<ReviewLog | null> {
@@ -303,6 +374,59 @@ export class DexieStorage implements Storage {
 
   listReviewLogs(deckId: ID): Promise<ReviewLog[]> {
     return this.db.reviewLogs.where('deckId').equals(deckId).sortBy('reviewedAt')
+  }
+
+  async getStats(deckId: ID | null, days: number, now = Date.now()): Promise<CollectionStats> {
+    const [decks, logs, cards] = await Promise.all([
+      this.listDecks(),
+      this.db.reviewLogs.toArray(),
+      deckId
+        ? this.db.cards.where('deckId').equals(deckId).toArray()
+        : this.db.cards.toArray(),
+    ])
+    const range = (days === 7 || days === 30 || days === 90 ? days : 30) as StatsRange
+    const summary = buildStats(logs, decks, now, range, deckId)
+
+    const start = new Date(now)
+    start.setHours(0, 0, 0, 0)
+    const dayMs = 86_400_000
+    const startMs = start.getTime()
+    const endMs = startMs + 7 * dayMs
+    const upcoming7d = Array.from({ length: 7 }, (_, index) => {
+      const ts = startMs + index * dayMs
+      return { day: localDay(ts), timestampMs: ts, count: 0 }
+    })
+    for (const card of cards) {
+      if (card.suspended || card.scheduling.state === 0) continue
+      const due = card.scheduling.due
+      if (due >= endMs) continue
+      const offset = due <= now ? 0 : Math.floor((due - startMs) / dayMs)
+      if (offset >= 0 && offset < 7) upcoming7d[offset].count += 1
+    }
+
+    return {
+      historyCount: summary.historyCount,
+      totalReviews: summary.totalReviews,
+      recallRate: summary.recallRate,
+      recallRatePercent: summary.recallRate === null ? null : Math.round(summary.recallRate * 100),
+      currentStreakDays: summary.currentStreak,
+      activeDays: summary.activeDays,
+      grades: summary.grades,
+      daily: summary.daily.map((d) => ({
+        day: d.day,
+        timestampMs: d.timestamp,
+        count: d.count,
+      })),
+      byDeck: summary.byDeck.map((item) => ({
+        deckId: item.deck.id,
+        deckName: item.deck.name,
+        deckColor: item.deck.color,
+        reviews: item.reviews,
+        recallRate: item.recallRate,
+        recallRatePercent: Math.round(item.recallRate * 100),
+      })),
+      upcoming7d,
+    }
   }
 
   async deleteCard(id: ID): Promise<void> {
@@ -370,6 +494,9 @@ export class DexieStorage implements Storage {
             suspended: c.suspended,
             lastAgainAt: c.lastAgainAt,
             scheduling: c.scheduling,
+            rationale: c.rationale ?? null,
+            sources: c.sources ?? [],
+            proposedBy: c.proposedBy ?? null,
           })
           for (const review of c.reviews) {
             await this.db.reviewLogs.add({

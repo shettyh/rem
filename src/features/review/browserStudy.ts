@@ -19,6 +19,21 @@ import { loadDueOverview, shuffle } from './dueOverview'
 import { leechEffect } from './leech'
 import { buildSessionCards, ReviewSession, type SessionCard } from './session'
 
+export interface ReviewRollback {
+  cardId: string
+  deckId: string
+  patch: CardPatch
+  reviewLogId?: string
+  daily?: { day: string; field: 'newIntroduced' | 'reviewsDone' }
+}
+
+interface LastGradeSnapshot {
+  previousItem: SessionCard
+  previousNotice: LeechAction | null
+  reviewLogId?: string
+  daily?: { day: string; field: 'newIntroduced' | 'reviewsDone' }
+}
+
 /** Browser-test adapter for the native StudySession interface. */
 export class BrowserStudySession {
   private constructor(
@@ -26,13 +41,20 @@ export class BrowserStudySession {
     private readonly session: ReviewSession,
     private current: SessionCard | null,
     private readonly preview: boolean,
+    private readonly rollbackReview?: (rollback: ReviewRollback) => Promise<void>,
   ) {}
 
   private revealed = false
   private choices: StudyView['nextStates'] = null
   private notice: LeechAction | null = null
+  private lastGrade: LastGradeSnapshot | null = null
 
-  static async start(storage: Storage, request: StudyRequest, now: number): Promise<BrowserStudySession> {
+  static async start(
+    storage: Storage,
+    request: StudyRequest,
+    now: number,
+    rollbackReview?: (rollback: ReviewRollback) => Promise<void>,
+  ): Promise<BrowserStudySession> {
     const cards = await buildInitialCards(storage, request, now)
     const session = new ReviewSession(cards)
     return new BrowserStudySession(
@@ -40,6 +62,7 @@ export class BrowserStudySession {
       session,
       session.next(now),
       request.custom?.mode === 'preview-new',
+      rollbackReview,
     )
   }
 
@@ -51,6 +74,7 @@ export class BrowserStudySession {
       reviewed: this.session.reviewed,
       remaining: this.session.remaining,
       preview: this.preview,
+      canUndo: this.lastGrade !== null,
       notice: this.notice,
     }
   }
@@ -85,7 +109,7 @@ export class BrowserStudySession {
       : preState === 2
         ? { day: localDay(now), field: 'reviewsDone' as const }
         : undefined
-    await this.storage.commitReview({
+    const log = await this.storage.commitReview({
       cardId: current.card.id,
       deckId: current.card.deckId,
       patch,
@@ -93,6 +117,20 @@ export class BrowserStudySession {
       fsrsGrade: next.reps > current.card.scheduling.reps ? grade : undefined,
       daily,
     })
+    const previousNotice = this.notice
+    this.lastGrade = {
+      previousItem: {
+        ...current,
+        card: {
+          ...current.card,
+          tags: [...current.card.tags],
+          scheduling: { ...current.card.scheduling },
+        },
+      },
+      previousNotice,
+      reviewLogId: log?.id,
+      daily,
+    }
     this.session.grade(now, next, { requeue: effect?.suspended !== true })
     this.current = this.session.next(now)
     this.revealed = false
@@ -107,6 +145,54 @@ export class BrowserStudySession {
     this.session.complete()
     this.current = this.session.next(now)
     this.revealed = false
+    return this.view()
+  }
+
+  async undoLastGrade(): Promise<StudyView> {
+    const undo = this.lastGrade
+    if (!undo) throw new Error('invalid input: no recent grade to undo')
+    this.lastGrade = null
+    const prev = undo.previousItem.card
+    const restorePatch: CardPatch = {
+      tags: [...prev.tags],
+      suspended: prev.suspended,
+      lastAgainAt: prev.lastAgainAt,
+      scheduling: { ...prev.scheduling },
+    }
+    if (this.rollbackReview) {
+      await this.rollbackReview({
+        cardId: prev.id,
+        deckId: prev.deckId,
+        patch: restorePatch,
+        reviewLogId: undo.reviewLogId,
+        daily: undo.daily,
+      })
+    } else {
+      await this.storage.updateCard(prev.id, restorePatch)
+    }
+    const reloaded = (await this.storage.getCard(prev.id)) ?? prev
+    const restoredItem: SessionCard = {
+      ...undo.previousItem,
+      card: reloaded,
+      forceDue: true,
+    }
+    this.session.restoreGraded(restoredItem)
+    this.current = restoredItem
+    this.revealed = false
+    this.choices = null
+    this.notice = undo.previousNotice
+    return this.view()
+  }
+
+  async suspendCurrent(now: number): Promise<StudyView> {
+    if (!this.current) throw new Error('invalid input: study session has no current card')
+    const cardId = this.current.card.id
+    await this.storage.updateCard(cardId, { suspended: true })
+    this.session.discardCurrent(cardId)
+    this.current = this.session.next(now)
+    this.revealed = false
+    this.choices = null
+    this.notice = null
     return this.view()
   }
 }

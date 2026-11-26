@@ -1,11 +1,10 @@
 import { useState } from 'react'
 import { useStorage } from '../../data/StorageContext'
 import { useStorageQuery } from '../../data/useStorageQuery'
-import type { Card, Grade } from '../../domain/models'
+import type { CollectionStatsDaily, Grade } from '../../domain/models'
 import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
 import { SegToggle } from '../../ui/SegToggle'
-import { buildStats, type DailyActivity, type StatsRange } from './stats'
 
 const GRADE_META: Array<{ grade: Grade; label: string; className: string }> = [
   { grade: 'again', label: 'Again', className: 'is-again' },
@@ -16,50 +15,19 @@ const GRADE_META: Array<{ grade: Grade; label: string; className: string }> = [
 
 type RangeKey = '7' | '30' | '90'
 
-interface ForecastDay {
-  key: string
-  label: string
-  count: number
-}
-
-function buildUpcomingForecast(cards: Card[], now: number): ForecastDay[] {
-  const start = new Date(now)
-  start.setHours(0, 0, 0, 0)
-  const dayMs = 86_400_000
-  const buckets = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(start.getTime() + index * dayMs)
-    return {
-      key: `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`,
-      label: index === 0 ? 'Today' : date.toLocaleDateString(undefined, { weekday: 'short' }),
-      count: 0,
-    }
-  })
-  const startMs = start.getTime()
-  const endMs = startMs + 7 * dayMs
-
-  for (const card of cards) {
-    if (card.suspended || card.scheduling.state === 0) continue
-    const due = card.scheduling.due
-    if (due >= endMs) continue
-    const offset = due <= now ? 0 : Math.floor((due - startMs) / dayMs)
-    if (offset >= 0 && offset < 7) buckets[offset].count += 1
-  }
-  return buckets
-}
-
 export function StatsPage() {
   const storage = useStorage()
   const [deckId, setDeckId] = useState('all')
   const [rangeKey, setRangeKey] = useState<RangeKey>('30')
-  const [hoveredDay, setHoveredDay] = useState<DailyActivity | null>(null)
+  const [hoveredDay, setHoveredDay] = useState<CollectionStatsDaily | null>(null)
+  const range = Number(rangeKey)
+
   const loaded = useStorageQuery(async () => {
     const decks = await storage.listDecks()
-    const [logsByDeck, cardsByDeck] = await Promise.all([
-      Promise.all(decks.map((deck) => storage.listReviewLogs(deck.id))),
-      Promise.all(decks.map((deck) => storage.listCards(deck.id))),
-    ])
-    return { decks, logs: logsByDeck.flat(), cards: cardsByDeck.flat() }
-  }, [storage])
+    const effectiveDeckId = decks.some((deck) => deck.id === deckId) ? deckId : 'all'
+    const stats = await storage.getStats(effectiveDeckId === 'all' ? null : effectiveDeckId, range)
+    return { decks, stats }
+  }, [storage, deckId, range])
 
   const controls = (
     <div className="stats-controls">
@@ -94,17 +62,17 @@ export function StatsPage() {
 
   if (!loaded) return <PageHeader title="Stats" actions={controls} />
 
-  const now = Date.now()
-  const selectedDeck = loaded.decks.some((deck) => deck.id === deckId) ? deckId : 'all'
-  const range = Number(rangeKey) as StatsRange
-  const stats = buildStats(loaded.logs, loaded.decks, now, range, selectedDeck === 'all' ? null : selectedDeck)
+  const { stats } = loaded
   const maxDaily = Math.max(1, ...stats.daily.map((day) => day.count))
   const chartLabel = `Daily review activity: ${stats.totalReviews} reviews over ${range} days`
 
-  const scopedCards = selectedDeck === 'all'
-    ? loaded.cards
-    : loaded.cards.filter((card) => card.deckId === selectedDeck)
-  const forecast = buildUpcomingForecast(scopedCards, now)
+  const forecast = stats.upcoming7d.map((day, index) => ({
+    key: day.day,
+    label: index === 0
+      ? 'Today'
+      : new Date(day.timestampMs).toLocaleDateString(undefined, { weekday: 'short' }),
+    count: day.count,
+  }))
   const upcomingTotal = forecast.reduce((sum, day) => sum + day.count, 0)
   const maxUpcoming = Math.max(1, ...forecast.map((day) => day.count))
 
@@ -131,7 +99,7 @@ export function StatsPage() {
               <Kpi label="Recall rate" value={percent(stats.recallRate ?? 0)} />
               <Kpi
                 label="Current streak"
-                value={`${stats.currentStreak} day${stats.currentStreak === 1 ? '' : 's'}`}
+                value={`${stats.currentStreakDays} day${stats.currentStreakDays === 1 ? '' : 's'}`}
               />
               <Kpi label="Active days" value={String(stats.activeDays)} />
             </div>
@@ -146,7 +114,7 @@ export function StatsPage() {
                   {hoveredDay ? (
                     <>
                       <strong>{hoveredDay.count}</strong>
-                      <span>{formatDay(hoveredDay.timestamp)}</span>
+                      <span>{formatDay(hoveredDay.timestampMs)}</span>
                     </>
                   ) : (
                     <>
@@ -169,16 +137,16 @@ export function StatsPage() {
                       key={day.day}
                       className={`stats-bar${day.count > 0 ? ' has-activity' : ''}${active ? ' is-hovered' : ''}`}
                       style={{ height: `${day.count === 0 ? 2 : Math.max(8, (day.count / maxDaily) * 100)}%` }}
-                      title={`${formatDay(day.timestamp)}: ${day.count} review${day.count === 1 ? '' : 's'}`}
+                      title={`${formatDay(day.timestampMs)}: ${day.count} review${day.count === 1 ? '' : 's'}`}
                       onMouseEnter={() => setHoveredDay(day)}
                     />
                   )
                 })}
               </div>
               <div className="stats-axis" aria-hidden="true">
-                <span>{formatDay(stats.daily[0].timestamp)}</span>
-                <span>{formatDay(stats.daily[Math.floor(stats.daily.length / 2)].timestamp)}</span>
-                <span>{formatDay(stats.daily.at(-1)!.timestamp)}</span>
+                <span>{formatDay(stats.daily[0].timestampMs)}</span>
+                <span>{formatDay(stats.daily[Math.floor(stats.daily.length / 2)].timestampMs)}</span>
+                <span>{formatDay(stats.daily.at(-1)!.timestampMs)}</span>
               </div>
             </section>
 
@@ -217,8 +185,8 @@ export function StatsPage() {
                 </div>
                 <div className="stats-decks">
                   {stats.byDeck.map((item) => (
-                    <div key={item.deck.id} className="stats-deck-row" aria-label={`${item.deck.name} deck stats`}>
-                      <span className="stats-deck-name">{item.deck.name}</span>
+                    <div key={item.deckId} className="stats-deck-row" aria-label={`${item.deckName} deck stats`}>
+                      <span className="stats-deck-name">{item.deckName}</span>
                       <strong>{item.reviews}</strong>
                       <span>{percent(item.recallRate)}</span>
                     </div>

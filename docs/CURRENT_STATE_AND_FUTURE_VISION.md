@@ -1,6 +1,6 @@
 # rem — Current State & Future Vision
 
-_Last reviewed: 2026-11-24 · based on `v0.25.3` plus `rem-core` undo rollback hardening and `sync-server` maintenance/deploy automation_
+_Last reviewed: 2026-11-26 · based on `v0.26.0` plus invite-code removal and product/engineering review_
 
 This document is the canonical product snapshot for future planning. Dated files under
 `docs/superpowers/` record the decisions and implementation history behind individual slices;
@@ -62,18 +62,22 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 
 ### Agent-first capture and draft approval
 
-- `rem deck list`, `rem card add`, `rem draft add`, and `rem draft list` work while the desktop app is
-  closed and support stable versioned JSON for agents and scripts.
+- `rem deck list`, `rem card add`, `rem card search`, `rem draft add`, `rem draft list`, and
+  `rem draft review` work while the desktop app is closed and support stable versioned JSON for
+  agents and scripts.
 - Card and draft batches validate atomically, resolve deck IDs or exact names, normalize tags,
   support dry runs, and return retry-safe exact-duplicate outcomes.
 - Agent proposals are stored as a separate `CardDraft` domain value with rationale, opaque source
   locators, producer, timestamps, and optimistic revision.
 - Pending drafts have no scheduling state, due date, review history, or suspension state. They do not
   affect counts, stats, backup, or cloud sync.
-- The desktop **Drafts** inbox is front-first: the human tries the question, reveals the proposed
-  answer and provenance, edits content/tags/deck, then accepts or rejects it.
-- Acceptance atomically creates a normal due card through the collection rules and removes the
-  draft. A card created after proposal is recognized as an existing exact duplicate.
+- Both the desktop **Drafts** inbox and the interactive terminal `rem draft review` TUI (with
+  `$EDITOR` handoff) are front-first: the human tries the question, reveals the proposed answer and
+  provenance, edits content/tags/deck, then accepts or rejects it.
+- Acceptance atomically creates a normal due card through the collection rules, retains provenance
+  (`rationale`, `sources`, `proposed_by`) on the accepted card (inspectable during/after review
+  across Desktop, TUI, and iOS, and propagated via backup and cloud sync), and removes the draft. A
+  card created after proposal is recognized as an existing exact duplicate.
 - Draft acceptance/rejection and review grading use optimistic local revisions, preventing two open
   views from committing stale decisions.
 - The bundled `rem-card-capture` agent skill proposes at most three source-grounded drafts, treats
@@ -100,13 +104,19 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
   the undone review log and daily-cap increment, and retracting unsent sync outbox ops), counters,
   requeueing, and stale-card conflicts.
 - The desktop review page, `rem study` TUI, and iOS `ReviewScreen` are all thin adapters over the
-  same `StudySession` implementation.
+  same `StudySession` implementation, with full parity for atomic Undo (`⌘Z`/`u` on Desktop,
+  `u`/`Ctrl+Z` in TUI, toolbar Undo on iOS) and in-review Suspend (`s` on Desktop and TUI, menu on
+  iOS).
 - `rem study` reviews all decks; `rem study --deck <id-or-exact-name>` reviews one deck. The
-  interactive TUI supports Space/Enter reveal, 1–4 grading, arrow/j/k scrolling, resize, clean `q`
-  exit, interval previews, progress, completion counts, leech notices, stale-card messages, and
-  explicit image/GIF placeholders containing asset hashes.
-- Custom desktop study modes include study ahead, additional new cards, forgotten cards, and
-  non-rescheduling new-card preview.
+  interactive TUI supports Space/Enter reveal, 1–4 grading, `u`/`Ctrl+Z` undo, `s` suspend,
+  arrow/j/k scrolling, resize, clean `q` exit, interval previews, progress, completion counts,
+  retained provenance inspection, leech notices, stale-card messages, and explicit image/GIF
+  placeholders containing asset hashes.
+- Custom study modes (`study-ahead`, `increase-new`, `review-forgotten`, and non-rescheduling
+  `preview-new`) are supported on both desktop and iOS.
+- Global cross-deck search backed by a trigger-maintained SQLite FTS5 index (with substring fallback
+  for code operators) is available via `⌘K` / Sidebar Search on Desktop, the Decks search bar on
+  iOS, and `rem card search` in the CLI.
 - Per-deck controls cover desired retention, learning/relearning steps, new/review limits, insertion
   order, minimum/maximum intervals, leech behavior, and personalized FSRS weights on both desktop
   and iOS.
@@ -136,19 +146,22 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 ### Insight and history
 
 - Review history records FSRS-effective grades.
-- Stats dashboards (desktop and iOS) support global or per-deck scope, 7/30/90-day ranges, review
-  activity, recall rate, streak, active days, grade distribution, and deck breakdown.
+- Unified stats computation (`compute_stats` and `compute_today_summary`) lives in `rem-core` as
+  the single source of truth for both Desktop and iOS dashboards (global or per-deck scope,
+  7/30/90-day ranges, review activity, recall rate, streak, active days, grade distribution, deck
+  breakdown, and 7-day forecast).
 - Daily-cap counters are local to each device; review history is included in backup and sync.
 
 ### Data, backup, sync, and billing
 
 - Native desktop, CLI, and iOS operations use SQLite through `rem-core`; the TypeScript `Storage`
   interface keeps React independent of native commands, and Dexie remains a browser-test adapter.
-- SQLite schema v4 contains FSRS-7 scheduling state, local-only drafts, per-card optimistic
-  `local_revision` values, per-domain Hybrid Logical Clocks (HLCs), and local `sync_meta` /
-  `sync_outbox` / `synced_assets` bookkeeping tables.
-- Deck-scoped JSON export/import preserves scheduling and review history, with confirmation before a
-  same-named deck is replaced (import is desktop-only today; export is supported on desktop and iOS).
+- SQLite schema v5 contains FSRS-7 scheduling state, retained card provenance (`rationale`,
+  `sources_json`, `proposed_by`), a trigger-maintained FTS5 `cards_fts` search index, local-only
+  drafts, per-card optimistic `local_revision` values, per-domain Hybrid Logical Clocks (HLCs), and
+  local `sync_meta` / `sync_outbox` / `synced_assets` bookkeeping tables.
+- Deck-scoped JSON export/import preserves scheduling, review history, and provenance, with
+  confirmation before a same-named deck is replaced on both Desktop and iOS.
 - Legacy Git sync has been removed in favor of optional Cloud sync (`Local only` vs. `Cloud sync`).
   The shared `rem-sync` crate talks to the open-source Cloudflare Workers + SQLite Durable Objects +
   D1 + R2 backend in `sync-server/` (either hosted `rem Cloud` or a self-hosted deployment).
@@ -222,63 +235,109 @@ are implemented:
    native Sign in with Apple + revocation, Privacy Manifest, iOS Simulator CI, and automated
    TestFlight uploads.
 
+### 4. Daily-Driver Parity & Developer/Agent Wedge (Phase 2)
+
+All four slices in
+[`2026-11-26-phase-2-parity-and-agent-wedge-design.md`](superpowers/specs/2026-11-26-phase-2-parity-and-agent-wedge-design.md)
+are implemented:
+
+1. **Desktop & TUI Undo/Suspend parity** — `can_undo` on `StudyView`, `study_undo_last_grade` /
+   `study_suspend_current` Tauri commands, Desktop `⌘Z`/`u`/`s` controls (including Undo from
+   session completion), and `rem study` TUI `u`/`Ctrl+Z`/`s`.
+2. **Retained draft provenance & terminal draft triage** — SQLite schema v5 provenance columns on
+   `cards`, sync + backup round-trip, provenance inspection across Desktop/TUI/iOS, and interactive
+   front-first `rem draft review` TUI with `$EDITOR` handoff.
+3. **Global cross-deck search** — trigger-maintained SQLite FTS5 index with code-operator fallback
+   in `rem-core`, Desktop `⌘K` search modal, iOS Decks cross-deck card search, and `rem card search`.
+4. **Unified stats & iOS parity** — shared stats engine in `rem-core` consumed by Desktop and iOS,
+   iOS Custom Study modes (`CustomStudySheet` + preview-new flow), and iOS JSON backup import with
+   replace confirmation.
+
 ## Known gaps and incomplete behavior
 
 These are real gaps in the resulting product, not features already delivered.
 
 | Area | Current limitation |
 |---|---|
-| Desktop & TUI study parity | `StudySession::undo_last_grade()` and `suspend_current()` exist in `rem-core` and are wired on iOS, but Desktop (`ReviewPage`) and `rem study` TUI do not expose Undo (`⌘Z`/`u`) or in-review Suspend yet. |
-| iOS study & backup parity | Custom Study modes (already in `rem-core`) and JSON backup import are desktop-only; iOS currently supports regular study and backup export only. |
-| Cross-deck search | Card search is scoped to a single deck on both Desktop and iOS; there is no global search across all decks. |
 | Cloud sync v1.1 | `UserSyncDO` keeps an unbounded append-only `ops` log (new devices replay from `seq = 0` in 500-op batches) and clients rely on focus/polling triggers rather than compacted `/v1/bootstrap` snapshots and real-time WebSocket pokes. |
 | iOS habit & capture extensions | WidgetKit Home/Lock Screen widgets (requiring App Group SQLite migration) and a Safari/system Share Sheet capture extension are not yet built. |
 | Draft feedback | Rejection reasons, acceptance/edit-rate summaries, and agent-readable quality feedback are not recorded. |
-| Draft provenance | Rationale/source/producer metadata is not retained on the accepted card. |
 | Duplicate help | Draft/card duplicate checks are exact normalized matches, not semantic suggestions. |
-| Draft portability | Pending drafts are local-only and cannot be triaged from another machine or the TUI. |
+| Draft portability | Pending drafts are local-only and cannot be triaged from another machine. |
 | Habit support | No daily reminders or native notifications on desktop (iOS supports local daily reminders via `UNUserNotificationCenter`). |
 | Review options | **Show answer timer** is stored in `DeckSettings` but not rendered. |
 | Related-card burying | `bury_related` is stored in `DeckSettings` but cannot be enforced without a note/template/sibling model. |
-| Organization | Decks are flat; namespaces, nested decks, and folders do not exist. |
+| Organization & migration | Decks are flat (no namespaces/nested decks), there is no Anki `.apkg` import, and cards do not support cloze deletions or LaTeX/MathJax. |
 | CI & Distribution | Windows installers and CLI binaries do not yet have an Authenticode signature; public App Store 1.0 release (beyond TestFlight) is not yet submitted. |
+
+## Strategic positioning & engineering realities
+
+Honest constraints that should govern prioritization going forward:
+
+### 1. Audience & positioning (wedge vs. Anki parity)
+
+Anki's moat is not UI—it is card types (cloze, image occlusion, LaTeX), shared decks, free AnkiWeb sync, and years of add-ons. `rem` should not try to out-Anki Anki on breadth.
+
+- **Primary wedge:** software engineers and technical learners who want calm, local-first plain-Markdown conceptual cards captured directly from real engineering work and AI agent sessions (`rem-card-capture` + `rem` CLI → human-approved Drafts → FSRS-7 across desktop, terminal, and iPhone).
+- **Deliberate decision gate:** keep the niche sharp (plain Markdown, zero clutter, strong agent/terminal workflow) unless real user demand justifies taking on the complexity of Anki `.apkg` import, cloze deletions, or LaTeX/math rendering.
+
+### 2. Surface-area & infrastructure discipline
+
+As a solo-maintained project, `rem` already spans five moving surfaces (Tauri desktop, CLI/TUI, native SwiftUI iOS, Cloudflare Workers backend, and marketing site) plus dual-provider billing (Polar + StoreKit 2), where auth/billing/web-page code in `sync-server/` dwarfs the core sync Durable Object itself.
+
+- **Operating rule:** freeze new infrastructure, billing, and platform expansion until iOS 1.0 ships publicly and real daily usage reveals what actually breaks or creates friction. Every new cross-cutting control carries a multiplier across `sync-server`, `rem-sync`, `rem-ffi`, Desktop, and iOS.
+
+### 3. Architectural & test debt to pay down incrementally
+
+- **Shadow TypeScript engine:** Desktop browser/unit tests still run against a parallel TypeScript reimplementation (`DexieStorage`, `BrowserStudySession`, `reviewScheduler.ts`) rather than `rem-core` over Tauri IPC. This creates scheduling/behavior drift risk whenever `rem-core` evolves; avoid adding new domain logic to the TS test adapter and look for ways to collapse or thin it over time.
+- **Duplicated stats computation:** Stats aggregation is implemented twice—once in `src/features/stats/stats.ts` (Desktop) and once in `src-tauri/crates/rem-ffi/src/stats.rs` (iOS). Move shared stats queries into `rem-core` so every surface consumes one implementation.
+- **Thin native boundary test coverage:** `rem-core`, `rem-sync`, `rem-cli`, `sync-server`, and React have strong tests, but `rem-ffi` has no dedicated Rust unit tests, `src-tauri/src/` command glue has minimal test coverage, and `ios/` relies on a single test file (`RemAppTests.swift`) for ~8k LOC of SwiftUI.
+- **Gravity-well files:** Decompose `src/ui/styles.css`, `src-tauri/crates/rem-cli/src/main.rs`, `src/features/settings/SettingsPage.tsx`, `src-tauri/crates/rem-core/src/sync_store.rs`, `src-tauri/crates/rem-ffi/src/lib.rs`, `ios/RemApp/Features/Settings/SettingsView.swift`, and `ios/RemApp/App/AppState.swift` into focused modules as those areas are touched.
 
 ## Future direction
 
-### Phase 1 — App Store Launch & Production Validation
+### Phase 1 — App Store Launch, Production Validation & Infrastructure Freeze
 
 1. Submit the iOS 1.0 companion build for public App Store release (building on the TestFlight
-   and App Store compliance work shipped in `v0.22–v0.25.3`).
+   and App Store compliance work shipped in `v0.22–v0.26`).
 2. End-to-end smoke-test live production flows across all surfaces: Polar checkout ↔ iOS unlock,
    StoreKit 2 purchase ↔ Desktop unlock, external agent draft → desktop acceptance → desktop/TUI
    study, and physical iPhone ↔ desktop/CLI offline sync + photo/asset convergence.
 3. Configure `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_D1_DATABASE_ID`, and
    `SYNC_SERVER_HEALTH_URL` in GitHub Actions so `sync-server` migrations and deploys stay in lockstep
    with `main`.
+4. Hold off on new billing/platform/infrastructure initiatives until real daily usage (self + early
+   adopters) validates the core loop.
 
 **Outcome:** `rem` is publicly available on Desktop, CLI, and the iOS App Store, with trustworthy
-managed Cloud sync and repeatable production operations.
+managed Cloud sync, repeatable production operations, and feedback from real daily usage.
 
-### Phase 2 — Cross-Surface Study Parity (Small Rust Lift, High Daily UX Payoff)
+### Phase 2 — Sharpen the Developer/Agent Wedge & Core Daily-Driver Parity
 
-Close the highest-friction mismatches between Desktop, iOS, and `rem study` by surfacing capabilities
-already built in `rem-core`:
+Focus on the highest-leverage improvements to the daily study + agent-capture loop rather than new
+platforms:
 
 1. **Undo (`⌘Z`/`u`) & Suspend in Desktop and `rem study` TUI:** wire `StudySession::undo_last_grade()`
    and `suspend_current()` through `src-tauri/src/study.rs`, Desktop `ReviewPage`, and `rem-cli`'s
    `tui.rs` so recovering from a mis-tapped grade works identically everywhere.
-2. **Custom Study & JSON Backup Import on iOS:** expose `CustomStudyRequest` (`studyAhead`,
-   `increaseNew`, `reviewForgotten`, `previewNew`) and backup import through `rem-ffi` and iOS
-   Deck/Settings UI.
-3. **Desktop habit polish** (as usage justifies): optional desktop native daily reminders and
+2. **Retain provenance & add terminal draft triage:** preserve `sources` and `rationale` metadata on
+   accepted cards (inspectable during/after review) and add a terminal draft review flow
+   (`rem draft review` / `$EDITOR` handoff) so terminal-first users do not have to leave the CLI to
+   approve agent proposals.
+3. **Global cross-deck search (`⌘K` / iOS search):** add a fast `search_cards` query (backed by
+   SQLite FTS5 or indexed search in `rem-core`) so collections past a couple hundred cards stay
+   instantly navigable.
+4. **Unify stats in `rem-core` & close high-value iOS parity:** move shared stats computation from
+   TS + `rem-ffi` into `rem-core`, and expose `CustomStudyRequest` (`studyAhead`, `increaseNew`,
+   `reviewForgotten`, `previewNew`) and JSON backup import on iOS.
+5. **Desktop habit polish** (as usage justifies): optional desktop native daily reminders and
    rendering the stored answer-timer setting.
 
-*(Maintainability note when touching Settings/CLI: decompose `src/features/settings/SettingsPage.tsx`,
-`ios/RemApp/Features/Settings/SettingsView.swift`, and `src-tauri/crates/rem-cli/src/main.rs` into
-focused submodules as new controls are added.)*
+*(Maintainability rule: decompose the gravity-well files noted above incrementally when touching
+those areas, and add boundary tests in `rem-ffi` / `src-tauri` / `ios` alongside new work.)*
 
-**Outcome:** studying, recovering from mistakes, cramming/previewing, and restoring backups feel
-equally complete on desktop, terminal, and iPhone.
+**Outcome:** studying, approving agent drafts, searching across decks, and recovering from mistakes
+feel cohesive and fast across desktop, terminal, and iPhone—without duplicating logic across layers.
 
 ### Phase 3 — Cloud Sync v1.1 (Instant Sync & Bounded Startup)
 
@@ -304,19 +363,19 @@ equally complete on desktop, terminal, and iPhone.
 
 **Outcome:** iOS becomes a zero-friction capture inbox and daily habit anchor, not just a review client.
 
-### Phase 5 — Global Cross-Deck Search & Knowledge Organization
+### Phase 5 — Knowledge Model & Broader SRS Expansion (Demand-Gated)
 
-1. **Global cross-deck search:** add a fast `search_cards` query (backed by SQLite FTS5 or indexed
-   search in `rem-core`) powering `⌘K` quick-find on Desktop and global search on iOS.
-2. **Draft workflow refinements** (as real usage justifies): optional rejection reasons,
-   acceptance/edit-rate summaries, retained provenance on accepted cards, and a TUI draft inbox or
-   `$EDITOR` handoff for terminal-first users.
-3. **Knowledge model evolution** (only after clear user-facing value and migration design):
-   - Introduce a note/template/sibling model and enforce `bury_related` on top of it.
-   - Add nested decks or namespaces if flat decks limit real collections.
+Only pursue these when real user feedback justifies the added complexity and migration cost:
 
-**Outcome:** large multi-deck collections stay easy to search, organize, and navigate without losing
-the calm card/deck experience.
+1. **Draft quality feedback loop:** optional rejection reasons and acceptance/edit-rate summaries so
+   agents and users can calibrate proposal quality over time.
+2. **Broader SRS migration & card-type decisions:**
+   - Anki `.apkg` import if onboarding existing SRS users becomes a priority.
+   - A note/template/sibling model (enabling `bury_related` and cloze deletions) if plain Q&A
+     Markdown cards prove too limiting.
+   - Nested decks or namespaces if flat decks + tags limit real collections.
+
+**Outcome:** collections scale cleanly without prematurely inheriting Anki's data-model complexity.
 
 ### Phase 6 — Local Intelligence & Assisted Source-to-Draft Authoring
 
@@ -341,6 +400,8 @@ prompts faster without weakening human control.
 - Bundling an agent runtime/model provider before the public CLI proves insufficient.
 - Supporting the browser as a reduced product while core behavior depends on Rust and local SQLite.
 - Building multiple storage/sync abstractions before a second real implementation exists.
+- Chasing feature-for-feature Anki parity (cloze, image occlusion, LaTeX, `.apkg`) before real usage justifies expanding beyond plain-Markdown technical cards.
+- Adding new billing, platform, or cloud infrastructure surface area before public iOS 1.0 launch and sustained daily-driver validation.
 
 ## Planning rule
 

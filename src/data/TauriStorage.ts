@@ -3,6 +3,8 @@ import type {
   Asset,
   Card,
   CardDraft,
+  CardSearchHit,
+  CollectionStats,
   Deck,
   DraftDecision,
   DraftResolution,
@@ -101,6 +103,17 @@ export class TauriStorage implements Storage {
     return this.call('storage_list_cards', { deckId })
   }
 
+  searchCards(
+    query: string,
+    options?: { deckId?: ID; limit?: number },
+  ): Promise<CardSearchHit[]> {
+    return this.call('storage_search_cards', {
+      query,
+      deckId: options?.deckId ?? null,
+      limit: options?.limit ?? 50,
+    })
+  }
+
   async updateCard(id: ID, patch: CardPatch): Promise<void> {
     await this.call('storage_update_card', { id, patch, now: this.now() })
     this.notify()
@@ -169,6 +182,24 @@ export class TauriStorage implements Storage {
     return this.call('study_advance_preview', { sessionId, now: this.now() })
   }
 
+  async undoStudyGrade(sessionId: string): Promise<StudyView> {
+    const view = await this.call<StudyView>('study_undo_last_grade', {
+      sessionId,
+      now: this.now(),
+    })
+    this.notify()
+    return view
+  }
+
+  async suspendStudyCard(sessionId: string): Promise<StudyView> {
+    const view = await this.call<StudyView>('study_suspend_current', {
+      sessionId,
+      now: this.now(),
+    })
+    this.notify()
+    return view
+  }
+
   endStudy(sessionId: string): Promise<void> {
     return this.call('study_end', { sessionId })
   }
@@ -181,6 +212,14 @@ export class TauriStorage implements Storage {
 
   listReviewLogs(deckId: ID): Promise<ReviewLog[]> {
     return this.call('storage_list_review_logs', { deckId })
+  }
+
+  getStats(deckId: ID | null, days: number, now?: number): Promise<CollectionStats> {
+    return this.call('storage_get_stats', {
+      deckId,
+      days,
+      now: now ?? this.now(),
+    })
   }
 
   dueCards(deckId: ID, now: number): Promise<Card[]> {

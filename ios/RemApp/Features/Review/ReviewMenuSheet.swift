@@ -48,6 +48,41 @@ struct ReviewCardInfoSheet: View {
                 }
                 .listRowBackground(RemColor.surface)
                 .listRowSeparatorTint(RemColor.border)
+
+                if card.rationale != nil || !card.sources.isEmpty || card.proposedBy != nil {
+                    Section("Provenance") {
+                        if let rationale = card.rationale, !rationale.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Rationale")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(RemColor.muted)
+                                Text(rationale)
+                                    .font(.subheadline)
+                                    .foregroundStyle(RemColor.text)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        ForEach(Array(card.sources.enumerated()), id: \.offset) { _, source in
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let label = source.label, !label.isEmpty {
+                                    Text(label)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(RemColor.text)
+                                }
+                                Text(source.locator)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(RemColor.muted)
+                                    .textSelection(.enabled)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        if let proposedBy = card.proposedBy, !proposedBy.isEmpty {
+                            LabeledContent("Proposed by", value: proposedBy)
+                        }
+                    }
+                    .listRowBackground(RemColor.surface)
+                    .listRowSeparatorTint(RemColor.border)
+                }
             }
             .scrollContentBackground(.hidden)
             .background(RemColor.groupedBg)

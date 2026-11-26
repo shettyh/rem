@@ -1,6 +1,7 @@
 import AuthenticationServices
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Bindable var appState: AppState
@@ -11,6 +12,8 @@ struct SettingsView: View {
     @State private var pendingAppleNonce: String = ""
     @State private var showPremiumPaywall: Bool = false
     @State private var shareBackupURL: URL?
+    @State private var showBackupImporter: Bool = false
+    @State private var pendingBackupImport: PendingBackupImport?
 
     var body: some View {
         NavigationStack {
@@ -76,6 +79,49 @@ struct SettingsView: View {
             )) {
                 if let url = shareBackupURL {
                     ActivityShareSheet(items: [url])
+                }
+            }
+            .fileImporter(
+                isPresented: $showBackupImporter,
+                allowedContentTypes: [.json],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    guard let url = urls.first else { return }
+                    Task {
+                        if let pending = await appState.prepareBackupImport(from: url) {
+                            if pending.preview.replaced.isEmpty {
+                                await appState.commitBackupImport(json: pending.json)
+                            } else {
+                                pendingBackupImport = pending
+                            }
+                        }
+                    }
+                case .failure(let error):
+                    appState.showToast("Could not open file: \(error.localizedDescription)")
+                }
+            }
+            .alert(
+                "Replace existing decks?",
+                isPresented: Binding(
+                    get: { pendingBackupImport != nil },
+                    set: { if !$0 { pendingBackupImport = nil } }
+                )
+            ) {
+                if let pending = pendingBackupImport {
+                    Button("Import & replace", role: .destructive) {
+                        pendingBackupImport = nil
+                        Task { await appState.commitBackupImport(json: pending.json) }
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingBackupImport = nil
+                }
+            } message: {
+                if let preview = pendingBackupImport?.preview {
+                    let names = preview.replaced.joined(separator: ", ")
+                    Text("Importing will replace existing deck(s): \(names). New decks (\(preview.added.count)) will be added alongside them.")
                 }
             }
         }
@@ -495,6 +541,18 @@ struct SettingsView: View {
                         .foregroundStyle(RemColor.text)
                     Spacer()
                     Image(systemName: "square.and.arrow.up")
+                        .foregroundStyle(RemColor.muted)
+                }
+            }
+
+            Button {
+                showBackupImporter = true
+            } label: {
+                HStack {
+                    Text("Import backup")
+                        .foregroundStyle(RemColor.text)
+                    Spacer()
+                    Image(systemName: "square.and.arrow.down")
                         .foregroundStyle(RemColor.muted)
                 }
             }
