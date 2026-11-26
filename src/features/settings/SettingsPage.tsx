@@ -1112,7 +1112,7 @@ export function SettingsPage() {
                           )}%)…`
                         : `Downloading v${updater.state.info.version}…`)}
                     {updater.state.status === 'ready' &&
-                      `Version v${updater.state.info.version} is installed. Restart to finish updating.`}
+                      `Version v${updater.state.info.version} is ready. Restart to finish updating.`}
                     {updater.state.status === 'error' && `Installed version v${packageInfo.version}.`}
                   </span>
                   {updater.state.status === 'downloading' && updater.state.progress.total && (
@@ -1150,9 +1150,10 @@ export function SettingsPage() {
                     <button
                       className="btn btn-primary btn-sm"
                       type="button"
+                      disabled={updater.relaunching}
                       onClick={() => void updater.relaunch()}
                     >
-                      Restart to update
+                      {updater.relaunching ? 'Restarting…' : 'Restart to update'}
                     </button>
                   )}
                   {updater.state.status !== 'available' &&
@@ -1177,6 +1178,21 @@ export function SettingsPage() {
                   </p>
                 </div>
               )}
+
+              <label className="settings-toggle-row settings-toggle-row--divided">
+                <span>
+                  <strong>Automatic updates</strong>
+                  <small>
+                    Check for and download updates in the background, then prompt when ready to
+                    restart.
+                  </small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={updater.autoUpdateEnabled}
+                  onChange={(e) => updater.setAutoUpdateEnabled(e.target.checked)}
+                />
+              </label>
 
               {updater.cliStatus?.supported && (
                 <div className="settings-action-row">

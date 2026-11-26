@@ -169,10 +169,31 @@ export function Sidebar({
           ))}
         </div>
 
+        {updater?.state.status === 'ready' && (
+          <div className="side-update-wrap">
+            <button
+              type="button"
+              className="side-update-btn"
+              disabled={updater.relaunching}
+              aria-label={`Update v${updater.state.info.version} ready — restart now`}
+              title={`Update v${updater.state.info.version} ready — restart now`}
+              onClick={() => void updater.relaunch()}
+            >
+              <svg className="side-update-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="6" />
+                <path d="M8 10.75V5.25M5.75 7.5 8 5.25 10.25 7.5" />
+              </svg>
+              <span className="side-update-copy">
+                <strong>{updater.relaunching ? 'Restarting…' : 'Update ready'}</strong>
+                <small>Restart for v{updater.state.info.version}</small>
+              </span>
+            </button>
+          </div>
+        )}
+
         <div className="side-footer">
           {(() => {
-            const updateReady =
-              updater?.state.status === 'available' || updater?.state.status === 'ready'
+            const updateAvailable = updater?.state.status === 'available'
             const updateLabel =
               updater?.state.status === 'ready'
                 ? `Settings — restart to install v${updater.state.info.version}`
@@ -193,7 +214,7 @@ export function Sidebar({
                   <circle cx="11" cy="11.5" r="1.5" />
                 </svg>
                 <span className="side-settings-label">Settings</span>
-                {updateReady && <span className="side-update-dot" aria-hidden="true" />}
+                {updateAvailable && <span className="side-update-dot" aria-hidden="true" />}
               </NavLink>
             )
           })()}

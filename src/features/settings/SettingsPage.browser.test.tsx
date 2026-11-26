@@ -22,12 +22,15 @@ function renderSettings(
   syncClient?: SyncClient,
   updaterClient?: UpdaterClient,
   autoSync = false,
+  updaterOpts: { autoCheck?: boolean; updaterStartupDelayMs?: number } = {},
 ) {
   return renderRoute({
     storage,
     syncClient,
     autoSync,
     updaterClient,
+    autoCheck: updaterOpts.autoCheck,
+    updaterStartupDelayMs: updaterOpts.updaterStartupDelayMs,
     entry: '/settings',
     path: '/settings',
     element: <SettingsPage />,
@@ -629,6 +632,83 @@ test('reports up-to-date and links the bundled rem CLI in one click', async () =
   await expect
     .element(page.getByText('Linked at /Users/alex/.local/bin/rem. Updates automatically with rem.'))
     .toBeVisible()
+})
+
+test('defaults automatic updates to on and persists toggling', async () => {
+  localStorage.removeItem('rem-auto-update')
+  const storage = freshStorage()
+  const updaterClient = makeMockUpdaterClient()
+  renderSettings(storage, undefined, updaterClient)
+
+  const toggle = page.getByRole('checkbox', { name: /Automatic updates/ })
+  await expect.element(toggle).toBeChecked()
+
+  await toggle.click()
+  await expect.element(toggle).not.toBeChecked()
+  expect(localStorage.getItem('rem-auto-update')).toBe('false')
+
+  await toggle.click()
+  await expect.element(toggle).toBeChecked()
+  expect(localStorage.getItem('rem-auto-update')).toBe('true')
+})
+
+test('auto-downloads updates in the background and shows a sidebar restart prompt', async () => {
+  localStorage.removeItem('rem-auto-update')
+  const storage = freshStorage()
+  const downloadAndInstall = vi.fn(async (onProgress) => {
+    onProgress?.({ downloaded: 100, total: 100 })
+  })
+  const pending: PendingUpdateHandle = {
+    info: { version: '0.27.0', body: '- Background auto-updates' },
+    downloadAndInstall,
+  }
+  const updaterClient = makeMockUpdaterClient({
+    check: vi.fn(async () => pending),
+  })
+  renderSettings(storage, undefined, updaterClient, false, {
+    autoCheck: true,
+    updaterStartupDelayMs: 10,
+  })
+
+  const sidebarPrompt = page.getByRole('button', {
+    name: 'Update v0.27.0 ready — restart now',
+  })
+  await expect.element(sidebarPrompt).toBeVisible()
+  expect(updaterClient.check).toHaveBeenCalledTimes(1)
+  expect(downloadAndInstall).toHaveBeenCalledTimes(1)
+
+  await sidebarPrompt.click()
+  expect(updaterClient.relaunch).toHaveBeenCalledTimes(1)
+})
+
+test('skips automatic background update checks when automatic updates are disabled', async () => {
+  localStorage.setItem('rem-auto-update', 'false')
+  try {
+    const storage = freshStorage()
+    const downloadAndInstall = vi.fn(async () => {})
+    const pending: PendingUpdateHandle = {
+      info: { version: '0.27.0' },
+      downloadAndInstall,
+    }
+    const updaterClient = makeMockUpdaterClient({
+      check: vi.fn(async () => pending),
+    })
+    renderSettings(storage, undefined, updaterClient, false, {
+      autoCheck: true,
+      updaterStartupDelayMs: 10,
+    })
+
+    await expect.element(page.getByRole('checkbox', { name: /Automatic updates/ })).not.toBeChecked()
+    await new Promise((r) => setTimeout(r, 60))
+    expect(updaterClient.check).not.toHaveBeenCalled()
+    expect(downloadAndInstall).not.toHaveBeenCalled()
+
+    await page.getByRole('button', { name: 'Check for updates' }).click()
+    await expect.element(page.getByRole('button', { name: 'Install v0.27.0' })).toBeVisible()
+    expect(downloadAndInstall).not.toHaveBeenCalled()
+  } finally {
+    localStorage.removeItem('rem-auto-update')
+  }
 })
 
 test('keeps Local only and Cloud sync toggle buttons on a single line when switching to Cloud sync', async () => {
