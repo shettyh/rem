@@ -7,8 +7,8 @@ use ratatui::{
     Frame,
 };
 use rem_core::{
-    Collection, CollectionError, Grade, LeechAction, StudyGradeOutcome, StudyRequest, StudySession,
-    StudyView,
+    CardProvenance, Collection, CollectionError, Grade, LeechAction, StudyGradeOutcome,
+    StudyRequest, StudySession, StudyView,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -276,43 +276,48 @@ fn content_lines(app: &StudyApp) -> Vec<Line<'static>> {
         lines.push(Line::default());
         lines.push(section_label("ANSWER"));
         lines.extend(markdown_lines(&card.back));
-        if card.rationale.is_some() || !card.sources.is_empty() || card.proposed_by.is_some() {
-            lines.push(Line::default());
-            lines.push(section_label("PROVENANCE"));
-            if let Some(rationale) = &card.rationale {
-                lines.push(Line::from(Span::styled(
-                    format!("Why: {rationale}"),
-                    Style::default().fg(Color::DarkGray),
-                )));
-            }
-            for source in &card.sources {
-                let text = match &source.label {
-                    Some(label) => format!("Source: {label} ({})", source.locator),
-                    None => format!("Source: {}", source.locator),
-                };
-                lines.push(Line::from(Span::styled(
-                    text,
-                    Style::default().fg(Color::DarkGray),
-                )));
-            }
-            if let Some(producer) = &card.proposed_by {
-                lines.push(Line::from(Span::styled(
-                    format!("Proposed by: {producer}"),
-                    Style::default().fg(Color::DarkGray),
-                )));
-            }
-        }
+        lines.extend(provenance_lines(&card.provenance));
     }
     lines
 }
 
-fn section_label(label: &'static str) -> Line<'static> {
+pub(crate) fn section_label(label: &'static str) -> Line<'static> {
     Line::from(Span::styled(
         label,
         Style::default()
             .fg(Color::DarkGray)
             .add_modifier(Modifier::BOLD),
     ))
+}
+
+pub(crate) fn provenance_lines(provenance: &CardProvenance) -> Vec<Line<'static>> {
+    if provenance.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = vec![Line::default(), section_label("PROVENANCE")];
+    if let Some(rationale) = &provenance.rationale {
+        lines.push(Line::from(Span::styled(
+            format!("Why: {rationale}"),
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    for source in &provenance.sources {
+        let text = match &source.label {
+            Some(label) => format!("Source: {label} ({})", source.locator),
+            None => format!("Source: {}", source.locator),
+        };
+        lines.push(Line::from(Span::styled(
+            text,
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    if let Some(producer) = &provenance.proposed_by {
+        lines.push(Line::from(Span::styled(
+            format!("Proposed by: {producer}"),
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    lines
 }
 
 fn grade_choices(app: &StudyApp) -> Line<'static> {

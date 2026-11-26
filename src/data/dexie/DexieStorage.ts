@@ -20,7 +20,7 @@ import type {
   StudyRequest,
   StudyView,
 } from '../../domain/models'
-import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
+import { DEFAULT_DECK_SETTINGS, FSRS_STATE } from '../../domain/models'
 import { deckColor } from '../../ui/deckColor'
 import { hashBytes } from '../assetHash'
 import { assetRefs } from '../assetRefs'
@@ -397,7 +397,7 @@ export class DexieStorage implements Storage {
       return { day: localDay(ts), timestampMs: ts, count: 0 }
     })
     for (const card of cards) {
-      if (card.suspended || card.scheduling.state === 0) continue
+      if (card.suspended || card.scheduling.state === FSRS_STATE.New) continue
       const due = card.scheduling.due
       if (due >= endMs) continue
       const offset = due <= now ? 0 : Math.floor((due - startMs) / dayMs)

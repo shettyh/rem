@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::asset_store::asset_refs;
-use crate::{DeckSettings, DraftSource, Grade, Id, SchedulingState};
+use crate::{CardProvenance, DeckSettings, Grade, Id, SchedulingState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -68,12 +68,8 @@ pub enum SyncOp {
         tags: Vec<String>,
         created_at: i64,
         initial_due: i64,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        rationale: Option<String>,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        sources: Vec<DraftSource>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        proposed_by: Option<String>,
+        #[serde(flatten, default)]
+        provenance: CardProvenance,
         hlc: String,
     },
     CardContentPatch {

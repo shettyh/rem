@@ -1,7 +1,7 @@
 use rem_core::{
-    CardPatch, Collection, DeckBackup, DraftDecision, DraftProposalOutcome, DraftResolution,
-    DraftSource, Grade, NewCardInput, NewDraftInput, ProposalMetadata, ProposalMode, ReviewCommit,
-    SyncOp, CURRENT_SCHEMA_VERSION,
+    CardPatch, CardProvenance, Collection, DeckBackup, DraftDecision, DraftProposalOutcome,
+    DraftResolution, DraftSource, Grade, NewCardInput, NewDraftInput, ProposalMetadata,
+    ProposalMode, ReviewCommit, SyncOp, CURRENT_SCHEMA_VERSION,
 };
 use rusqlite::Connection;
 use tempfile::tempdir;
@@ -72,9 +72,7 @@ fn schema_v4_migrates_to_v5_with_provenance_columns_and_backfilled_fts() {
     let collection = Collection::open(&db_path).unwrap();
     assert_eq!(CURRENT_SCHEMA_VERSION, 5);
     let card = collection.get_card("c1").unwrap().unwrap();
-    assert_eq!(card.rationale, None);
-    assert!(card.sources.is_empty());
-    assert_eq!(card.proposed_by, None);
+    assert!(card.provenance.is_empty());
 
     // Pre-existing v4 card was backfilled into cards_fts and is searchable immediately.
     let hits = collection.search_cards("epoll", None, 20).unwrap();
@@ -143,11 +141,11 @@ fn draft_provenance_is_retained_on_accept_synced_and_searchable() {
     };
 
     assert_eq!(
-        accepted.rationale.as_deref(),
+        accepted.provenance.rationale.as_deref(),
         Some("Hit a Pin projection snag in rem-sync.")
     );
-    assert_eq!(accepted.sources.len(), 1);
-    assert_eq!(accepted.proposed_by.as_deref(), Some("codex"));
+    assert_eq!(accepted.provenance.sources.len(), 1);
+    assert_eq!(accepted.provenance.proposed_by.as_deref(), Some("codex"));
 
     // Search matches rationale as well as code operators like `Pin<P>`.
     let by_rationale = dev_a.search_cards("projection snag", None, 10).unwrap();
@@ -163,9 +161,11 @@ fn draft_provenance_is_retained_on_accept_synced_and_searchable() {
     assert!(outbox.iter().any(|op| matches!(
         &op.payload,
         SyncOp::CardCreate {
-            rationale: Some(r),
-            proposed_by: Some(p),
-            sources,
+            provenance: CardProvenance {
+                rationale: Some(r),
+                proposed_by: Some(p),
+                sources,
+            },
             ..
         } if r.contains("Pin projection") && p == "codex" && sources.len() == 1
     )));
@@ -184,9 +184,7 @@ fn draft_provenance_is_retained_on_accept_synced_and_searchable() {
         .apply_remote_ops(&remote_ops, &[], remote_ops.len() as u64)
         .unwrap();
     let synced_card = dev_b.get_card(&accepted.id).unwrap().unwrap();
-    assert_eq!(synced_card.rationale, accepted.rationale);
-    assert_eq!(synced_card.sources, accepted.sources);
-    assert_eq!(synced_card.proposed_by, accepted.proposed_by);
+    assert_eq!(synced_card.provenance, accepted.provenance);
 }
 
 #[test]
@@ -352,12 +350,14 @@ fn unified_stats_computes_recall_streak_deck_breakdown_and_forecast() {
                     last_again_at: None,
                     scheduling: rem_core::FsrsState::initial(NOW),
                     reviews: vec![],
-                    rationale: Some("Saved from backup".into()),
-                    sources: vec![DraftSource {
-                        locator: "notes.md:42".into(),
-                        label: None,
-                    }],
-                    proposed_by: Some("cli".into()),
+                    provenance: CardProvenance {
+                        rationale: Some("Saved from backup".into()),
+                        sources: vec![DraftSource {
+                            locator: "notes.md:42".into(),
+                            label: None,
+                        }],
+                        proposed_by: Some("cli".into()),
+                    },
                 }],
             }],
             NOW + 10,
@@ -368,5 +368,83 @@ fn unified_stats_computes_recall_streak_deck_breakdown_and_forecast() {
         .search_cards("Saved from backup", None, 5)
         .unwrap();
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].card.proposed_by.as_deref(), Some("cli"));
+    assert_eq!(hits[0].card.provenance.proposed_by.as_deref(), Some("cli"));
+}
+
+#[test]
+fn fts_search_survives_sqlite_vacuum() {
+    let temp = tempdir().unwrap();
+    let db_path = temp.path().join("vacuum.sqlite3");
+    let collection = Collection::open(&db_path).unwrap();
+    let deck = collection.create_deck("Rust", NOW).unwrap();
+
+    let deleted = collection
+        .create_card(
+            &deck.id,
+            "Temporary card",
+            "Will be deleted",
+            vec![],
+            NOW + 1,
+        )
+        .unwrap();
+    let kept = collection
+        .create_card(
+            &deck.id,
+            "What is a tombstone?",
+            "A durable deletion marker.",
+            vec!["sync".into()],
+            NOW + 2,
+        )
+        .unwrap();
+    collection.delete_card(&deleted.id, NOW + 3).unwrap();
+    drop(collection);
+
+    // VACUUM compacts and renumbers `cards.rowid`; `cards_fts` must still resolve via `card_id`.
+    let raw = Connection::open(&db_path).unwrap();
+    raw.execute_batch("VACUUM;").unwrap();
+    drop(raw);
+
+    let reopened = Collection::open(&db_path).unwrap();
+    let hits = reopened.search_cards("tombstone", None, 10).unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].card.id, kept.id);
+    assert_eq!(hits[0].card.front, "What is a tombstone?");
+}
+
+#[test]
+fn code_operator_search_does_not_truncate_matches_beyond_limit() {
+    let temp = tempdir().unwrap();
+    let collection = Collection::open(temp.path().join("code_ops.sqlite3")).unwrap();
+    let deck = collection.create_deck("Rust", NOW).unwrap();
+
+    // Seed two older cards with exact `Pin<P>` and four newer noise cards with plain `Pin`.
+    let first = collection
+        .create_card(&deck.id, "First Pin<P> question", "Answer", vec![], NOW + 1)
+        .unwrap();
+    let second = collection
+        .create_card(
+            &deck.id,
+            "Second Pin<P> question",
+            "Answer",
+            vec![],
+            NOW + 2,
+        )
+        .unwrap();
+    for idx in 0..4 {
+        collection
+            .create_card(
+                &deck.id,
+                &format!("General Pin overview {idx}"),
+                "Mentions Pin without generics.",
+                vec![],
+                NOW + 10 + idx,
+            )
+            .unwrap();
+    }
+
+    let hits = collection.search_cards("Pin<P>", None, 2).unwrap();
+    let ids: Vec<&str> = hits.iter().map(|h| h.card.id.as_str()).collect();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&first.id.as_str()));
+    assert!(ids.contains(&second.id.as_str()));
 }

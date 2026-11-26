@@ -8,11 +8,11 @@ use ratatui::{
     Frame,
 };
 use rem_core::{
-    normalize_user_tags, CardDraft, Collection, CollectionError, DraftDecision, DraftResolution,
-    NewCardInput,
+    CardDraft, Collection, CollectionError, DraftDecision, DraftResolution, NewCardInput,
 };
 
-use crate::tui::markdown_lines;
+use crate::editor::{format_draft_for_editor, parse_draft_from_editor};
+use crate::tui::{markdown_lines, provenance_lines, section_label};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DraftEditState {
@@ -128,6 +128,10 @@ impl DraftApp {
         self.status_message.as_deref()
     }
 
+    pub fn set_status_message(&mut self, message: impl Into<String>) {
+        self.status_message = Some(message.into());
+    }
+
     pub fn summary(&self) -> DraftTriageSummary {
         DraftTriageSummary {
             accepted: self.accepted,
@@ -138,23 +142,55 @@ impl DraftApp {
     }
 
     pub fn current_deck_name(&self) -> &str {
-        self.current()
-            .and_then(|draft| self.deck_names.get(&draft.deck_id))
+        self.edit
+            .as_ref()
+            .and_then(|edit| self.deck_names.get(&edit.deck_id))
+            .or_else(|| {
+                self.current()
+                    .and_then(|draft| self.deck_names.get(&draft.deck_id))
+            })
             .map(String::as_str)
             .unwrap_or("Deck")
     }
 
     pub fn format_current_for_editor(&self) -> Option<String> {
-        self.edit.as_ref().map(format_draft_for_editor)
+        let edit = self.edit.as_ref()?;
+        let deck_label = self
+            .deck_names
+            .get(&edit.deck_id)
+            .map(String::as_str)
+            .unwrap_or(&edit.deck_id);
+        Some(format_draft_for_editor(
+            deck_label,
+            &edit.tags,
+            &edit.front,
+            &edit.back,
+        ))
     }
 
     pub fn apply_editor_output(&mut self, text: &str) {
         let Some(current) = self.edit.as_ref() else {
             return;
         };
-        match parse_draft_from_editor(text, &current.deck_id) {
-            Ok(Some(updated)) => {
-                self.edit = Some(updated);
+        let current_deck_id = current.deck_id.clone();
+        match parse_draft_from_editor(text) {
+            Ok(Some(parsed)) => {
+                let resolved_deck_id = match parsed.deck {
+                    Some(reference) => match self.resolve_deck_reference(&reference) {
+                        Ok(deck_id) => deck_id,
+                        Err(message) => {
+                            self.status_message = Some(message);
+                            return;
+                        }
+                    },
+                    None => current_deck_id,
+                };
+                self.edit = Some(DraftEditState {
+                    deck_id: resolved_deck_id,
+                    front: parsed.front,
+                    back: parsed.back,
+                    tags: parsed.tags,
+                });
                 self.revealed = true;
                 self.scroll = 0;
                 self.status_message = Some("Draft updated in memory. Press a to accept.".into());
@@ -165,6 +201,24 @@ impl DraftApp {
             Err(message) => {
                 self.status_message = Some(format!("Could not parse edited draft: {message}"));
             }
+        }
+    }
+
+    fn resolve_deck_reference(&self, reference: &str) -> Result<String, String> {
+        if self.deck_names.contains_key(reference) {
+            return Ok(reference.to_owned());
+        }
+        let matches: Vec<&String> = self
+            .deck_names
+            .iter()
+            .filter_map(|(id, name)| (name == reference).then_some(id))
+            .collect();
+        match matches.as_slice() {
+            [id] => Ok((*id).clone()),
+            [] => Err(format!("Unknown deck in edited draft: `{reference}`.")),
+            _ => Err(format!(
+                "Deck name `{reference}` is ambiguous; use the deck ID instead."
+            )),
         }
     }
 
@@ -278,86 +332,6 @@ impl DraftApp {
     }
 }
 
-pub fn format_draft_for_editor(edit: &DraftEditState) -> String {
-    let tags_line = edit.tags.join(", ");
-    format!(
-        "# Edit this draft, then save and close your editor.\n\
-         # Clear the FRONT section to cancel editing.\n\
-         tags: {tags_line}\n\n\
-         --- FRONT ---\n\
-         {}\n\n\
-         --- BACK ---\n\
-         {}\n",
-        edit.front.trim_end_matches('\n'),
-        edit.back.trim_end_matches('\n'),
-    )
-}
-
-pub fn parse_draft_from_editor(
-    text: &str,
-    deck_id: &str,
-) -> Result<Option<DraftEditState>, String> {
-    let mut tags_raw = String::new();
-    let mut front_lines = Vec::new();
-    let mut back_lines = Vec::new();
-    enum Section {
-        Header,
-        Front,
-        Back,
-    }
-    let mut section = Section::Header;
-    let mut saw_front = false;
-
-    for raw_line in text.lines() {
-        let line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
-        if line.trim() == "--- FRONT ---" {
-            section = Section::Front;
-            saw_front = true;
-            continue;
-        }
-        if line.trim() == "--- BACK ---" {
-            section = Section::Back;
-            continue;
-        }
-        match section {
-            Section::Header => {
-                let trimmed = line.trim();
-                if trimmed.is_empty() || trimmed.starts_with('#') {
-                    continue;
-                }
-                if let Some(rest) = trimmed.strip_prefix("tags:") {
-                    tags_raw = rest.trim().to_owned();
-                }
-            }
-            Section::Front => front_lines.push(line),
-            Section::Back => back_lines.push(line),
-        }
-    }
-
-    if !saw_front {
-        return Err("missing `--- FRONT ---` marker".into());
-    }
-
-    let front = front_lines.join("\n").trim().to_owned();
-    if front.is_empty() {
-        return Ok(None);
-    }
-    let back = back_lines.join("\n").trim().to_owned();
-    let tags = normalize_user_tags(
-        tags_raw
-            .split(',')
-            .map(str::trim)
-            .filter(|tag| !tag.is_empty())
-            .map(str::to_owned),
-    );
-    Ok(Some(DraftEditState {
-        deck_id: deck_id.to_owned(),
-        front,
-        back,
-        tags,
-    }))
-}
-
 pub fn draw_draft(frame: &mut Frame<'_>, app: &DraftApp) {
     let areas = Layout::default()
         .direction(Direction::Vertical)
@@ -368,10 +342,13 @@ pub fn draw_draft(frame: &mut Frame<'_>, app: &DraftApp) {
         ])
         .split(frame.area());
 
+    let decided = app.accepted + app.existing + app.rejected;
+    let total = decided + app.pending();
     let progress = if app.current().is_some() {
         format!(
-            "Pending {} · Deck: {} · Accepted {} · Rejected {}",
-            app.pending(),
+            "Draft {}/{} · {} · Accepted {} · Rejected {}",
+            decided + 1,
+            total,
             app.current_deck_name(),
             app.accepted,
             app.rejected,
@@ -466,7 +443,20 @@ fn draft_content_lines(app: &DraftApp) -> Vec<Line<'static>> {
         return lines;
     };
 
-    let mut lines = vec![section_label("QUESTION (TRY BEFORE REVEAL)")];
+    let mut lines = Vec::new();
+    if !edit.tags.is_empty() {
+        lines.push(Line::from(Span::styled(
+            edit.tags
+                .iter()
+                .map(|tag| format!("#{tag}"))
+                .collect::<Vec<_>>()
+                .join("  "),
+            Style::default().fg(Color::Cyan),
+        )));
+        lines.push(Line::default());
+    }
+
+    lines.push(section_label("QUESTION (TRY BEFORE REVEAL)"));
     lines.extend(markdown_lines(&edit.front));
 
     if app.revealed() {
@@ -480,55 +470,8 @@ fn draft_content_lines(app: &DraftApp) -> Vec<Line<'static>> {
         } else {
             lines.extend(markdown_lines(&edit.back));
         }
-
-        if !edit.tags.is_empty() {
-            lines.push(Line::default());
-            lines.push(section_label("TAGS"));
-            lines.push(Line::from(
-                edit.tags
-                    .iter()
-                    .map(|tag| format!("#{tag}"))
-                    .collect::<Vec<_>>()
-                    .join("  "),
-            ));
-        }
-
-        if draft.rationale.is_some() || !draft.sources.is_empty() || draft.proposed_by.is_some() {
-            lines.push(Line::default());
-            lines.push(section_label("PROVENANCE"));
-            if let Some(rationale) = &draft.rationale {
-                lines.push(Line::from(Span::styled(
-                    format!("Why: {rationale}"),
-                    Style::default().fg(Color::DarkGray),
-                )));
-            }
-            for source in &draft.sources {
-                let text = match &source.label {
-                    Some(label) => format!("Source: {label} ({})", source.locator),
-                    None => format!("Source: {}", source.locator),
-                };
-                lines.push(Line::from(Span::styled(
-                    text,
-                    Style::default().fg(Color::DarkGray),
-                )));
-            }
-            if let Some(producer) = &draft.proposed_by {
-                lines.push(Line::from(Span::styled(
-                    format!("Proposed by: {producer}"),
-                    Style::default().fg(Color::DarkGray),
-                )));
-            }
-        }
+        lines.extend(provenance_lines(&draft.provenance()));
     }
 
     lines
-}
-
-fn section_label(label: &'static str) -> Line<'static> {
-    Line::from(Span::styled(
-        label,
-        Style::default()
-            .fg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD),
-    ))
 }

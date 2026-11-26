@@ -35,6 +35,7 @@
 		B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA01A89644F04D2536A7AC3D /* DecksView.swift */; };
 		BA683193E62377A9CB644FAC /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E2AEDEFBEE449696BAAEA397 /* UserNotifications.framework */; };
 		BC5481300B1E21BB8D4BB204 /* DeckOptionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36855D285827CEB531DABB0B /* DeckOptionsSheet.swift */; };
+		BD2A8231712350E735F56878 /* CardProvenanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED6176CB006FFE48B03DA615 /* CardProvenanceView.swift */; };
 		D19929A93E0EB1BB1467D57F /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6564B229B20BA26BC37F4291 /* Security.framework */; };
 		D3DCCF33397A1A676DCD1378 /* RemMarkdownView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E670AF040422AD01B9994B2F /* RemMarkdownView.swift */; };
 		D98E184FBE92A160FD24DD8B /* RemStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38E2DD644390DD61851BB031 /* RemStore.swift */; };
@@ -100,6 +101,7 @@
 		E5ADA201F3DEEC39FFA0FB76 /* MarkdownBlockParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownBlockParser.swift; sourceTree = "<group>"; };
 		E670AF040422AD01B9994B2F /* RemMarkdownView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemMarkdownView.swift; sourceTree = "<group>"; };
 		E7C4717F9816E2B76DD12439 /* RemCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = RemCore.xcframework; path = Frameworks/RemCore.xcframework; sourceTree = "<group>"; };
+		ED6176CB006FFE48B03DA615 /* CardProvenanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardProvenanceView.swift; sourceTree = "<group>"; };
 		EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -149,6 +151,7 @@
 		23D42F09FBF8CCFA1FF46E0F /* Review */ = {
 			isa = PBXGroup;
 			children = (
+				ED6176CB006FFE48B03DA615 /* CardProvenanceView.swift */,
 				D2E11D38FDBD7F3BF4C3891B /* ImageLightboxView.swift */,
 				8BC6D748FA17C66ACFB88297 /* ReviewMenuSheet.swift */,
 				18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */,
@@ -429,6 +432,7 @@
 				11463BFEC7C471AC6282A1FB /* AppState.swift in Sources */,
 				D993148BD033563EA25808C0 /* AssetImageCache.swift in Sources */,
 				FBDCF55221BFF338F38F94DB /* AuthSessionManager.swift in Sources */,
+				BD2A8231712350E735F56878 /* CardProvenanceView.swift in Sources */,
 				17EE05E8532AACA44DB6FC79 /* CustomStudySheet.swift in Sources */,
 				F705E41584E290A7FC6DFF96 /* DeckDetailView.swift in Sources */,
 				BC5481300B1E21BB8D4BB204 /* DeckOptionsSheet.swift in Sources */,

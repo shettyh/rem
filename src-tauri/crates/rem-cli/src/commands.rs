@@ -1,0 +1,452 @@
+use std::fs;
+use std::io::Read;
+use std::path::Path;
+
+use rem_core::{
+    normalize_user_tags, Card, CardDraft, CardSearchHit, Collection, CreateCardsResult,
+    DraftProposalOutcome, DraftSource, DuplicatePolicy, NewCardInput, NewDraftInput,
+    ProposalMetadata, ProposalMode,
+};
+use serde::{Deserialize, Serialize};
+
+use crate::cli::{AddCardArgs, AddDraftArgs, OutputFormat, SearchCardsArgs};
+use crate::output::{
+    input_error, now_millis, resolve_deck, write_json, CliError, DeckSummary, Success, EXIT_INPUT,
+    OUTPUT_VERSION,
+};
+
+#[derive(Serialize)]
+struct DeckListData {
+    decks: Vec<DeckSummary>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JsonCardInput {
+    front: String,
+    #[serde(default)]
+    back: String,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum JsonCardInputs {
+    One(JsonCardInput),
+    Many(Vec<JsonCardInput>),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JsonDraftInput {
+    front: String,
+    #[serde(default)]
+    back: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    rationale: Option<String>,
+    #[serde(default)]
+    sources: Vec<DraftSource>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum JsonDraftInputs {
+    One(JsonDraftInput),
+    Many(Vec<JsonDraftInput>),
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CardOutcome {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CardAddData {
+    deck: DeckSummary,
+    dry_run: bool,
+    cards: Vec<CardOutcome>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DraftOutcome {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DraftAddData {
+    deck: DeckSummary,
+    dry_run: bool,
+    drafts: Vec<DraftOutcome>,
+}
+
+#[derive(Serialize)]
+struct DraftListData {
+    drafts: Vec<CardDraft>,
+}
+
+#[derive(Serialize)]
+struct CardSearchData {
+    hits: Vec<CardSearchHit>,
+}
+
+pub fn list_decks(collection: &Collection, output: OutputFormat) -> Result<(), CliError> {
+    let decks = collection
+        .list_decks()?
+        .into_iter()
+        .map(|deck| DeckSummary {
+            id: deck.id,
+            name: deck.name,
+        })
+        .collect::<Vec<_>>();
+    match output {
+        OutputFormat::Text if decks.is_empty() => println!("No decks."),
+        OutputFormat::Text => {
+            for deck in decks {
+                println!("{}\t{}", deck.id, deck.name);
+            }
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "deck.list",
+            data: DeckListData { decks },
+        }),
+    }
+    Ok(())
+}
+
+pub fn add_card(collection: &Collection, args: AddCardArgs) -> Result<(), CliError> {
+    let deck = resolve_deck(collection, &args.deck)?;
+    let inputs = if let Some(path) = args.input_json {
+        read_json_cards(&path)?
+    } else {
+        let front = match (args.front, args.front_file) {
+            (Some(front), None) => front,
+            (None, Some(path)) => read_markdown(&path, "front")?,
+            _ => unreachable!("clap enforces exactly one front source"),
+        };
+        let back = match (args.back, args.back_file) {
+            (Some(back), None) => back,
+            (None, Some(path)) => read_markdown(&path, "back")?,
+            (None, None) => String::new(),
+            _ => unreachable!("clap prevents multiple back sources"),
+        };
+        vec![NewCardInput {
+            front,
+            back,
+            tags: args.tags,
+        }]
+    };
+    let outcome_inputs = inputs.clone();
+    let duplicate_policy = if args.allow_duplicate {
+        DuplicatePolicy::Allow
+    } else {
+        DuplicatePolicy::Skip
+    };
+    let result = if args.dry_run {
+        collection.preview_cards(&deck.id, inputs, now_millis(), duplicate_policy)?
+    } else {
+        collection.create_cards(&deck.id, inputs, now_millis(), duplicate_policy)?
+    };
+    let cards = ordered_outcomes(collection, &outcome_inputs, result, args.dry_run)?;
+    match args.output {
+        OutputFormat::Text => {
+            for card in cards {
+                match card.id {
+                    Some(id) => println!("{}\t{id}", card.status),
+                    None => println!("{}", card.status),
+                }
+            }
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "card.add",
+            data: CardAddData {
+                deck: DeckSummary {
+                    id: deck.id,
+                    name: deck.name,
+                },
+                dry_run: args.dry_run,
+                cards,
+            },
+        }),
+    }
+    Ok(())
+}
+
+pub fn search_cards(collection: &Collection, args: SearchCardsArgs) -> Result<(), CliError> {
+    let deck_id = match args.deck {
+        Some(reference) => Some(resolve_deck(collection, &reference)?.id),
+        None => None,
+    };
+    let hits = collection.search_cards(&args.query, deck_id.as_deref(), args.limit)?;
+    match args.output {
+        OutputFormat::Text if hits.is_empty() => println!("No matching cards."),
+        OutputFormat::Text => {
+            for hit in hits {
+                let front = hit.card.front.lines().next().unwrap_or_default();
+                println!("{}\t{}\t{}", hit.card.id, hit.deck_name, front);
+            }
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "card.search",
+            data: CardSearchData { hits },
+        }),
+    }
+    Ok(())
+}
+
+pub fn add_draft(collection: &Collection, args: AddDraftArgs) -> Result<(), CliError> {
+    let deck = resolve_deck(collection, &args.deck)?;
+    let inputs = if let Some(path) = args.input_json {
+        read_json_drafts(&path)?
+    } else {
+        let front = match (args.front, args.front_file) {
+            (Some(front), None) => front,
+            (None, Some(path)) => read_markdown(&path, "front")?,
+            _ => unreachable!("clap enforces exactly one front source"),
+        };
+        let back = match (args.back, args.back_file) {
+            (Some(back), None) => back,
+            (None, Some(path)) => read_markdown(&path, "back")?,
+            (None, None) => String::new(),
+            _ => unreachable!("clap prevents multiple back sources"),
+        };
+        vec![NewDraftInput {
+            front,
+            back,
+            tags: args.tags,
+            rationale: args.rationale,
+            sources: args
+                .sources
+                .into_iter()
+                .map(|locator| DraftSource {
+                    locator,
+                    label: None,
+                })
+                .collect(),
+        }]
+    };
+    let mode = if args.dry_run {
+        ProposalMode::Preview
+    } else {
+        ProposalMode::Create
+    };
+    let result = collection.propose_drafts(
+        &deck.id,
+        inputs,
+        ProposalMetadata {
+            proposed_by: args.producer,
+        },
+        now_millis(),
+        mode,
+    )?;
+    let existing_draft_ids = collection
+        .list_drafts()?
+        .into_iter()
+        .map(|draft| draft.id)
+        .collect::<std::collections::HashSet<_>>();
+    let drafts = result
+        .outcomes
+        .into_iter()
+        .map(|outcome| match outcome {
+            DraftProposalOutcome::Created(draft) => DraftOutcome {
+                id: (!args.dry_run).then_some(draft.id),
+                status: if args.dry_run {
+                    "wouldCreate"
+                } else {
+                    "created"
+                },
+            },
+            DraftProposalOutcome::DuplicateDraft(draft) => DraftOutcome {
+                id: existing_draft_ids.contains(&draft.id).then_some(draft.id),
+                status: "duplicateDraft",
+            },
+            DraftProposalOutcome::DuplicateCard(card) => DraftOutcome {
+                id: Some(card.id),
+                status: "duplicateCard",
+            },
+        })
+        .collect::<Vec<_>>();
+    match args.output {
+        OutputFormat::Text => {
+            for draft in drafts {
+                match draft.id {
+                    Some(id) => println!("{}\t{id}", draft.status),
+                    None => println!("{}", draft.status),
+                }
+            }
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "draft.add",
+            data: DraftAddData {
+                deck: DeckSummary {
+                    id: deck.id,
+                    name: deck.name,
+                },
+                dry_run: args.dry_run,
+                drafts,
+            },
+        }),
+    }
+    Ok(())
+}
+
+pub fn list_drafts(collection: &Collection, output: OutputFormat) -> Result<(), CliError> {
+    let drafts = collection.list_drafts()?;
+    match output {
+        OutputFormat::Text if drafts.is_empty() => println!("No drafts."),
+        OutputFormat::Text => {
+            for draft in drafts {
+                let front = draft.front.lines().next().unwrap_or_default();
+                println!("{}\t{}\t{}", draft.id, draft.deck_id, front);
+            }
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "draft.list",
+            data: DraftListData { drafts },
+        }),
+    }
+    Ok(())
+}
+
+fn ordered_outcomes(
+    collection: &Collection,
+    inputs: &[NewCardInput],
+    result: CreateCardsResult,
+    dry_run: bool,
+) -> Result<Vec<CardOutcome>, CliError> {
+    let mut created = result.created.into_iter().map(Some).collect::<Vec<_>>();
+    let mut duplicates = result.duplicates.into_iter().map(Some).collect::<Vec<_>>();
+    let mut outcomes = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let tags = normalize_user_tags(input.tags.clone());
+        if let Some(index) = created.iter().position(|card| {
+            card.as_ref()
+                .is_some_and(|card| matches_input(card, input, &tags))
+        }) {
+            let card = created[index].take().expect("matched created card");
+            outcomes.push(CardOutcome {
+                id: (!dry_run).then_some(card.id),
+                status: if dry_run { "wouldCreate" } else { "created" },
+            });
+            continue;
+        }
+        let index = duplicates
+            .iter()
+            .position(|card| {
+                card.as_ref()
+                    .is_some_and(|card| matches_input(card, input, &tags))
+            })
+            .expect("core returns one outcome per input");
+        let card = duplicates[index].take().expect("matched duplicate card");
+        let id = if dry_run && collection.get_card(&card.id)?.is_none() {
+            None
+        } else {
+            Some(card.id)
+        };
+        outcomes.push(CardOutcome {
+            id,
+            status: "duplicate",
+        });
+    }
+    Ok(outcomes)
+}
+
+fn matches_input(card: &Card, input: &NewCardInput, normalized_tags: &[String]) -> bool {
+    card.front == input.front && card.back == input.back && card.tags == normalized_tags
+}
+
+fn read_json_source(path: &Path) -> Result<String, CliError> {
+    if path == Path::new("-") {
+        let mut contents = String::new();
+        std::io::stdin()
+            .read_to_string(&mut contents)
+            .map_err(|error| {
+                input_error(
+                    "input_read_failed",
+                    format!("could not read stdin: {error}"),
+                )
+            })?;
+        Ok(contents)
+    } else {
+        fs::read_to_string(path).map_err(|error| {
+            input_error(
+                "input_read_failed",
+                format!("could not read JSON file {}: {error}", path.display()),
+            )
+        })
+    }
+}
+
+fn read_json_cards(path: &Path) -> Result<Vec<NewCardInput>, CliError> {
+    let contents = read_json_source(path)?;
+    let inputs = serde_json::from_str::<JsonCardInputs>(&contents)
+        .map_err(|error| input_error("invalid_json", format!("invalid card JSON: {error}")))?;
+    let inputs = match inputs {
+        JsonCardInputs::One(card) => vec![card],
+        JsonCardInputs::Many(cards) => cards,
+    };
+    if inputs.is_empty() {
+        return Err(input_error(
+            "invalid_input",
+            "card JSON must contain at least one card".into(),
+        ));
+    }
+    Ok(inputs
+        .into_iter()
+        .map(|card| NewCardInput {
+            front: card.front,
+            back: card.back,
+            tags: card.tags,
+        })
+        .collect())
+}
+
+fn read_json_drafts(path: &Path) -> Result<Vec<NewDraftInput>, CliError> {
+    let contents = read_json_source(path)?;
+    let inputs = serde_json::from_str::<JsonDraftInputs>(&contents)
+        .map_err(|error| input_error("invalid_json", format!("invalid draft JSON: {error}")))?;
+    let inputs = match inputs {
+        JsonDraftInputs::One(draft) => vec![draft],
+        JsonDraftInputs::Many(drafts) => drafts,
+    };
+    if inputs.is_empty() {
+        return Err(input_error(
+            "invalid_input",
+            "draft JSON must contain at least one draft".into(),
+        ));
+    }
+    Ok(inputs
+        .into_iter()
+        .map(|draft| NewDraftInput {
+            front: draft.front,
+            back: draft.back,
+            tags: draft.tags,
+            rationale: draft.rationale,
+            sources: draft.sources,
+        })
+        .collect())
+}
+
+fn read_markdown(path: &Path, field: &str) -> Result<String, CliError> {
+    fs::read_to_string(path).map_err(|error| CliError {
+        code: "input_read_failed",
+        message: format!("could not read {field} file {}: {error}", path.display()),
+        candidates: vec![],
+        exit_code: EXIT_INPUT,
+    })
+}

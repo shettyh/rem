@@ -216,29 +216,6 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
         CREATE INDEX cards_deck_created ON cards(deck_id, created_at);
         CREATE INDEX cards_deck_due ON cards(deck_id, due);
 
-        CREATE VIRTUAL TABLE cards_fts USING fts5(
-            front,
-            back,
-            tags,
-            rationale,
-            tokenize='unicode61'
-        );
-
-        CREATE TRIGGER cards_fts_ai AFTER INSERT ON cards BEGIN
-            INSERT INTO cards_fts(rowid, front, back, tags, rationale)
-            VALUES (NEW.rowid, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
-        END;
-
-        CREATE TRIGGER cards_fts_ad AFTER DELETE ON cards BEGIN
-            DELETE FROM cards_fts WHERE rowid = OLD.rowid;
-        END;
-
-        CREATE TRIGGER cards_fts_au AFTER UPDATE OF front, back, tags_json, rationale ON cards BEGIN
-            DELETE FROM cards_fts WHERE rowid = OLD.rowid;
-            INSERT INTO cards_fts(rowid, front, back, tags, rationale)
-            VALUES (NEW.rowid, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
-        END;
-
         CREATE TABLE review_logs (
             id TEXT PRIMARY KEY,
             deck_id TEXT NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
@@ -310,6 +287,7 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
         PRAGMA user_version = 5;
         ",
     )?;
+    transaction.execute_batch(CARDS_FTS_DDL)?;
     seed_sync_meta(&transaction)?;
     transaction.commit()
 }
@@ -384,6 +362,32 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), rusqlite::Error> {
     transaction.commit()
 }
 
+const CARDS_FTS_DDL: &str = "
+    CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
+        card_id UNINDEXED,
+        front,
+        back,
+        tags,
+        rationale,
+        tokenize='unicode61'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS cards_fts_ai AFTER INSERT ON cards BEGIN
+        INSERT INTO cards_fts(card_id, front, back, tags, rationale)
+        VALUES (NEW.id, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS cards_fts_ad AFTER DELETE ON cards BEGIN
+        DELETE FROM cards_fts WHERE card_id = OLD.id;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS cards_fts_au AFTER UPDATE OF front, back, tags_json, rationale ON cards BEGIN
+        DELETE FROM cards_fts WHERE card_id = OLD.id;
+        INSERT INTO cards_fts(card_id, front, back, tags, rationale)
+        VALUES (NEW.id, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
+    END;
+";
+
 fn migrate_v4_to_v5_provenance_and_fts(
     transaction: &Transaction<'_>,
 ) -> Result<(), rusqlite::Error> {
@@ -407,32 +411,17 @@ fn migrate_v4_to_v5_provenance_and_fts(
     }
     transaction.execute_batch(
         "
-        CREATE VIRTUAL TABLE IF NOT EXISTS cards_fts USING fts5(
-            front,
-            back,
-            tags,
-            rationale,
-            tokenize='unicode61'
-        );
-
-        DELETE FROM cards_fts;
-        INSERT INTO cards_fts(rowid, front, back, tags, rationale)
-        SELECT rowid, front, back, tags_json, COALESCE(rationale, '') FROM cards;
-
-        CREATE TRIGGER IF NOT EXISTS cards_fts_ai AFTER INSERT ON cards BEGIN
-            INSERT INTO cards_fts(rowid, front, back, tags, rationale)
-            VALUES (NEW.rowid, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS cards_fts_ad AFTER DELETE ON cards BEGIN
-            DELETE FROM cards_fts WHERE rowid = OLD.rowid;
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS cards_fts_au AFTER UPDATE OF front, back, tags_json, rationale ON cards BEGIN
-            DELETE FROM cards_fts WHERE rowid = OLD.rowid;
-            INSERT INTO cards_fts(rowid, front, back, tags, rationale)
-            VALUES (NEW.rowid, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
-        END;
+        DROP TRIGGER IF EXISTS cards_fts_ai;
+        DROP TRIGGER IF EXISTS cards_fts_ad;
+        DROP TRIGGER IF EXISTS cards_fts_au;
+        DROP TABLE IF EXISTS cards_fts;
+        ",
+    )?;
+    transaction.execute_batch(CARDS_FTS_DDL)?;
+    transaction.execute_batch(
+        "
+        INSERT INTO cards_fts(card_id, front, back, tags, rationale)
+        SELECT id, front, back, tags_json, COALESCE(rationale, '') FROM cards;
         ",
     )?;
     Ok(())

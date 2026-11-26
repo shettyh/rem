@@ -122,9 +122,7 @@ impl Collection {
                     .into_iter()
                     .next()
                     .expect("one accepted card prepared");
-                card.rationale = draft.rationale;
-                card.sources = draft.sources;
-                card.proposed_by = draft.proposed_by;
+                card.provenance = draft.provenance();
                 let tags_json = serde_json::to_string(&card.tags)?;
                 if let Some(existing) =
                     find_exact_card(&transaction, &deck_id, &card.front, &card.back, &tags_json)?
@@ -155,9 +153,7 @@ impl Collection {
                                 tags: card.tags.clone(),
                                 created_at: card.created_at,
                                 initial_due: card.scheduling.due,
-                                rationale: card.rationale.clone(),
-                                sources: card.sources.clone(),
-                                proposed_by: card.proposed_by.clone(),
+                                provenance: card.provenance.clone(),
                                 hlc: content_hlc,
                             },
                             now,

@@ -320,18 +320,11 @@ impl RemClient {
         deck_id: Option<String>,
         now_ms: i64,
     ) -> Result<Arc<RemStudySession>, RemFfiError> {
-        let decks = self.collection.list_decks()?;
-        let deck_names = decks.into_iter().map(|d| (d.id, d.name)).collect();
         let request = match deck_id {
             Some(id) => StudyRequest::deck(id),
             None => StudyRequest::all(),
         };
-        let session = StudySession::start(&self.collection, request, now_ms)?;
-        Ok(Arc::new(RemStudySession {
-            collection: Arc::clone(&self.collection),
-            deck_names,
-            session: Mutex::new(session),
-        }))
+        start_study_session(&self.collection, request, now_ms)
     }
 
     pub fn start_custom_study(
@@ -341,15 +334,11 @@ impl RemClient {
         amount: u32,
         now_ms: i64,
     ) -> Result<Arc<RemStudySession>, RemFfiError> {
-        let decks = self.collection.list_decks()?;
-        let deck_names = decks.into_iter().map(|d| (d.id, d.name)).collect();
-        let request = StudyRequest::custom(deck_id, mode.into(), amount);
-        let session = StudySession::start(&self.collection, request, now_ms)?;
-        Ok(Arc::new(RemStudySession {
-            collection: Arc::clone(&self.collection),
-            deck_names,
-            session: Mutex::new(session),
-        }))
+        start_study_session(
+            &self.collection,
+            StudyRequest::custom(deck_id, mode.into(), amount),
+            now_ms,
+        )
     }
 
     pub fn get_stats(
@@ -409,9 +398,7 @@ impl RemClient {
                     suspended: card.suspended,
                     last_again_at: card.last_again_at,
                     scheduling: card.scheduling,
-                    rationale: card.rationale,
-                    sources: card.sources,
-                    proposed_by: card.proposed_by,
+                    provenance: card.provenance,
                 })
                 .collect();
             backups.push(DeckBackup {
@@ -911,8 +898,9 @@ fn card_to_dto(card: Card) -> CardDto {
         reps: card.scheduling.reps,
         lapses: card.scheduling.lapses,
         asset_hashes: hashes,
-        rationale: card.rationale,
+        rationale: card.provenance.rationale,
         sources: card
+            .provenance
             .sources
             .into_iter()
             .map(|s| DraftSourceDto {
@@ -920,8 +908,23 @@ fn card_to_dto(card: Card) -> CardDto {
                 label: s.label,
             })
             .collect(),
-        proposed_by: card.proposed_by,
+        proposed_by: card.provenance.proposed_by,
     }
+}
+
+fn start_study_session(
+    collection: &Arc<Collection>,
+    request: StudyRequest,
+    now_ms: i64,
+) -> Result<Arc<RemStudySession>, RemFfiError> {
+    let decks = collection.list_decks()?;
+    let deck_names = decks.into_iter().map(|d| (d.id, d.name)).collect();
+    let session = StudySession::start(collection, request, now_ms)?;
+    Ok(Arc::new(RemStudySession {
+        collection: Arc::clone(collection),
+        deck_names,
+        session: Mutex::new(session),
+    }))
 }
 
 #[cfg(test)]

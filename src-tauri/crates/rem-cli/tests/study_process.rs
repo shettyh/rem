@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
-use rem_core::{Collection, DeckPatch};
+use rem_core::{Collection, DeckPatch, DraftSource, NewDraftInput, ProposalMetadata, ProposalMode};
 use tempfile::tempdir;
 
 const NOW: i64 = 1_699_963_200_000;
@@ -122,4 +122,49 @@ fn study_without_a_deck_reviews_due_cards_across_all_decks() {
     let collection = Collection::open(&database).unwrap();
     assert_eq!(collection.list_review_logs(&rust.id).unwrap().len(), 1);
     assert_eq!(collection.list_review_logs(&spanish.id).unwrap().len(), 1);
+}
+
+#[test]
+fn draft_review_accepts_draft_and_prints_triage_summary_in_pty() {
+    let temp = tempdir().unwrap();
+    let database = temp.path().join("collection.sqlite3");
+    let collection = Collection::open(&database).unwrap();
+    let rust = collection.create_deck("Rust", NOW - 100).unwrap();
+    collection
+        .propose_drafts(
+            &rust.id,
+            vec![NewDraftInput {
+                front: "What is Pin<P>?".into(),
+                back: "Prevents moving pointee unless Unpin.".into(),
+                tags: vec!["async".into()],
+                rationale: Some("Async runtime pitfall".into()),
+                sources: vec![DraftSource {
+                    locator: "std::pin".into(),
+                    label: None,
+                }],
+            }],
+            ProposalMetadata {
+                proposed_by: Some("agent".into()),
+            },
+            NOW - 50,
+            ProposalMode::Create,
+        )
+        .unwrap();
+    drop(collection);
+
+    // Space reveals, 'a' accepts, 'q' exits and prints summary.
+    let output = run_study(&database, &["draft", "review", "--deck", "Rust"], b" aq");
+    assert!(
+        output.contains("Draft triage complete: accepted=1, existing=0, rejected=0, remaining=0"),
+        "{output:?}"
+    );
+
+    let collection = Collection::open(&database).unwrap();
+    assert!(collection.list_drafts().unwrap().is_empty());
+    let cards = collection.list_cards(&rust.id).unwrap();
+    assert_eq!(cards.len(), 1);
+    assert_eq!(
+        cards[0].provenance.rationale.as_deref(),
+        Some("Async runtime pitfall")
+    );
 }

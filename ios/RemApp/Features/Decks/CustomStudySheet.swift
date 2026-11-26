@@ -1,5 +1,39 @@
 import SwiftUI
 
+private extension CustomStudyModeDto {
+    var defaultAmount: Int {
+        switch self {
+        case .studyAhead, .reviewForgotten:
+            return 2
+        case .increaseNew, .previewNew:
+            return 10
+        }
+    }
+
+    func amountUnit(for amount: Int) -> String {
+        switch self {
+        case .studyAhead, .reviewForgotten:
+            return amount == 1 ? "day" : "days"
+        case .increaseNew, .previewNew:
+            return amount == 1 ? "card" : "cards"
+        }
+    }
+
+    func description(for amount: Int) -> String {
+        let unit = amountUnit(for: amount)
+        switch self {
+        case .studyAhead:
+            return "Review cards scheduled in the next \(amount) \(unit)."
+        case .increaseNew:
+            return "Introduce up to \(amount) extra new \(unit) beyond today's daily limit."
+        case .reviewForgotten:
+            return "Review cards graded Again within the last \(amount) \(unit)."
+        case .previewNew:
+            return "Preview up to \(amount) new \(unit) without recording reviews or changing schedules."
+        }
+    }
+}
+
 struct CustomStudySheet: View {
     @Bindable var appState: AppState
     let deckId: String
@@ -9,32 +43,10 @@ struct CustomStudySheet: View {
     @State private var mode: CustomStudyModeDto = .studyAhead
     @State private var amount: Int = 1
 
-    private var amountUnit: String {
-        switch mode {
-        case .studyAhead, .reviewForgotten:
-            return amount == 1 ? "day" : "days"
-        case .increaseNew, .previewNew:
-            return amount == 1 ? "card" : "cards"
-        }
-    }
-
-    private var modeDescription: String {
-        switch mode {
-        case .studyAhead:
-            return "Review cards scheduled in the next \(amount) \(amountUnit)."
-        case .increaseNew:
-            return "Introduce up to \(amount) extra new \(amountUnit) beyond today's daily limit."
-        case .reviewForgotten:
-            return "Review cards graded Again within the last \(amount) \(amountUnit)."
-        case .previewNew:
-            return "Preview up to \(amount) new \(amountUnit) without recording reviews or changing schedules."
-        }
-    }
-
     var body: some View {
         NavigationStack {
             Form {
-                Section("Mode") {
+                Section {
                     Picker("Custom study mode", selection: $mode) {
                         Text("Study ahead").tag(CustomStudyModeDto.studyAhead)
                         Text("Increase new limit").tag(CustomStudyModeDto.increaseNew)
@@ -44,13 +56,10 @@ struct CustomStudySheet: View {
                     .pickerStyle(.inline)
                     .labelsHidden()
                     .onChange(of: mode) { _, next in
-                        switch next {
-                        case .studyAhead, .reviewForgotten:
-                            amount = 2
-                        case .increaseNew, .previewNew:
-                            amount = 10
-                        }
+                        amount = next.defaultAmount
                     }
+                } header: {
+                    Text("Mode · \(deckName)")
                 }
                 .listRowBackground(RemColor.surface)
                 .listRowSeparatorTint(RemColor.border)
@@ -61,13 +70,13 @@ struct CustomStudySheet: View {
                             Text("Amount")
                                 .foregroundStyle(RemColor.text)
                             Spacer()
-                            Text("\(amount) \(amountUnit)")
+                            Text("\(amount) \(mode.amountUnit(for: amount))")
                                 .font(.body.monospacedDigit())
                                 .foregroundStyle(RemColor.muted)
                         }
                     }
                 } footer: {
-                    Text(modeDescription)
+                    Text(mode.description(for: amount))
                         .font(.caption)
                         .foregroundStyle(RemColor.muted)
                 }

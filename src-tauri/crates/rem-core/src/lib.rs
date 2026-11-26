@@ -19,12 +19,12 @@ mod tags;
 pub use collection::{default_database_path, Collection, CollectionError, CURRENT_SCHEMA_VERSION};
 pub use hlc::Hlc;
 pub use models::{
-    Asset, Card, CardBackup, CardDraft, CardPatch, CreateCardsResult, DailyField, DailyIncrement,
-    DailyStat, Deck, DeckBackup, DeckPatch, DeckSettings, DraftDecision, DraftProposalOutcome,
-    DraftResolution, DraftSource, DuplicatePolicy, FsrsState, Grade, Id, ImportResult,
-    InsertionOrder, LeechAction, NewCardInput, NewDraftInput, ProposalMetadata, ProposalMode,
-    ProposeDraftsResult, ReviewBackup, ReviewCommit, ReviewLog, SchedulerKind, SchedulingState,
-    Tombstone, TombstoneKind,
+    Asset, Card, CardBackup, CardDraft, CardPatch, CardProvenance, CreateCardsResult, DailyField,
+    DailyIncrement, DailyStat, Deck, DeckBackup, DeckPatch, DeckSettings, DraftDecision,
+    DraftProposalOutcome, DraftResolution, DraftSource, DuplicatePolicy, FsrsCardState, FsrsState,
+    Grade, Id, ImportResult, InsertionOrder, LeechAction, NewCardInput, NewDraftInput,
+    ProposalMetadata, ProposalMode, ProposeDraftsResult, ReviewBackup, ReviewCommit, ReviewLog,
+    SchedulerKind, SchedulingState, Tombstone, TombstoneKind,
 };
 pub use scheduler::{
     calculate_fsrs_next_states, optimize_fsrs_histories, DeckFsrsParams, FsrsNextStates,
@@ -32,8 +32,8 @@ pub use scheduler::{
 };
 pub use search::CardSearchHit;
 pub use stats::{
-    CollectionStats, DailyActivity, DeckStatsEntry, DeckTodaySummary, ForecastDay, GradeCounts,
-    TodaySummary,
+    CollectionStats, DailyActivity, DailyCount, DeckStatsEntry, DeckTodaySummary, ForecastDay,
+    GradeCounts, TodaySummary,
 };
 pub use study::{
     CustomStudyMode, CustomStudyRequest, StudyGradeOutcome, StudyNextStates, StudyRequest,

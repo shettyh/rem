@@ -460,9 +460,7 @@ fn apply_one_remote_op(
             tags,
             created_at,
             initial_due,
-            rationale,
-            sources,
-            proposed_by,
+            provenance,
             hlc,
         } => {
             if is_tombstoned(transaction, id)? || is_tombstoned(transaction, deck_id)? {
@@ -483,7 +481,7 @@ fn apply_one_remote_op(
             let scheduling = FsrsState::initial(*initial_due);
             let tags_json = serde_json::to_string(&normalized_tags)?;
             let scheduling_json = serde_json::to_string(&scheduling)?;
-            let sources_json = serde_json::to_string(sources)?;
+            let sources_json = serde_json::to_string(&provenance.sources)?;
             let updated_at = (*created_at).max(wall_ms);
             transaction.execute(
                 "INSERT INTO cards(
@@ -503,9 +501,9 @@ fn apply_one_remote_op(
                     scheduling_json,
                     scheduling.due,
                     hlc,
-                    rationale,
+                    provenance.rationale,
                     sources_json,
-                    proposed_by,
+                    provenance.proposed_by,
                 ],
             )?;
             Ok(true)
@@ -746,9 +744,9 @@ fn enqueue_bootstrap_for_collection(
             .query_map([], |row| {
                 Ok((
                     card_from_row(row)?,
-                    row.get::<_, String>(14)?,
-                    row.get::<_, String>(15)?,
-                    row.get::<_, String>(16)?,
+                    row.get::<_, String>("content_hlc")?,
+                    row.get::<_, String>("suspended_hlc")?,
+                    row.get::<_, String>("scheduling_hlc")?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -807,9 +805,7 @@ fn enqueue_bootstrap_for_collection(
                 tags: card.tags.clone(),
                 created_at: card.created_at,
                 initial_due,
-                rationale: card.rationale.clone(),
-                sources: card.sources.clone(),
-                proposed_by: card.proposed_by.clone(),
+                provenance: card.provenance.clone(),
                 hlc: create_hlc,
             },
             now,
@@ -1016,9 +1012,9 @@ fn find_card_with_hlcs(
         .map(|row| {
             Ok((
                 card_from_row(row)?,
-                row.get(14)?,
-                row.get(15)?,
-                row.get(16)?,
+                row.get("content_hlc")?,
+                row.get("suspended_hlc")?,
+                row.get("scheduling_hlc")?,
             ))
         })
         .transpose()

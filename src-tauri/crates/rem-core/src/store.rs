@@ -214,9 +214,7 @@ impl Collection {
                         tags: card.tags.clone(),
                         created_at: card.created_at,
                         initial_due: card.scheduling.due,
-                        rationale: card.rationale.clone(),
-                        sources: card.sources.clone(),
-                        proposed_by: card.proposed_by.clone(),
+                        provenance: card.provenance.clone(),
                         hlc: content_hlc,
                     },
                     now,
@@ -485,9 +483,7 @@ pub(crate) fn prepare_cards(
                 suspended: false,
                 last_again_at: None,
                 scheduling: FsrsState::initial(now),
-                rationale: None,
-                sources: Vec::new(),
-                proposed_by: None,
+                provenance: crate::CardProvenance::default(),
             })
         })
         .collect()
@@ -551,7 +547,7 @@ pub(crate) fn find_card_by_id_with_revision(
     )?;
     let mut rows = statement.query([id])?;
     rows.next()?
-        .map(|row| Ok((card_from_row(row)?, row.get(14)?)))
+        .map(|row| Ok((card_from_row(row)?, row.get("local_revision")?)))
         .transpose()
 }
 
@@ -608,7 +604,7 @@ pub(crate) fn insert_card_with_hlc(
     scheduling_json: &str,
     content_hlc: &str,
 ) -> rusqlite::Result<()> {
-    let sources_json = serde_json::to_string(&card.sources)
+    let sources_json = serde_json::to_string(&card.provenance.sources)
         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     transaction.execute(
         "INSERT INTO cards(
@@ -629,9 +625,9 @@ pub(crate) fn insert_card_with_hlc(
             scheduling_json,
             card.scheduling.due,
             content_hlc,
-            card.rationale,
+            card.provenance.rationale,
             sources_json,
-            card.proposed_by,
+            card.provenance.proposed_by,
         ],
     )?;
     Ok(())
@@ -654,15 +650,15 @@ pub(crate) fn bump_sync_revision(transaction: &Transaction<'_>) -> rusqlite::Res
 }
 
 pub(crate) fn card_from_row(row: &Row<'_>) -> rusqlite::Result<Card> {
-    let tags_json: String = row.get(6)?;
+    let tags_json: String = row.get("tags_json")?;
     let tags = serde_json::from_str(&tags_json).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(6, Type::Text, Box::new(error))
     })?;
-    let scheduling_json: String = row.get(9)?;
+    let scheduling_json: String = row.get("scheduling_json")?;
     let scheduling: FsrsState = serde_json::from_str(&scheduling_json).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(9, Type::Text, Box::new(error))
     })?;
-    let due: i64 = row.get(10)?;
+    let due: i64 = row.get("due")?;
     if scheduling.due != due {
         return Err(rusqlite::Error::FromSqlConversionFailure(
             10,
@@ -670,26 +666,28 @@ pub(crate) fn card_from_row(row: &Row<'_>) -> rusqlite::Result<Card> {
             "indexed due time does not match scheduling state".into(),
         ));
     }
-    let rationale: Option<String> = row.get(11)?;
-    let sources_json: String = row.get(12)?;
+    let rationale: Option<String> = row.get("rationale")?;
+    let sources_json: String = row.get("sources_json")?;
     let sources = serde_json::from_str(&sources_json).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(12, Type::Text, Box::new(error))
     })?;
-    let proposed_by: Option<String> = row.get(13)?;
+    let proposed_by: Option<String> = row.get("proposed_by")?;
     Ok(Card {
-        id: row.get(0)?,
-        deck_id: row.get(1)?,
-        front: row.get(2)?,
-        back: row.get(3)?,
-        created_at: row.get(4)?,
-        updated_at: row.get(5)?,
+        id: row.get("id")?,
+        deck_id: row.get("deck_id")?,
+        front: row.get("front")?,
+        back: row.get("back")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
         tags,
-        suspended: row.get(7)?,
-        last_again_at: row.get(8)?,
+        suspended: row.get("suspended")?,
+        last_again_at: row.get("last_again_at")?,
         scheduling,
-        rationale,
-        sources,
-        proposed_by,
+        provenance: crate::CardProvenance {
+            rationale,
+            sources,
+            proposed_by,
+        },
     })
 }
 

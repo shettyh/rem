@@ -288,41 +288,9 @@ struct ReviewScreen: View {
                                     .padding(.top, 6)
                                 }
 
-                                if card.rationale != nil || !card.sources.isEmpty || card.proposedBy != nil {
-                                    DisclosureGroup {
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            if let rationale = card.rationale, !rationale.isEmpty {
-                                                Text(rationale)
-                                                    .font(.footnote)
-                                                    .foregroundStyle(RemColor.text)
-                                            }
-                                            ForEach(Array(card.sources.enumerated()), id: \.offset) { _, source in
-                                                VStack(alignment: .leading, spacing: 2) {
-                                                    if let label = source.label, !label.isEmpty {
-                                                        Text(label)
-                                                            .font(.caption.weight(.semibold))
-                                                            .foregroundStyle(RemColor.muted)
-                                                    }
-                                                    Text(source.locator)
-                                                        .font(.caption.monospaced())
-                                                        .foregroundStyle(RemColor.muted)
-                                                }
-                                            }
-                                            if let proposedBy = card.proposedBy, !proposedBy.isEmpty {
-                                                Text("Proposed by \(proposedBy)")
-                                                    .font(.caption)
-                                                    .foregroundStyle(RemColor.faint)
-                                            }
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.top, 6)
-                                    } label: {
-                                        Text("Source & rationale")
-                                            .font(.footnote.weight(.medium))
-                                            .foregroundStyle(RemColor.muted)
-                                    }
-                                    .tint(RemColor.muted)
-                                    .padding(.top, 8)
+                                if card.hasProvenance {
+                                    CardProvenanceView(card: card, style: .disclosure)
+                                        .padding(.top, 8)
                                 }
                             }
                             .transition(.opacity.combined(with: .offset(y: 6)))

@@ -523,7 +523,7 @@ fn load_card_with_revision(
     )?;
     let mut rows = statement.query([card_id])?;
     rows.next()?
-        .map(|row| Ok::<_, rusqlite::Error>((card_from_row(row)?, row.get(14)?)))
+        .map(|row| Ok::<_, rusqlite::Error>((card_from_row(row)?, row.get("local_revision")?)))
         .transpose()
         .map_err(Into::into)
 }
@@ -549,7 +549,7 @@ fn load_active_items(
             Ok(StudyItem {
                 card: card_from_row(row)?,
                 settings: deck.settings.clone(),
-                local_revision: row.get(14)?,
+                local_revision: row.get("local_revision")?,
                 force_due: false,
             })
         })?

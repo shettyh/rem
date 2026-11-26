@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashSet};
 use chrono::{Duration, Local, NaiveDate, TimeZone};
 use serde::{Deserialize, Serialize};
 
-use crate::{Collection, CollectionError, Deck, Grade, ReviewLog};
+use crate::{Collection, CollectionError, Deck, FsrsCardState, Grade, ReviewLog};
 
 const MS_PER_DAY: i64 = 86_400_000;
 
@@ -35,19 +35,14 @@ pub struct TodaySummary {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DailyActivity {
+pub struct DailyCount {
     pub day: String,
     pub timestamp_ms: i64,
     pub count: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ForecastDay {
-    pub day: String,
-    pub timestamp_ms: i64,
-    pub count: u32,
-}
+pub type DailyActivity = DailyCount;
+pub type ForecastDay = DailyCount;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,15 +110,17 @@ impl Collection {
                     continue;
                 }
                 active_total += 1;
-                if card.scheduling.state == 2 && card.scheduling.reps > 0 {
+                if card.scheduling.is_review() && card.scheduling.reps > 0 {
                     mastered += 1;
                 }
                 if card.scheduling.due <= now_ms {
-                    match card.scheduling.state {
-                        0 => raw_new_due += 1,
-                        2 => raw_review_due += 1,
-                        1 | 3 => raw_learning_due += 1,
-                        _ => {}
+                    match card.scheduling.card_state() {
+                        Some(FsrsCardState::New) => raw_new_due += 1,
+                        Some(FsrsCardState::Review) => raw_review_due += 1,
+                        Some(FsrsCardState::Learning | FsrsCardState::Relearning) => {
+                            raw_learning_due += 1
+                        }
+                        None => {}
                     }
                 }
             }
@@ -282,7 +279,7 @@ impl Collection {
             }
 
             for card in self.list_cards(&deck.id)? {
-                if card.suspended || card.scheduling.state == 0 {
+                if card.suspended || card.scheduling.is_new() {
                     continue;
                 }
                 let due = card.scheduling.due;

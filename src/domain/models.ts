@@ -68,6 +68,13 @@ export interface CustomStudyRequest {
  *  the discriminant is kept so another algorithm stays a one-file addition. */
 export type SchedulerKind = 'fsrs'
 
+export const FSRS_STATE = {
+  New: 0,
+  Learning: 1,
+  Review: 2,
+  Relearning: 3,
+} as const
+
 /** FSRS per-card scheduling state. */
 export interface FSRSState {
   kind: 'fsrs'
