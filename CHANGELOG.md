@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.27.0 (2026-11-26)
+
+## What's Changed
+* feat(desktop): add automatic background updates setting and sidebar restart prompt by @shettyh in https://github.com/shettyh/rem/pull/264
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.26.1...v0.27.0
+
 ## 0.26.1 (2026-11-25)
 
 ## What's Changed
