@@ -99,7 +99,12 @@ test('Cmd+K opens search, arrow keys + Enter navigate, and Escape does not leak 
   await expect.element(page.getByText('Alpha memory question')).toBeVisible()
   await expect.element(page.getByText('Beta memory question')).toBeVisible()
 
-  await userEvent.keyboard('{ArrowDown}{Enter}')
-  const route = await page.getByTestId('card-editor-route').element().textContent
-  expect([`${rust.id}/${first.id}`, `${rust.id}/${second.id}`]).toContain(route)
+  await userEvent.keyboard('{ArrowDown}')
+  await expect.element(page.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true')
+  await userEvent.keyboard('{Enter}')
+  const editorRoute = page.getByTestId('card-editor-route')
+  await expect.element(editorRoute).toBeVisible()
+  expect([`${rust.id}/${first.id}`, `${rust.id}/${second.id}`]).toContain(
+    editorRoute.element().textContent,
+  )
 })
