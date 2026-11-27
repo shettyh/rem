@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.27.1 (2026-11-26)
+
+## What's Changed
+* build(deps-dev): bump @tauri-apps/cli from 2.12.0 to 2.12.6 in the npm-minor-and-patch group by @dependabot[bot] in https://github.com/shettyh/rem/pull/218
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.27.0...v0.27.1
+
 ## 0.27.0 (2026-11-26)
 
 ## What's Changed
