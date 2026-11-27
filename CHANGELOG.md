@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.28.0 (2026-11-27)
+
+## What's Changed
+* feat(core,desktop,cli,ios): Phase 2 daily-driver parity, draft provenance/triage, FTS5 search, and unified stats by @shettyh in https://github.com/shettyh/rem/pull/267
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.27.1...v0.28.0
+
 ## 0.27.1 (2026-11-26)
 
 ## What's Changed
