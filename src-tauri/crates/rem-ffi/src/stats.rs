@@ -47,7 +47,7 @@ pub(crate) fn compute_stats(
     let stats = collection.compute_stats(deck_id, days, now_ms)?;
     Ok(StatsDto {
         reviews: stats.total_reviews,
-        recall_rate_percent: stats.recall_rate_percent,
+        recall_rate_percent: stats.recall_rate.map(|r| (r * 100.0).round() as u32),
         current_streak_days: stats.current_streak_days,
         active_days: stats.active_days,
         daily_activity: stats
@@ -70,7 +70,7 @@ pub(crate) fn compute_stats(
                 deck_name: entry.deck_name,
                 deck_color: entry.deck_color,
                 reviews: entry.reviews,
-                recall_rate_percent: entry.recall_rate_percent,
+                recall_rate_percent: Some((entry.recall_rate * 100.0).round() as u32),
             })
             .collect(),
     })

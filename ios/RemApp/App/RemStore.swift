@@ -140,6 +140,56 @@ actor RemStore {
         try client.startCustomStudy(deckId: deckId, mode: mode, amount: amount, nowMs: nowMs)
     }
 
+    func studyCurrentView(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.currentView(nowMs: nowMs)
+    }
+
+    func studyReveal(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.reveal(nowMs: nowMs)
+    }
+
+    func studyGrade(
+        session: RemStudySession,
+        grade: GradeDto,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyGradeOutcomeDto {
+        try session.grade(grade: grade, nowMs: nowMs)
+    }
+
+    func studyAdvancePreview(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.advancePreview(nowMs: nowMs)
+    }
+
+    func studyUndoLastGrade(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.undoLastGrade(nowMs: nowMs)
+    }
+
+    func studySuspendCurrent(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.suspendCurrent(nowMs: nowMs)
+    }
+
+    func studyReloadCurrent(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.reloadCurrent(nowMs: nowMs)
+    }
+
     func getStats(deckId: String?, days: UInt32, nowMs: Int64 = RemStore.nowMs()) throws -> StatsDto {
         try client.getStats(deckId: deckId, days: days, nowMs: nowMs)
     }

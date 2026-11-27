@@ -2,13 +2,14 @@ import type {
   CardPatch,
   Storage,
 } from '../../data/Storage'
-import type {
-  DeckSettings,
-  Grade,
-  LeechAction,
-  StudyGradeOutcome,
-  StudyRequest,
-  StudyView,
+import {
+  FSRS_STATE,
+  type DeckSettings,
+  type Grade,
+  type LeechAction,
+  type StudyGradeOutcome,
+  type StudyRequest,
+  type StudyView,
 } from '../../domain/models'
 import { nextStates } from '../../domain/scheduler/reviewScheduler'
 import {
@@ -104,9 +105,9 @@ export class BrowserStudySession {
     }
     if (grade === 'again') patch.lastAgainAt = now
     const preState = current.card.scheduling.state
-    const daily = preState === 0
+    const daily = preState === FSRS_STATE.New
       ? { day: localDay(now), field: 'newIntroduced' as const }
-      : preState === 2
+      : preState === FSRS_STATE.Review
         ? { day: localDay(now), field: 'reviewsDone' as const }
         : undefined
     const log = await this.storage.commitReview({
@@ -185,9 +186,11 @@ export class BrowserStudySession {
   }
 
   async suspendCurrent(now: number): Promise<StudyView> {
+    if (this.preview) throw new Error('invalid input: preview cards cannot be suspended')
     if (!this.current) throw new Error('invalid input: study session has no current card')
     const cardId = this.current.card.id
     await this.storage.updateCard(cardId, { suspended: true })
+    this.lastGrade = null
     this.session.discardCurrent(cardId)
     this.current = this.session.next(now)
     this.revealed = false

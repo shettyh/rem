@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::fs;
@@ -21,6 +21,7 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Debug)]
 pub struct Collection {
     pub(crate) connection: Mutex<Connection>,
+    pub(crate) in_flight_outbox: Mutex<HashSet<String>>,
 }
 
 #[derive(Debug)]
@@ -106,6 +107,8 @@ impl Collection {
                 initialize_schema(&mut connection)?;
             } else if version < CURRENT_SCHEMA_VERSION {
                 migrate_schema(&mut connection)?;
+            } else {
+                ensure_fts_map_current(&mut connection)?;
             }
 
             connection.pragma_update(None, "foreign_keys", "ON")?;
@@ -119,7 +122,29 @@ impl Collection {
 
         Ok(Self {
             connection: Mutex::new(connection),
+            in_flight_outbox: Mutex::new(HashSet::new()),
         })
+    }
+
+    pub fn begin_outbox_push(&self, op_ids: &[String]) {
+        if let Ok(mut set) = self.in_flight_outbox.lock() {
+            set.extend(op_ids.iter().cloned());
+        }
+    }
+
+    pub fn end_outbox_push(&self, op_ids: &[String]) {
+        if let Ok(mut set) = self.in_flight_outbox.lock() {
+            for id in op_ids {
+                set.remove(id);
+            }
+        }
+    }
+
+    pub(crate) fn is_outbox_op_in_flight(&self, op_id: &str) -> bool {
+        self.in_flight_outbox
+            .lock()
+            .map(|set| set.contains(op_id))
+            .unwrap_or(true)
     }
 
     pub fn sync_revision(&self) -> Result<u64, CollectionError> {
@@ -209,6 +234,7 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
             content_hlc TEXT NOT NULL DEFAULT '',
             suspended_hlc TEXT NOT NULL DEFAULT '',
             scheduling_hlc TEXT NOT NULL DEFAULT '',
+            leech_hlc TEXT NOT NULL DEFAULT '',
             rationale TEXT,
             sources_json TEXT NOT NULL DEFAULT '[]',
             proposed_by TEXT
@@ -372,21 +398,107 @@ const CARDS_FTS_DDL: &str = "
         tokenize='unicode61'
     );
 
+    CREATE TABLE IF NOT EXISTS cards_fts_map (
+        card_id TEXT PRIMARY KEY,
+        fts_rowid INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS review_log_tombstones (
+        id TEXT PRIMARY KEY,
+        deleted_at INTEGER NOT NULL
+    );
+
     CREATE TRIGGER IF NOT EXISTS cards_fts_ai AFTER INSERT ON cards BEGIN
+        DELETE FROM cards_fts
+        WHERE rowid = (SELECT fts_rowid FROM cards_fts_map WHERE card_id = NEW.id);
         INSERT INTO cards_fts(card_id, front, back, tags, rationale)
         VALUES (NEW.id, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
+        INSERT OR REPLACE INTO cards_fts_map(card_id, fts_rowid)
+        VALUES (NEW.id, last_insert_rowid());
     END;
 
     CREATE TRIGGER IF NOT EXISTS cards_fts_ad AFTER DELETE ON cards BEGIN
-        DELETE FROM cards_fts WHERE card_id = OLD.id;
+        DELETE FROM cards_fts
+        WHERE rowid = (SELECT fts_rowid FROM cards_fts_map WHERE card_id = OLD.id);
+        DELETE FROM cards_fts_map WHERE card_id = OLD.id;
     END;
 
-    CREATE TRIGGER IF NOT EXISTS cards_fts_au AFTER UPDATE OF front, back, tags_json, rationale ON cards BEGIN
-        DELETE FROM cards_fts WHERE card_id = OLD.id;
+    CREATE TRIGGER IF NOT EXISTS cards_fts_au
+    AFTER UPDATE OF front, back, tags_json, rationale ON cards
+    WHEN OLD.front IS NOT NEW.front
+      OR OLD.back IS NOT NEW.back
+      OR OLD.tags_json IS NOT NEW.tags_json
+      OR OLD.rationale IS NOT NEW.rationale
+    BEGIN
+        DELETE FROM cards_fts
+        WHERE rowid = (SELECT fts_rowid FROM cards_fts_map WHERE card_id = OLD.id);
         INSERT INTO cards_fts(card_id, front, back, tags, rationale)
         VALUES (NEW.id, NEW.front, NEW.back, NEW.tags_json, COALESCE(NEW.rationale, ''));
+        INSERT OR REPLACE INTO cards_fts_map(card_id, fts_rowid)
+        VALUES (NEW.id, last_insert_rowid());
     END;
 ";
+
+fn rebuild_cards_fts(transaction: &Transaction<'_>) -> Result<(), rusqlite::Error> {
+    transaction.execute_batch(
+        "
+        DROP TRIGGER IF EXISTS cards_fts_ai;
+        DROP TRIGGER IF EXISTS cards_fts_ad;
+        DROP TRIGGER IF EXISTS cards_fts_au;
+        DROP TABLE IF EXISTS cards_fts_map;
+        DROP TABLE IF EXISTS cards_fts;
+        ",
+    )?;
+    transaction.execute_batch(CARDS_FTS_DDL)?;
+    transaction.execute_batch(
+        "
+        INSERT INTO cards_fts(card_id, front, back, tags, rationale)
+        SELECT id, front, back, tags_json, COALESCE(rationale, '') FROM cards;
+        INSERT INTO cards_fts_map(card_id, fts_rowid)
+        SELECT card_id, rowid FROM cards_fts;
+        ",
+    )?;
+    Ok(())
+}
+
+fn ensure_fts_map_current(connection: &mut Connection) -> Result<(), rusqlite::Error> {
+    let has_aux: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cards_fts_map')
+            AND EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'review_log_tombstones')
+            AND EXISTS(SELECT 1 FROM pragma_table_info('cards') WHERE name = 'leech_hlc')",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_aux {
+        return Ok(());
+    }
+    let transaction = write_transaction(connection)?;
+    let has_leech_hlc: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('cards') WHERE name = 'leech_hlc')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_leech_hlc {
+        transaction
+            .execute_batch("ALTER TABLE cards ADD COLUMN leech_hlc TEXT NOT NULL DEFAULT '';")?;
+    }
+    let has_map: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'cards_fts_map')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_map {
+        rebuild_cards_fts(&transaction)?;
+    } else {
+        transaction.execute_batch(
+            "CREATE TABLE IF NOT EXISTS review_log_tombstones (
+                id TEXT PRIMARY KEY,
+                deleted_at INTEGER NOT NULL
+            );",
+        )?;
+    }
+    transaction.commit()
+}
 
 fn migrate_v4_to_v5_provenance_and_fts(
     transaction: &Transaction<'_>,
@@ -398,6 +510,10 @@ fn migrate_v4_to_v5_provenance_and_fts(
             .collect::<Result<Vec<_>, _>>()?;
         rows.into_iter().collect()
     };
+    if !existing_columns.contains("leech_hlc") {
+        transaction
+            .execute_batch("ALTER TABLE cards ADD COLUMN leech_hlc TEXT NOT NULL DEFAULT '';")?;
+    }
     if !existing_columns.contains("rationale") {
         transaction.execute_batch("ALTER TABLE cards ADD COLUMN rationale TEXT;")?;
     }
@@ -409,21 +525,7 @@ fn migrate_v4_to_v5_provenance_and_fts(
     if !existing_columns.contains("proposed_by") {
         transaction.execute_batch("ALTER TABLE cards ADD COLUMN proposed_by TEXT;")?;
     }
-    transaction.execute_batch(
-        "
-        DROP TRIGGER IF EXISTS cards_fts_ai;
-        DROP TRIGGER IF EXISTS cards_fts_ad;
-        DROP TRIGGER IF EXISTS cards_fts_au;
-        DROP TABLE IF EXISTS cards_fts;
-        ",
-    )?;
-    transaction.execute_batch(CARDS_FTS_DDL)?;
-    transaction.execute_batch(
-        "
-        INSERT INTO cards_fts(card_id, front, back, tags, rationale)
-        SELECT id, front, back, tags_json, COALESCE(rationale, '') FROM cards;
-        ",
-    )?;
+    rebuild_cards_fts(transaction)?;
     Ok(())
 }
 

@@ -4,6 +4,8 @@ struct DecksView: View {
     @Bindable var appState: AppState
     @State private var searchText: String = ""
     @State private var cardHits: [CardSearchHitDto] = []
+    @State private var isSearching: Bool = false
+    @State private var searchToken: Int = 0
     @State private var deckPendingDelete: DeckSummaryDto?
 
     private var trimmedSearch: String {
@@ -20,7 +22,7 @@ struct DecksView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if filteredDecks.isEmpty && cardHits.isEmpty && !trimmedSearch.isEmpty {
+                if filteredDecks.isEmpty && cardHits.isEmpty && !trimmedSearch.isEmpty && !isSearching {
                     ContentUnavailableView.search(text: searchText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(RemColor.groupedBg)
@@ -150,7 +152,7 @@ struct DecksView: View {
             .navigationTitle("Decks")
             .searchable(text: $searchText, prompt: "Search decks and cards")
             .task(id: trimmedSearch) {
-                await runCardSearch(trimmedSearch)
+                await runCardSearch(trimmedSearch, debounce: true)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -175,7 +177,12 @@ struct DecksView: View {
                 if let deck = deckPendingDelete {
                     Button("Delete", role: .destructive) {
                         deckPendingDelete = nil
-                        Task { await appState.deleteDeck(id: deck.id) }
+                        Task {
+                            await appState.deleteDeck(id: deck.id)
+                            if !trimmedSearch.isEmpty {
+                                await runCardSearch(trimmedSearch)
+                            }
+                        }
                     }
                 }
                 Button("Cancel", role: .cancel) {
@@ -187,14 +194,30 @@ struct DecksView: View {
         }
     }
 
-    private func runCardSearch(_ query: String) async {
+    private func runCardSearch(_ query: String, debounce: Bool = false) async {
+        searchToken += 1
+        let token = searchToken
         guard !query.isEmpty else {
+            isSearching = false
             cardHits = []
             return
         }
+        isSearching = true
+        defer {
+            if token == searchToken {
+                isSearching = false
+            }
+        }
+        if debounce {
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled && token == searchToken else { return }
+        }
         do {
-            cardHits = try await appState.store.searchCards(query: query, limit: 40)
+            let results = try await appState.store.searchCards(query: query, limit: 40)
+            guard !Task.isCancelled && token == searchToken else { return }
+            cardHits = results
         } catch {
+            guard !Task.isCancelled && token == searchToken else { return }
             cardHits = []
         }
     }

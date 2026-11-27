@@ -1,11 +1,11 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{Duration, Local, NaiveDate, TimeZone};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
-use crate::{Collection, CollectionError, Deck, FsrsCardState, Grade, ReviewLog};
-
-const MS_PER_DAY: i64 = 86_400_000;
+use crate::store::deck_from_row;
+use crate::{Collection, CollectionError, Deck, FsrsCardState, FsrsState, Grade};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -61,7 +61,6 @@ pub struct DeckStatsEntry {
     pub deck_color: String,
     pub reviews: u32,
     pub recall_rate: f64,
-    pub recall_rate_percent: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -70,7 +69,6 @@ pub struct CollectionStats {
     pub history_count: u32,
     pub total_reviews: u32,
     pub recall_rate: Option<f64>,
-    pub recall_rate_percent: Option<u32>,
     pub current_streak_days: u32,
     pub active_days: u32,
     pub grades: GradeCounts,
@@ -79,23 +77,51 @@ pub struct CollectionStats {
     pub upcoming_7d: Vec<ForecastDay>,
 }
 
+struct CardStatRow {
+    deck_id: String,
+    suspended: bool,
+    scheduling: FsrsState,
+}
+
+struct LogStatRow {
+    deck_id: String,
+    reviewed_at: i64,
+    grade: Grade,
+}
+
 impl Collection {
     /// Compute the shared Today overview (per-deck due counts respecting daily caps,
-    /// mastered ratios, today's recall, and streak).
+    /// mastered ratios, today's recall, and streak) from a single consistent snapshot.
     pub fn compute_today_summary(&self, now_ms: i64) -> Result<TodaySummary, CollectionError> {
-        let decks = self.list_decks()?;
         let today_date = local_date(now_ms)?;
         let today_key = today_date.format("%Y-%m-%d").to_string();
+
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| CollectionError::Poisoned)?;
+        let decks = load_decks(&connection, None)?;
+        let daily_map = load_daily_stats_for_day(&connection, &today_key)?;
+        let card_rows = load_card_stat_rows(&connection, None)?;
+        let log_rows = load_log_stat_rows(&connection, None)?;
+        drop(connection);
+
+        let mut cards_by_deck: HashMap<&str, Vec<&CardStatRow>> = HashMap::new();
+        for card in &card_rows {
+            cards_by_deck.entry(&card.deck_id).or_default().push(card);
+        }
 
         let mut deck_summaries = Vec::with_capacity(decks.len());
         let mut total_due: u32 = 0;
         let mut new_due: u32 = 0;
         let mut review_due: u32 = 0;
-        let mut all_logs = Vec::new();
 
         for deck in &decks {
-            let cards = self.list_cards(&deck.id)?;
-            let (new_introduced, reviews_done) = self.get_daily_stat(&deck.id, &today_key)?;
+            let cards = cards_by_deck
+                .get(deck.id.as_str())
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let (new_introduced, reviews_done) = daily_map.get(&deck.id).copied().unwrap_or((0, 0));
             let new_slots = deck.settings.new_per_day.saturating_sub(new_introduced);
             let review_slots = deck.settings.max_reviews.saturating_sub(reviews_done);
 
@@ -105,7 +131,7 @@ impl Collection {
             let mut raw_review_due: u32 = 0;
             let mut raw_learning_due: u32 = 0;
 
-            for card in &cards {
+            for card in cards {
                 if card.suspended {
                     continue;
                 }
@@ -149,15 +175,13 @@ impl Collection {
                 mastered_ratio,
                 desired_retention: deck.settings.desired_retention,
             });
-
-            all_logs.extend(self.list_review_logs(&deck.id)?);
         }
 
         let mut reviewed_today: u32 = 0;
         let mut passed_today: u32 = 0;
         let mut active_dates = HashSet::new();
 
-        for log in &all_logs {
+        for log in &log_rows {
             if log.reviewed_at > now_ms {
                 continue;
             }
@@ -196,7 +220,7 @@ impl Collection {
         })
     }
 
-    /// Single source of truth for global or per-deck review statistics and 7-day forecast.
+    /// Single source of truth for global or per-deck review statistics and DST-safe 7-day forecast.
     pub fn compute_stats(
         &self,
         deck_id: Option<&str>,
@@ -207,10 +231,17 @@ impl Collection {
         let today_date = local_date(now_ms)?;
         let start_date = today_date - Duration::days(i64::from(range_days) - 1);
 
-        let decks: Vec<Deck> = match deck_id {
-            Some(id) => self.get_deck(id)?.into_iter().collect(),
-            None => self.list_decks()?,
-        };
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| CollectionError::Poisoned)?;
+        let decks = load_decks(&connection, deck_id)?;
+        let card_rows = load_card_stat_rows(&connection, deck_id)?;
+        let log_rows = load_log_stat_rows(&connection, deck_id)?;
+        drop(connection);
+
+        let deck_index: HashMap<&str, &Deck> =
+            decks.iter().map(|deck| (deck.id.as_str(), deck)).collect();
 
         let mut all_dates = HashSet::new();
         let mut day_counts: BTreeMap<NaiveDate, u32> = BTreeMap::new();
@@ -221,82 +252,87 @@ impl Collection {
         let mut history_count: u32 = 0;
         let mut total_reviews: u32 = 0;
         let mut grades = GradeCounts::default();
-        let mut by_deck = Vec::new();
+        let mut deck_totals: HashMap<&str, (u32, u32)> = HashMap::new();
 
-        let today_start_ms = local_midnight_ms(today_date);
-        let forecast_end_ms = today_start_ms + 7 * MS_PER_DAY;
-        let mut forecast_counts = [0_u32; 7];
-
-        for deck in &decks {
-            let logs: Vec<ReviewLog> = self.list_review_logs(&deck.id)?;
-            let mut deck_reviews: u32 = 0;
-            let mut deck_passed: u32 = 0;
-
-            for log in logs {
-                if log.reviewed_at > now_ms {
-                    continue;
-                }
-                let Ok(day) = local_date(log.reviewed_at) else {
-                    continue;
-                };
-                history_count += 1;
-                all_dates.insert(day);
-                if day < start_date || day > today_date {
-                    continue;
-                }
-                if let Some(count) = day_counts.get_mut(&day) {
-                    *count += 1;
-                }
-                total_reviews += 1;
-                deck_reviews += 1;
-                match log.grade {
-                    Grade::Again => grades.again += 1,
-                    Grade::Hard => {
-                        grades.hard += 1;
-                        deck_passed += 1;
-                    }
-                    Grade::Good => {
-                        grades.good += 1;
-                        deck_passed += 1;
-                    }
-                    Grade::Easy => {
-                        grades.easy += 1;
-                        deck_passed += 1;
-                    }
-                }
+        for log in &log_rows {
+            if !deck_index.contains_key(log.deck_id.as_str()) {
+                continue;
             }
-
-            if deck_reviews > 0 {
-                let ratio = f64::from(deck_passed) / f64::from(deck_reviews);
-                by_deck.push(DeckStatsEntry {
-                    deck_id: deck.id.clone(),
-                    deck_name: deck.name.clone(),
-                    deck_color: deck.color.clone(),
-                    reviews: deck_reviews,
-                    recall_rate: ratio,
-                    recall_rate_percent: Some((ratio * 100.0).round() as u32),
-                });
+            if log.reviewed_at > now_ms {
+                continue;
             }
-
-            for card in self.list_cards(&deck.id)? {
-                if card.suspended || card.scheduling.is_new() {
-                    continue;
+            let Ok(day) = local_date(log.reviewed_at) else {
+                continue;
+            };
+            history_count += 1;
+            all_dates.insert(day);
+            if day < start_date || day > today_date {
+                continue;
+            }
+            if let Some(count) = day_counts.get_mut(&day) {
+                *count += 1;
+            }
+            total_reviews += 1;
+            let entry = deck_totals.entry(log.deck_id.as_str()).or_insert((0, 0));
+            entry.0 += 1;
+            match log.grade {
+                Grade::Again => grades.again += 1,
+                Grade::Hard => {
+                    grades.hard += 1;
+                    entry.1 += 1;
                 }
-                let due = card.scheduling.due;
-                if due >= forecast_end_ms {
-                    continue;
+                Grade::Good => {
+                    grades.good += 1;
+                    entry.1 += 1;
                 }
-                let offset = if due <= now_ms {
-                    0
-                } else {
-                    ((due - today_start_ms) / MS_PER_DAY) as usize
-                };
-                if offset < 7 {
-                    forecast_counts[offset] += 1;
+                Grade::Easy => {
+                    grades.easy += 1;
+                    entry.1 += 1;
                 }
             }
         }
 
+        let mut forecast_counts = [0_u32; 7];
+        for card in &card_rows {
+            if !deck_index.contains_key(card.deck_id.as_str()) {
+                continue;
+            }
+            if card.suspended || card.scheduling.is_new() {
+                continue;
+            }
+            let due = card.scheduling.due;
+            let offset = if due <= now_ms {
+                0
+            } else {
+                let Ok(due_date) = local_date(due) else {
+                    continue;
+                };
+                let diff = (due_date - today_date).num_days();
+                if diff <= 0 {
+                    0
+                } else if diff < 7 {
+                    diff as usize
+                } else {
+                    continue;
+                }
+            };
+            forecast_counts[offset] += 1;
+        }
+
+        let mut by_deck: Vec<DeckStatsEntry> = deck_totals
+            .into_iter()
+            .filter_map(|(id, (reviews, passed))| {
+                let deck = deck_index.get(id)?;
+                let ratio = f64::from(passed) / f64::from(reviews);
+                Some(DeckStatsEntry {
+                    deck_id: deck.id.clone(),
+                    deck_name: deck.name.clone(),
+                    deck_color: deck.color.clone(),
+                    reviews,
+                    recall_rate: ratio,
+                })
+            })
+            .collect();
         by_deck.sort_by(|a, b| {
             b.reviews
                 .cmp(&a.reviews)
@@ -309,7 +345,6 @@ impl Collection {
         } else {
             None
         };
-        let recall_rate_percent = recall_rate.map(|r| (r * 100.0).round() as u32);
 
         let active_days = day_counts.values().filter(|&&count| count > 0).count() as u32;
         let daily = day_counts
@@ -338,7 +373,6 @@ impl Collection {
             history_count,
             total_reviews,
             recall_rate,
-            recall_rate_percent,
             current_streak_days: compute_streak(&all_dates, today_date),
             active_days,
             grades,
@@ -346,6 +380,120 @@ impl Collection {
             by_deck,
             upcoming_7d,
         })
+    }
+}
+
+fn load_decks(connection: &Connection, deck_id: Option<&str>) -> rusqlite::Result<Vec<Deck>> {
+    match deck_id {
+        Some(id) => {
+            let mut stmt = connection.prepare(
+                "SELECT id, name, created_at, updated_at, color, scheduler_kind, settings_json
+                 FROM decks WHERE id = ?1",
+            )?;
+            let rows = stmt.query_map([id], deck_from_row)?.collect();
+            rows
+        }
+        None => {
+            let mut stmt = connection.prepare(
+                "SELECT id, name, created_at, updated_at, color, scheduler_kind, settings_json
+                 FROM decks ORDER BY created_at, rowid",
+            )?;
+            let rows = stmt.query_map([], deck_from_row)?.collect();
+            rows
+        }
+    }
+}
+
+fn load_daily_stats_for_day(
+    connection: &Connection,
+    day: &str,
+) -> rusqlite::Result<HashMap<String, (u32, u32)>> {
+    let mut stmt = connection
+        .prepare("SELECT deck_id, new_introduced, reviews_done FROM daily_stats WHERE day = ?1")?;
+    let rows = stmt.query_map([day], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            (row.get::<_, u32>(1)?, row.get::<_, u32>(2)?),
+        ))
+    })?;
+    rows.collect()
+}
+
+fn load_card_stat_rows(
+    connection: &Connection,
+    deck_id: Option<&str>,
+) -> rusqlite::Result<Vec<CardStatRow>> {
+    let parse_row = |row: &rusqlite::Row<'_>| {
+        let scheduling_json: String = row.get(2)?;
+        let scheduling: FsrsState = serde_json::from_str(&scheduling_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                2,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?;
+        Ok(CardStatRow {
+            deck_id: row.get(0)?,
+            suspended: row.get(1)?,
+            scheduling,
+        })
+    };
+    match deck_id {
+        Some(id) => {
+            let mut stmt = connection.prepare(
+                "SELECT deck_id, suspended, scheduling_json FROM cards WHERE deck_id = ?1",
+            )?;
+            let rows = stmt.query_map([id], parse_row)?.collect();
+            rows
+        }
+        None => {
+            let mut stmt =
+                connection.prepare("SELECT deck_id, suspended, scheduling_json FROM cards")?;
+            let rows = stmt.query_map([], parse_row)?.collect();
+            rows
+        }
+    }
+}
+
+fn load_log_stat_rows(
+    connection: &Connection,
+    deck_id: Option<&str>,
+) -> rusqlite::Result<Vec<LogStatRow>> {
+    let parse_row = |row: &rusqlite::Row<'_>| {
+        let grade_raw: String = row.get(2)?;
+        let grade = match grade_raw.as_str() {
+            "again" => Grade::Again,
+            "hard" => Grade::Hard,
+            "good" => Grade::Good,
+            "easy" => Grade::Easy,
+            _ => {
+                return Err(rusqlite::Error::FromSqlConversionFailure(
+                    2,
+                    rusqlite::types::Type::Text,
+                    format!("unsupported grade: {grade_raw}").into(),
+                ))
+            }
+        };
+        Ok(LogStatRow {
+            deck_id: row.get(0)?,
+            reviewed_at: row.get(1)?,
+            grade,
+        })
+    };
+    match deck_id {
+        Some(id) => {
+            let mut stmt = connection.prepare(
+                "SELECT deck_id, reviewed_at, grade FROM review_logs WHERE deck_id = ?1",
+            )?;
+            let rows = stmt.query_map(params![id], parse_row)?.collect();
+            rows
+        }
+        None => {
+            let mut stmt =
+                connection.prepare("SELECT deck_id, reviewed_at, grade FROM review_logs")?;
+            let rows = stmt.query_map([], parse_row)?.collect();
+            rows
+        }
     }
 }
 
@@ -376,11 +524,18 @@ fn local_date(timestamp_ms: i64) -> Result<NaiveDate, CollectionError> {
 }
 
 fn local_midnight_ms(date: NaiveDate) -> i64 {
-    let naive = date.and_hms_opt(0, 0, 0).expect("valid midnight");
-    Local
-        .from_local_datetime(&naive)
-        .earliest()
-        .or_else(|| Local.from_local_datetime(&naive).latest())
-        .map(|dt| dt.timestamp_millis())
-        .unwrap_or_else(|| naive.and_utc().timestamp_millis())
+    for hour in [0, 1, 2, 3, 12] {
+        let naive = date.and_hms_opt(hour, 0, 0).expect("valid local hour");
+        if let Some(dt) = Local
+            .from_local_datetime(&naive)
+            .earliest()
+            .or_else(|| Local.from_local_datetime(&naive).latest())
+        {
+            return dt.timestamp_millis();
+        }
+    }
+    date.and_hms_opt(12, 0, 0)
+        .expect("valid noon")
+        .and_utc()
+        .timestamp_millis()
 }

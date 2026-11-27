@@ -5,16 +5,18 @@ private extension CustomStudyModeDto {
         switch self {
         case .studyAhead, .reviewForgotten:
             return 2
-        case .increaseNew, .previewNew:
+        case .increaseNew:
             return 10
+        case .previewNew:
+            return 1
         }
     }
 
     func amountUnit(for amount: Int) -> String {
         switch self {
-        case .studyAhead, .reviewForgotten:
+        case .studyAhead, .reviewForgotten, .previewNew:
             return amount == 1 ? "day" : "days"
-        case .increaseNew, .previewNew:
+        case .increaseNew:
             return amount == 1 ? "card" : "cards"
         }
     }
@@ -29,19 +31,18 @@ private extension CustomStudyModeDto {
         case .reviewForgotten:
             return "Review cards graded Again within the last \(amount) \(unit)."
         case .previewNew:
-            return "Preview up to \(amount) new \(unit) without recording reviews or changing schedules."
+            return "Preview new cards added in the last \(amount) \(unit) without recording reviews or changing schedules."
         }
     }
 }
 
 struct CustomStudySheet: View {
-    @Bindable var appState: AppState
-    let deckId: String
     let deckName: String
+    let onStart: (CustomStudySpec) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var mode: CustomStudyModeDto = .studyAhead
-    @State private var amount: Int = 1
+    @State private var amount: Int = CustomStudyModeDto.studyAhead.defaultAmount
 
     var body: some View {
         NavigationStack {
@@ -85,12 +86,8 @@ struct CustomStudySheet: View {
 
                 Section {
                     Button {
+                        onStart(CustomStudySpec(mode: mode, amount: UInt32(amount)))
                         dismiss()
-                        appState.startCustomStudy(
-                            deckId: deckId,
-                            mode: mode,
-                            amount: UInt32(amount)
-                        )
                     } label: {
                         Text("Start custom study")
                             .fontWeight(.semibold)

@@ -628,20 +628,26 @@ final class RemAppTests: XCTestCase {
         XCTAssertEqual(hits.first?.deckName, "Rust")
         XCTAssertEqual(hits.first?.card.tags, ["async"])
 
-        // Custom study preview advances without changing schedules or review logs.
+        // Custom study preview advances without changing schedules or review logs, and rejects suspend.
         let previewSession = try await store.startCustomStudy(
             deckId: rust.id,
             mode: .previewNew,
             amount: 5,
             nowMs: now + 10
         )
-        let initial = try previewSession.currentView(nowMs: now + 10)
+        let initial = try await store.studyCurrentView(session: previewSession, nowMs: now + 10)
         XCTAssertTrue(initial.preview)
         XCTAssertEqual(initial.remaining, 1)
-        let revealed = try previewSession.reveal(nowMs: now + 11)
+        do {
+            _ = try await store.studySuspendCurrent(session: previewSession, nowMs: now + 10)
+            XCTFail("Expected preview session to reject suspend")
+        } catch {
+            XCTAssertTrue(error.remDisplayMessage.lowercased().contains("preview"))
+        }
+        let revealed = try await store.studyReveal(session: previewSession, nowMs: now + 11)
         XCTAssertTrue(revealed.revealed)
         XCTAssertNil(revealed.intervals)
-        let finished = try previewSession.advancePreview(nowMs: now + 12)
+        let finished = try await store.studyAdvancePreview(session: previewSession, nowMs: now + 12)
         XCTAssertNil(finished.current)
         XCTAssertEqual(finished.reviewed, 1)
         let statsAfterPreview = try await store.getStats(deckId: rust.id, days: 30, nowMs: now + 20)
@@ -659,5 +665,30 @@ final class RemAppTests: XCTestCase {
         let hitsAfterImport = try await store.searchCards(query: "concurrent", limit: 10)
         XCTAssertEqual(hitsAfterImport.count, 1)
         XCTAssertEqual(hitsAfterImport.first?.deckName, "SQL")
+
+        // Lenient parser accepts older backups with partial DeckSettings & legacy SM-2 scheduling.
+        let legacyBackup = """
+        {
+          "format": "rem-backup",
+          "version": 1,
+          "decks": [{
+            "name": "Legacy",
+            "createdAt": 1000,
+            "settings": { "newPerDay": 15 },
+            "cards": [{
+              "front": "Legacy Q",
+              "back": "Legacy A",
+              "createdAt": 1000,
+              "updatedAt": 1000,
+              "scheduling": { "repetitions": 2, "intervalDays": 6, "easeFactor": 2.5, "due": 2000 }
+            }]
+          }]
+        }
+        """
+        let legacyPreview = try await store.previewBackupJson(json: legacyBackup)
+        XCTAssertEqual(legacyPreview.added, ["Legacy"])
+        XCTAssertEqual(legacyPreview.totalCards, 1)
+        let legacyImported = try await store.importBackupJson(json: legacyBackup, nowMs: now + 40)
+        XCTAssertEqual(legacyImported.added, ["Legacy"])
     }
 }

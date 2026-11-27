@@ -198,7 +198,6 @@ describe('TauriStorage', () => {
           historyCount: 0,
           totalReviews: 0,
           recallRate: null,
-          recallRatePercent: null,
           currentStreakDays: 0,
           activeDays: 0,
           grades: { again: 0, hard: 0, good: 0, easy: 0 },

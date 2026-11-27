@@ -1,6 +1,8 @@
 use ratatui::{backend::TestBackend, Terminal};
 use rem_cli::draft_tui::{draw_draft, DraftApp, DraftControl, DraftInput};
-use rem_cli::editor::{format_draft_for_editor, parse_draft_from_editor, ParsedDraftEdit};
+use rem_cli::editor::{
+    format_draft_for_editor, parse_draft_from_editor, resolve_editor_command, ParsedDraftEdit,
+};
 use rem_core::{Collection, DraftSource, NewDraftInput, ProposalMetadata, ProposalMode};
 use tempfile::tempdir;
 
@@ -155,4 +157,112 @@ fn editor_roundtrip_parses_deck_tags_and_multiline_markdown() {
 
     let cancelled = doc.replace("Line 1\nLine 2", "   ");
     assert_eq!(parse_draft_from_editor(&cancelled).unwrap(), None);
+}
+
+#[test]
+fn editor_parser_preserves_embedded_markers_and_indented_code_and_resolves_quoted_editor() {
+    let doc = format_draft_for_editor(
+        "Rust",
+        &[],
+        "    indented_code()\n    second_line()",
+        "Answer mentions:\n--- FRONT ---\nstill in answer",
+    );
+    let parsed = parse_draft_from_editor(&doc).unwrap().unwrap();
+    assert_eq!(parsed.front, "    indented_code()\n    second_line()");
+    assert_eq!(
+        parsed.back,
+        "Answer mentions:\n--- FRONT ---\nstill in answer"
+    );
+
+    // Empty VISUAL falls back to EDITOR, then to vi.
+    assert_eq!(
+        resolve_editor_command(Some("   "), Some("nvim -u NONE")).unwrap(),
+        vec!["nvim", "-u", "NONE"]
+    );
+    assert_eq!(resolve_editor_command(Some(""), None).unwrap(), vec!["vi"]);
+    assert_eq!(
+        resolve_editor_command(
+            Some("\"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code\" --wait"),
+            None
+        )
+        .unwrap(),
+        vec![
+            "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code",
+            "--wait"
+        ]
+    );
+    assert_eq!(
+        resolve_editor_command(Some("vim -c \"set ft=markdown\""), None).unwrap(),
+        vec!["vim", "-c", "set ft=markdown"]
+    );
+    assert!(resolve_editor_command(Some("\"\""), None).is_err());
+
+    let missing_back = "--- FRONT ---\nQuestion without back marker\n";
+    assert!(parse_draft_from_editor(missing_back).is_err());
+}
+
+#[test]
+fn draft_tui_handles_ambiguous_decks_preserves_edits_on_skip_and_keeps_draft_on_deleted_deck() {
+    let temp = tempdir().unwrap();
+    let collection = Collection::open(temp.path().join("edge.sqlite3")).unwrap();
+    let deck_a = collection.create_deck("Dup", NOW - 100).unwrap();
+    let deck_b = collection.create_deck("Dup", NOW - 90).unwrap();
+
+    collection
+        .propose_drafts(
+            &deck_a.id,
+            vec![
+                NewDraftInput {
+                    front: "Draft 1".into(),
+                    back: "Ans 1".into(),
+                    tags: vec![],
+                    rationale: None,
+                    sources: vec![],
+                },
+                NewDraftInput {
+                    front: "Draft 2".into(),
+                    back: "Ans 2".into(),
+                    tags: vec![],
+                    rationale: None,
+                    sources: vec![],
+                },
+            ],
+            ProposalMetadata::default(),
+            NOW - 50,
+            ProposalMode::Create,
+        )
+        .unwrap();
+
+    let mut app = DraftApp::start(&collection, None).unwrap();
+    // Ambiguous deck emits deck ID so saving editor edits succeeds without ambiguity error.
+    let template = app.format_current_for_editor().unwrap();
+    assert!(
+        template.contains(&format!("deck: {}", deck_a.id)),
+        "{template}"
+    );
+    let edited = template.replace("Ans 1", "Edited Ans 1");
+    app.apply_editor_output(&edited);
+    assert_eq!(app.current_edit().unwrap().back, "Edited Ans 1");
+
+    // Skipping preserves in-memory edits when cycling back to Draft 1.
+    app.handle(&collection, DraftInput::Skip, NOW).unwrap();
+    assert_eq!(app.current_edit().unwrap().front, "Draft 2");
+    app.handle(&collection, DraftInput::Skip, NOW + 1).unwrap();
+    assert_eq!(app.current_edit().unwrap().front, "Draft 1");
+    assert_eq!(app.current_edit().unwrap().back, "Edited Ans 1");
+
+    // Moving draft to deck_b then deleting deck_b before accept keeps draft open instead of dropping it.
+    let moved = app.format_current_for_editor().unwrap().replace(
+        &format!("deck: {}", deck_a.id),
+        &format!("deck: {}", deck_b.id),
+    );
+    app.apply_editor_output(&moved);
+    collection.delete_deck(&deck_b.id, NOW + 2).unwrap();
+    app.handle(&collection, DraftInput::Accept, NOW + 3)
+        .unwrap();
+    assert_eq!(app.pending(), 2);
+    assert!(app
+        .status_message()
+        .unwrap()
+        .contains("Target deck no longer exists"));
 }

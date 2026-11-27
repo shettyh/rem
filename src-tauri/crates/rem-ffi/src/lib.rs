@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use rem_core::{
-    extract_asset_refs, optimize_fsrs_histories, Card, CardBackup, CardPatch, Collection, Deck,
-    DeckBackup, DeckPatch, DeckSettings, FsrsReviewHistory, FsrsReviewInput, Grade, ReviewBackup,
-    ReviewLog, StudyGradeOutcome, StudyRequest, StudySession, StudyView,
+    extract_asset_refs, optimize_fsrs_histories, Card, CardPatch, Collection, Deck, DeckPatch,
+    DeckSettings, FsrsReviewHistory, FsrsReviewInput, Grade, ReviewLog, StudyGradeOutcome,
+    StudyRequest, StudySession, StudyView,
 };
 use rem_sync::{
     build_authorize_url, connect_collection, delete_cloud_account, fetch_account_authenticated,
@@ -371,83 +371,19 @@ impl RemClient {
     }
 
     pub fn export_backup_json(&self) -> Result<String, RemFfiError> {
-        let decks = self.collection.list_decks()?;
-        let mut backups = Vec::with_capacity(decks.len());
-        for deck in decks {
-            let cards = self.collection.list_cards(&deck.id)?;
-            let logs = self.collection.list_review_logs(&deck.id)?;
-            let mut logs_by_card: HashMap<String, Vec<ReviewBackup>> = HashMap::new();
-            for log in logs {
-                logs_by_card
-                    .entry(log.card_id)
-                    .or_default()
-                    .push(ReviewBackup {
-                        reviewed_at: log.reviewed_at,
-                        grade: log.grade,
-                    });
-            }
-            let card_backups = cards
-                .into_iter()
-                .map(|card| CardBackup {
-                    reviews: logs_by_card.remove(&card.id).unwrap_or_default(),
-                    front: card.front,
-                    back: card.back,
-                    created_at: card.created_at,
-                    updated_at: card.updated_at,
-                    tags: card.tags,
-                    suspended: card.suspended,
-                    last_again_at: card.last_again_at,
-                    scheduling: card.scheduling,
-                    provenance: card.provenance,
-                })
-                .collect();
-            backups.push(DeckBackup {
-                name: deck.name,
-                created_at: deck.created_at,
-                scheduler_kind: deck.scheduler_kind,
-                color: Some(deck.color),
-                settings: deck.settings,
-                cards: card_backups,
-            });
-        }
-        let payload = serde_json::json!({
-            "format": "rem-backup",
-            "version": 1,
-            "exportedAt": chrono::Utc::now().timestamp_millis(),
-            "decks": backups,
-        });
-        serde_json::to_string_pretty(&payload).map_err(|err| RemFfiError::Storage {
-            message: err.to_string(),
-        })
+        Ok(self
+            .collection
+            .export_backup_json(chrono::Utc::now().timestamp_millis())?)
     }
 
     pub fn preview_backup_json(&self, json: String) -> Result<BackupPreviewDto, RemFfiError> {
-        let decks = parse_backup_json(&json)?;
-        let existing_names: std::collections::HashSet<String> = self
+        let preview = self
             .collection
-            .list_decks()?
-            .into_iter()
-            .map(|d| d.name)
-            .collect();
-        let mut seen = std::collections::HashSet::new();
-        let mut added = Vec::new();
-        let mut replaced = Vec::new();
-        let mut total_cards: u32 = 0;
-        for deck in &decks {
-            total_cards = total_cards.saturating_add(deck.cards.len() as u32);
-            if !seen.insert(deck.name.clone()) {
-                continue;
-            }
-            if existing_names.contains(&deck.name) {
-                replaced.push(deck.name.clone());
-            } else {
-                added.push(deck.name.clone());
-            }
-        }
+            .preview_backup_json(&json, chrono::Utc::now().timestamp_millis())?;
         Ok(BackupPreviewDto {
-            added,
-            replaced,
-            total_cards,
+            added: preview.added,
+            replaced: preview.replaced,
+            total_cards: preview.total_cards,
         })
     }
 
@@ -456,8 +392,7 @@ impl RemClient {
         json: String,
         now_ms: i64,
     ) -> Result<ImportResultDto, RemFfiError> {
-        let decks = parse_backup_json(&json)?;
-        let result = self.collection.import_decks(decks, now_ms)?;
+        let result = self.collection.import_backup_json(&json, now_ms)?;
         Ok(ImportResultDto {
             added: result.added,
             replaced: result.replaced,
@@ -645,7 +580,7 @@ impl RemStudySession {
         let session = self.session.lock().map_err(|_| RemFfiError::Storage {
             message: "study session lock poisoned".into(),
         })?;
-        Ok(self.map_view(session.view(), session.can_undo(), now_ms))
+        Ok(self.map_view(session.view(), now_ms))
     }
 
     pub fn reveal(&self, now_ms: i64) -> Result<StudyViewDto, RemFfiError> {
@@ -653,7 +588,7 @@ impl RemStudySession {
             message: "study session lock poisoned".into(),
         })?;
         let view = session.reveal(now_ms)?;
-        Ok(self.map_view(view, session.can_undo(), now_ms))
+        Ok(self.map_view(view, now_ms))
     }
 
     pub fn grade(&self, grade: GradeDto, now_ms: i64) -> Result<StudyGradeOutcomeDto, RemFfiError> {
@@ -661,15 +596,14 @@ impl RemStudySession {
             message: "study session lock poisoned".into(),
         })?;
         let outcome = session.grade(&self.collection, grade.into(), now_ms)?;
-        let can_undo = session.can_undo();
         match outcome {
             StudyGradeOutcome::Graded { view } => Ok(StudyGradeOutcomeDto {
                 conflict_card_id: None,
-                view: self.map_view(view, can_undo, now_ms),
+                view: self.map_view(view, now_ms),
             }),
             StudyGradeOutcome::Conflict { card_id, view } => Ok(StudyGradeOutcomeDto {
                 conflict_card_id: Some(card_id),
-                view: self.map_view(view, can_undo, now_ms),
+                view: self.map_view(view, now_ms),
             }),
         }
     }
@@ -679,7 +613,7 @@ impl RemStudySession {
             message: "study session lock poisoned".into(),
         })?;
         let view = session.undo_last_grade(&self.collection, now_ms)?;
-        Ok(self.map_view(view, session.can_undo(), now_ms))
+        Ok(self.map_view(view, now_ms))
     }
 
     pub fn suspend_current(&self, now_ms: i64) -> Result<StudyViewDto, RemFfiError> {
@@ -687,7 +621,7 @@ impl RemStudySession {
             message: "study session lock poisoned".into(),
         })?;
         let view = session.suspend_current(&self.collection, now_ms)?;
-        Ok(self.map_view(view, session.can_undo(), now_ms))
+        Ok(self.map_view(view, now_ms))
     }
 
     pub fn advance_preview(&self, now_ms: i64) -> Result<StudyViewDto, RemFfiError> {
@@ -695,7 +629,7 @@ impl RemStudySession {
             message: "study session lock poisoned".into(),
         })?;
         let view = session.advance_preview(now_ms)?;
-        Ok(self.map_view(view, session.can_undo(), now_ms))
+        Ok(self.map_view(view, now_ms))
     }
 
     pub fn reload_current(&self, now_ms: i64) -> Result<StudyViewDto, RemFfiError> {
@@ -703,12 +637,12 @@ impl RemStudySession {
             message: "study session lock poisoned".into(),
         })?;
         let view = session.reload_current(&self.collection, now_ms)?;
-        Ok(self.map_view(view, session.can_undo(), now_ms))
+        Ok(self.map_view(view, now_ms))
     }
 }
 
 impl RemStudySession {
-    fn map_view(&self, view: StudyView, can_undo: bool, now_ms: i64) -> StudyViewDto {
+    fn map_view(&self, view: StudyView, now_ms: i64) -> StudyViewDto {
         let deck_name = view
             .current
             .as_ref()
@@ -725,7 +659,7 @@ impl RemStudySession {
             reviewed: view.reviewed,
             remaining: view.remaining,
             preview: view.preview,
-            can_undo,
+            can_undo: view.can_undo,
             leech_notice: view.notice.map(Into::into),
         }
     }
@@ -826,40 +760,6 @@ fn count_valid_steps(raw: &str) -> usize {
             number.parse::<u64>().is_ok()
         })
         .count()
-}
-
-fn parse_backup_json(raw: &str) -> Result<Vec<DeckBackup>, RemFfiError> {
-    let value: serde_json::Value =
-        serde_json::from_str(raw).map_err(|_| RemFfiError::InvalidInput {
-            message: "Not a valid JSON file.".into(),
-        })?;
-    let Some(obj) = value.as_object() else {
-        return Err(RemFfiError::InvalidInput {
-            message: "Not a rem backup file.".into(),
-        });
-    };
-    if let Some(format) = obj.get("format") {
-        if format.as_str() != Some("rem-backup") {
-            return Err(RemFfiError::InvalidInput {
-                message: "Not a rem backup file.".into(),
-            });
-        }
-    }
-    if obj.get("version").and_then(|v| v.as_u64()) != Some(1) {
-        return Err(RemFfiError::InvalidInput {
-            message: "Unsupported backup version.".into(),
-        });
-    }
-    let Some(decks_val) = obj.get("decks") else {
-        return Err(RemFfiError::InvalidInput {
-            message: "Backup file is malformed.".into(),
-        });
-    };
-    serde_json::from_value::<Vec<DeckBackup>>(decks_val.clone()).map_err(|err| {
-        RemFfiError::InvalidInput {
-            message: format!("Backup file is malformed: {err}"),
-        }
-    })
 }
 
 fn deck_to_dto(deck: Deck) -> DeckDto {

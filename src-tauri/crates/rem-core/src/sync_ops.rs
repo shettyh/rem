@@ -40,7 +40,7 @@ pub struct SyncState {
     pub last_hlc: String,
 }
 
-/// The 7 commutative sync operations exchanged between `rem-core` and the cloud sync server.
+/// The 8 commutative sync operations exchanged between `rem-core` and the cloud sync server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
@@ -96,6 +96,20 @@ pub enum SyncOp {
         review_log_id: Option<Id>,
         hlc: String,
     },
+    CardReviewUndo {
+        card_id: Id,
+        deck_id: Id,
+        undone_at: i64,
+        scheduling: SchedulingState,
+        last_again_at: Option<i64>,
+        #[serde(default)]
+        remove_leech_tag: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        restore_suspended: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        removed_review_log_id: Option<Id>,
+        hlc: String,
+    },
     CardDelete {
         id: Id,
         hlc: String,
@@ -111,6 +125,7 @@ impl SyncOp {
             | Self::CardContentPatch { hlc, .. }
             | Self::CardSuspendPatch { hlc, .. }
             | Self::CardReview { hlc, .. }
+            | Self::CardReviewUndo { hlc, .. }
             | Self::CardDelete { hlc, .. } => hlc,
         }
     }

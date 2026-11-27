@@ -322,7 +322,7 @@ fn unified_stats_computes_recall_streak_deck_breakdown_and_forecast() {
     let stats = collection.compute_stats(None, 7, NOW).unwrap();
     assert_eq!(stats.history_count, 2);
     assert_eq!(stats.total_reviews, 2);
-    assert_eq!(stats.recall_rate_percent, Some(50));
+    assert_eq!(stats.recall_rate, Some(0.5));
     assert_eq!(stats.current_streak_days, 2);
     assert_eq!(stats.active_days, 2);
     assert_eq!(stats.grades.good, 1);
@@ -447,4 +447,679 @@ fn code_operator_search_does_not_truncate_matches_beyond_limit() {
     assert_eq!(ids.len(), 2);
     assert!(ids.contains(&first.id.as_str()));
     assert!(ids.contains(&second.id.as_str()));
+}
+
+#[test]
+fn like_fallback_does_not_match_json_syntax_in_tags_or_unescaped_wildcards() {
+    let temp = tempdir().unwrap();
+    let collection = Collection::open(temp.path().join("like_edge.sqlite3")).unwrap();
+    let deck = collection.create_deck("Code", NOW).unwrap();
+
+    let untagged = collection
+        .create_card(
+            &deck.id,
+            "Plain prose question",
+            "Plain answer",
+            vec![],
+            NOW + 1,
+        )
+        .unwrap();
+    let tagged = collection
+        .create_card(
+            &deck.id,
+            "Another plain question",
+            "Another plain answer",
+            vec!["alpha".into(), "beta".into()],
+            NOW + 2,
+        )
+        .unwrap();
+    let slice_card = collection
+        .create_card(
+            &deck.id,
+            "Empty slice literal [] in Go",
+            "100% safe_name\\path",
+            vec!["go".into()],
+            NOW + 3,
+        )
+        .unwrap();
+
+    // Searching JSON syntax characters must NOT match untagged `[]` or tagged `["alpha","beta"]`.
+    let bracket_hits = collection.search_cards("[]", None, 20).unwrap();
+    assert_eq!(bracket_hits.len(), 1);
+    assert_eq!(bracket_hits[0].card.id, slice_card.id);
+    assert!(collection.search_cards("\"", None, 20).unwrap().is_empty());
+    assert!(collection.search_cards(",", None, 20).unwrap().is_empty());
+
+    // LIKE wildcards `%`, `_`, `\` are escaped literally.
+    let pct_hits = collection.search_cards("100%", None, 20).unwrap();
+    assert_eq!(pct_hits.len(), 1);
+    assert_eq!(pct_hits[0].card.id, slice_card.id);
+    let underscore_hits = collection.search_cards("safe_name", None, 20).unwrap();
+    assert_eq!(underscore_hits.len(), 1);
+    assert_eq!(underscore_hits[0].card.id, slice_card.id);
+    let slash_hits = collection.search_cards("name\\path", None, 20).unwrap();
+    assert_eq!(slash_hits.len(), 1);
+    assert_eq!(slash_hits[0].card.id, slice_card.id);
+
+    // Individual tag values are still searchable in LIKE fallback.
+    let tag_hits = collection.search_cards("beta", None, 20).unwrap();
+    assert_eq!(tag_hits.len(), 1);
+    assert_eq!(tag_hits[0].card.id, tagged.id);
+
+    // Unused variable guard
+    assert_ne!(untagged.id, tagged.id);
+}
+
+#[test]
+fn fts_update_trigger_skips_scheduling_only_writes_and_handles_replace_import() {
+    let temp = tempdir().unwrap();
+    let db_path = temp.path().join("fts_perf.sqlite3");
+    let collection = Collection::open(&db_path).unwrap();
+    let deck = collection.create_deck("Rust", NOW).unwrap();
+    let card = collection
+        .create_card(&deck.id, "Ownership rules", "Single owner", vec![], NOW + 1)
+        .unwrap();
+
+    let fts_rowid_before: i64 = {
+        let raw = Connection::open(&db_path).unwrap();
+        raw.query_row(
+            "SELECT fts_rowid FROM cards_fts_map WHERE card_id = ?1",
+            [&card.id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+
+    // Suspending updates `cards` without changing front/back/tags/rationale; trigger must not fire.
+    collection
+        .update_card(
+            &card.id,
+            CardPatch {
+                suspended: Some(true),
+                ..CardPatch::default()
+            },
+            NOW + 2,
+        )
+        .unwrap();
+
+    let fts_rowid_after_suspend: i64 = {
+        let raw = Connection::open(&db_path).unwrap();
+        raw.query_row(
+            "SELECT fts_rowid FROM cards_fts_map WHERE card_id = ?1",
+            [&card.id],
+            |row| row.get(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(fts_rowid_before, fts_rowid_after_suspend);
+
+    // Replacing the deck via import purges old cards from FTS5 and indexes the replacement.
+    let replacement = collection
+        .import_decks(
+            vec![DeckBackup {
+                name: "Rust".into(),
+                created_at: NOW + 10,
+                scheduler_kind: rem_core::SchedulerKind::Fsrs,
+                color: None,
+                settings: rem_core::DeckSettings::default(),
+                cards: vec![rem_core::CardBackup {
+                    front: "Borrow checker rules".into(),
+                    back: "Aliasing XOR mutability".into(),
+                    created_at: NOW + 10,
+                    updated_at: NOW + 10,
+                    tags: vec![],
+                    suspended: false,
+                    last_again_at: None,
+                    scheduling: rem_core::FsrsState::initial(NOW + 10),
+                    reviews: vec![],
+                    provenance: CardProvenance::default(),
+                }],
+            }],
+            NOW + 10,
+        )
+        .unwrap();
+    assert_eq!(replacement.replaced, vec!["Rust"]);
+    assert!(collection
+        .search_cards("Ownership", None, 10)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        collection.search_cards("Aliasing", None, 10).unwrap().len(),
+        1
+    );
+}
+
+#[test]
+fn suspend_clears_undo_preview_rejects_suspend_and_post_sync_undo_converges() {
+    use rem_core::{CustomStudyMode, DeckPatch, StudyRequest, StudySession};
+
+    let temp = tempdir().unwrap();
+    let dev_a = Collection::open(temp.path().join("a.sqlite3")).unwrap();
+    let dev_b = Collection::open(temp.path().join("b.sqlite3")).unwrap();
+    dev_a
+        .enable_cloud_sync("https://sync.example", "acct-1", NOW)
+        .unwrap();
+    dev_b
+        .enable_cloud_sync("https://sync.example", "acct-1", NOW)
+        .unwrap();
+
+    let deck = dev_a.create_deck("SyncUndo", NOW + 1).unwrap();
+    let c1 = dev_a
+        .create_card(&deck.id, "Learning Q", "Learning A", vec![], NOW + 2)
+        .unwrap();
+
+    // 1. PreviewNew rejects suspend_current.
+    let mut preview = StudySession::start(
+        &dev_a,
+        StudyRequest::custom(deck.id.clone(), CustomStudyMode::PreviewNew, 1),
+        NOW + 3,
+    )
+    .unwrap();
+    assert!(preview.suspend_current(&dev_a, NOW + 4).is_err());
+
+    // 2. Grading a learning card Again then suspending it clears can_undo (cannot silently unsuspend).
+    let mut session =
+        StudySession::start(&dev_a, StudyRequest::deck(deck.id.clone()), NOW + 10).unwrap();
+    session.reveal(NOW + 11).unwrap();
+    let graded = session.grade(&dev_a, Grade::Again, NOW + 12).unwrap();
+    let view = match graded {
+        rem_core::StudyGradeOutcome::Graded { view } => view,
+        other => panic!("expected graded, got {other:?}"),
+    };
+    assert!(view.can_undo);
+    assert_eq!(
+        view.current.as_ref().map(|c| c.id.as_str()),
+        Some(c1.id.as_str())
+    );
+
+    let after_suspend = session.suspend_current(&dev_a, NOW + 13).unwrap();
+    assert!(!after_suspend.can_undo);
+    assert!(session.undo_last_grade(&dev_a, NOW + 14).is_err());
+    assert!(dev_a.get_card(&c1.id).unwrap().unwrap().suspended);
+
+    // 3. Post-sync undo converges scheduling + review log deletion on Device B.
+    let mut settings = deck.settings.clone();
+    settings.learn_steps = String::new();
+    dev_a
+        .update_deck(
+            &deck.id,
+            DeckPatch {
+                settings: Some(settings),
+                ..DeckPatch::default()
+            },
+            NOW + 20,
+        )
+        .unwrap();
+    let c2 = dev_a
+        .create_card(&deck.id, "Graduating Q", "Graduating A", vec![], NOW + 21)
+        .unwrap();
+
+    let mut session2 =
+        StudySession::start(&dev_a, StudyRequest::deck(deck.id.clone()), NOW + 25).unwrap();
+    session2.reveal(NOW + 26).unwrap();
+    session2.grade(&dev_a, Grade::Good, NOW + 27).unwrap();
+
+    // Push & ack all ops from Device A to Device B BEFORE Undo.
+    let outbox1 = dev_a.pending_outbox_ops(50).unwrap();
+    let ack_ids: Vec<String> = outbox1.iter().map(|o| o.op_id.clone()).collect();
+    let remote1: Vec<rem_core::RemoteSyncOp> = outbox1
+        .into_iter()
+        .enumerate()
+        .map(|(i, op)| rem_core::RemoteSyncOp {
+            seq: (i + 1) as u64,
+            op_id: op.op_id,
+            device_id: "dev-a".into(),
+            payload: op.payload,
+        })
+        .collect();
+    let seq1 = remote1.len() as u64;
+    dev_a.apply_remote_ops(&[], &ack_ids, seq1).unwrap();
+    dev_b.apply_remote_ops(&remote1, &[], seq1).unwrap();
+    assert_eq!(dev_b.get_card(&c2.id).unwrap().unwrap().scheduling.reps, 1);
+    assert_eq!(dev_b.list_review_logs(&deck.id).unwrap().len(), 1);
+
+    // Now Device A undoes AFTER the review op was already synced & acked.
+    session2.undo_last_grade(&dev_a, NOW + 30).unwrap();
+    assert_eq!(dev_a.get_card(&c2.id).unwrap().unwrap().scheduling.reps, 0);
+
+    let outbox2 = dev_a.pending_outbox_ops(50).unwrap();
+    assert!(outbox2.iter().any(
+        |op| matches!(&op.payload, SyncOp::CardReviewUndo { card_id, .. } if card_id == &c2.id)
+    ));
+    let remote2: Vec<rem_core::RemoteSyncOp> = outbox2
+        .into_iter()
+        .enumerate()
+        .map(|(i, op)| rem_core::RemoteSyncOp {
+            seq: seq1 + (i + 1) as u64,
+            op_id: op.op_id,
+            device_id: "dev-a".into(),
+            payload: op.payload,
+        })
+        .collect();
+    dev_b
+        .apply_remote_ops(&remote2, &[], seq1 + remote2.len() as u64)
+        .unwrap();
+
+    // Device B rolled back reps to 0 and removed the undone review log!
+    assert_eq!(dev_b.get_card(&c2.id).unwrap().unwrap().scheduling.reps, 0);
+    assert!(dev_b.list_review_logs(&deck.id).unwrap().is_empty());
+}
+
+#[test]
+fn lenient_backup_parser_accepts_legacy_sm2_and_partial_settings() {
+    let legacy = r#"{
+        "format": "rem-backup",
+        "version": 1,
+        "decks": [{
+            "name": "Legacy",
+            "createdAt": 1000,
+            "settings": { "newPerDay": 15 },
+            "cards": [{
+                "front": "Old SM2 card",
+                "back": "Answer",
+                "createdAt": 1000,
+                "updatedAt": 1000,
+                "scheduling": { "repetitions": 2, "intervalDays": 6, "easeFactor": 2.5, "due": 2000 },
+                "rationale": "   ",
+                "proposedBy": ""
+            }]
+        }]
+    }"#;
+    let parsed = rem_core::parse_backup_json(legacy, NOW).unwrap();
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0].settings.new_per_day, 15);
+    assert_eq!(parsed[0].settings.desired_retention, 0.9);
+    assert_eq!(
+        parsed[0].cards[0].scheduling,
+        rem_core::FsrsState::initial(NOW)
+    );
+    assert!(parsed[0].cards[0].provenance.is_empty());
+
+    // Malicious / corrupt numeric payloads are rejected instead of bricking SQLite.
+    let overflow_f32 = r#"{
+        "format": "rem-backup", "version": 1,
+        "decks": [{ "name": "Bad", "createdAt": 1000, "cards": [{
+            "front": "Q", "back": "A", "createdAt": 1000, "updatedAt": 1000,
+            "scheduling": { "kind": "fsrs", "stability": 1e40, "difficulty": 5.0, "reps": 1, "lapses": 0, "state": 2, "step": 0, "lastReview": 1000, "due": 2000 }
+        }] }]
+    }"#;
+    assert!(rem_core::parse_backup_json(overflow_f32, NOW).is_err());
+
+    let bad_state = overflow_f32
+        .replace("1e40", "2.0")
+        .replace("\"state\": 2", "\"state\": 256");
+    assert!(rem_core::parse_backup_json(&bad_state, NOW).is_err());
+
+    let overflow_reps = overflow_f32
+        .replace("1e40", "2.0")
+        .replace("\"reps\": 1", "\"reps\": 4294967296");
+    assert!(rem_core::parse_backup_json(&overflow_reps, NOW).is_err());
+
+    let blank_front = overflow_f32
+        .replace("1e40", "2.0")
+        .replace("\"front\": \"Q\"", "\"front\": \"   \"");
+    assert!(rem_core::parse_backup_json(&blank_front, NOW).is_err());
+
+    let dup_decks = r#"{
+        "format": "rem-backup", "version": 1,
+        "decks": [
+            { "name": "Same", "createdAt": 1000, "cards": [] },
+            { "name": "Same", "createdAt": 1001, "cards": [] }
+        ]
+    }"#;
+    assert!(rem_core::parse_backup_json(dup_decks, NOW).is_err());
+}
+
+#[test]
+fn review_undo_crdt_commutes_under_reordering_concurrent_edits_and_in_flight_sync() {
+    use rem_core::{
+        DeckPatch, DeckSettings, FsrsState, LeechAction, RemoteSyncOp, StudyRequest, StudySession,
+    };
+
+    let temp = tempdir().unwrap();
+    let dev_a = Collection::open(temp.path().join("crdt_a.sqlite3")).unwrap();
+    let dev_b = Collection::open(temp.path().join("crdt_b.sqlite3")).unwrap();
+    dev_a
+        .enable_cloud_sync("https://sync.example", "acct-1", NOW)
+        .unwrap();
+    dev_b
+        .enable_cloud_sync("https://sync.example", "acct-1", NOW)
+        .unwrap();
+
+    let deck = dev_a.create_deck("CRDT", NOW + 1).unwrap();
+    dev_a
+        .update_deck(
+            &deck.id,
+            DeckPatch {
+                settings: Some(DeckSettings {
+                    learn_steps: String::new(),
+                    relearn_steps: String::new(),
+                    leech_threshold: 1,
+                    leech_action: LeechAction::Tag,
+                    ..deck.settings.clone()
+                }),
+                ..DeckPatch::default()
+            },
+            NOW + 2,
+        )
+        .unwrap();
+    let card = dev_a
+        .create_card(
+            &deck.id,
+            "Original Q",
+            "Original A",
+            vec!["core".into()],
+            NOW + 3,
+        )
+        .unwrap();
+    dev_a
+        .update_card(
+            &card.id,
+            CardPatch {
+                scheduling: Some(FsrsState {
+                    reps: 1,
+                    lapses: 0,
+                    state: 2,
+                    stability: 3.0,
+                    difficulty: 5.0,
+                    last_review: Some(NOW + 4),
+                    due: NOW + 5,
+                    ..card.scheduling.clone()
+                }),
+                ..CardPatch::default()
+            },
+            NOW + 5,
+        )
+        .unwrap();
+
+    // Sync initial state A -> B.
+    let init_ops = dev_a.pending_outbox_ops(50).unwrap();
+    let init_acks: Vec<String> = init_ops.iter().map(|o| o.op_id.clone()).collect();
+    let init_remote: Vec<RemoteSyncOp> = init_ops
+        .into_iter()
+        .enumerate()
+        .map(|(i, op)| RemoteSyncOp {
+            seq: (i + 1) as u64,
+            op_id: op.op_id,
+            device_id: "dev-a".into(),
+            payload: op.payload,
+        })
+        .collect();
+    let mut seq = init_remote.len() as u64;
+    dev_a.apply_remote_ops(&[], &init_acks, seq).unwrap();
+    dev_b.apply_remote_ops(&init_remote, &[], seq).unwrap();
+
+    // Device A grades Again (triggers leech tag) while that op is IN-FLIGHT during push.
+    let mut sess_a =
+        StudySession::start(&dev_a, StudyRequest::deck(deck.id.clone()), NOW + 100).unwrap();
+    sess_a.reveal(NOW + 101).unwrap();
+    sess_a.grade(&dev_a, Grade::Again, NOW + 102).unwrap();
+    let review_ops = dev_a.pending_outbox_ops(50).unwrap();
+    assert_eq!(review_ops.len(), 1);
+    let in_flight_ids: Vec<String> = review_ops.iter().map(|o| o.op_id.clone()).collect();
+    dev_a.begin_outbox_push(&in_flight_ids);
+
+    // Offline Device B concurrently edits front/back and adds user tag "exam" at NOW + 150.
+    dev_b
+        .update_card(
+            &card.id,
+            CardPatch {
+                front: Some("Edited Q".into()),
+                back: Some("Edited A".into()),
+                tags: Some(vec!["core".into(), "exam".into()]),
+                ..CardPatch::default()
+            },
+            NOW + 150,
+        )
+        .unwrap();
+
+    // Device A presses Undo at NOW + 200 while review op is in-flight -> MUST emit CardReviewUndo.
+    sess_a.undo_last_grade(&dev_a, NOW + 200).unwrap();
+    dev_a.end_outbox_push(&in_flight_ids);
+
+    let all_a_ops = dev_a.pending_outbox_ops(50).unwrap();
+    assert_eq!(all_a_ops.len(), 2);
+    assert!(matches!(all_a_ops[0].payload, SyncOp::CardReview { .. }));
+    assert!(matches!(
+        all_a_ops[1].payload,
+        SyncOp::CardReviewUndo {
+            remove_leech_tag: true,
+            ..
+        }
+    ));
+
+    // Deliver Device A's ops to Device B in REVERSE order (Undo BEFORE Review) to prove commutativity.
+    let rev_a: Vec<RemoteSyncOp> = all_a_ops
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, op)| RemoteSyncOp {
+            seq: seq + (i + 1) as u64,
+            op_id: op.op_id.clone(),
+            device_id: "dev-a".into(),
+            payload: op.payload.clone(),
+        })
+        .collect();
+    seq += rev_a.len() as u64;
+    dev_b.apply_remote_ops(&rev_a, &[], seq).unwrap();
+
+    // Deliver Device B's content edit to Device A.
+    let b_ops = dev_b.pending_outbox_ops(50).unwrap();
+    let remote_b: Vec<RemoteSyncOp> = b_ops
+        .into_iter()
+        .enumerate()
+        .map(|(i, op)| RemoteSyncOp {
+            seq: seq + (i + 1) as u64,
+            op_id: op.op_id,
+            device_id: "dev-b".into(),
+            payload: op.payload,
+        })
+        .collect();
+    seq += remote_b.len() as u64;
+    dev_a.apply_remote_ops(&remote_b, &[], seq).unwrap();
+
+    // Both devices converge: Device B's front/back + "exam" tag survive, "leech" is gone,
+    // reps == 1, and review_log_tombstones prevented the late CardReview from resurrecting the log.
+    let final_a = dev_a.get_card(&card.id).unwrap().unwrap();
+    let final_b = dev_b.get_card(&card.id).unwrap().unwrap();
+    assert_eq!(final_a.front, "Edited Q");
+    assert_eq!(final_b.front, "Edited Q");
+    assert_eq!(final_a.back, "Edited A");
+    assert_eq!(final_b.back, "Edited A");
+    assert_eq!(final_a.tags, vec!["core", "exam"]);
+    assert_eq!(final_b.tags, vec!["core", "exam"]);
+    assert_eq!(final_a.scheduling.reps, 1);
+    assert_eq!(final_b.scheduling.reps, 1);
+    assert!(dev_a.list_review_logs(&deck.id).unwrap().is_empty());
+    assert!(dev_b.list_review_logs(&deck.id).unwrap().is_empty());
+}
+
+#[test]
+fn leech_hlc_commutes_and_content_patch_never_resurrects_undone_leech_tag() {
+    use rem_core::{
+        DeckPatch, DeckSettings, FsrsState, LeechAction, RemoteSyncOp, StudyRequest, StudySession,
+    };
+
+    let temp = tempdir().unwrap();
+    let dev_a = Collection::open(temp.path().join("leech_a.sqlite3")).unwrap();
+    let dev_b = Collection::open(temp.path().join("leech_b.sqlite3")).unwrap();
+    let dev_c = Collection::open(temp.path().join("leech_c.sqlite3")).unwrap();
+    for dev in [&dev_a, &dev_b, &dev_c] {
+        dev.enable_cloud_sync("https://sync.example", "acct-1", NOW)
+            .unwrap();
+    }
+
+    let deck = dev_a.create_deck("LeechCrdt", NOW + 1).unwrap();
+    dev_a
+        .update_deck(
+            &deck.id,
+            DeckPatch {
+                settings: Some(DeckSettings {
+                    learn_steps: String::new(),
+                    relearn_steps: String::new(),
+                    leech_threshold: 1,
+                    leech_action: LeechAction::Tag,
+                    ..deck.settings.clone()
+                }),
+                ..DeckPatch::default()
+            },
+            NOW + 2,
+        )
+        .unwrap();
+    let card = dev_a
+        .create_card(&deck.id, "Q", "A", vec!["u1".into()], NOW + 3)
+        .unwrap();
+    dev_a
+        .update_card(
+            &card.id,
+            CardPatch {
+                scheduling: Some(FsrsState {
+                    reps: 1,
+                    lapses: 0,
+                    state: 2,
+                    stability: 3.0,
+                    difficulty: 5.0,
+                    last_review: Some(NOW + 4),
+                    due: NOW + 5,
+                    ..card.scheduling.clone()
+                }),
+                ..CardPatch::default()
+            },
+            NOW + 5,
+        )
+        .unwrap();
+
+    // Sync initial card to B and C.
+    let init_ops = dev_a.pending_outbox_ops(50).unwrap();
+    let init_acks: Vec<String> = init_ops.iter().map(|o| o.op_id.clone()).collect();
+    let init_remote: Vec<RemoteSyncOp> = init_ops
+        .into_iter()
+        .enumerate()
+        .map(|(i, op)| RemoteSyncOp {
+            seq: (i + 1) as u64,
+            op_id: op.op_id,
+            device_id: "dev-a".into(),
+            payload: op.payload,
+        })
+        .collect();
+    let seq0 = init_remote.len() as u64;
+    dev_a.apply_remote_ops(&[], &init_acks, seq0).unwrap();
+    dev_b.apply_remote_ops(&init_remote, &[], seq0).unwrap();
+    dev_c.apply_remote_ops(&init_remote, &[], seq0).unwrap();
+
+    // Device A grades Again at NOW + 100 (adds "leech"), claimed atomically via claim_pending_outbox_ops.
+    let mut sess_a =
+        StudySession::start(&dev_a, StudyRequest::deck(deck.id.clone()), NOW + 100).unwrap();
+    sess_a.reveal(NOW + 101).unwrap();
+    sess_a.grade(&dev_a, Grade::Again, NOW + 102).unwrap();
+    let claimed = dev_a.claim_pending_outbox_ops(50).unwrap();
+    assert_eq!(claimed.len(), 1);
+    let claimed_ids: Vec<String> = claimed.iter().map(|o| o.op_id.clone()).collect();
+
+    // Device A undoes while claimed op is in-flight -> must emit CardReviewUndo, NOT retract!
+    sess_a.undo_last_grade(&dev_a, NOW + 110).unwrap();
+    dev_a.end_outbox_push(&claimed_ids);
+
+    // Sync A's review + undo ops to B first, plus a simulated legacy/stale CardContentPatch carrying "leech".
+    let a_ops = dev_a.pending_outbox_ops(50).unwrap();
+    assert_eq!(a_ops.len(), 2);
+    let mut a_remote: Vec<RemoteSyncOp> = a_ops
+        .into_iter()
+        .enumerate()
+        .map(|(i, op)| RemoteSyncOp {
+            seq: seq0 + (i + 1) as u64,
+            op_id: op.op_id,
+            device_id: "dev-a".into(),
+            payload: op.payload,
+        })
+        .collect();
+    // Simulate a remote CardContentPatch from an older peer that still included "leech" in `tags`.
+    let patch_seq = seq0 + a_remote.len() as u64 + 1;
+    a_remote.push(RemoteSyncOp {
+        seq: patch_seq,
+        op_id: "stale-peer-patch".into(),
+        device_id: "devleg01".into(),
+        payload: SyncOp::CardContentPatch {
+            id: card.id.clone(),
+            front: "Q edited".into(),
+            back: "A edited".into(),
+            tags: vec!["leech".into(), "u2".into()],
+            hlc: format!("{:013}-0001-devleg01", NOW + 200),
+        },
+    });
+    dev_b.apply_remote_ops(&a_remote, &[], patch_seq).unwrap();
+    let b_card = dev_b.get_card(&card.id).unwrap().unwrap();
+    assert_eq!(b_card.front, "Q edited");
+    assert_eq!(b_card.tags, vec!["u2"]);
+
+    // Now test `leech_hlc` commutativity on fresh replicas B2 (T1 then T2) vs C (T2 then T1):
+    // T1 adds leech, T2 is a later review without leech_tag_added. Both orders MUST keep "leech"!
+    let op_t1 = RemoteSyncOp {
+        seq: seq0 + 1,
+        op_id: "rev-t1".into(),
+        device_id: "devxxxx1".into(),
+        payload: SyncOp::CardReview {
+            card_id: card.id.clone(),
+            deck_id: deck.id.clone(),
+            reviewed_at: NOW + 300,
+            grade: Some(Grade::Again),
+            scheduling: FsrsState {
+                reps: 2,
+                lapses: 1,
+                state: 3,
+                stability: 1.0,
+                difficulty: 6.0,
+                last_review: Some(NOW + 300),
+                due: NOW + 360,
+                step: 0,
+                ..FsrsState::initial(NOW)
+            },
+            last_again_at: Some(NOW + 300),
+            leech_suspended: false,
+            leech_tag_added: true,
+            review_log_id: Some("log-t1".into()),
+            hlc: format!("{:013}-0001-devxxxx1", NOW + 300),
+        },
+    };
+    let op_t2 = RemoteSyncOp {
+        seq: seq0 + 2,
+        op_id: "rev-t2".into(),
+        device_id: "devyyyy2".into(),
+        payload: SyncOp::CardReview {
+            card_id: card.id.clone(),
+            deck_id: deck.id.clone(),
+            reviewed_at: NOW + 400,
+            grade: Some(Grade::Good),
+            scheduling: FsrsState {
+                reps: 3,
+                lapses: 1,
+                state: 2,
+                stability: 4.0,
+                difficulty: 5.5,
+                last_review: Some(NOW + 400),
+                due: NOW + 86_400_000,
+                step: 0,
+                ..FsrsState::initial(NOW)
+            },
+            last_again_at: Some(NOW + 300),
+            leech_suspended: false,
+            leech_tag_added: false,
+            review_log_id: Some("log-t2".into()),
+            hlc: format!("{:013}-0001-devyyyy2", NOW + 400),
+        },
+    };
+
+    // Device B receives T1 then T2; Device C receives T2 then T1.
+    dev_b
+        .apply_remote_ops(&[op_t1.clone(), op_t2.clone()], &[], patch_seq + 2)
+        .unwrap();
+    dev_c
+        .apply_remote_ops(&[op_t2, op_t1], &[], seq0 + 2)
+        .unwrap();
+
+    let card_b = dev_b.get_card(&card.id).unwrap().unwrap();
+    let card_c = dev_c.get_card(&card.id).unwrap().unwrap();
+    assert!(card_b.tags.iter().any(|t| t == "leech"));
+    assert!(card_c.tags.iter().any(|t| t == "leech"));
+    assert_eq!(card_b.scheduling, card_c.scheduling);
 }

@@ -63,6 +63,7 @@ final class AppState {
     var isAuthenticating: Bool = false
     var isCheckingEntitlement: Bool = false
     var isStartingTrial: Bool = false
+    var isImportingBackup: Bool = false
     var lastSyncedAt: Date?
     var lastSyncError: String?
     var entitlement: EntitlementInfoDto?
@@ -746,11 +747,20 @@ final class AppState {
     }
 
     func prepareBackupImport(from url: URL) async -> PendingBackupImport? {
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        guard !isImportingBackup else { return nil }
+        isImportingBackup = true
+        defer { isImportingBackup = false }
         do {
-            let json = try String(contentsOf: url, encoding: .utf8)
+            let json = try await Task.detached(priority: .userInitiated) {
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                return try String(contentsOf: url, encoding: .utf8)
+            }.value
             let preview = try await store.previewBackupJson(json: json)
+            if preview.added.isEmpty && preview.replaced.isEmpty {
+                showToast("Backup file contains no decks.")
+                return nil
+            }
             return PendingBackupImport(json: json, preview: preview)
         } catch {
             showToast("Import failed: \(error.remDisplayMessage)")
@@ -759,6 +769,9 @@ final class AppState {
     }
 
     func commitBackupImport(json: String) async {
+        guard !isImportingBackup else { return }
+        isImportingBackup = true
+        defer { isImportingBackup = false }
         do {
             let result = try await store.importBackupJson(json: json)
             await refreshAll()

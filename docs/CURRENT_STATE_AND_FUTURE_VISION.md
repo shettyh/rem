@@ -1,6 +1,6 @@
 # rem — Current State & Future Vision
 
-_Last reviewed: 2026-11-26 · based on `v0.26.0` plus invite-code removal and product/engineering review_
+_Last reviewed: 2026-11-27 · based on `v0.26.0` plus Phase 2 daily-driver parity & developer/agent wedge_
 
 This document is the canonical product snapshot for future planning. Dated files under
 `docs/superpowers/` record the decisions and implementation history behind individual slices;
@@ -62,9 +62,9 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 
 ### Agent-first capture and draft approval
 
-- `rem deck list`, `rem card add`, `rem card search`, `rem draft add`, `rem draft list`, and
-  `rem draft review` work while the desktop app is closed and support stable versioned JSON for
-  agents and scripts.
+- `rem deck list`, `rem card add`, `rem card search`, `rem draft add`, and `rem draft list` work
+  while the desktop app is closed and support stable versioned JSON for agents and scripts;
+  `rem draft review` provides an interactive terminal triage TUI.
 - Card and draft batches validate atomically, resolve deck IDs or exact names, normalize tags,
   support dry runs, and return retry-safe exact-duplicate outcomes.
 - Agent proposals are stored as a separate `CardDraft` domain value with rationale, opaque source
@@ -134,14 +134,16 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
   haptics, adjustable card text size (`S / M / L`), in-review card editing, undo last grade, card
   suspension, card info sheet, dark syntax-highlighted code blocks, and offline `asset:<hash>`
   image/GIF rendering with a pinch-to-zoom lightbox.
-- **Quick capture, deck browsing & FSRS options:** Fast card creation/editing with Write/Preview
-  toggle, Markdown keyboard toolbar, tag editor, iOS Photos image attachment (SHA-256 stored in
-  SQLite), deck/tag filtering, and full deck editing + FSRS deck options & weight optimization.
-- **Stats, habits, billing & App Store readiness:** 7D/30D/90D Swift Charts Stats dashboard with
-  per-deck breakdown, native Sign in with Apple (`ASAuthorizationController` + token revocation on
-  account delete), Google OAuth + iOS Keychain, StoreKit 2 IAP (`com.shettyh.rem.premium.yearly`),
-  Settings Account drill-down, Privacy Manifest (`PrivacyInfo.xcprivacy`), local daily reminders via
-  `UNUserNotificationCenter`, and JSON backup export via the iOS share sheet.
+- **Quick capture, deck browsing, search & custom study:** Fast card creation/editing with
+  Write/Preview toggle, Markdown keyboard toolbar, tag editor, iOS Photos image attachment
+  (SHA-256 stored in SQLite), cross-deck card search in Decks, per-deck filtering, Custom Study
+  modes (`study-ahead`, `increase-new`, `review-forgotten`, `preview-new`), provenance inspection
+  in review and Card Info, and full deck editing + FSRS deck options & weight optimization.
+- **Stats, habits, backups & billing:** 7D/30D/90D Swift Charts Stats dashboard with per-deck
+  breakdown, native Sign in with Apple (`ASAuthorizationController` + token revocation on account
+  delete), Google OAuth + iOS Keychain, StoreKit 2 IAP (`com.shettyh.rem.premium.yearly`), Settings
+  Account drill-down, Privacy Manifest (`PrivacyInfo.xcprivacy`), local daily reminders via
+  `UNUserNotificationCenter`, and JSON backup export & import (with replace confirmation).
 
 ### Insight and history
 
@@ -149,7 +151,7 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 - Unified stats computation (`compute_stats` and `compute_today_summary`) lives in `rem-core` as
   the single source of truth for both Desktop and iOS dashboards (global or per-deck scope,
   7/30/90-day ranges, review activity, recall rate, streak, active days, grade distribution, deck
-  breakdown, and 7-day forecast).
+  breakdown, plus 7-day forecast rendered on Desktop).
 - Daily-cap counters are local to each device; review history is included in backup and sync.
 
 ### Data, backup, sync, and billing
@@ -289,10 +291,9 @@ As a solo-maintained project, `rem` already spans five moving surfaces (Tauri de
 
 ### 3. Architectural & test debt to pay down incrementally
 
-- **Shadow TypeScript engine:** Desktop browser/unit tests still run against a parallel TypeScript reimplementation (`DexieStorage`, `BrowserStudySession`, `reviewScheduler.ts`) rather than `rem-core` over Tauri IPC. This creates scheduling/behavior drift risk whenever `rem-core` evolves; avoid adding new domain logic to the TS test adapter and look for ways to collapse or thin it over time.
-- **Duplicated stats computation:** Stats aggregation is implemented twice—once in `src/features/stats/stats.ts` (Desktop) and once in `src-tauri/crates/rem-ffi/src/stats.rs` (iOS). Move shared stats queries into `rem-core` so every surface consumes one implementation.
-- **Thin native boundary test coverage:** `rem-core`, `rem-sync`, `rem-cli`, `sync-server`, and React have strong tests, but `rem-ffi` has no dedicated Rust unit tests, `src-tauri/src/` command glue has minimal test coverage, and `ios/` relies on a single test file (`RemAppTests.swift`) for ~8k LOC of SwiftUI.
-- **Gravity-well files:** Decompose `src/ui/styles.css`, `src-tauri/crates/rem-cli/src/main.rs`, `src/features/settings/SettingsPage.tsx`, `src-tauri/crates/rem-core/src/sync_store.rs`, `src-tauri/crates/rem-ffi/src/lib.rs`, `ios/RemApp/Features/Settings/SettingsView.swift`, and `ios/RemApp/App/AppState.swift` into focused modules as those areas are touched.
+- **Shadow TypeScript engine:** Desktop browser/unit tests still run against a parallel TypeScript reimplementation (`DexieStorage`, `BrowserStudySession`, `reviewScheduler.ts`, `stats.ts`) rather than `rem-core` over Tauri IPC. This creates scheduling/behavior drift risk whenever `rem-core` evolves; avoid adding new domain logic to the TS test adapter and look for ways to collapse or thin it over time.
+- **Thin native boundary test coverage:** `rem-core`, `rem-sync`, `rem-cli`, `rem-ffi`, `sync-server`, and React have strong tests, while `src-tauri/src/` command glue has minimal direct test coverage and `ios/` relies on a single test target (`RemAppTests.swift`) for SwiftUI flows.
+- **Gravity-well files:** Decompose `src/ui/styles.css`, `src/features/settings/SettingsPage.tsx`, `src-tauri/crates/rem-core/src/sync_store.rs`, `src-tauri/crates/rem-ffi/src/lib.rs`, `ios/RemApp/Features/Settings/SettingsView.swift`, and `ios/RemApp/App/AppState.swift` into focused modules as those areas are touched.
 
 ## Future direction
 
@@ -312,32 +313,15 @@ As a solo-maintained project, `rem` already spans five moving surfaces (Tauri de
 **Outcome:** `rem` is publicly available on Desktop, CLI, and the iOS App Store, with trustworthy
 managed Cloud sync, repeatable production operations, and feedback from real daily usage.
 
-### Phase 2 — Sharpen the Developer/Agent Wedge & Core Daily-Driver Parity
+### Phase 2 — Remaining Desktop & iOS Polish (Optional Follow-Ups)
 
-Focus on the highest-leverage improvements to the daily study + agent-capture loop rather than new
-platforms:
+Core Phase 2 parity (Undo/Suspend, provenance + `rem draft review`, FTS5 global search, unified `rem-core` stats, and iOS Custom Study + JSON backup import) is complete. Remaining optional polish items as usage justifies:
 
-1. **Undo (`⌘Z`/`u`) & Suspend in Desktop and `rem study` TUI:** wire `StudySession::undo_last_grade()`
-   and `suspend_current()` through `src-tauri/src/study.rs`, Desktop `ReviewPage`, and `rem-cli`'s
-   `tui.rs` so recovering from a mis-tapped grade works identically everywhere.
-2. **Retain provenance & add terminal draft triage:** preserve `sources` and `rationale` metadata on
-   accepted cards (inspectable during/after review) and add a terminal draft review flow
-   (`rem draft review` / `$EDITOR` handoff) so terminal-first users do not have to leave the CLI to
-   approve agent proposals.
-3. **Global cross-deck search (`⌘K` / iOS search):** add a fast `search_cards` query (backed by
-   SQLite FTS5 or indexed search in `rem-core`) so collections past a couple hundred cards stay
-   instantly navigable.
-4. **Unify stats in `rem-core` & close high-value iOS parity:** move shared stats computation from
-   TS + `rem-ffi` into `rem-core`, and expose `CustomStudyRequest` (`studyAhead`, `increaseNew`,
-   `reviewForgotten`, `previewNew`) and JSON backup import on iOS.
-5. **Desktop habit polish** (as usage justifies): optional desktop native daily reminders and
-   rendering the stored answer-timer setting.
+1. **Desktop habit polish:** optional desktop native daily reminders and rendering the stored answer-timer setting.
+2. **iOS 7-day forecast visualization:** expose `upcoming_7d` from `rem-core` through `rem-ffi`'s `StatsDto` and render it in `StatsView.swift`.
 
 *(Maintainability rule: decompose the gravity-well files noted above incrementally when touching
 those areas, and add boundary tests in `rem-ffi` / `src-tauri` / `ios` alongside new work.)*
-
-**Outcome:** studying, approving agent drafts, searching across decks, and recovering from mistakes
-feel cohesive and fast across desktop, terminal, and iPhone—without duplicating logic across layers.
 
 ### Phase 3 — Cloud Sync v1.1 (Instant Sync & Bounded Startup)
 

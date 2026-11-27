@@ -88,6 +88,7 @@ pub fn requested_command(args: &[OsString]) -> &'static str {
         (Some(group), Some(command)) if group == "sync" && command == "login" => "sync.login",
         (Some(group), Some(command)) if group == "sync" && command == "logout" => "sync.logout",
         (Some(group), _) if group == "sync" => "sync.run",
+        (Some(group), _) if group == "study" => "study",
         _ => "unknown",
     }
 }
@@ -336,9 +337,9 @@ pub struct SearchCardsArgs {
     /// Restrict search to one deck by ID or exact unique name.
     #[arg(long)]
     pub deck: Option<String>,
-    /// Maximum number of results to return (default 50, max 200).
-    #[arg(long, default_value_t = 50)]
-    pub limit: usize,
+    /// Maximum number of results to return (1–200, default 50).
+    #[arg(long, default_value_t = 50, value_parser = clap::value_parser!(u64).range(1..=200))]
+    pub limit: u64,
     /// Select human-readable or versioned machine output.
     #[arg(long, value_enum, default_value_t)]
     pub output: OutputFormat,

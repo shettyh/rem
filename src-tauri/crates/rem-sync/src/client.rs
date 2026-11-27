@@ -87,7 +87,23 @@ pub fn sync_collection_with_options(
 
     for round in 0..MAX_SYNC_ROUNDS {
         let state = collection.sync_state()?;
-        let pending = collection.pending_outbox_ops(batch_size)?;
+        // Atomically claim pending outbox ops as in-flight before Step 1 so concurrent
+        // `undo_last_grade` cannot retract an op after it has been read for this sync round.
+        let pending = collection.claim_pending_outbox_ops(batch_size)?;
+        let in_flight_ids: Vec<String> = pending.iter().map(|op| op.op_id.clone()).collect();
+        struct InFlightGuard<'a> {
+            collection: &'a Collection,
+            op_ids: Vec<String>,
+        }
+        impl Drop for InFlightGuard<'_> {
+            fn drop(&mut self) {
+                self.collection.end_outbox_push(&self.op_ids);
+            }
+        }
+        let _in_flight_guard = InFlightGuard {
+            collection,
+            op_ids: in_flight_ids,
+        };
 
         // Step 1: Upload missing assets referenced by pending outbox ops first.
         if !pending.is_empty() {
@@ -165,6 +181,7 @@ pub fn sync_collection_with_options(
         // Step 3: Commit locally in one SQLite transaction.
         let applied =
             collection.apply_remote_ops(&response.ops, &response.acked_op_ids, cursor_seq)?;
+        drop(_in_flight_guard);
         report.pushed_ops += applied.acked_ops;
         report.pulled_ops += pulled_count;
         report.applied_ops += applied.applied_ops;

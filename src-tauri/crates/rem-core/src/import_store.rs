@@ -124,7 +124,7 @@ impl Collection {
                     suspended: backup_card.suspended,
                     last_again_at: backup_card.last_again_at,
                     scheduling: backup_card.scheduling,
-                    provenance: backup_card.provenance,
+                    provenance: backup_card.provenance.normalize(),
                 };
                 let has_non_initial_sched = card.scheduling.reps > 0
                     || card.scheduling.lapses > 0

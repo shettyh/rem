@@ -141,14 +141,12 @@ export interface CollectionStatsDeck {
   deckColor: string
   reviews: number
   recallRate: number
-  recallRatePercent: number | null
 }
 
 export interface CollectionStats {
   historyCount: number
   totalReviews: number
   recallRate: number | null
-  recallRatePercent: number | null
   currentStreakDays: number
   activeDays: number
   grades: Record<Grade, number>

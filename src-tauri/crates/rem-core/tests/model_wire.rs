@@ -379,6 +379,20 @@ fn sync_ops_match_the_cloud_wire_contract() {
             "cardReview",
         ),
         (
+            SyncOp::CardReviewUndo {
+                card_id: "card-1".into(),
+                deck_id: "deck-1".into(),
+                undone_at: 210,
+                scheduling: FsrsState::initial(100),
+                last_again_at: None,
+                remove_leech_tag: true,
+                restore_suspended: Some(false),
+                removed_review_log_id: Some("log-1".into()),
+                hlc: hlc.into(),
+            },
+            "cardReviewUndo",
+        ),
+        (
             SyncOp::CardDelete {
                 id: "card-1".into(),
                 hlc: hlc.into(),
@@ -393,4 +407,29 @@ fn sync_ops_match_the_cloud_wire_contract() {
         let decoded: SyncOp = serde_json::from_value(encoded).unwrap();
         assert_eq!(decoded, op);
     }
+
+    // Legacy v4 CardCreate (omitting provenance) and null sources deserialize cleanly.
+    let legacy_create: SyncOp = serde_json::from_value(json!({
+        "type": "cardCreate",
+        "id": "c-legacy",
+        "deckId": "d-1",
+        "front": "Q",
+        "back": "A",
+        "tags": [],
+        "createdAt": 100,
+        "initialDue": 100,
+        "hlc": hlc
+    }))
+    .unwrap();
+    assert!(
+        matches!(legacy_create, SyncOp::CardCreate { provenance, .. } if provenance.is_empty())
+    );
+
+    let null_sources: rem_core::CardProvenance = serde_json::from_value(json!({
+        "rationale": "Why",
+        "sources": null,
+        "proposedBy": "agent"
+    }))
+    .unwrap();
+    assert!(null_sources.sources.is_empty());
 }

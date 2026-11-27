@@ -8,7 +8,7 @@ use crate::asset_store::asset_refs;
 use crate::collection::{generate_device_id, write_transaction};
 use crate::hlc::Hlc;
 use crate::review_store::{grade_name, review_log_from_row};
-use crate::store::{bump_sync_revision, card_from_row, deck_exists, deck_from_row};
+use crate::store::{bump_sync_revision, card_from_row, deck_exists, deck_from_row, CARD_COLUMNS};
 use crate::tags::{normalize_card_tags, normalize_user_tags};
 use crate::{
     ApplyRemoteResult, Asset, Card, Collection, CollectionError, Deck, FsrsState, OutboxOp,
@@ -101,9 +101,10 @@ impl Collection {
             "
             DELETE FROM sync_outbox;
             DELETE FROM synced_assets;
+            DELETE FROM review_log_tombstones;
             DELETE FROM sync_meta WHERE key IN ('server_url', 'account_id', 'bootstrapped');
             UPDATE decks SET hlc = '';
-            UPDATE cards SET content_hlc = '', suspended_hlc = '', scheduling_hlc = '';
+            UPDATE cards SET content_hlc = '', suspended_hlc = '', scheduling_hlc = '', leech_hlc = '';
             UPDATE tombstones SET hlc = '';
             ",
         )?;
@@ -119,31 +120,20 @@ impl Collection {
             .connection
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
-        let mut statement = connection.prepare(
-            "SELECT id, op_id, payload_json, created_at
-             FROM sync_outbox
-             ORDER BY id ASC
-             LIMIT ?1",
-        )?;
-        let rows = statement
-            .query_map([limit as i64], |row| {
-                let payload_json: String = row.get(2)?;
-                let payload: SyncOp = serde_json::from_str(&payload_json).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        2,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })?;
-                Ok(OutboxOp {
-                    id: row.get(0)?,
-                    op_id: row.get(1)?,
-                    payload,
-                    created_at: row.get(3)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(rows)
+        read_pending_outbox_ops(&connection, limit)
+    }
+
+    /// Atomically read pending outbox ops and mark them in-flight while holding `connection`
+    /// so concurrent `undo_last_grade` cannot retract an op after it has been read for push.
+    pub fn claim_pending_outbox_ops(&self, limit: usize) -> Result<Vec<OutboxOp>, CollectionError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| CollectionError::Poisoned)?;
+        let ops = read_pending_outbox_ops(&connection, limit)?;
+        let ids: Vec<String> = ops.iter().map(|op| op.op_id.clone()).collect();
+        self.begin_outbox_push(&ids);
+        Ok(ops)
     }
 
     pub fn pending_outbox_count(&self) -> Result<u64, CollectionError> {
@@ -481,7 +471,8 @@ fn apply_one_remote_op(
             let scheduling = FsrsState::initial(*initial_due);
             let tags_json = serde_json::to_string(&normalized_tags)?;
             let scheduling_json = serde_json::to_string(&scheduling)?;
-            let sources_json = serde_json::to_string(&provenance.sources)?;
+            let normalized_provenance = provenance.clone().normalize();
+            let sources_json = serde_json::to_string(&normalized_provenance.sources)?;
             let updated_at = (*created_at).max(wall_ms);
             transaction.execute(
                 "INSERT INTO cards(
@@ -501,9 +492,9 @@ fn apply_one_remote_op(
                     scheduling_json,
                     scheduling.due,
                     hlc,
-                    provenance.rationale,
+                    normalized_provenance.rationale,
                     sources_json,
-                    provenance.proposed_by,
+                    normalized_provenance.proposed_by,
                 ],
             )?;
             Ok(true)
@@ -518,7 +509,10 @@ fn apply_one_remote_op(
             if is_tombstoned(transaction, id)? {
                 return Ok(false);
             }
-            let Some((card, content_hlc, _, _)) = find_card_with_hlcs(transaction, id)? else {
+            let Some(CardWithHlcs {
+                card, content_hlc, ..
+            }) = find_card_with_hlcs(transaction, id)?
+            else {
                 return Ok(false);
             };
             if is_tombstoned(transaction, &card.deck_id)? {
@@ -527,12 +521,9 @@ fn apply_one_remote_op(
             if hlc.as_str() <= content_hlc.as_str() {
                 return Ok(false);
             }
-            // Preserve the system `leech` tag if already present on the card so concurrent
-            // content edits and leech lapses commute regardless of arrival order.
-            let has_leech = card.tags.iter().any(|tag| tag == "leech")
-                || tags
-                    .iter()
-                    .any(|tag| tag.trim().eq_ignore_ascii_case("leech"));
+            // Preserve the system `leech` tag strictly from local card state (never from incoming
+            // CardContentPatch tags) so user edits cannot resurrect a leech tag undone by CardReviewUndo.
+            let has_leech = card.tags.iter().any(|tag| tag == "leech");
             let mut merged_tags = normalize_user_tags(tags);
             if has_leech {
                 merged_tags.insert(0, "leech".into());
@@ -555,7 +546,12 @@ fn apply_one_remote_op(
             if is_tombstoned(transaction, id)? {
                 return Ok(false);
             }
-            let Some((card, _, suspended_hlc, _)) = find_card_with_hlcs(transaction, id)? else {
+            let Some(CardWithHlcs {
+                card,
+                suspended_hlc,
+                ..
+            }) = find_card_with_hlcs(transaction, id)?
+            else {
                 return Ok(false);
             };
             if is_tombstoned(transaction, &card.deck_id)? {
@@ -590,8 +586,13 @@ fn apply_one_remote_op(
             if is_tombstoned(transaction, card_id)? || is_tombstoned(transaction, deck_id)? {
                 return Ok(false);
             }
-            let Some((mut card, _, mut suspended_hlc, scheduling_hlc)) =
-                find_card_with_hlcs(transaction, card_id)?
+            let Some(CardWithHlcs {
+                mut card,
+                mut suspended_hlc,
+                scheduling_hlc,
+                mut leech_hlc,
+                ..
+            }) = find_card_with_hlcs(transaction, card_id)?
             else {
                 return Ok(false);
             };
@@ -601,33 +602,44 @@ fn apply_one_remote_op(
 
             let mut changed = false;
 
-            // 1. Immutable FSRS training logs are unioned regardless of scheduling winner.
+            // 1. Immutable FSRS training logs are unioned unless tombstoned by an undo.
             if let (Some(log_id), Some(grade)) = (review_log_id, grade) {
-                let inserted = transaction.execute(
-                    "INSERT OR IGNORE INTO review_logs(id, deck_id, card_id, reviewed_at, grade)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![log_id, deck_id, card_id, reviewed_at, grade_name(*grade)],
+                let tombstoned: bool = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM review_log_tombstones WHERE id = ?1)",
+                    [log_id],
+                    |row| row.get(0),
                 )?;
-                if inserted > 0 {
-                    changed = true;
+                if !tombstoned {
+                    let inserted = transaction.execute(
+                        "INSERT OR IGNORE INTO review_logs(id, deck_id, card_id, reviewed_at, grade)
+                         VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![log_id, deck_id, card_id, reviewed_at, grade_name(*grade)],
+                    )?;
+                    if inserted > 0 {
+                        changed = true;
+                    }
                 }
             }
 
-            // 2. Scheduling converges deterministically by (reps, hlc).
+            // 2. Scheduling, leech-tag, and suspension each converge via their own independent
+            // HLC LWW register so arbitrary interleavings of CardReview, CardReviewUndo, and
+            // CardContentPatch form a true join-semilattice.
             let mut card_row_dirty = false;
             let mut next_scheduling_hlc = scheduling_hlc.clone();
-            if (scheduling.reps, hlc.as_str()) > (card.scheduling.reps, scheduling_hlc.as_str()) {
+            if hlc.as_str() > scheduling_hlc.as_str() {
                 card.scheduling = scheduling.clone();
                 card.last_again_at = *last_again_at;
                 card.updated_at = card.updated_at.max(*reviewed_at).max(wall_ms);
                 next_scheduling_hlc = hlc.clone();
                 card_row_dirty = true;
             }
-
-            // Leech effects are monotonic/HLC-guarded so concurrent reviews & unsuspends commute.
-            if *leech_tag_added && !card.tags.iter().any(|tag| tag == "leech") {
-                card.tags.push("leech".into());
-                card.tags = normalize_card_tags(card.tags);
+            if *leech_tag_added && hlc.as_str() > leech_hlc.as_str() {
+                if !card.tags.iter().any(|tag| tag == "leech") {
+                    card.tags.push("leech".into());
+                    card.tags = normalize_card_tags(card.tags);
+                }
+                leech_hlc = hlc.clone();
+                card.updated_at = card.updated_at.max(*reviewed_at).max(wall_ms);
                 card_row_dirty = true;
             }
             if *leech_suspended && hlc.as_str() > suspended_hlc.as_str() {
@@ -650,6 +662,7 @@ fn apply_one_remote_op(
                         due = ?7,
                         suspended_hlc = ?8,
                         scheduling_hlc = ?9,
+                        leech_hlc = ?10,
                         local_revision = local_revision + 1
                      WHERE id = ?1",
                     params![
@@ -662,6 +675,106 @@ fn apply_one_remote_op(
                         card.scheduling.due,
                         suspended_hlc,
                         next_scheduling_hlc,
+                        leech_hlc,
+                    ],
+                )?;
+                changed = true;
+            }
+
+            Ok(changed)
+        }
+        SyncOp::CardReviewUndo {
+            card_id,
+            deck_id,
+            undone_at,
+            scheduling,
+            last_again_at,
+            remove_leech_tag,
+            restore_suspended,
+            removed_review_log_id,
+            hlc,
+        } => {
+            if is_tombstoned(transaction, card_id)? || is_tombstoned(transaction, deck_id)? {
+                return Ok(false);
+            }
+            let Some(CardWithHlcs {
+                mut card,
+                mut suspended_hlc,
+                mut scheduling_hlc,
+                mut leech_hlc,
+                ..
+            }) = find_card_with_hlcs(transaction, card_id)?
+            else {
+                return Ok(false);
+            };
+            if card.deck_id != *deck_id {
+                return Ok(false);
+            }
+
+            let mut changed = false;
+            if let Some(log_id) = removed_review_log_id {
+                let tombstoned = transaction.execute(
+                    "INSERT OR IGNORE INTO review_log_tombstones(id, deleted_at)
+                     VALUES (?1, ?2)",
+                    params![log_id, undone_at],
+                )?;
+                let deleted =
+                    transaction.execute("DELETE FROM review_logs WHERE id = ?1", [log_id])?;
+                if tombstoned > 0 || deleted > 0 {
+                    changed = true;
+                }
+            }
+
+            let mut card_row_dirty = false;
+            if hlc.as_str() > scheduling_hlc.as_str() {
+                card.scheduling = scheduling.clone();
+                card.last_again_at = *last_again_at;
+                card.updated_at = card.updated_at.max(*undone_at).max(wall_ms);
+                scheduling_hlc = hlc.clone();
+                card_row_dirty = true;
+            }
+            if *remove_leech_tag && hlc.as_str() > leech_hlc.as_str() {
+                card.tags.retain(|tag| tag != "leech");
+                leech_hlc = hlc.clone();
+                card.updated_at = card.updated_at.max(*undone_at).max(wall_ms);
+                card_row_dirty = true;
+            }
+            if let Some(suspended) = restore_suspended {
+                if hlc.as_str() > suspended_hlc.as_str() {
+                    card.suspended = *suspended;
+                    card.updated_at = card.updated_at.max(*undone_at).max(wall_ms);
+                    suspended_hlc = hlc.clone();
+                    card_row_dirty = true;
+                }
+            }
+
+            if card_row_dirty {
+                let tags_json = serde_json::to_string(&card.tags)?;
+                let scheduling_json = serde_json::to_string(&card.scheduling)?;
+                transaction.execute(
+                    "UPDATE cards SET
+                        updated_at = ?2,
+                        tags_json = ?3,
+                        suspended = ?4,
+                        last_again_at = ?5,
+                        scheduling_json = ?6,
+                        due = ?7,
+                        suspended_hlc = ?8,
+                        scheduling_hlc = ?9,
+                        leech_hlc = ?10,
+                        local_revision = local_revision + 1
+                     WHERE id = ?1",
+                    params![
+                        card.id,
+                        card.updated_at,
+                        tags_json,
+                        card.suspended,
+                        card.last_again_at,
+                        scheduling_json,
+                        card.scheduling.due,
+                        suspended_hlc,
+                        scheduling_hlc,
+                        leech_hlc,
                     ],
                 )?;
                 changed = true;
@@ -733,13 +846,11 @@ fn enqueue_bootstrap_for_collection(
 
     // 2. Cards (+ suspension + review logs / scheduling)
     let cards: Vec<(Card, String, String, String)> = {
-        let mut statement = transaction.prepare(
-            "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                    suspended, last_again_at, scheduling_json, due,
-                    rationale, sources_json, proposed_by,
-                    content_hlc, suspended_hlc, scheduling_hlc
-             FROM cards ORDER BY created_at, rowid",
-        )?;
+        let sql = format!(
+            "SELECT {CARD_COLUMNS}, content_hlc, suspended_hlc, scheduling_hlc
+             FROM cards ORDER BY created_at, rowid"
+        );
+        let mut statement = transaction.prepare(&sql)?;
         let rows = statement
             .query_map([], |row| {
                 Ok((
@@ -996,26 +1107,64 @@ fn enqueue_bootstrap_for_collection(
     Ok(enqueued)
 }
 
+fn read_pending_outbox_ops(
+    connection: &rusqlite::Connection,
+    limit: usize,
+) -> Result<Vec<OutboxOp>, CollectionError> {
+    let mut statement = connection.prepare(
+        "SELECT id, op_id, payload_json, created_at
+         FROM sync_outbox
+         ORDER BY id ASC
+         LIMIT ?1",
+    )?;
+    let rows = statement
+        .query_map([limit as i64], |row| {
+            let payload_json: String = row.get(2)?;
+            let payload: SyncOp = serde_json::from_str(&payload_json).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    2,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })?;
+            Ok(OutboxOp {
+                id: row.get(0)?,
+                op_id: row.get(1)?,
+                payload,
+                created_at: row.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+struct CardWithHlcs {
+    card: Card,
+    content_hlc: String,
+    suspended_hlc: String,
+    scheduling_hlc: String,
+    leech_hlc: String,
+}
+
 fn find_card_with_hlcs(
     transaction: &Transaction<'_>,
     id: &str,
-) -> rusqlite::Result<Option<(Card, String, String, String)>> {
-    let mut statement = transaction.prepare(
-        "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                suspended, last_again_at, scheduling_json, due,
-                rationale, sources_json, proposed_by,
-                content_hlc, suspended_hlc, scheduling_hlc
-         FROM cards WHERE id = ?1",
-    )?;
+) -> rusqlite::Result<Option<CardWithHlcs>> {
+    let sql = format!(
+        "SELECT {CARD_COLUMNS}, content_hlc, suspended_hlc, scheduling_hlc, leech_hlc
+         FROM cards WHERE id = ?1"
+    );
+    let mut statement = transaction.prepare(&sql)?;
     let mut rows = statement.query([id])?;
     rows.next()?
         .map(|row| {
-            Ok((
-                card_from_row(row)?,
-                row.get("content_hlc")?,
-                row.get("suspended_hlc")?,
-                row.get("scheduling_hlc")?,
-            ))
+            Ok(CardWithHlcs {
+                card: card_from_row(row)?,
+                content_hlc: row.get("content_hlc")?,
+                suspended_hlc: row.get("suspended_hlc")?,
+                scheduling_hlc: row.get("scheduling_hlc")?,
+                leech_hlc: row.get("leech_hlc")?,
+            })
         })
         .transpose()
 }

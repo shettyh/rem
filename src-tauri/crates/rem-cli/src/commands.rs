@@ -1,12 +1,13 @@
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use rem_core::{
     normalize_user_tags, Card, CardDraft, CardSearchHit, Collection, CreateCardsResult,
     DraftProposalOutcome, DraftSource, DuplicatePolicy, NewCardInput, NewDraftInput,
     ProposalMetadata, ProposalMode,
 };
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{AddCardArgs, AddDraftArgs, OutputFormat, SearchCardsArgs};
@@ -21,6 +22,21 @@ struct DeckListData {
 }
 
 #[derive(Deserialize)]
+#[serde(untagged)]
+enum OneOrMany<T> {
+    One(T),
+    Many(Vec<T>),
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct JsonDraftSource {
+    locator: String,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct JsonCardInput {
     front: String,
@@ -28,13 +44,6 @@ struct JsonCardInput {
     back: String,
     #[serde(default)]
     tags: Vec<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum JsonCardInputs {
-    One(JsonCardInput),
-    Many(Vec<JsonCardInput>),
 }
 
 #[derive(Deserialize)]
@@ -48,19 +57,12 @@ struct JsonDraftInput {
     #[serde(default)]
     rationale: Option<String>,
     #[serde(default)]
-    sources: Vec<DraftSource>,
-}
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum JsonDraftInputs {
-    One(JsonDraftInput),
-    Many(Vec<JsonDraftInput>),
+    sources: Vec<JsonDraftSource>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CardOutcome {
+struct ItemOutcome {
     #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<String>,
     status: &'static str,
@@ -71,15 +73,7 @@ struct CardOutcome {
 struct CardAddData {
     deck: DeckSummary,
     dry_run: bool,
-    cards: Vec<CardOutcome>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DraftOutcome {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<String>,
-    status: &'static str,
+    cards: Vec<ItemOutcome>,
 }
 
 #[derive(Serialize)]
@@ -87,7 +81,7 @@ struct DraftOutcome {
 struct DraftAddData {
     deck: DeckSummary,
     dry_run: bool,
-    drafts: Vec<DraftOutcome>,
+    drafts: Vec<ItemOutcome>,
 }
 
 #[derive(Serialize)]
@@ -130,17 +124,8 @@ pub fn add_card(collection: &Collection, args: AddCardArgs) -> Result<(), CliErr
     let inputs = if let Some(path) = args.input_json {
         read_json_cards(&path)?
     } else {
-        let front = match (args.front, args.front_file) {
-            (Some(front), None) => front,
-            (None, Some(path)) => read_markdown(&path, "front")?,
-            _ => unreachable!("clap enforces exactly one front source"),
-        };
-        let back = match (args.back, args.back_file) {
-            (Some(back), None) => back,
-            (None, Some(path)) => read_markdown(&path, "back")?,
-            (None, None) => String::new(),
-            _ => unreachable!("clap prevents multiple back sources"),
-        };
+        let (front, back) =
+            resolve_front_back(args.front, args.front_file, args.back, args.back_file)?;
         vec![NewCardInput {
             front,
             back,
@@ -189,7 +174,7 @@ pub fn search_cards(collection: &Collection, args: SearchCardsArgs) -> Result<()
         Some(reference) => Some(resolve_deck(collection, &reference)?.id),
         None => None,
     };
-    let hits = collection.search_cards(&args.query, deck_id.as_deref(), args.limit)?;
+    let hits = collection.search_cards(&args.query, deck_id.as_deref(), args.limit as usize)?;
     match args.output {
         OutputFormat::Text if hits.is_empty() => println!("No matching cards."),
         OutputFormat::Text => {
@@ -212,17 +197,8 @@ pub fn add_draft(collection: &Collection, args: AddDraftArgs) -> Result<(), CliE
     let inputs = if let Some(path) = args.input_json {
         read_json_drafts(&path)?
     } else {
-        let front = match (args.front, args.front_file) {
-            (Some(front), None) => front,
-            (None, Some(path)) => read_markdown(&path, "front")?,
-            _ => unreachable!("clap enforces exactly one front source"),
-        };
-        let back = match (args.back, args.back_file) {
-            (Some(back), None) => back,
-            (None, Some(path)) => read_markdown(&path, "back")?,
-            (None, None) => String::new(),
-            _ => unreachable!("clap prevents multiple back sources"),
-        };
+        let (front, back) =
+            resolve_front_back(args.front, args.front_file, args.back, args.back_file)?;
         vec![NewDraftInput {
             front,
             back,
@@ -261,7 +237,7 @@ pub fn add_draft(collection: &Collection, args: AddDraftArgs) -> Result<(), CliE
         .outcomes
         .into_iter()
         .map(|outcome| match outcome {
-            DraftProposalOutcome::Created(draft) => DraftOutcome {
+            DraftProposalOutcome::Created(draft) => ItemOutcome {
                 id: (!args.dry_run).then_some(draft.id),
                 status: if args.dry_run {
                     "wouldCreate"
@@ -269,11 +245,11 @@ pub fn add_draft(collection: &Collection, args: AddDraftArgs) -> Result<(), CliE
                     "created"
                 },
             },
-            DraftProposalOutcome::DuplicateDraft(draft) => DraftOutcome {
+            DraftProposalOutcome::DuplicateDraft(draft) => ItemOutcome {
                 id: existing_draft_ids.contains(&draft.id).then_some(draft.id),
                 status: "duplicateDraft",
             },
-            DraftProposalOutcome::DuplicateCard(card) => DraftOutcome {
+            DraftProposalOutcome::DuplicateCard(card) => ItemOutcome {
                 id: Some(card.id),
                 status: "duplicateCard",
             },
@@ -328,7 +304,7 @@ fn ordered_outcomes(
     inputs: &[NewCardInput],
     result: CreateCardsResult,
     dry_run: bool,
-) -> Result<Vec<CardOutcome>, CliError> {
+) -> Result<Vec<ItemOutcome>, CliError> {
     let mut created = result.created.into_iter().map(Some).collect::<Vec<_>>();
     let mut duplicates = result.duplicates.into_iter().map(Some).collect::<Vec<_>>();
     let mut outcomes = Vec::with_capacity(inputs.len());
@@ -339,7 +315,7 @@ fn ordered_outcomes(
                 .is_some_and(|card| matches_input(card, input, &tags))
         }) {
             let card = created[index].take().expect("matched created card");
-            outcomes.push(CardOutcome {
+            outcomes.push(ItemOutcome {
                 id: (!dry_run).then_some(card.id),
                 status: if dry_run { "wouldCreate" } else { "created" },
             });
@@ -358,7 +334,7 @@ fn ordered_outcomes(
         } else {
             Some(card.id)
         };
-        outcomes.push(CardOutcome {
+        outcomes.push(ItemOutcome {
             id,
             status: "duplicate",
         });
@@ -366,8 +342,45 @@ fn ordered_outcomes(
     Ok(outcomes)
 }
 
+fn resolve_front_back(
+    front: Option<String>,
+    front_file: Option<PathBuf>,
+    back: Option<String>,
+    back_file: Option<PathBuf>,
+) -> Result<(String, String), CliError> {
+    let front = match (front, front_file) {
+        (Some(front), None) => front,
+        (None, Some(path)) => read_markdown(&path, "front")?,
+        _ => unreachable!("clap enforces exactly one front source"),
+    };
+    let back = match (back, back_file) {
+        (Some(back), None) => back,
+        (None, Some(path)) => read_markdown(&path, "back")?,
+        (None, None) => String::new(),
+        _ => unreachable!("clap prevents multiple back sources"),
+    };
+    Ok((front, back))
+}
+
 fn matches_input(card: &Card, input: &NewCardInput, normalized_tags: &[String]) -> bool {
     card.front == input.front && card.back == input.back && card.tags == normalized_tags
+}
+
+fn read_json_items<T: DeserializeOwned>(path: &Path, kind: &str) -> Result<Vec<T>, CliError> {
+    let contents = read_json_source(path)?;
+    let inputs = serde_json::from_str::<OneOrMany<T>>(&contents)
+        .map_err(|error| input_error("invalid_json", format!("invalid {kind} JSON: {error}")))?;
+    let items = match inputs {
+        OneOrMany::One(item) => vec![item],
+        OneOrMany::Many(items) => items,
+    };
+    if items.is_empty() {
+        return Err(input_error(
+            "invalid_input",
+            format!("{kind} JSON must contain at least one {kind}"),
+        ));
+    }
+    Ok(items)
 }
 
 fn read_json_source(path: &Path) -> Result<String, CliError> {
@@ -393,20 +406,7 @@ fn read_json_source(path: &Path) -> Result<String, CliError> {
 }
 
 fn read_json_cards(path: &Path) -> Result<Vec<NewCardInput>, CliError> {
-    let contents = read_json_source(path)?;
-    let inputs = serde_json::from_str::<JsonCardInputs>(&contents)
-        .map_err(|error| input_error("invalid_json", format!("invalid card JSON: {error}")))?;
-    let inputs = match inputs {
-        JsonCardInputs::One(card) => vec![card],
-        JsonCardInputs::Many(cards) => cards,
-    };
-    if inputs.is_empty() {
-        return Err(input_error(
-            "invalid_input",
-            "card JSON must contain at least one card".into(),
-        ));
-    }
-    Ok(inputs
+    Ok(read_json_items::<JsonCardInput>(path, "card")?
         .into_iter()
         .map(|card| NewCardInput {
             front: card.front,
@@ -417,27 +417,21 @@ fn read_json_cards(path: &Path) -> Result<Vec<NewCardInput>, CliError> {
 }
 
 fn read_json_drafts(path: &Path) -> Result<Vec<NewDraftInput>, CliError> {
-    let contents = read_json_source(path)?;
-    let inputs = serde_json::from_str::<JsonDraftInputs>(&contents)
-        .map_err(|error| input_error("invalid_json", format!("invalid draft JSON: {error}")))?;
-    let inputs = match inputs {
-        JsonDraftInputs::One(draft) => vec![draft],
-        JsonDraftInputs::Many(drafts) => drafts,
-    };
-    if inputs.is_empty() {
-        return Err(input_error(
-            "invalid_input",
-            "draft JSON must contain at least one draft".into(),
-        ));
-    }
-    Ok(inputs
+    Ok(read_json_items::<JsonDraftInput>(path, "draft")?
         .into_iter()
         .map(|draft| NewDraftInput {
             front: draft.front,
             back: draft.back,
             tags: draft.tags,
             rationale: draft.rationale,
-            sources: draft.sources,
+            sources: draft
+                .sources
+                .into_iter()
+                .map(|source| DraftSource {
+                    locator: source.locator,
+                    label: source.label,
+                })
+                .collect(),
         })
         .collect())
 }

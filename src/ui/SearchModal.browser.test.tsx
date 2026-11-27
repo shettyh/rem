@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { test, expect } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { useParams } from 'react-router-dom'
@@ -7,6 +8,19 @@ import { renderRoute } from '../test/renderRoute'
 function EditorRouteStub() {
   const { deckId, cardId } = useParams()
   return <div data-testid="card-editor-route">{`${deckId}/${cardId}`}</div>
+}
+
+function EscapeListenerHost() {
+  const [escaped, setEscaped] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if (e.key === 'Escape') setEscaped(true)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  return <div data-testid="escape-host">{escaped ? 'ESCAPED' : 'STILL_HERE'}</div>
 }
 
 test('global search opens via sidebar button, finds cards across decks, and navigates to edit', async () => {
@@ -46,4 +60,46 @@ test('global search opens via sidebar button, finds cards across decks, and navi
 
   await page.getByText('What does Pin<P> guarantee?').click()
   await expect.element(page.getByTestId('card-editor-route')).toHaveTextContent(`${rust.id}/${target.id}`)
+})
+
+test('Cmd+K opens search, arrow keys + Enter navigate, and Escape does not leak to window listeners', async () => {
+  const storage = freshStorage()
+  const rust = await storage.createDeck('Rust')
+  const first = await storage.createCard(rust.id, 'Alpha memory question', 'A1')
+  const second = await storage.createCard(rust.id, 'Beta memory question', 'A2')
+
+  await renderRoute({
+    storage,
+    entry: '/',
+    path: '/',
+    element: <EscapeListenerHost />,
+    extraRoutes: [
+      {
+        path: '/decks/:deckId/cards/:cardId/edit',
+        element: <EditorRouteStub />,
+      },
+    ],
+  })
+
+  await expect.element(page.getByTestId('escape-host')).toHaveTextContent('STILL_HERE')
+
+  // Open via Ctrl+K, then Escape must close modal without triggering underlying Escape listener.
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))
+  const input = page.getByRole('searchbox', { name: 'Search all cards' })
+  await expect.element(input).toBeVisible()
+
+  await userEvent.keyboard('{Escape}')
+  await expect.element(input).not.toBeInTheDocument()
+  await expect.element(page.getByTestId('escape-host')).toHaveTextContent('STILL_HERE')
+
+  // Reopen via Ctrl+K, search, move selection with ArrowDown, and open with Enter.
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))
+  await expect.element(input).toBeVisible()
+  await userEvent.type(input.element(), 'memory')
+  await expect.element(page.getByText('Alpha memory question')).toBeVisible()
+  await expect.element(page.getByText('Beta memory question')).toBeVisible()
+
+  await userEvent.keyboard('{ArrowDown}{Enter}')
+  const route = await page.getByTestId('card-editor-route').element().textContent
+  expect([`${rust.id}/${first.id}`, `${rust.id}/${second.id}`]).toContain(route)
 })

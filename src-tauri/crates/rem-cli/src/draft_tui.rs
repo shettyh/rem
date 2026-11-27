@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 
 use ratatui::{
@@ -12,7 +13,7 @@ use rem_core::{
 };
 
 use crate::editor::{format_draft_for_editor, parse_draft_from_editor};
-use crate::tui::{markdown_lines, provenance_lines, section_label};
+use crate::tui::{markdown_lines, provenance_lines, section_label, wrapped_line_count};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DraftEditState {
@@ -65,9 +66,11 @@ pub struct DraftApp {
     deck_names: HashMap<String, String>,
     scope_label: String,
     drafts: Vec<CardDraft>,
+    edits: HashMap<String, DraftEditState>,
     edit: Option<DraftEditState>,
     revealed: bool,
     scroll: u16,
+    max_scroll: Cell<u16>,
     accepted: usize,
     existing: usize,
     rejected: usize,
@@ -98,9 +101,11 @@ impl DraftApp {
             deck_names,
             scope_label,
             drafts,
+            edits: HashMap::new(),
             edit,
             revealed: false,
             scroll: 0,
+            max_scroll: Cell::new(u16::MAX),
             accepted: 0,
             existing: 0,
             rejected: 0,
@@ -155,11 +160,19 @@ impl DraftApp {
 
     pub fn format_current_for_editor(&self) -> Option<String> {
         let edit = self.edit.as_ref()?;
-        let deck_label = self
-            .deck_names
-            .get(&edit.deck_id)
-            .map(String::as_str)
-            .unwrap_or(&edit.deck_id);
+        let deck_label = match self.deck_names.get(&edit.deck_id) {
+            Some(name)
+                if self
+                    .deck_names
+                    .values()
+                    .filter(|candidate| candidate.as_str() == name.as_str())
+                    .count()
+                    == 1 =>
+            {
+                name.as_str()
+            }
+            _ => edit.deck_id.as_str(),
+        };
         Some(format_draft_for_editor(
             deck_label,
             &edit.tags,
@@ -185,12 +198,16 @@ impl DraftApp {
                     },
                     None => current_deck_id,
                 };
-                self.edit = Some(DraftEditState {
+                let next_edit = DraftEditState {
                     deck_id: resolved_deck_id,
                     front: parsed.front,
                     back: parsed.back,
                     tags: parsed.tags,
-                });
+                };
+                if let Some(draft) = self.drafts.first() {
+                    self.edits.insert(draft.id.clone(), next_edit.clone());
+                }
+                self.edit = Some(next_edit);
                 self.revealed = true;
                 self.scroll = 0;
                 self.status_message = Some("Draft updated in memory. Press a to accept.".into());
@@ -231,7 +248,10 @@ impl DraftApp {
         match input {
             DraftInput::Quit => return Ok(DraftControl::Quit),
             DraftInput::ScrollUp => self.scroll = self.scroll.saturating_sub(1),
-            DraftInput::ScrollDown => self.scroll = self.scroll.saturating_add(1),
+            DraftInput::ScrollDown => {
+                let limit = self.max_scroll.get();
+                self.scroll = self.scroll.saturating_add(1).min(limit);
+            }
             DraftInput::Reveal if self.current().is_some() && !self.revealed => {
                 self.revealed = true;
                 self.status_message = None;
@@ -242,6 +262,9 @@ impl DraftApp {
             }
             DraftInput::Skip if self.drafts.len() > 1 => {
                 let skipped = self.drafts.remove(0);
+                if let Some(edit) = self.edit.take() {
+                    self.edits.insert(skipped.id.clone(), edit);
+                }
                 self.drafts.push(skipped);
                 self.load_head();
                 self.status_message = Some("Skipped draft for now.".into());
@@ -263,25 +286,26 @@ impl DraftApp {
                 match collection.resolve_draft(&draft.id, draft.revision, decision, now) {
                     Ok(DraftResolution::Accepted(_)) => {
                         self.accepted += 1;
-                        self.drafts.remove(0);
-                        self.load_head();
+                        self.remove_head();
                         self.status_message =
                             Some("Accepted into due cards with provenance.".into());
                     }
                     Ok(DraftResolution::ExistingCard(_)) => {
                         self.existing += 1;
-                        self.drafts.remove(0);
-                        self.load_head();
+                        self.remove_head();
                         self.status_message =
                             Some("Matching card already exists; cleared duplicate draft.".into());
                     }
                     Ok(DraftResolution::Rejected) => {
-                        self.drafts.remove(0);
-                        self.load_head();
+                        self.remove_head();
+                    }
+                    Err(CollectionError::NotFound { kind: "deck", .. }) => {
+                        self.status_message = Some(
+                            "Target deck no longer exists; press e to pick another deck.".into(),
+                        );
                     }
                     Err(CollectionError::Conflict { .. } | CollectionError::NotFound { .. }) => {
-                        self.drafts.remove(0);
-                        self.load_head();
+                        self.remove_head();
                         self.status_message = Some(
                             "Draft changed or was already resolved elsewhere; skipped.".into(),
                         );
@@ -302,13 +326,11 @@ impl DraftApp {
                 ) {
                     Ok(_) => {
                         self.rejected += 1;
-                        self.drafts.remove(0);
-                        self.load_head();
+                        self.remove_head();
                         self.status_message = Some("Draft rejected.".into());
                     }
                     Err(CollectionError::Conflict { .. } | CollectionError::NotFound { .. }) => {
-                        self.drafts.remove(0);
-                        self.load_head();
+                        self.remove_head();
                         self.status_message = Some(
                             "Draft changed or was already resolved elsewhere; skipped.".into(),
                         );
@@ -325,10 +347,24 @@ impl DraftApp {
         Ok(DraftControl::Continue)
     }
 
+    fn remove_head(&mut self) {
+        if !self.drafts.is_empty() {
+            let removed = self.drafts.remove(0);
+            self.edits.remove(&removed.id);
+        }
+        self.load_head();
+    }
+
     fn load_head(&mut self) {
-        self.edit = self.drafts.first().map(DraftEditState::from_draft);
+        self.edit = self.drafts.first().map(|draft| {
+            self.edits
+                .get(&draft.id)
+                .cloned()
+                .unwrap_or_else(|| DraftEditState::from_draft(draft))
+        });
         self.revealed = false;
         self.scroll = 0;
+        self.max_scroll.set(u16::MAX);
     }
 }
 
@@ -382,10 +418,15 @@ pub fn draw_draft(frame: &mut Frame<'_>, app: &DraftApp) {
         areas[0],
     );
 
+    let lines = draft_content_lines(app);
+    let max_scroll = wrapped_line_count(&lines, areas[1].width)
+        .saturating_sub(areas[1].height as usize)
+        .min(u16::MAX as usize) as u16;
+    app.max_scroll.set(max_scroll);
     frame.render_widget(
-        Paragraph::new(draft_content_lines(app))
-            .scroll((app.scroll, 0))
-            .wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((app.scroll.min(max_scroll), 0)),
         areas[1],
     );
 

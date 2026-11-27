@@ -38,6 +38,7 @@ export function Layout() {
         e.preventDefault()
         setSidebarCollapsed(!getSidebarCollapsed())
       } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        if (document.querySelector('dialog[open]')) return
         e.preventDefault()
         setSearchOpen((prev) => !prev)
       }

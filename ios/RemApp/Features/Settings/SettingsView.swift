@@ -121,7 +121,11 @@ struct SettingsView: View {
             } message: {
                 if let preview = pendingBackupImport?.preview {
                     let names = preview.replaced.joined(separator: ", ")
-                    Text("Importing will replace existing deck(s): \(names). New decks (\(preview.added.count)) will be added alongside them.")
+                    if preview.added.isEmpty {
+                        Text("Importing will replace existing deck(s): \(names).")
+                    } else {
+                        Text("Importing will replace existing deck(s): \(names). New decks (\(preview.added.count)) will be added alongside them.")
+                    }
                 }
             }
         }
@@ -549,13 +553,18 @@ struct SettingsView: View {
                 showBackupImporter = true
             } label: {
                 HStack {
-                    Text("Import backup")
-                        .foregroundStyle(RemColor.text)
+                    Text(appState.isImportingBackup ? "Importing backup…" : "Import backup (JSON)")
+                        .foregroundStyle(appState.isImportingBackup ? RemColor.muted : RemColor.text)
                     Spacer()
-                    Image(systemName: "square.and.arrow.down")
-                        .foregroundStyle(RemColor.muted)
+                    if appState.isImportingBackup {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "square.and.arrow.down")
+                            .foregroundStyle(RemColor.muted)
+                    }
                 }
             }
+            .disabled(appState.isImportingBackup)
         }
         .listRowBackground(RemColor.surface)
         .listRowSeparatorTint(RemColor.border)

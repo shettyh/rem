@@ -100,9 +100,13 @@ export function ReviewPage() {
     try {
       const next = await storage.advanceStudyPreview(sessionId)
       setView(next)
+      setActionNotice(null)
       if (next.current === null) {
         setSessionStats((prev) => ({ ...prev, elapsedMs: Date.now() - sessionStartRef.current }))
       }
+    } catch (err: unknown) {
+      console.error('advance preview failed', err)
+      setActionNotice('Could not advance preview.')
     } finally {
       gradingRef.current = false
     }
@@ -127,6 +131,9 @@ export function ReviewPage() {
             elapsedMs: Date.now() - sessionStartRef.current,
           }))
         }
+      } catch (err: unknown) {
+        console.error('study grade failed', err)
+        setActionNotice('Could not record grade.')
       } finally {
         gradingRef.current = false
       }
@@ -153,6 +160,11 @@ export function ReviewPage() {
           elapsedMs: Date.now() - sessionStartRef.current,
         }))
       }
+    } catch (err: unknown) {
+      console.error('study undo failed', err)
+      lastGradedGradeRef.current = null
+      setView((prev) => (prev ? { ...prev, canUndo: false } : prev))
+      setActionNotice('Could not undo last grade.')
     } finally {
       gradingRef.current = false
     }
@@ -164,6 +176,7 @@ export function ReviewPage() {
     gradingRef.current = true
     try {
       const nextView = await storage.suspendStudyCard(sessionId)
+      lastGradedGradeRef.current = null
       setView(nextView)
       setSchedError(false)
       setConflictNotice(false)
@@ -171,6 +184,9 @@ export function ReviewPage() {
       if (nextView.current === null) {
         setSessionStats((prev) => ({ ...prev, elapsedMs: Date.now() - sessionStartRef.current }))
       }
+    } catch (err: unknown) {
+      console.error('study suspend failed', err)
+      setActionNotice('Could not suspend card.')
     } finally {
       gradingRef.current = false
     }
@@ -186,41 +202,49 @@ export function ReviewPage() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement | null)?.tagName ?? ''
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.isComposing || e.defaultPrevented) return
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName ?? ''
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) {
+        return
+      }
+      const noModifiers = !e.metaKey && !e.ctrlKey && !e.altKey
       const isUndoShortcut =
         ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z')
-        || (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'u')
+        || (noModifiers && e.key.toLowerCase() === 'u')
       if (isUndoShortcut && view?.canUndo) {
         e.preventDefault()
         void undoLastGrade()
         return
       }
       if (!view?.current) return
-      if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'e' || e.key === 'E')) {
+      if (noModifiers && (e.key === 'e' || e.key === 'E')) {
         e.preventDefault()
         editCurrent()
         return
       }
-      if (!e.metaKey && !e.ctrlKey && !e.altKey && !isPreview && (e.key === 's' || e.key === 'S')) {
+      if (noModifiers && !isPreview && (e.key === 's' || e.key === 'S')) {
         e.preventDefault()
         void suspendCurrent()
         return
       }
+      const onInteractiveControl = Boolean(
+        target?.closest('button, a, summary, [role="button"], [role="option"]'),
+      )
       if (!view.revealed && !schedError) {
-        if (e.code === 'Space' || e.key === 'Enter') {
+        if (noModifiers && !onInteractiveControl && (e.code === 'Space' || e.key === 'Enter')) {
           e.preventDefault()
           reveal()
         }
         return
       }
-      if (isPreview && (e.code === 'Space' || e.key === 'Enter')) {
+      if (isPreview && noModifiers && !onInteractiveControl && (e.code === 'Space' || e.key === 'Enter')) {
         e.preventDefault()
         void advancePreview()
         return
       }
       const byKey: Record<string, Grade> = { '1': 'again', '2': 'hard', '3': 'good', '4': 'easy' }
-      const keyGrade = byKey[e.key]
+      const keyGrade = noModifiers ? byKey[e.key] : undefined
       if (keyGrade) {
         e.preventDefault()
         void grade(keyGrade)
@@ -238,7 +262,7 @@ export function ReviewPage() {
     : view.notice === 'tag'
       ? 'Leech tagged.'
       : null
-  const statusMessage = leechMessage ?? actionNotice
+  const statusMessage = actionNotice ?? leechMessage
   const contextLabel = customTitle ? `${deckName} · ${customTitle}` : deckName
   const terminalTitle = (
     <>
@@ -436,7 +460,7 @@ export function ReviewPage() {
                   </div>
                 </section>
                 {(current.rationale || (current.sources && current.sources.length > 0) || current.proposedBy) && (
-                  <details className="review-provenance">
+                  <details key={current.id} className="review-provenance">
                     <summary>Source &amp; rationale</summary>
                     <div className="review-provenance-body">
                       {current.rationale && (

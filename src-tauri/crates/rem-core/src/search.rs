@@ -1,18 +1,11 @@
 use rusqlite::{params, Row};
 use serde::{Deserialize, Serialize};
 
-use crate::store::card_from_row;
+use crate::store::{card_from_row, CARD_COLUMNS_ALIASED};
 use crate::{Card, Collection, CollectionError};
 
 const DEFAULT_SEARCH_LIMIT: usize = 50;
 const MAX_SEARCH_LIMIT: usize = 200;
-
-const CARD_HIT_COLUMNS: &str = "
-    c.id, c.deck_id, c.front, c.back, c.created_at, c.updated_at, c.tags_json,
-    c.suspended, c.last_again_at, c.scheduling_json, c.due,
-    c.rationale, c.sources_json, c.proposed_by,
-    d.name AS deck_name, d.color AS deck_color
-";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -69,7 +62,7 @@ fn run_fts_search(
     limit: i64,
 ) -> Result<Vec<CardSearchHit>, CollectionError> {
     let sql = format!(
-        "SELECT {CARD_HIT_COLUMNS}
+        "SELECT {CARD_COLUMNS_ALIASED}, d.name AS deck_name, d.color AS deck_color
          FROM cards_fts
          JOIN cards c ON c.id = cards_fts.card_id
          JOIN decks d ON d.id = c.deck_id
@@ -93,14 +86,17 @@ fn run_like_search(
     let escaped = escape_like(query);
     let pattern = format!("%{escaped}%");
     let sql = format!(
-        "SELECT {CARD_HIT_COLUMNS}
+        "SELECT {CARD_COLUMNS_ALIASED}, d.name AS deck_name, d.color AS deck_color
          FROM cards c
          JOIN decks d ON d.id = c.deck_id
          WHERE (?2 IS NULL OR c.deck_id = ?2)
            AND (
                LOWER(c.front) LIKE LOWER(?1) ESCAPE '\\'
                OR LOWER(c.back) LIKE LOWER(?1) ESCAPE '\\'
-               OR LOWER(c.tags_json) LIKE LOWER(?1) ESCAPE '\\'
+               OR EXISTS (
+                   SELECT 1 FROM json_each(c.tags_json)
+                   WHERE LOWER(value) LIKE LOWER(?1) ESCAPE '\\'
+               )
                OR LOWER(COALESCE(c.rationale, '')) LIKE LOWER(?1) ESCAPE '\\'
            )
          ORDER BY c.updated_at DESC

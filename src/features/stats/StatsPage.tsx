@@ -76,6 +76,35 @@ export function StatsPage() {
   const upcomingTotal = forecast.reduce((sum, day) => sum + day.count, 0)
   const maxUpcoming = Math.max(1, ...forecast.map((day) => day.count))
 
+  const upcomingSection = upcomingTotal > 0 ? (
+    <section className="stats-panel stats-forecast" aria-label="Upcoming reviews">
+      <div className="stats-panel-head">
+        <div>
+          <h2>Upcoming workload</h2>
+          <p>Scheduled reviews due over the next 7 days.</p>
+        </div>
+        <div className="stats-head-readout">
+          <strong>{upcomingTotal}</strong>
+          <span>next 7 days</span>
+        </div>
+      </div>
+      <div className="stats-forecast-grid">
+        {forecast.map((day) => (
+          <div key={day.key} className="stats-forecast-col">
+            <span className="stats-forecast-count">{day.count}</span>
+            <div className="stats-forecast-track">
+              <span
+                className={day.count > 0 ? 'stats-forecast-bar has-activity' : 'stats-forecast-bar'}
+                style={{ height: `${day.count === 0 ? 4 : Math.max(12, (day.count / maxUpcoming) * 100)}%` }}
+              />
+            </div>
+            <span className="stats-forecast-day">{day.label}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  ) : null
+
   return (
     <>
       <PageHeader title="Stats" actions={controls} />
@@ -87,11 +116,14 @@ export function StatsPage() {
             <p>Complete reviews to start tracking your recall rate and daily momentum.</p>
           </div>
         ) : stats.totalReviews === 0 ? (
-          <div className="empty-state stats-empty">
-            <EmptyIcon kind="stats" />
-            <h3>No activity in this range</h3>
-            <p>Try a longer range or another deck.</p>
-          </div>
+          <>
+            <div className="empty-state stats-empty">
+              <EmptyIcon kind="stats" />
+              <h3>No activity in this range</h3>
+              <p>Try a longer range or another deck.</p>
+            </div>
+            {upcomingSection}
+          </>
         ) : (
           <>
             <div className="stats-kpis">
@@ -195,34 +227,7 @@ export function StatsPage() {
               </section>
             </div>
 
-            {upcomingTotal > 0 && (
-              <section className="stats-panel stats-forecast" aria-label="Upcoming reviews">
-                <div className="stats-panel-head">
-                  <div>
-                    <h2>Upcoming workload</h2>
-                    <p>Scheduled reviews due over the next 7 days.</p>
-                  </div>
-                  <div className="stats-head-readout">
-                    <strong>{upcomingTotal}</strong>
-                    <span>next 7 days</span>
-                  </div>
-                </div>
-                <div className="stats-forecast-grid">
-                  {forecast.map((day) => (
-                    <div key={day.key} className="stats-forecast-col">
-                      <span className="stats-forecast-count">{day.count}</span>
-                      <div className="stats-forecast-track">
-                        <span
-                          className={day.count > 0 ? 'stats-forecast-bar has-activity' : 'stats-forecast-bar'}
-                          style={{ height: `${day.count === 0 ? 4 : Math.max(12, (day.count / maxUpcoming) * 100)}%` }}
-                        />
-                      </div>
-                      <span className="stats-forecast-day">{day.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
+            {upcomingSection}
           </>
         )}
 

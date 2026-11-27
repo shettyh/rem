@@ -9,6 +9,7 @@ struct DeckDetailView: View {
     @State private var searchText: String = ""
     @State private var selectedTag: String = "All"
     @State private var showCustomStudy: Bool = false
+    @State private var pendingCustomStudy: CustomStudySpec?
     @State private var showDeleteConfirm: Bool = false
     @State private var cardPendingDelete: CardDto?
 
@@ -216,12 +217,22 @@ struct DeckDetailView: View {
                 appState.activeDeckId = nil
             }
         }
-        .sheet(isPresented: $showCustomStudy) {
-            CustomStudySheet(
-                appState: appState,
-                deckId: deckId,
-                deckName: deckSummary?.name ?? "Deck"
-            )
+        .sheet(
+            isPresented: $showCustomStudy,
+            onDismiss: {
+                if let spec = pendingCustomStudy {
+                    pendingCustomStudy = nil
+                    appState.startCustomStudy(
+                        deckId: deckId,
+                        mode: spec.mode,
+                        amount: spec.amount
+                    )
+                }
+            }
+        ) {
+            CustomStudySheet(deckName: deckSummary?.name ?? "Deck") { spec in
+                pendingCustomStudy = spec
+            }
         }
         .alert("Delete deck?", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {

@@ -1,6 +1,7 @@
 //! Shared domain and persistence for rem's desktop and terminal interfaces.
 
 mod asset_store;
+mod backup;
 mod collection;
 mod draft_store;
 mod hlc;
@@ -16,6 +17,7 @@ mod sync_ops;
 mod sync_store;
 mod tags;
 
+pub use backup::{parse_backup_json, BackupPreview};
 pub use collection::{default_database_path, Collection, CollectionError, CURRENT_SCHEMA_VERSION};
 pub use hlc::Hlc;
 pub use models::{

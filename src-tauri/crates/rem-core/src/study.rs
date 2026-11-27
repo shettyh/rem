@@ -4,7 +4,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
 use crate::review_store::ReviewUndo;
-use crate::store::card_from_row;
+use crate::store::{card_from_row, CARD_COLUMNS};
 use crate::{
     calculate_fsrs_next_states, Card, CardPatch, Collection, CollectionError, DailyField,
     DailyIncrement, Deck, DeckFsrsParams, DeckSettings, FsrsNextStates, FsrsState, Grade,
@@ -97,12 +97,14 @@ struct StudyItem {
 #[derive(Debug, Clone)]
 struct LastGradeUndo {
     previous_item: StudyItem,
+    expected_revision: u64,
     previous_notice: Option<LeechAction>,
     review_log_id: Option<String>,
     daily: Option<DailyIncrement>,
     outbox_op_id: Option<String>,
     previous_suspended_hlc: String,
     previous_scheduling_hlc: String,
+    previous_leech_hlc: String,
 }
 
 #[derive(Debug)]
@@ -304,6 +306,13 @@ impl StudySession {
             Ok(receipt) => receipt,
             Err(CollectionError::Conflict { .. }) => {
                 let card_id = current.card.id.clone();
+                if self
+                    .last_grade
+                    .as_ref()
+                    .is_some_and(|undo| undo.previous_item.card.id == card_id)
+                {
+                    self.last_grade = None;
+                }
                 self.discard_current();
                 self.select_next(now);
                 return Ok(StudyGradeOutcome::Conflict {
@@ -333,12 +342,14 @@ impl StudySession {
         self.next_states = None;
         self.last_grade = Some(LastGradeUndo {
             previous_item,
+            expected_revision: graded.local_revision,
             previous_notice,
             review_log_id: receipt.log.map(|entry| entry.id),
             daily: daily_for_undo,
             outbox_op_id: receipt.outbox_op_id,
             previous_suspended_hlc: receipt.previous_suspended_hlc,
             previous_scheduling_hlc: receipt.previous_scheduling_hlc,
+            previous_leech_hlc: receipt.previous_leech_hlc,
         });
 
         let still_stepping = !graded.card.suspended
@@ -362,30 +373,38 @@ impl StudySession {
     ) -> Result<StudyView, CollectionError> {
         let undo = self
             .last_grade
-            .take()
+            .as_ref()
             .ok_or_else(|| CollectionError::InvalidInput("no recent grade to undo".into()))?;
         let prev_card = &undo.previous_item.card;
-        collection.undo_review(ReviewUndo {
+        let result = collection.undo_review(ReviewUndo {
             card_id: prev_card.id.clone(),
             deck_id: prev_card.deck_id.clone(),
+            expected_revision: undo.expected_revision,
             previous_tags: prev_card.tags.clone(),
             previous_suspended: prev_card.suspended,
             previous_last_again_at: prev_card.last_again_at,
             previous_scheduling: prev_card.scheduling.clone(),
-            review_log_id: undo.review_log_id,
-            daily: undo.daily,
-            outbox_op_id: undo.outbox_op_id,
-            previous_suspended_hlc: undo.previous_suspended_hlc,
-            previous_scheduling_hlc: undo.previous_scheduling_hlc,
+            review_log_id: undo.review_log_id.clone(),
+            daily: undo.daily.clone(),
+            outbox_op_id: undo.outbox_op_id.clone(),
+            previous_suspended_hlc: undo.previous_suspended_hlc.clone(),
+            previous_scheduling_hlc: undo.previous_scheduling_hlc.clone(),
+            previous_leech_hlc: undo.previous_leech_hlc.clone(),
             undone_at: now,
-        })?;
-        let (reloaded_card, reloaded_revision) =
-            load_card_with_revision(collection, &prev_card.id)?.ok_or_else(|| {
-                CollectionError::NotFound {
-                    kind: "card",
-                    id: prev_card.id.clone(),
+        });
+        let (reloaded_card, reloaded_revision) = match result {
+            Ok(restored) => restored,
+            Err(error) => {
+                if matches!(
+                    error,
+                    CollectionError::Conflict { .. } | CollectionError::NotFound { .. }
+                ) {
+                    self.last_grade = None;
                 }
-            })?;
+                return Err(error);
+            }
+        };
+        let undo = self.last_grade.take().expect("last_grade checked above");
 
         if let Some(current) = self.current.take() {
             if current.card.id != reloaded_card.id {
@@ -412,6 +431,11 @@ impl StudySession {
         collection: &Collection,
         now: i64,
     ) -> Result<StudyView, CollectionError> {
+        if self.preview {
+            return Err(CollectionError::InvalidInput(
+                "preview cards cannot be suspended".into(),
+            ));
+        }
         let current = self.current.as_ref().ok_or_else(|| {
             CollectionError::InvalidInput("study session has no current card".into())
         })?;
@@ -424,6 +448,7 @@ impl StudySession {
             },
             now,
         )?;
+        self.last_grade = None;
         self.queue.retain(|item| item.card.id != card_id);
         self.discard_current();
         self.select_next(now);
@@ -439,13 +464,26 @@ impl StudySession {
         let Some(current) = self.current.as_mut() else {
             return Ok(self.view());
         };
+        let current_id = current.card.id.clone();
         let Some((reloaded_card, reloaded_revision)) =
-            load_card_with_revision(collection, &current.card.id)?
+            load_card_with_revision(collection, &current_id)?
         else {
+            if self
+                .last_grade
+                .as_ref()
+                .is_some_and(|undo| undo.previous_item.card.id == current_id)
+            {
+                self.last_grade = None;
+            }
             self.discard_current();
             self.select_next(now);
             return Ok(self.view());
         };
+        if self.last_grade.as_ref().is_some_and(|undo| {
+            undo.previous_item.card.id == current_id && undo.expected_revision != reloaded_revision
+        }) {
+            self.last_grade = None;
+        }
         if reloaded_card.suspended {
             let card_id = reloaded_card.id.clone();
             self.queue.retain(|item| item.card.id != card_id);
@@ -453,6 +491,7 @@ impl StudySession {
             self.select_next(now);
             return Ok(self.view());
         }
+        let current = self.current.as_mut().expect("current card present");
         current.card = reloaded_card;
         current.local_revision = reloaded_revision;
         if self.revealed && !self.preview {
@@ -514,13 +553,8 @@ fn load_card_with_revision(
         .connection
         .lock()
         .map_err(|_| CollectionError::Poisoned)?;
-    let mut statement = connection.prepare(
-        "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                suspended, last_again_at, scheduling_json, due,
-                rationale, sources_json, proposed_by, local_revision
-         FROM cards
-         WHERE id = ?1",
-    )?;
+    let sql = format!("SELECT {CARD_COLUMNS}, local_revision FROM cards WHERE id = ?1");
+    let mut statement = connection.prepare(&sql)?;
     let mut rows = statement.query([card_id])?;
     rows.next()?
         .map(|row| Ok::<_, rusqlite::Error>((card_from_row(row)?, row.get("local_revision")?)))
@@ -536,14 +570,13 @@ fn load_active_items(
         .connection
         .lock()
         .map_err(|_| CollectionError::Poisoned)?;
-    let mut statement = connection.prepare(
-        "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                suspended, last_again_at, scheduling_json, due,
-                rationale, sources_json, proposed_by, local_revision
+    let sql = format!(
+        "SELECT {CARD_COLUMNS}, local_revision
          FROM cards
          WHERE deck_id = ?1 AND suspended = 0
-         ORDER BY due, rowid",
-    )?;
+         ORDER BY due, rowid"
+    );
+    let mut statement = connection.prepare(&sql)?;
     let items = statement
         .query_map(params![deck.id], |row| {
             Ok(StudyItem {

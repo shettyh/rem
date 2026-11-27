@@ -12,6 +12,18 @@ use crate::{
 
 const DECK_PALETTE: [&str; 5] = ["#7e6cff", "#e8638c", "#2fa86b", "#e8922e", "#3ba0e8"];
 
+pub(crate) const CARD_COLUMNS: &str = "
+    id, deck_id, front, back, created_at, updated_at, tags_json,
+    suspended, last_again_at, scheduling_json, due,
+    rationale, sources_json, proposed_by
+";
+
+pub(crate) const CARD_COLUMNS_ALIASED: &str = "
+    c.id, c.deck_id, c.front, c.back, c.created_at, c.updated_at, c.tags_json,
+    c.suspended, c.last_again_at, c.scheduling_json, c.due,
+    c.rationale, c.sources_json, c.proposed_by
+";
+
 impl Collection {
     pub fn create_deck(&self, name: &str, now: i64) -> Result<Deck, CollectionError> {
         let name = name.trim();
@@ -307,7 +319,7 @@ impl Collection {
                         id: card.id.clone(),
                         front: card.front.clone(),
                         back: card.back.clone(),
-                        tags: card.tags.clone(),
+                        tags: normalize_user_tags(card.tags.clone()),
                         hlc,
                     },
                     now,
@@ -364,14 +376,13 @@ impl Collection {
             .connection
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
-        let mut statement = connection.prepare(
-            "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                    suspended, last_again_at, scheduling_json, due,
-                    rationale, sources_json, proposed_by
+        let sql = format!(
+            "SELECT {CARD_COLUMNS}
              FROM cards
              WHERE deck_id = ?1 AND suspended = 0 AND due <= ?2
-             ORDER BY due, rowid",
-        )?;
+             ORDER BY due, rowid"
+        );
+        let mut statement = connection.prepare(&sql)?;
         let cards = statement
             .query_map(params![deck_id, now], card_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
@@ -397,12 +408,8 @@ impl Collection {
             .connection
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
-        let mut statement = connection.prepare(
-            "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                    suspended, last_again_at, scheduling_json, due,
-                    rationale, sources_json, proposed_by
-             FROM cards WHERE id = ?1",
-        )?;
+        let sql = format!("SELECT {CARD_COLUMNS} FROM cards WHERE id = ?1");
+        let mut statement = connection.prepare(&sql)?;
         let mut rows = statement.query([id])?;
         rows.next()?
             .map(card_from_row)
@@ -415,12 +422,10 @@ impl Collection {
             .connection
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
-        let mut statement = connection.prepare(
-            "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                    suspended, last_again_at, scheduling_json, due,
-                    rationale, sources_json, proposed_by
-             FROM cards WHERE deck_id = ?1 ORDER BY created_at, rowid",
-        )?;
+        let sql = format!(
+            "SELECT {CARD_COLUMNS} FROM cards WHERE deck_id = ?1 ORDER BY created_at, rowid"
+        );
+        let mut statement = connection.prepare(&sql)?;
         let cards = statement
             .query_map([deck_id], card_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
@@ -539,12 +544,8 @@ pub(crate) fn find_card_by_id_with_revision(
     transaction: &Transaction<'_>,
     id: &str,
 ) -> rusqlite::Result<Option<(Card, u64)>> {
-    let mut statement = transaction.prepare(
-        "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                suspended, last_again_at, scheduling_json, due,
-                rationale, sources_json, proposed_by, local_revision
-         FROM cards WHERE id = ?1",
-    )?;
+    let sql = format!("SELECT {CARD_COLUMNS}, local_revision FROM cards WHERE id = ?1");
+    let mut statement = transaction.prepare(&sql)?;
     let mut rows = statement.query([id])?;
     rows.next()?
         .map(|row| Ok((card_from_row(row)?, row.get("local_revision")?)))
@@ -558,14 +559,13 @@ pub(crate) fn find_exact_card(
     back: &str,
     tags_json: &str,
 ) -> rusqlite::Result<Option<Card>> {
-    let mut statement = connection.prepare(
-        "SELECT id, deck_id, front, back, created_at, updated_at, tags_json,
-                suspended, last_again_at, scheduling_json, due,
-                rationale, sources_json, proposed_by
+    let sql = format!(
+        "SELECT {CARD_COLUMNS}
          FROM cards
          WHERE deck_id = ?1 AND front = ?2 AND back = ?3 AND tags_json = ?4
-         ORDER BY created_at, rowid LIMIT 1",
-    )?;
+         ORDER BY created_at, rowid LIMIT 1"
+    );
+    let mut statement = connection.prepare(&sql)?;
     let mut rows = statement.query(params![deck_id, front, back, tags_json])?;
     rows.next()?.map(card_from_row).transpose()
 }

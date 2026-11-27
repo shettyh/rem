@@ -154,12 +154,23 @@ impl FsrsState {
 
 pub type SchedulingState = FsrsState;
 
+fn deserialize_sources_default<'de, D>(deserializer: D) -> Result<Vec<DraftSource>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<Vec<DraftSource>>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CardProvenance {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rationale: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_sources_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub sources: Vec<DraftSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proposed_by: Option<String>,
@@ -168,6 +179,31 @@ pub struct CardProvenance {
 impl CardProvenance {
     pub fn is_empty(&self) -> bool {
         self.rationale.is_none() && self.sources.is_empty() && self.proposed_by.is_none()
+    }
+
+    pub fn normalize(self) -> Self {
+        let trim_opt = |value: Option<String>| {
+            value.and_then(|raw| {
+                let trimmed = raw.trim().to_owned();
+                (!trimmed.is_empty()).then_some(trimmed)
+            })
+        };
+        let sources = self
+            .sources
+            .into_iter()
+            .filter_map(|source| {
+                let locator = source.locator.trim().to_owned();
+                (!locator.is_empty()).then(|| DraftSource {
+                    locator,
+                    label: trim_opt(source.label),
+                })
+            })
+            .collect();
+        Self {
+            rationale: trim_opt(self.rationale),
+            sources,
+            proposed_by: trim_opt(self.proposed_by),
+        }
     }
 }
 
@@ -197,9 +233,10 @@ pub struct NewCardInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct DraftSource {
     pub locator: String,
+    #[serde(default)]
     pub label: Option<String>,
 }
 

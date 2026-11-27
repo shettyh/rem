@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::{
     layout::{Constraint, Direction, Layout},
@@ -49,6 +51,7 @@ pub struct StudyApp {
     scope: StudyScope,
     view: StudyView,
     scroll: u16,
+    max_scroll: Cell<u16>,
     interval_base: Option<i64>,
     conflict_message: Option<String>,
     status_message: Option<String>,
@@ -68,6 +71,7 @@ impl StudyApp {
             scope,
             view,
             scroll: 0,
+            max_scroll: Cell::new(u16::MAX),
             interval_base: None,
             conflict_message: None,
             status_message: None,
@@ -87,12 +91,16 @@ impl StudyApp {
         match input {
             StudyInput::Quit => return Ok(StudyControl::Quit),
             StudyInput::ScrollUp => self.scroll = self.scroll.saturating_sub(1),
-            StudyInput::ScrollDown => self.scroll = self.scroll.saturating_add(1),
+            StudyInput::ScrollDown => {
+                let limit = self.max_scroll.get();
+                self.scroll = self.scroll.saturating_add(1).min(limit);
+            }
             StudyInput::Reveal if self.view.current.is_some() && !self.view.revealed => {
                 self.view = self.session.reveal(now)?;
                 self.interval_base = Some(now);
                 self.status_message = None;
                 self.scroll = 0;
+                self.max_scroll.set(u16::MAX);
             }
             StudyInput::Grade(grade)
                 if self.view.current.is_some()
@@ -115,20 +123,45 @@ impl StudyApp {
                 }
                 self.interval_base = None;
                 self.scroll = 0;
+                self.max_scroll.set(u16::MAX);
             }
             StudyInput::Undo if self.view.can_undo => {
-                self.view = self.session.undo_last_grade(collection, now)?;
-                self.conflict_message = None;
-                self.status_message = Some("Last grade undone.".into());
+                match self.session.undo_last_grade(collection, now) {
+                    Ok(view) => {
+                        self.view = view;
+                        self.conflict_message = None;
+                        self.status_message = Some("Last grade undone.".into());
+                    }
+                    Err(CollectionError::Conflict { .. } | CollectionError::NotFound { .. }) => {
+                        self.view = self.session.view();
+                        self.conflict_message = None;
+                        self.status_message = Some(
+                            "Cannot undo: previous card was changed or deleted elsewhere.".into(),
+                        );
+                    }
+                    Err(other) => return Err(other),
+                }
                 self.interval_base = None;
                 self.scroll = 0;
+                self.max_scroll.set(u16::MAX);
             }
             StudyInput::Suspend if self.view.current.is_some() => {
-                self.view = self.session.suspend_current(collection, now)?;
-                self.conflict_message = None;
-                self.status_message = Some("Card suspended.".into());
+                match self.session.suspend_current(collection, now) {
+                    Ok(view) => {
+                        self.view = view;
+                        self.conflict_message = None;
+                        self.status_message = Some("Card suspended.".into());
+                    }
+                    Err(CollectionError::NotFound { .. }) => {
+                        self.view = self.session.reload_current(collection, now)?;
+                        self.conflict_message = None;
+                        self.status_message = Some("Card was already deleted elsewhere.".into());
+                    }
+                    Err(other) => return Err(other),
+                }
                 self.interval_base = None;
                 self.scroll = 0;
+                self.max_scroll.set(u16::MAX);
             }
             StudyInput::Reveal | StudyInput::Grade(_) | StudyInput::Undo | StudyInput::Suspend => {}
         }
@@ -204,13 +237,23 @@ pub fn draw(frame: &mut Frame<'_>, app: &StudyApp) {
         areas[0],
     );
 
+    let lines = content_lines(app);
+    let max_scroll = wrapped_line_count(&lines, areas[1].width)
+        .saturating_sub(areas[1].height as usize)
+        .min(u16::MAX as usize) as u16;
+    app.max_scroll.set(max_scroll);
     frame.render_widget(
-        Paragraph::new(content_lines(app))
-            .scroll((app.scroll, 0))
-            .wrap(Wrap { trim: false }),
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((app.scroll.min(max_scroll), 0)),
         areas[1],
     );
 
+    let secondary = if app.view.can_undo {
+        "u undo · s suspend · ↑/↓/j/k scroll · q end session"
+    } else {
+        "s suspend · ↑/↓/j/k scroll · q end session"
+    };
     let footer = if app.view.current.is_none() {
         let hint = if app.view.can_undo {
             "u undo last grade · q exit"
@@ -223,22 +266,12 @@ pub fn draw(frame: &mut Frame<'_>, app: &StudyApp) {
             Line::default(),
         ]
     } else if app.view.revealed {
-        let secondary = if app.view.can_undo {
-            "u undo · s suspend · ↑/↓/j/k scroll · q end session"
-        } else {
-            "s suspend · ↑/↓/j/k scroll · q end session"
-        };
         vec![
             Line::from(Span::styled(rule, Style::default().fg(Color::DarkGray))),
             grade_choices(app),
             Line::from(secondary),
         ]
     } else {
-        let secondary = if app.view.can_undo {
-            "u undo · s suspend · ↑/↓/j/k scroll · q end session"
-        } else {
-            "s suspend · ↑/↓/j/k scroll · q end session"
-        };
         vec![
             Line::from(Span::styled(rule, Style::default().fg(Color::DarkGray))),
             Line::from("Space/Enter reveal"),
@@ -279,6 +312,65 @@ fn content_lines(app: &StudyApp) -> Vec<Line<'static>> {
         lines.extend(provenance_lines(&card.provenance));
     }
     lines
+}
+
+/// Compute rendered line count matching ratatui's `Wrap { trim: false }` greedy word-wrapping
+/// (conservative upper bound so users can always scroll to the very bottom of long content).
+pub(crate) fn wrapped_line_count(lines: &[Line<'_>], width: u16) -> usize {
+    let w = width.max(1) as usize;
+    lines
+        .iter()
+        .map(|line| {
+            let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+            if text.is_empty() {
+                return 1;
+            }
+            let mut rows = 1usize;
+            let mut col = 0usize;
+            let mut chars = text.chars().peekable();
+            while let Some(&ch) = chars.peek() {
+                if ch.is_whitespace() {
+                    let mut ws_width = 0usize;
+                    while let Some(&c) = chars.peek() {
+                        if !c.is_whitespace() {
+                            break;
+                        }
+                        chars.next();
+                        ws_width += 1;
+                    }
+                    if col + ws_width <= w {
+                        col += ws_width;
+                    } else {
+                        let remaining = col + ws_width;
+                        rows += (remaining - 1) / w;
+                        col = ((remaining - 1) % w) + 1;
+                    }
+                } else {
+                    let mut word_width = 0usize;
+                    while let Some(&c) = chars.peek() {
+                        if c.is_whitespace() {
+                            break;
+                        }
+                        chars.next();
+                        // Treat wide/non-ASCII chars conservatively (up to 2 cols) so CJK/emoji
+                        // never undercount wrapped rows.
+                        word_width += if c.is_ascii() { 1 } else { 2 };
+                    }
+                    if col > 0 && col + word_width > w {
+                        rows += 1;
+                        col = 0;
+                    }
+                    if word_width <= w {
+                        col += word_width;
+                    } else {
+                        rows += (word_width - 1) / w;
+                        col = ((word_width - 1) % w) + 1;
+                    }
+                }
+            }
+            rows
+        })
+        .sum()
 }
 
 pub(crate) fn section_label(label: &'static str) -> Line<'static> {

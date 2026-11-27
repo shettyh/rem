@@ -387,28 +387,28 @@ export class DexieStorage implements Storage {
     const range = (days === 7 || days === 30 || days === 90 ? days : 30) as StatsRange
     const summary = buildStats(logs, decks, now, range, deckId)
 
-    const start = new Date(now)
-    start.setHours(0, 0, 0, 0)
-    const dayMs = 86_400_000
-    const startMs = start.getTime()
-    const endMs = startMs + 7 * dayMs
+    const todayStart = new Date(now)
+    todayStart.setHours(0, 0, 0, 0)
     const upcoming7d = Array.from({ length: 7 }, (_, index) => {
-      const ts = startMs + index * dayMs
-      return { day: localDay(ts), timestampMs: ts, count: 0 }
+      const date = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate() + index)
+      return { day: localDay(date.getTime()), timestampMs: date.getTime(), count: 0 }
     })
+    const dayIndexByKey = new Map(upcoming7d.map((entry, index) => [entry.day, index]))
     for (const card of cards) {
       if (card.suspended || card.scheduling.state === FSRS_STATE.New) continue
       const due = card.scheduling.due
-      if (due >= endMs) continue
-      const offset = due <= now ? 0 : Math.floor((due - startMs) / dayMs)
-      if (offset >= 0 && offset < 7) upcoming7d[offset].count += 1
+      if (due <= now) {
+        upcoming7d[0].count += 1
+        continue
+      }
+      const idx = dayIndexByKey.get(localDay(due))
+      if (idx !== undefined) upcoming7d[idx].count += 1
     }
 
     return {
       historyCount: summary.historyCount,
       totalReviews: summary.totalReviews,
       recallRate: summary.recallRate,
-      recallRatePercent: summary.recallRate === null ? null : Math.round(summary.recallRate * 100),
       currentStreakDays: summary.currentStreak,
       activeDays: summary.activeDays,
       grades: summary.grades,
@@ -423,7 +423,6 @@ export class DexieStorage implements Storage {
         deckColor: item.deck.color,
         reviews: item.reviews,
         recallRate: item.recallRate,
-        recallRatePercent: Math.round(item.recallRate * 100),
       })),
       upcoming7d,
     }
