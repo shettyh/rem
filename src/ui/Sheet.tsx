@@ -18,6 +18,7 @@ export function Sheet({
 }) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (e.defaultPrevented) return
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', onKey)

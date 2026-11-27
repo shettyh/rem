@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::asset_store::asset_refs;
-use crate::{DeckSettings, Grade, Id, SchedulingState};
+use crate::{CardProvenance, DeckSettings, Grade, Id, SchedulingState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -40,7 +40,7 @@ pub struct SyncState {
     pub last_hlc: String,
 }
 
-/// The 7 commutative sync operations exchanged between `rem-core` and the cloud sync server.
+/// The 8 commutative sync operations exchanged between `rem-core` and the cloud sync server.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
@@ -68,6 +68,8 @@ pub enum SyncOp {
         tags: Vec<String>,
         created_at: i64,
         initial_due: i64,
+        #[serde(flatten, default)]
+        provenance: CardProvenance,
         hlc: String,
     },
     CardContentPatch {
@@ -94,6 +96,20 @@ pub enum SyncOp {
         review_log_id: Option<Id>,
         hlc: String,
     },
+    CardReviewUndo {
+        card_id: Id,
+        deck_id: Id,
+        undone_at: i64,
+        scheduling: SchedulingState,
+        last_again_at: Option<i64>,
+        #[serde(default)]
+        remove_leech_tag: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        restore_suspended: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        removed_review_log_id: Option<Id>,
+        hlc: String,
+    },
     CardDelete {
         id: Id,
         hlc: String,
@@ -109,6 +125,7 @@ impl SyncOp {
             | Self::CardContentPatch { hlc, .. }
             | Self::CardSuspendPatch { hlc, .. }
             | Self::CardReview { hlc, .. }
+            | Self::CardReviewUndo { hlc, .. }
             | Self::CardDelete { hlc, .. } => hlc,
         }
     }

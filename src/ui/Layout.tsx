@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
+import { SearchModal } from './SearchModal'
 import { Sidebar } from './Sidebar'
 import {
   getSidebarCollapsed,
@@ -16,6 +17,11 @@ export function Layout() {
 
   const [collapsed, setCollapsed] = useState<boolean>(() => getSidebarCollapsed())
   const [hoverExpand, setHoverExpand] = useState<boolean>(() => getSidebarHoverExpand())
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  useEffect(() => {
+    if (focusedReview) setSearchOpen(false)
+  }, [focusedReview])
 
   useEffect(() => {
     return subscribeSidebarPrefs(() => {
@@ -24,13 +30,17 @@ export function Layout() {
     })
   }, [])
 
-  // ⌘\ / Ctrl+\ toggles the sidebar rail when not in a focused study session.
+  // ⌘\ / Ctrl+\ toggles the sidebar rail; ⌘K / Ctrl+K opens cross-deck search.
   useEffect(() => {
     if (focusedReview) return
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === '\\') {
         e.preventDefault()
         setSidebarCollapsed(!getSidebarCollapsed())
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        if (document.querySelector('dialog[open]')) return
+        e.preventDefault()
+        setSearchOpen((prev) => !prev)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -50,11 +60,13 @@ export function Layout() {
           collapsed={collapsed}
           hoverExpand={hoverExpand}
           onToggleCollapse={() => setSidebarCollapsed(!collapsed)}
+          onOpenSearch={() => setSearchOpen(true)}
         />
       )}
       <main className="content">
         <Outlet />
       </main>
+      <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   )
 }

@@ -140,7 +140,7 @@ fn revealed_frame_renders_markdown_and_explicit_asset_placeholder() {
             "\n",
             "────────────────────────────────────────────────────────────────────────────────────────────────\n",
             "1 Again 1m · 2 Hard 6m · 3 Good 10m · 4 Easy 2mo\n",
-            "↑/↓/j/k scroll · q end session",
+            "s suspend · ↑/↓/j/k scroll · q end session",
         )
     );
 }
@@ -211,7 +211,7 @@ fn question_and_completion_frames_match_fixed_size_snapshots() {
             "\n",
             "────────────────────────────────────────────────────────────────\n",
             "Space/Enter reveal\n",
-            "↑/↓/j/k scroll · q end session",
+            "s suspend · ↑/↓/j/k scroll · q end session",
         )
     );
 
@@ -234,7 +234,7 @@ fn question_and_completion_frames_match_fixed_size_snapshots() {
             "\n",
             "\n",
             "────────────────────────────────────────────────────────────────\n",
-            "q Exit",
+            "u undo last grade · q exit",
         )
     );
 }
@@ -281,4 +281,58 @@ fn stale_grade_conflicts_are_explained_without_counting_a_review() {
         .unwrap()
         .contains("stale review skipped"));
     assert!(rendered(&app, 80, 16).contains("Card changed"));
+}
+
+#[test]
+fn study_app_undo_and_suspend_restore_and_skip_cards() {
+    let temp = tempdir().unwrap();
+    let collection = Collection::open(temp.path().join("collection.sqlite3")).unwrap();
+    let deck = collection.create_deck("Rust", NOW - 100).unwrap();
+    let mut settings = deck.settings.clone();
+    settings.learn_steps.clear();
+    collection
+        .update_deck(
+            &deck.id,
+            DeckPatch {
+                settings: Some(settings),
+                ..DeckPatch::default()
+            },
+            NOW - 75,
+        )
+        .unwrap();
+    let first = collection
+        .create_card(&deck.id, "First", "Answer 1", vec![], NOW - 50)
+        .unwrap();
+    let second = collection
+        .create_card(&deck.id, "Second", "Answer 2", vec![], NOW - 40)
+        .unwrap();
+
+    let mut app = StudyApp::start(
+        &collection,
+        StudyRequest::deck(deck.id.clone()),
+        StudyScope::Deck("Rust".into()),
+        NOW,
+    )
+    .unwrap();
+    assert!(!app.view().can_undo);
+    app.handle(&collection, StudyInput::Reveal, NOW + 1)
+        .unwrap();
+    app.handle(&collection, StudyInput::Grade(Grade::Good), NOW + 2)
+        .unwrap();
+    assert!(app.view().can_undo);
+    assert_eq!(app.view().reviewed, 1);
+    assert_eq!(app.view().current.as_ref().unwrap().id, second.id);
+
+    app.handle(&collection, StudyInput::Undo, NOW + 3).unwrap();
+    assert!(!app.view().can_undo);
+    assert_eq!(app.view().reviewed, 0);
+    assert_eq!(app.view().current.as_ref().unwrap().id, first.id);
+    assert_eq!(app.status_message(), Some("Last grade undone."));
+    assert!(collection.list_review_logs(&deck.id).unwrap().is_empty());
+
+    app.handle(&collection, StudyInput::Suspend, NOW + 4)
+        .unwrap();
+    assert_eq!(app.status_message(), Some("Card suspended."));
+    assert_eq!(app.view().current.as_ref().unwrap().id, second.id);
+    assert!(collection.get_card(&first.id).unwrap().unwrap().suspended);
 }

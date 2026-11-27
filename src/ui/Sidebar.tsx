@@ -15,6 +15,7 @@ interface SidebarProps {
   collapsed?: boolean
   hoverExpand?: boolean
   onToggleCollapse?: () => void
+  onOpenSearch?: () => void
 }
 
 /** Persistent left sidebar: brand, Today, the deck list, and a footer. */
@@ -22,6 +23,7 @@ export function Sidebar({
   collapsed = false,
   hoverExpand = true,
   onToggleCollapse,
+  onOpenSearch,
 }: SidebarProps) {
   const storage = useStorage()
   const sync = useSyncOptional()
@@ -113,6 +115,21 @@ export function Sidebar({
         </div>
 
         <nav className="side-nav">
+          {onOpenSearch && (
+            <button
+              type="button"
+              className="nav-item nav-item-btn"
+              title="Search cards (⌘K)"
+              onClick={onOpenSearch}
+            >
+              <svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="7" cy="7" r="4.5" />
+                <path d="m10.5 10.5 3 3" />
+              </svg>
+              <span className="nav-grow">Search</span>
+              <span className="side-kbd" aria-hidden="true">⌘K</span>
+            </button>
+          )}
           <NavLink to="/" end className={navClass} title="Today">
             <svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true">
               <rect x="2.5" y="3.5" width="11" height="10" rx="2" />

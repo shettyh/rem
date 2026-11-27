@@ -3,11 +3,18 @@ import SwiftUI
 struct DecksView: View {
     @Bindable var appState: AppState
     @State private var searchText: String = ""
+    @State private var cardHits: [CardSearchHitDto] = []
+    @State private var isSearching: Bool = false
+    @State private var searchToken: Int = 0
     @State private var deckPendingDelete: DeckSummaryDto?
+
+    private var trimmedSearch: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private var filteredDecks: [DeckSummaryDto] {
         let summaries = appState.todaySummary?.decks ?? []
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let query = trimmedSearch.lowercased()
         guard !query.isEmpty else { return summaries }
         return summaries.filter { $0.name.lowercased().contains(query) }
     }
@@ -15,11 +22,11 @@ struct DecksView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if filteredDecks.isEmpty && !searchText.isEmpty {
+                if filteredDecks.isEmpty && cardHits.isEmpty && !trimmedSearch.isEmpty && !isSearching {
                     ContentUnavailableView.search(text: searchText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(RemColor.groupedBg)
-                } else if filteredDecks.isEmpty {
+                } else if filteredDecks.isEmpty && trimmedSearch.isEmpty {
                     ContentUnavailableView {
                         Label("No decks yet", systemImage: "rectangle.stack")
                     } description: {
@@ -35,62 +42,107 @@ struct DecksView: View {
                     .background(RemColor.groupedBg)
                 } else {
                     List {
-                        Section {
-                            ForEach(filteredDecks, id: \.id) { deck in
-                                NavigationLink(value: deck.id) {
-                                    DeckSummaryRow(deck: deck, showChevron: false)
-                                }
-                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                    if deck.dueCount > 0 {
-                                        Button {
-                                            appState.startStudy(deckId: deck.id)
+                        if !filteredDecks.isEmpty {
+                            Section(trimmedSearch.isEmpty ? "" : "Decks") {
+                                ForEach(filteredDecks, id: \.id) { deck in
+                                    NavigationLink(value: deck.id) {
+                                        DeckSummaryRow(deck: deck, showChevron: false)
+                                    }
+                                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                        if deck.dueCount > 0 {
+                                            Button {
+                                                appState.startStudy(deckId: deck.id)
+                                            } label: {
+                                                Label("Study", systemImage: "play.fill")
+                                            }
+                                            .tint(RemColor.accent)
+                                        }
+                                    }
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        Button(role: .destructive) {
+                                            deckPendingDelete = deck
                                         } label: {
-                                            Label("Study", systemImage: "play.fill")
+                                            Label("Delete", systemImage: "trash")
+                                        }
+
+                                        Button {
+                                            appState.openEditDeck(deckId: deck.id)
+                                        } label: {
+                                            Label("Edit", systemImage: "slider.horizontal.3")
                                         }
                                         .tint(RemColor.accent)
                                     }
-                                }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    Button(role: .destructive) {
-                                        deckPendingDelete = deck
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-
-                                    Button {
-                                        appState.openEditDeck(deckId: deck.id)
-                                    } label: {
-                                        Label("Edit", systemImage: "slider.horizontal.3")
-                                    }
-                                    .tint(RemColor.accent)
-                                }
-                                .contextMenu {
-                                    Button {
-                                        appState.openEditDeck(deckId: deck.id)
-                                    } label: {
-                                        Label("Edit deck", systemImage: "slider.horizontal.3")
-                                    }
-                                    Button(role: .destructive) {
-                                        deckPendingDelete = deck
-                                    } label: {
-                                        Label("Delete deck", systemImage: "trash")
+                                    .contextMenu {
+                                        Button {
+                                            appState.openEditDeck(deckId: deck.id)
+                                        } label: {
+                                            Label("Edit deck", systemImage: "slider.horizontal.3")
+                                        }
+                                        Button(role: .destructive) {
+                                            deckPendingDelete = deck
+                                        } label: {
+                                            Label("Delete deck", systemImage: "trash")
+                                        }
                                     }
                                 }
                             }
+                            .listRowBackground(RemColor.surface)
+                            .listRowSeparatorTint(RemColor.border)
                         }
-                        .listRowBackground(RemColor.surface)
-                        .listRowSeparatorTint(RemColor.border)
 
-                        Section {
-                            Button {
-                                appState.showNewDeckSheet = true
-                            } label: {
-                                Label("Create new deck", systemImage: "plus")
-                                    .font(.body.weight(.medium))
-                                    .foregroundStyle(RemColor.accent)
+                        if !trimmedSearch.isEmpty && !cardHits.isEmpty {
+                            Section("Cards") {
+                                ForEach(cardHits, id: \.card.id) { hit in
+                                    Button {
+                                        appState.openQuickCapture(
+                                            deckId: hit.card.deckId,
+                                            editingCard: hit.card
+                                        ) {
+                                            Task { await runCardSearch(trimmedSearch) }
+                                        }
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 6) {
+                                            HStack(spacing: 6) {
+                                                Circle()
+                                                    .fill(Color(hexString: hit.deckColor))
+                                                    .frame(width: 7, height: 7)
+                                                Text(hit.deckName)
+                                                    .font(.caption.weight(.medium))
+                                                    .foregroundStyle(RemColor.muted)
+                                                Spacer()
+                                                if hit.card.suspended {
+                                                    RemPillBadge(text: "Suspended", tone: .neutral)
+                                                }
+                                            }
+                                            let preview = MarkdownBlockParser.plainTextPreview(hit.card.front)
+                                            Text(preview.isEmpty ? hit.card.front : preview)
+                                                .font(.subheadline.weight(.medium))
+                                                .foregroundStyle(hit.card.suspended ? RemColor.muted : RemColor.text)
+                                                .lineLimit(2)
+                                                .multilineTextAlignment(.leading)
+                                        }
+                                        .padding(.vertical, 2)
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
+                            .listRowBackground(RemColor.surface)
+                            .listRowSeparatorTint(RemColor.border)
                         }
-                        .listRowBackground(RemColor.surface)
+
+                        if trimmedSearch.isEmpty {
+                            Section {
+                                Button {
+                                    appState.showNewDeckSheet = true
+                                } label: {
+                                    Label("Create new deck", systemImage: "plus")
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(RemColor.accent)
+                                }
+                            }
+                            .listRowBackground(RemColor.surface)
+                        }
                     }
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
@@ -98,7 +150,10 @@ struct DecksView: View {
                 }
             }
             .navigationTitle("Decks")
-            .searchable(text: $searchText, prompt: "Search decks")
+            .searchable(text: $searchText, prompt: "Search decks and cards")
+            .task(id: trimmedSearch) {
+                await runCardSearch(trimmedSearch, debounce: true)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -122,7 +177,12 @@ struct DecksView: View {
                 if let deck = deckPendingDelete {
                     Button("Delete", role: .destructive) {
                         deckPendingDelete = nil
-                        Task { await appState.deleteDeck(id: deck.id) }
+                        Task {
+                            await appState.deleteDeck(id: deck.id)
+                            if !trimmedSearch.isEmpty {
+                                await runCardSearch(trimmedSearch)
+                            }
+                        }
                     }
                 }
                 Button("Cancel", role: .cancel) {
@@ -131,6 +191,34 @@ struct DecksView: View {
             } message: {
                 Text("This deletes the deck and all its cards locally and on synced devices.")
             }
+        }
+    }
+
+    private func runCardSearch(_ query: String, debounce: Bool = false) async {
+        searchToken += 1
+        let token = searchToken
+        guard !query.isEmpty else {
+            isSearching = false
+            cardHits = []
+            return
+        }
+        isSearching = true
+        defer {
+            if token == searchToken {
+                isSearching = false
+            }
+        }
+        if debounce {
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled && token == searchToken else { return }
+        }
+        do {
+            let results = try await appState.store.searchCards(query: query, limit: 40)
+            guard !Task.isCancelled && token == searchToken else { return }
+            cardHits = results
+        } catch {
+            guard !Task.isCancelled && token == searchToken else { return }
+            cardHits = []
         }
     }
 }

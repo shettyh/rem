@@ -893,6 +893,7 @@ fn import_decks_in_cloud_mode_syncs_replacements_and_review_history() {
                             grade: Grade::Good,
                         },
                     ],
+                    provenance: Default::default(),
                 }],
             }],
             2_000,

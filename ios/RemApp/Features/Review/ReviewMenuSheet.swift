@@ -48,6 +48,14 @@ struct ReviewCardInfoSheet: View {
                 }
                 .listRowBackground(RemColor.surface)
                 .listRowSeparatorTint(RemColor.border)
+
+                if card.hasProvenance {
+                    Section("Provenance") {
+                        CardProvenanceView(card: card, style: .formRows)
+                    }
+                    .listRowBackground(RemColor.surface)
+                    .listRowSeparatorTint(RemColor.border)
+                }
             }
             .scrollContentBackground(.hidden)
             .background(RemColor.groupedBg)

@@ -9,9 +9,25 @@ enum RemTab: Hashable {
     case settings
 }
 
+struct CustomStudySpec {
+    let mode: CustomStudyModeDto
+    let amount: UInt32
+}
+
 struct StudyLaunchRequest: Identifiable {
     let id = UUID()
     let deckId: String?
+    let customStudy: CustomStudySpec?
+
+    init(deckId: String?, customStudy: CustomStudySpec? = nil) {
+        self.deckId = deckId
+        self.customStudy = customStudy
+    }
+}
+
+struct PendingBackupImport {
+    let json: String
+    let preview: BackupPreviewDto
 }
 
 struct CaptureSheetRequest: Identifiable {
@@ -47,6 +63,7 @@ final class AppState {
     var isAuthenticating: Bool = false
     var isCheckingEntitlement: Bool = false
     var isStartingTrial: Bool = false
+    var isImportingBackup: Bool = false
     var lastSyncedAt: Date?
     var lastSyncError: String?
     var entitlement: EntitlementInfoDto?
@@ -729,6 +746,43 @@ final class AppState {
         }
     }
 
+    func prepareBackupImport(from url: URL) async -> PendingBackupImport? {
+        guard !isImportingBackup else { return nil }
+        isImportingBackup = true
+        defer { isImportingBackup = false }
+        do {
+            let json = try await Task.detached(priority: .userInitiated) {
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                return try String(contentsOf: url, encoding: .utf8)
+            }.value
+            let preview = try await store.previewBackupJson(json: json)
+            if preview.added.isEmpty && preview.replaced.isEmpty {
+                showToast("Backup file contains no decks.")
+                return nil
+            }
+            return PendingBackupImport(json: json, preview: preview)
+        } catch {
+            showToast("Import failed: \(error.remDisplayMessage)")
+            return nil
+        }
+    }
+
+    func commitBackupImport(json: String) async {
+        guard !isImportingBackup else { return }
+        isImportingBackup = true
+        defer { isImportingBackup = false }
+        do {
+            let result = try await store.importBackupJson(json: json)
+            await refreshAll()
+            let total = result.added.count + result.replaced.count
+            showToast("Imported \(total) \(total == 1 ? "deck" : "decks")")
+            Task { await syncNow(silent: true) }
+        } catch {
+            showToast("Import failed: \(error.remDisplayMessage)")
+        }
+    }
+
     // MARK: - Decks, Capture & Study
 
     func createDeck(name: String, color: String) async -> DeckDto? {
@@ -824,6 +878,13 @@ final class AppState {
 
     func startStudy(deckId: String? = nil) {
         studyLaunch = StudyLaunchRequest(deckId: deckId)
+    }
+
+    func startCustomStudy(deckId: String, mode: CustomStudyModeDto, amount: UInt32) {
+        studyLaunch = StudyLaunchRequest(
+            deckId: deckId,
+            customStudy: CustomStudySpec(mode: mode, amount: amount)
+        )
     }
 
     func showToast(_ message: String) {

@@ -5,6 +5,13 @@ import UIKit
 struct ReviewScreen: View {
     @Bindable var appState: AppState
     let deckId: String?
+    let customStudy: CustomStudySpec?
+
+    init(appState: AppState, deckId: String?, customStudy: CustomStudySpec? = nil) {
+        self.appState = appState
+        self.deckId = deckId
+        self.customStudy = customStudy
+    }
 
     @Environment(\.dismiss) private var dismiss
     @State private var session: RemStudySession?
@@ -12,6 +19,7 @@ struct ReviewScreen: View {
     @State private var loadError: String?
 
     @State private var sessionPassedCount: UInt32 = 0
+    @State private var lastGradedPassed: Bool?
     @State private var sessionStartedAt: Date = Date()
     @State private var sessionFinishedAt: Date?
     @State private var isMutating: Bool = false
@@ -135,12 +143,14 @@ struct ReviewScreen: View {
                                 Label("Text size", systemImage: "textformat.size")
                             }
 
-                            Divider()
+                            if viewState?.preview != true {
+                                Divider()
 
-                            Button(role: .destructive) {
-                                Task { await suspendCurrentCard() }
-                            } label: {
-                                Label("Suspend card", systemImage: "pause.circle")
+                                Button(role: .destructive) {
+                                    Task { await suspendCurrentCard() }
+                                } label: {
+                                    Label("Suspend card", systemImage: "pause.circle")
+                                }
                             }
                         } label: {
                             Image(systemName: "ellipsis.circle")
@@ -177,7 +187,10 @@ struct ReviewScreen: View {
     private var principalTitle: String {
         guard let viewState else { return "Review" }
         if viewState.current == nil {
-            return viewState.reviewed == 0 ? "Nothing due" : "Session complete"
+            if viewState.reviewed == 0 {
+                return customStudy != nil ? "No matching cards" : "Nothing due"
+            }
+            return viewState.preview ? "Preview complete" : "Session complete"
         }
         return viewState.deckName ?? "Review"
     }
@@ -280,6 +293,11 @@ struct ReviewScreen: View {
                                     }
                                     .padding(.top, 6)
                                 }
+
+                                if card.hasProvenance {
+                                    CardProvenanceView(card: card, style: .disclosure)
+                                        .padding(.top, 8)
+                                }
                             }
                             .transition(.opacity.combined(with: .offset(y: 6)))
                         }
@@ -347,6 +365,20 @@ struct ReviewScreen: View {
                         Task { await reveal() }
                     } label: {
                         Text("Show answer")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(RemColor.onAccent)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 54)
+                            .background(RemColor.accent)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isMutating)
+                } else if viewState.preview {
+                    Button {
+                        Task { await advancePreview() }
+                    } label: {
+                        Text("Next card")
                             .font(.body.weight(.semibold))
                             .foregroundStyle(RemColor.onAccent)
                             .frame(maxWidth: .infinity)
@@ -429,13 +461,20 @@ struct ReviewScreen: View {
 
     private func sessionCompleteView(viewState: StudyViewDto) -> some View {
         if viewState.reviewed == 0 {
+            let emptyTitle = customStudy != nil ? "No matching cards" : "Nothing due"
+            let emptyDescription: String = {
+                if customStudy != nil {
+                    return "No cards match this custom study filter right now."
+                }
+                return deckId != nil
+                    ? "Nothing due in this deck right now."
+                    : "Nothing due across your decks right now."
+            }()
             return AnyView(
                 ContentUnavailableView {
-                    Label("Nothing due", systemImage: "checkmark.circle")
+                    Label(emptyTitle, systemImage: "checkmark.circle")
                 } description: {
-                    Text(deckId != nil
-                         ? "Nothing due in this deck right now."
-                         : "Nothing due across your decks right now.")
+                    Text(emptyDescription)
                 } actions: {
                     Button("Back to Today") {
                         dismiss()
@@ -472,20 +511,25 @@ struct ReviewScreen: View {
                 }
 
                 VStack(spacing: 6) {
-                    Text("All caught up.")
+                    Text(viewState.preview ? "Preview complete." : "All caught up.")
                         .font(.title.bold())
                         .tracking(-0.5)
                         .foregroundStyle(RemColor.text)
-                    Text(syncNote)
+                    Text(viewState.preview ? "No schedules were changed." : syncNote)
                         .font(.subheadline)
                         .foregroundStyle(RemColor.muted)
                         .multilineTextAlignment(.center)
                 }
 
                 HStack(spacing: 0) {
-                    sessionStatColumn(value: "\(viewState.reviewed)", label: "Reviewed")
-                    Divider().frame(height: 32).overlay(RemColor.border)
-                    sessionStatColumn(value: "\(recallPct)%", label: "Recall")
+                    sessionStatColumn(
+                        value: "\(viewState.reviewed)",
+                        label: viewState.preview ? "Previewed" : "Reviewed"
+                    )
+                    if !viewState.preview {
+                        Divider().frame(height: 32).overlay(RemColor.border)
+                        sessionStatColumn(value: "\(recallPct)%", label: "Recall")
+                    }
                     Divider().frame(height: 32).overlay(RemColor.border)
                     sessionStatColumn(value: Self.formatDuration(seconds: elapsedSeconds), label: "Time")
                 }
@@ -543,15 +587,46 @@ struct ReviewScreen: View {
 
     private func startSession() async {
         do {
-            let started = try await appState.store.startStudy(deckId: deckId)
-            let initial = try started.currentView(nowMs: RemStore.nowMs())
+            let started: RemStudySession
+            if let customStudy, let deckId {
+                started = try await appState.store.startCustomStudy(
+                    deckId: deckId,
+                    mode: customStudy.mode,
+                    amount: customStudy.amount
+                )
+            } else {
+                started = try await appState.store.startStudy(deckId: deckId)
+            }
+            let initial = try await appState.store.studyCurrentView(session: started)
             self.session = started
             self.viewState = initial
             self.sessionPassedCount = 0
+            self.lastGradedPassed = nil
             self.sessionStartedAt = Date()
             self.sessionFinishedAt = initial.current == nil ? Date() : nil
         } catch {
-            self.loadError = error.localizedDescription
+            self.loadError = error.remDisplayMessage
+        }
+    }
+
+    private func advancePreview() async {
+        guard let session, !isMutating else { return }
+        isMutating = true
+        defer { isMutating = false }
+
+        if appState.hapticsEnabled {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+        do {
+            let next = try await appState.store.studyAdvancePreview(session: session)
+            if next.current == nil {
+                sessionFinishedAt = Date()
+            }
+            withAnimation(.easeOut(duration: 0.16)) {
+                self.viewState = next
+            }
+        } catch {
+            appState.showToast(error.remDisplayMessage)
         }
     }
 
@@ -564,12 +639,12 @@ struct ReviewScreen: View {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
         do {
-            let next = try session.reveal(nowMs: RemStore.nowMs())
+            let next = try await appState.store.studyReveal(session: session)
             withAnimation(.spring(response: 0.30, dampingFraction: 0.88)) {
                 self.viewState = next
             }
         } catch {
-            appState.showToast(error.localizedDescription)
+            appState.showToast(error.remDisplayMessage)
         }
     }
 
@@ -582,11 +657,15 @@ struct ReviewScreen: View {
             UIImpactFeedbackGenerator(style: grade == .again ? .rigid : .medium).impactOccurred()
         }
         do {
-            let outcome = try session.grade(grade: grade, nowMs: RemStore.nowMs())
+            let outcome = try await appState.store.studyGrade(session: session, grade: grade)
             if outcome.conflictCardId != nil {
                 appState.showToast("Skipped card edited elsewhere")
-            } else if grade != .again {
-                sessionPassedCount += 1
+            } else {
+                let passed = grade != .again
+                lastGradedPassed = passed
+                if passed {
+                    sessionPassedCount += 1
+                }
             }
             if outcome.view.current == nil {
                 sessionFinishedAt = Date()
@@ -598,7 +677,7 @@ struct ReviewScreen: View {
                 self.viewState = outcome.view
             }
         } catch {
-            appState.showToast(error.localizedDescription)
+            appState.showToast(error.remDisplayMessage)
         }
     }
 
@@ -611,7 +690,11 @@ struct ReviewScreen: View {
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         }
         do {
-            let restored = try session.undoLastGrade(nowMs: RemStore.nowMs())
+            let restored = try await appState.store.studyUndoLastGrade(session: session)
+            if lastGradedPassed == true && sessionPassedCount > 0 {
+                sessionPassedCount -= 1
+            }
+            lastGradedPassed = nil
             if sessionPassedCount > restored.reviewed {
                 sessionPassedCount = restored.reviewed
             }
@@ -621,7 +704,11 @@ struct ReviewScreen: View {
             }
             appState.showToast("Restored previous card")
         } catch {
-            appState.showToast(error.localizedDescription)
+            lastGradedPassed = nil
+            if let refreshed = try? await appState.store.studyCurrentView(session: session) {
+                self.viewState = refreshed
+            }
+            appState.showToast(error.remDisplayMessage)
         }
     }
 
@@ -631,7 +718,8 @@ struct ReviewScreen: View {
         defer { isMutating = false }
 
         do {
-            let next = try session.suspendCurrent(nowMs: RemStore.nowMs())
+            let next = try await appState.store.studySuspendCurrent(session: session)
+            lastGradedPassed = nil
             if next.current == nil {
                 sessionFinishedAt = Date()
             }
@@ -640,17 +728,29 @@ struct ReviewScreen: View {
             }
             appState.showToast("Card suspended")
         } catch {
-            appState.showToast(error.localizedDescription)
+            if let reloaded = try? await appState.store.studyReloadCurrent(session: session) {
+                if reloaded.current == nil {
+                    sessionFinishedAt = Date()
+                }
+                self.viewState = reloaded
+            }
+            appState.showToast(error.remDisplayMessage)
         }
     }
 
     private func reloadCurrentCard() async {
-        guard let session else { return }
+        guard let session, !isMutating else { return }
+        isMutating = true
+        defer { isMutating = false }
+
         do {
-            let reloaded = try session.reloadCurrent(nowMs: RemStore.nowMs())
+            let reloaded = try await appState.store.studyReloadCurrent(session: session)
+            if reloaded.current == nil {
+                sessionFinishedAt = Date()
+            }
             self.viewState = reloaded
         } catch {
-            appState.showToast(error.localizedDescription)
+            appState.showToast(error.remDisplayMessage)
         }
     }
 }

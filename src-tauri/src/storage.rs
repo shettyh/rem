@@ -1,7 +1,7 @@
 use rem_core::{
-    Asset, Card, CardDraft, CardPatch, Collection, Deck, DeckBackup, DeckPatch, DraftDecision,
-    DraftResolution, ImportResult, NewDraftInput, ProposalMetadata, ProposalMode,
-    ProposeDraftsResult, ReviewCommit, ReviewLog,
+    Asset, Card, CardDraft, CardPatch, CardSearchHit, Collection, CollectionStats, Deck,
+    DeckBackup, DeckPatch, DraftDecision, DraftResolution, ImportResult, NewDraftInput,
+    ProposalMetadata, ProposalMode, ProposeDraftsResult, ReviewCommit, ReviewLog,
 };
 use serde::Serialize;
 use tauri::State;
@@ -131,6 +131,18 @@ pub fn storage_list_cards(
 }
 
 #[tauri::command]
+pub fn storage_search_cards(
+    collection: State<'_, Collection>,
+    query: String,
+    deck_id: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<CardSearchHit>, String> {
+    collection
+        .search_cards(&query, deck_id.as_deref(), limit.unwrap_or(50))
+        .map_err(message)
+}
+
+#[tauri::command]
 pub fn storage_update_card(
     collection: State<'_, Collection>,
     id: String,
@@ -163,6 +175,18 @@ pub fn storage_list_review_logs(
     deck_id: String,
 ) -> Result<Vec<ReviewLog>, String> {
     collection.list_review_logs(&deck_id).map_err(message)
+}
+
+#[tauri::command]
+pub fn storage_get_stats(
+    collection: State<'_, Collection>,
+    deck_id: Option<String>,
+    days: u32,
+    now: i64,
+) -> Result<CollectionStats, String> {
+    collection
+        .compute_stats(deck_id.as_deref(), days, now)
+        .map_err(message)
 }
 
 #[tauri::command]

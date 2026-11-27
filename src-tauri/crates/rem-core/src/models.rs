@@ -104,7 +104,20 @@ pub struct FsrsState {
     pub due: i64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FsrsCardState {
+    New,
+    Learning,
+    Review,
+    Relearning,
+}
+
 impl FsrsState {
+    pub const STATE_NEW: u8 = 0;
+    pub const STATE_LEARNING: u8 = 1;
+    pub const STATE_REVIEW: u8 = 2;
+    pub const STATE_RELEARNING: u8 = 3;
+
     pub fn initial(now: i64) -> Self {
         Self {
             kind: SchedulerKind::Fsrs,
@@ -113,15 +126,86 @@ impl FsrsState {
             difficulty: 0.0,
             reps: 0,
             lapses: 0,
-            state: 0,
+            state: Self::STATE_NEW,
             step: 0,
             last_review: None,
             due: now,
         }
     }
+
+    pub fn card_state(&self) -> Option<FsrsCardState> {
+        match self.state {
+            Self::STATE_NEW => Some(FsrsCardState::New),
+            Self::STATE_LEARNING => Some(FsrsCardState::Learning),
+            Self::STATE_REVIEW => Some(FsrsCardState::Review),
+            Self::STATE_RELEARNING => Some(FsrsCardState::Relearning),
+            _ => None,
+        }
+    }
+
+    pub fn is_new(&self) -> bool {
+        self.state == Self::STATE_NEW
+    }
+
+    pub fn is_review(&self) -> bool {
+        self.state == Self::STATE_REVIEW
+    }
 }
 
 pub type SchedulingState = FsrsState;
+
+fn deserialize_sources_default<'de, D>(deserializer: D) -> Result<Vec<DraftSource>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<Vec<DraftSource>>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardProvenance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rationale: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_sources_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub sources: Vec<DraftSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposed_by: Option<String>,
+}
+
+impl CardProvenance {
+    pub fn is_empty(&self) -> bool {
+        self.rationale.is_none() && self.sources.is_empty() && self.proposed_by.is_none()
+    }
+
+    pub fn normalize(self) -> Self {
+        let trim_opt = |value: Option<String>| {
+            value.and_then(|raw| {
+                let trimmed = raw.trim().to_owned();
+                (!trimmed.is_empty()).then_some(trimmed)
+            })
+        };
+        let sources = self
+            .sources
+            .into_iter()
+            .filter_map(|source| {
+                let locator = source.locator.trim().to_owned();
+                (!locator.is_empty()).then(|| DraftSource {
+                    locator,
+                    label: trim_opt(source.label),
+                })
+            })
+            .collect();
+        Self {
+            rationale: trim_opt(self.rationale),
+            sources,
+            proposed_by: trim_opt(self.proposed_by),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -136,6 +220,8 @@ pub struct Card {
     pub suspended: bool,
     pub last_again_at: Option<i64>,
     pub scheduling: SchedulingState,
+    #[serde(flatten, default)]
+    pub provenance: CardProvenance,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,9 +233,10 @@ pub struct NewCardInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct DraftSource {
     pub locator: String,
+    #[serde(default)]
     pub label: Option<String>,
 }
 
@@ -167,6 +254,16 @@ pub struct CardDraft {
     pub created_at: i64,
     pub updated_at: i64,
     pub revision: u64,
+}
+
+impl CardDraft {
+    pub fn provenance(&self) -> CardProvenance {
+        CardProvenance {
+            rationale: self.rationale.clone(),
+            sources: self.sources.clone(),
+            proposed_by: self.proposed_by.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -330,6 +427,8 @@ pub struct CardBackup {
     pub last_again_at: Option<i64>,
     pub scheduling: SchedulingState,
     pub reviews: Vec<ReviewBackup>,
+    #[serde(flatten, default)]
+    pub provenance: CardProvenance,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

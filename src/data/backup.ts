@@ -1,4 +1,4 @@
-import type { DeckSettings, Grade, ID, SchedulerKind, SchedulingState } from '../domain/models'
+import type { DeckSettings, DraftSource, Grade, ID, SchedulerKind, SchedulingState } from '../domain/models'
 import { DEFAULT_DECK_SETTINGS } from '../domain/models'
 import { getScheduler } from '../domain/scheduler'
 import type { Storage } from './Storage'
@@ -18,6 +18,9 @@ export interface CardBackup {
   lastAgainAt: number | null
   scheduling: SchedulingState
   reviews: ReviewBackup[]
+  rationale?: string | null
+  sources?: DraftSource[]
+  proposedBy?: string | null
 }
 
 export interface DeckBackup {
@@ -70,6 +73,9 @@ export async function collectBackup(storage: Storage, deckIds: ID[]): Promise<De
         lastAgainAt: c.lastAgainAt,
         scheduling: c.scheduling,
         reviews: reviewsByCard.get(c.id) ?? [],
+        ...(c.rationale ? { rationale: c.rationale } : {}),
+        ...(c.sources && c.sources.length > 0 ? { sources: c.sources } : {}),
+        ...(c.proposedBy ? { proposedBy: c.proposedBy } : {}),
       })),
     })
   }
@@ -152,6 +158,9 @@ function parseCard(raw: unknown, now: number): CardBackup {
   ) {
     throw new Error('Backup file is malformed.')
   }
+  const rationale = typeof raw.rationale === 'string' && raw.rationale.trim() ? raw.rationale.trim() : undefined
+  const sources = parseSources(raw.sources)
+  const proposedBy = typeof raw.proposedBy === 'string' && raw.proposedBy.trim() ? raw.proposedBy.trim() : undefined
   return {
     front: raw.front,
     back: raw.back,
@@ -162,7 +171,23 @@ function parseCard(raw: unknown, now: number): CardBackup {
     lastAgainAt: typeof raw.lastAgainAt === 'number' ? raw.lastAgainAt : null,
     scheduling: normalizeScheduling(raw.scheduling, now),
     reviews: parseReviews(raw.reviews),
+    ...(rationale ? { rationale } : {}),
+    ...(sources.length > 0 ? { sources } : {}),
+    ...(proposedBy ? { proposedBy } : {}),
   }
+}
+
+function parseSources(raw: unknown): DraftSource[] {
+  if (!Array.isArray(raw)) return []
+  const out: DraftSource[] = []
+  for (const item of raw) {
+    if (!isObject(item) || typeof item.locator !== 'string') continue
+    const locator = item.locator.trim()
+    if (!locator) continue
+    const label = typeof item.label === 'string' && item.label.trim() ? item.label.trim() : null
+    out.push({ locator, label })
+  }
+  return out
 }
 
 function parseReviews(raw: unknown): ReviewBackup[] {

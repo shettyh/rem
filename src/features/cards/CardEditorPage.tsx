@@ -63,33 +63,51 @@ export function CardEditorPage() {
     }
   }, [deckId, storage, savedCount])
 
+  const [cardMissing, setCardMissing] = useState(false)
+
   useEffect(() => {
-    if (!cardId) return
+    allowNavigationRef.current = false
+    if (!cardId) {
+      setCardMissing(false)
+      return
+    }
     let live = true
+    setCardMissing(false)
+    setBaseline(null)
+    setFront('')
+    setBack('')
+    setTags([])
+    setUserTagChips([])
+    setTagDraft('')
+    setSuspended(false)
+    setReviewMeta(null)
     storage.getCard(cardId).then((card) => {
-      if (live && card) {
-        const currentUserTags = userTags(card.tags)
-        setFront(card.front)
-        setBack(card.back)
-        setTags(card.tags)
-        setUserTagChips(currentUserTags)
-        setTagDraft('')
-        setSuspended(card.suspended)
-        if (card.scheduling.reps > 0) {
-          const st = cardStatus(card, Date.now())
-          setReviewMeta({
-            reps: card.scheduling.reps,
-            nextLabel: st.kind === 'scheduled' ? `Next review in ${st.label}` : `Status: ${st.label}`,
-          })
-        } else {
-          setReviewMeta(null)
-        }
-        setBaseline({
-          front: card.front,
-          back: card.back,
-          tagsKey: currentUserTags.join(', '),
-        })
+      if (!live) return
+      if (!card) {
+        setCardMissing(true)
+        return
       }
+      const currentUserTags = userTags(card.tags)
+      setFront(card.front)
+      setBack(card.back)
+      setTags(card.tags)
+      setUserTagChips(currentUserTags)
+      setTagDraft('')
+      setSuspended(card.suspended)
+      if (card.scheduling.reps > 0) {
+        const st = cardStatus(card, Date.now())
+        setReviewMeta({
+          reps: card.scheduling.reps,
+          nextLabel: st.kind === 'scheduled' ? `Next review in ${st.label}` : `Status: ${st.label}`,
+        })
+      } else {
+        setReviewMeta(null)
+      }
+      setBaseline({
+        front: card.front,
+        back: card.back,
+        tagsKey: currentUserTags.join(', '),
+      })
     })
     return () => {
       live = false
@@ -105,7 +123,7 @@ export function CardEditorPage() {
     return { hash: asset.hash, mime: asset.mime }
   }
   const resolveAsset = (hash: string) => loadAssetUrl(storage, hash)
-  const dirty = baseline !== null && (
+  const dirty = !cardMissing && baseline !== null && (
     front !== baseline.front || back !== baseline.back || currentTagsKey !== baseline.tagsKey
   )
   const blocker = useBlocker(({ currentLocation, nextLocation }) =>
@@ -214,7 +232,9 @@ export function CardEditorPage() {
   // ⌘⏎ / Ctrl+⏎ saves, ⌘⇧⏎ saves & starts another new card, Esc cancels.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        if (cardMissing) return
         e.preventDefault()
         void save(e.shiftKey && !editing)
       } else if (e.key === 'Escape') {
@@ -225,7 +245,7 @@ export function CardEditorPage() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [save, editing])
+  }, [save, editing, cardMissing])
 
   const systemTags = tags.filter(isSystemTag)
   const existingKeys = new Set(userTagChips.map((t) => t.toLocaleLowerCase()))
@@ -262,6 +282,28 @@ export function CardEditorPage() {
       </button>
     </>
   )
+
+  if (cardMissing) {
+    return (
+      <>
+        <PageHeader
+          title={title}
+          actions={
+            <button className="btn btn-ghost" onClick={leaveEditor}>
+              Back
+            </button>
+          }
+        />
+        <div className="empty-state">
+          <h3>Card not found</h3>
+          <p>This card was deleted or is no longer available.</p>
+          <button className="btn btn-primary cta" onClick={leaveEditor}>
+            Return
+          </button>
+        </div>
+      </>
+    )
+  }
 
   return (
     <>

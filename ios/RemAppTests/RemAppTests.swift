@@ -599,4 +599,96 @@ final class RemAppTests: XCTestCase {
         let fsrsAfterUndo = try await store.getDeckFsrsStatus(deckId: deck.id)
         XCTAssertEqual(fsrsAfterUndo.reviewCount, 0)
     }
+
+    func testCrossDeckSearchCustomStudyPreviewAndBackupImportRoundTrip() async throws {
+        let (dir, store) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let now: Int64 = 1_764_100_000_000
+        let rust = try await store.createDeck(name: "Rust", color: "#5a47e8", nowMs: now)
+        let sql = try await store.createDeck(name: "SQL", color: "#1e9b5e", nowMs: now + 1)
+        _ = try await store.createCard(
+            deckId: rust.id,
+            front: "What does Pin<P> guarantee?",
+            back: "Pointee cannot move in memory.",
+            tags: ["async"],
+            nowMs: now + 2
+        )
+        _ = try await store.createCard(
+            deckId: sql.id,
+            front: "What is WAL mode?",
+            back: "Write-ahead logging for concurrent readers.",
+            tags: ["sqlite"],
+            nowMs: now + 3
+        )
+
+        // Cross-deck search finds the right card and deck metadata.
+        let hits = try await store.searchCards(query: "Pin<P>", limit: 20)
+        XCTAssertEqual(hits.count, 1)
+        XCTAssertEqual(hits.first?.deckName, "Rust")
+        XCTAssertEqual(hits.first?.card.tags, ["async"])
+
+        // Custom study preview advances without changing schedules or review logs, and rejects suspend.
+        let previewSession = try await store.startCustomStudy(
+            deckId: rust.id,
+            mode: .previewNew,
+            amount: 5,
+            nowMs: now + 10
+        )
+        let initial = try await store.studyCurrentView(session: previewSession, nowMs: now + 10)
+        XCTAssertTrue(initial.preview)
+        XCTAssertEqual(initial.remaining, 1)
+        do {
+            _ = try await store.studySuspendCurrent(session: previewSession, nowMs: now + 10)
+            XCTFail("Expected preview session to reject suspend")
+        } catch {
+            XCTAssertTrue(error.remDisplayMessage.lowercased().contains("preview"))
+        }
+        let revealed = try await store.studyReveal(session: previewSession, nowMs: now + 11)
+        XCTAssertTrue(revealed.revealed)
+        XCTAssertNil(revealed.intervals)
+        let finished = try await store.studyAdvancePreview(session: previewSession, nowMs: now + 12)
+        XCTAssertNil(finished.current)
+        XCTAssertEqual(finished.reviewed, 1)
+        let statsAfterPreview = try await store.getStats(deckId: rust.id, days: 30, nowMs: now + 20)
+        XCTAssertEqual(statsAfterPreview.reviews, 0)
+
+        // Backup export -> preview -> import replaces matching deck names cleanly.
+        let exported = try await store.exportBackupJson()
+        let preview = try await store.previewBackupJson(json: exported)
+        XCTAssertTrue(preview.added.isEmpty)
+        XCTAssertEqual(Set(preview.replaced), Set(["Rust", "SQL"]))
+        XCTAssertEqual(preview.totalCards, 2)
+
+        let imported = try await store.importBackupJson(json: exported, nowMs: now + 30)
+        XCTAssertEqual(Set(imported.replaced), Set(["Rust", "SQL"]))
+        let hitsAfterImport = try await store.searchCards(query: "concurrent", limit: 10)
+        XCTAssertEqual(hitsAfterImport.count, 1)
+        XCTAssertEqual(hitsAfterImport.first?.deckName, "SQL")
+
+        // Lenient parser accepts older backups with partial DeckSettings & legacy SM-2 scheduling.
+        let legacyBackup = """
+        {
+          "format": "rem-backup",
+          "version": 1,
+          "decks": [{
+            "name": "Legacy",
+            "createdAt": 1000,
+            "settings": { "newPerDay": 15 },
+            "cards": [{
+              "front": "Legacy Q",
+              "back": "Legacy A",
+              "createdAt": 1000,
+              "updatedAt": 1000,
+              "scheduling": { "repetitions": 2, "intervalDays": 6, "easeFactor": 2.5, "due": 2000 }
+            }]
+          }]
+        }
+        """
+        let legacyPreview = try await store.previewBackupJson(json: legacyBackup)
+        XCTAssertEqual(legacyPreview.added, ["Legacy"])
+        XCTAssertEqual(legacyPreview.totalCards, 1)
+        let legacyImported = try await store.importBackupJson(json: legacyBackup, nowMs: now + 40)
+        XCTAssertEqual(legacyImported.added, ["Legacy"])
+    }
 }

@@ -762,3 +762,86 @@ fn sync_status_and_local_only_sync_have_stable_output() {
         })
     );
 }
+
+#[test]
+fn card_search_supports_text_json_deck_filter_limit_and_code_operators() {
+    let temp = TempDir::new().unwrap();
+    let database = database(&temp);
+    let rust = seed_deck(&database, "Rust", 1);
+    let sql = seed_deck(&database, "SQL", 2);
+
+    let collection = Collection::open(&database).unwrap();
+    let c1 = collection
+        .create_card(
+            &rust.id,
+            "Why does Pin<P> prevent moving self-referential futures?",
+            "Moving invalidates internal pointers.",
+            vec!["async".into()],
+            10,
+        )
+        .unwrap();
+    collection
+        .create_card(
+            &rust.id,
+            "What does Box<T> allocate?",
+            "Heap allocation for a single value.",
+            vec!["memory".into()],
+            11,
+        )
+        .unwrap();
+    collection
+        .create_card(
+            &sql.id,
+            "How does WAL checkpoint work?",
+            "Copies frames back to main db.",
+            vec!["sqlite".into()],
+            12,
+        )
+        .unwrap();
+    drop(collection);
+
+    // Text output across decks with code operator query.
+    let text = run(rem(&database).args(["card", "search", "Pin<P>"]));
+    assert!(
+        text.status.success(),
+        "{}",
+        String::from_utf8_lossy(&text.stderr)
+    );
+    let stdout = String::from_utf8(text.stdout).unwrap();
+    assert!(stdout.contains(&c1.id));
+    assert!(stdout.contains("Rust"));
+    assert!(stdout.contains("Pin<P>"));
+
+    // JSON output with --deck and --limit.
+    let json_out = run(rem(&database).args([
+        "card", "search", "allocate", "--deck", "Rust", "--limit", "1", "--output", "json",
+    ]));
+    assert!(json_out.status.success());
+    let payload = stdout_json(&json_out);
+    assert_eq!(payload["version"], 1);
+    assert_eq!(payload["command"], "card.search");
+    let hits = payload["data"]["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0]["deckName"], "Rust");
+    assert_eq!(hits[0]["card"]["front"], "What does Box<T> allocate?");
+
+    // Deck filter excludes matches in other decks.
+    let empty = run(rem(&database).args(["card", "search", "checkpoint", "--deck", "Rust"]));
+    assert!(empty.status.success());
+    assert_eq!(
+        String::from_utf8(empty.stdout).unwrap().trim(),
+        "No matching cards."
+    );
+}
+
+#[test]
+fn draft_review_requires_an_interactive_terminal() {
+    let temp = TempDir::new().unwrap();
+    let output = run(rem(&database(&temp)).args(["draft", "review"]));
+
+    assert_eq!(output.status.code(), Some(3));
+    assert!(String::from_utf8(output.stderr)
+        .unwrap()
+        .contains("rem draft review requires an interactive terminal"));
+    assert!(output.stdout.is_empty());
+}

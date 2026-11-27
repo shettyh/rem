@@ -3,12 +3,11 @@ use uuid::Uuid;
 
 use crate::collection::write_transaction;
 use crate::store::{
-    apply_card_patch, bump_sync_revision, find_card_by_id, find_card_by_id_with_revision,
-    update_card_row,
+    apply_card_patch, bump_sync_revision, find_card_by_id_with_revision, update_card_row,
 };
 use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc};
 use crate::{
-    CardPatch, Collection, CollectionError, DailyField, DailyIncrement, Grade, ReviewCommit,
+    Card, CardPatch, Collection, CollectionError, DailyField, DailyIncrement, Grade, ReviewCommit,
     ReviewLog, SchedulingState, SyncOp,
 };
 
@@ -17,11 +16,13 @@ pub(crate) struct ReviewCommitReceipt {
     pub(crate) outbox_op_id: Option<String>,
     pub(crate) previous_suspended_hlc: String,
     pub(crate) previous_scheduling_hlc: String,
+    pub(crate) previous_leech_hlc: String,
 }
 
 pub(crate) struct ReviewUndo {
     pub(crate) card_id: String,
     pub(crate) deck_id: String,
+    pub(crate) expected_revision: u64,
     pub(crate) previous_tags: Vec<String>,
     pub(crate) previous_suspended: bool,
     pub(crate) previous_last_again_at: Option<i64>,
@@ -31,6 +32,7 @@ pub(crate) struct ReviewUndo {
     pub(crate) outbox_op_id: Option<String>,
     pub(crate) previous_suspended_hlc: String,
     pub(crate) previous_scheduling_hlc: String,
+    pub(crate) previous_leech_hlc: String,
     pub(crate) undone_at: i64,
 }
 
@@ -87,12 +89,15 @@ impl Collection {
                 "review deck does not own the card".into(),
             ));
         }
-        let (previous_suspended_hlc, previous_scheduling_hlc): (String, String) = transaction
-            .query_row(
-                "SELECT suspended_hlc, scheduling_hlc FROM cards WHERE id = ?1",
-                [&card.id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )?;
+        let (previous_suspended_hlc, previous_scheduling_hlc, previous_leech_hlc): (
+            String,
+            String,
+            String,
+        ) = transaction.query_row(
+            "SELECT suspended_hlc, scheduling_hlc, leech_hlc FROM cards WHERE id = ?1",
+            [&card.id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
         let had_leech = card.tags.iter().any(|tag| tag == "leech");
         let was_suspended = card.suspended;
         apply_card_patch(&mut card, commit.patch, commit.reviewed_at)?;
@@ -146,17 +151,14 @@ impl Collection {
         let mut outbox_op_id = None;
         if is_cloud_sync_enabled(&transaction)? {
             let hlc = next_hlc(&transaction, commit.reviewed_at)?;
-            if leech_suspended {
-                transaction.execute(
-                    "UPDATE cards SET scheduling_hlc = ?2, suspended_hlc = ?2 WHERE id = ?1",
-                    params![card.id, hlc],
-                )?;
-            } else {
-                transaction.execute(
-                    "UPDATE cards SET scheduling_hlc = ?2 WHERE id = ?1",
-                    params![card.id, hlc],
-                )?;
-            }
+            transaction.execute(
+                "UPDATE cards SET
+                    scheduling_hlc = ?2,
+                    suspended_hlc = CASE WHEN ?3 THEN ?2 ELSE suspended_hlc END,
+                    leech_hlc = CASE WHEN ?4 THEN ?2 ELSE leech_hlc END
+                 WHERE id = ?1",
+                params![card.id, hlc, leech_suspended, leech_tag_added],
+            )?;
             outbox_op_id = Some(enqueue_new_op(
                 &transaction,
                 &SyncOp::CardReview {
@@ -181,28 +183,48 @@ impl Collection {
             outbox_op_id,
             previous_suspended_hlc,
             previous_scheduling_hlc,
+            previous_leech_hlc,
         })
     }
 
-    pub(crate) fn undo_review(&self, undo: ReviewUndo) -> Result<(), CollectionError> {
+    pub(crate) fn undo_review(&self, undo: ReviewUndo) -> Result<(Card, u64), CollectionError> {
         let mut connection = self
             .connection
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
         let transaction = write_transaction(&mut connection)?;
-        let mut card = find_card_by_id(&transaction, &undo.card_id)?.ok_or_else(|| {
-            CollectionError::NotFound {
+        let (mut card, current_revision) =
+            find_card_by_id_with_revision(&transaction, &undo.card_id)?.ok_or_else(|| {
+                CollectionError::NotFound {
+                    kind: "card",
+                    id: undo.card_id.clone(),
+                }
+            })?;
+        if current_revision != undo.expected_revision {
+            return Err(CollectionError::Conflict {
                 kind: "card",
-                id: undo.card_id.clone(),
-            }
-        })?;
-        let tags_changed = card.tags != undo.previous_tags;
+                id: undo.card_id,
+            });
+        }
+        let remove_leech_tag = card.tags.iter().any(|tag| tag == "leech")
+            && !undo.previous_tags.iter().any(|tag| tag == "leech");
         let suspended_changed = card.suspended != undo.previous_suspended;
 
+        let next_tags = if remove_leech_tag {
+            Some(
+                card.tags
+                    .iter()
+                    .filter(|tag| tag.as_str() != "leech")
+                    .cloned()
+                    .collect(),
+            )
+        } else {
+            None
+        };
         apply_card_patch(
             &mut card,
             CardPatch {
-                tags: tags_changed.then_some(undo.previous_tags),
+                tags: next_tags,
                 suspended: suspended_changed.then_some(undo.previous_suspended),
                 last_again_at: Some(undo.previous_last_again_at),
                 scheduling: Some(undo.previous_scheduling),
@@ -237,72 +259,49 @@ impl Collection {
 
         if is_cloud_sync_enabled(&transaction)? {
             let retracted_outbox = match &undo.outbox_op_id {
-                Some(op_id) => {
+                Some(op_id) if !self.is_outbox_op_in_flight(op_id) => {
                     transaction.execute("DELETE FROM sync_outbox WHERE op_id = ?1", [op_id])? > 0
                 }
-                None => false,
+                _ => false,
             };
             if retracted_outbox {
                 transaction.execute(
-                    "UPDATE cards SET suspended_hlc = ?2, scheduling_hlc = ?3 WHERE id = ?1",
+                    "UPDATE cards SET suspended_hlc = ?2, scheduling_hlc = ?3, leech_hlc = ?4 WHERE id = ?1",
                     params![
                         card.id,
                         undo.previous_suspended_hlc,
-                        undo.previous_scheduling_hlc
+                        undo.previous_scheduling_hlc,
+                        undo.previous_leech_hlc
                     ],
                 )?;
             } else {
-                if tags_changed {
-                    let hlc = next_hlc(&transaction, undo.undone_at)?;
+                if let Some(log_id) = &undo.review_log_id {
                     transaction.execute(
-                        "UPDATE cards SET content_hlc = ?2 WHERE id = ?1",
-                        params![card.id, hlc],
-                    )?;
-                    enqueue_new_op(
-                        &transaction,
-                        &SyncOp::CardContentPatch {
-                            id: card.id.clone(),
-                            front: card.front.clone(),
-                            back: card.back.clone(),
-                            tags: card.tags.clone(),
-                            hlc,
-                        },
-                        undo.undone_at,
-                    )?;
-                }
-                if suspended_changed {
-                    let hlc = next_hlc(&transaction, undo.undone_at)?;
-                    transaction.execute(
-                        "UPDATE cards SET suspended_hlc = ?2 WHERE id = ?1",
-                        params![card.id, hlc],
-                    )?;
-                    enqueue_new_op(
-                        &transaction,
-                        &SyncOp::CardSuspendPatch {
-                            id: card.id.clone(),
-                            suspended: card.suspended,
-                            hlc,
-                        },
-                        undo.undone_at,
+                        "INSERT OR IGNORE INTO review_log_tombstones(id, deleted_at)
+                         VALUES (?1, ?2)",
+                        params![log_id, undo.undone_at],
                     )?;
                 }
                 let hlc = next_hlc(&transaction, undo.undone_at)?;
                 transaction.execute(
-                    "UPDATE cards SET scheduling_hlc = ?2 WHERE id = ?1",
-                    params![card.id, hlc],
+                    "UPDATE cards SET
+                        scheduling_hlc = ?2,
+                        suspended_hlc = CASE WHEN ?3 THEN ?2 ELSE suspended_hlc END,
+                        leech_hlc = CASE WHEN ?4 THEN ?2 ELSE leech_hlc END
+                     WHERE id = ?1",
+                    params![card.id, hlc, suspended_changed, remove_leech_tag],
                 )?;
                 enqueue_new_op(
                     &transaction,
-                    &SyncOp::CardReview {
-                        card_id: card.id,
-                        deck_id: card.deck_id,
-                        reviewed_at: undo.undone_at,
-                        grade: None,
-                        scheduling: card.scheduling,
+                    &SyncOp::CardReviewUndo {
+                        card_id: card.id.clone(),
+                        deck_id: card.deck_id.clone(),
+                        undone_at: undo.undone_at,
+                        scheduling: card.scheduling.clone(),
                         last_again_at: card.last_again_at,
-                        leech_suspended: false,
-                        leech_tag_added: false,
-                        review_log_id: None,
+                        remove_leech_tag,
+                        restore_suspended: suspended_changed.then_some(card.suspended),
+                        removed_review_log_id: undo.review_log_id,
                         hlc,
                     },
                     undo.undone_at,
@@ -312,7 +311,7 @@ impl Collection {
 
         bump_sync_revision(&transaction)?;
         transaction.commit()?;
-        Ok(())
+        Ok((card, current_revision + 1))
     }
 
     pub fn list_review_logs(&self, deck_id: &str) -> Result<Vec<ReviewLog>, CollectionError> {

@@ -93,6 +93,7 @@ fn import_decks_replaces_exact_names_and_preserves_card_history_atomically() {
                         reviewed_at: 7,
                         grade: Grade::Good,
                     }],
+                    provenance: Default::default(),
                 }],
             }],
             100,

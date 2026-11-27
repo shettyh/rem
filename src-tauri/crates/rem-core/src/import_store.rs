@@ -124,10 +124,11 @@ impl Collection {
                     suspended: backup_card.suspended,
                     last_again_at: backup_card.last_again_at,
                     scheduling: backup_card.scheduling,
+                    provenance: backup_card.provenance.normalize(),
                 };
                 let has_non_initial_sched = card.scheduling.reps > 0
                     || card.scheduling.lapses > 0
-                    || card.scheduling.state != 0
+                    || !card.scheduling.is_new()
                     || card.scheduling.step != 0
                     || card.scheduling.last_review.is_some()
                     || card.last_again_at.is_some();
@@ -181,6 +182,7 @@ impl Collection {
                             tags: card.tags.clone(),
                             created_at: card.created_at,
                             initial_due,
+                            provenance: card.provenance.clone(),
                             hlc: content_hlc,
                         },
                         now,

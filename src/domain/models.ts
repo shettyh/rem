@@ -68,6 +68,13 @@ export interface CustomStudyRequest {
  *  the discriminant is kept so another algorithm stays a one-file addition. */
 export type SchedulerKind = 'fsrs'
 
+export const FSRS_STATE = {
+  New: 0,
+  Learning: 1,
+  Review: 2,
+  Relearning: 3,
+} as const
+
 /** FSRS per-card scheduling state. */
 export interface FSRSState {
   kind: 'fsrs'
@@ -110,6 +117,42 @@ export interface Card {
   /** Most recent Again grade, used by custom-study forgotten-card selection. */
   lastAgainAt: number | null
   scheduling: SchedulingState
+  /** Retained draft provenance when the card originated from an approved proposal. */
+  rationale?: string | null
+  sources?: DraftSource[]
+  proposedBy?: string | null
+}
+
+export interface CardSearchHit {
+  card: Card
+  deckName: string
+  deckColor: string
+}
+
+export interface CollectionStatsDaily {
+  day: string
+  timestampMs: number
+  count: number
+}
+
+export interface CollectionStatsDeck {
+  deckId: ID
+  deckName: string
+  deckColor: string
+  reviews: number
+  recallRate: number
+}
+
+export interface CollectionStats {
+  historyCount: number
+  totalReviews: number
+  recallRate: number | null
+  currentStreakDays: number
+  activeDays: number
+  grades: Record<Grade, number>
+  daily: CollectionStatsDaily[]
+  byDeck: CollectionStatsDeck[]
+  upcoming7d: CollectionStatsDaily[]
 }
 
 export interface DraftSource {
@@ -205,6 +248,7 @@ export interface StudyView {
   reviewed: number
   remaining: number
   preview: boolean
+  canUndo: boolean
   notice: LeechAction | null
 }
 

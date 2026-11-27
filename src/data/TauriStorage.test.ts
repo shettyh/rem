@@ -124,13 +124,16 @@ describe('TauriStorage', () => {
       reviewed: 0,
       remaining: 0,
       preview: false,
+      canUndo: false,
       notice: null,
     }
     const fake = fakeInvoke((command) => {
       if (command === 'study_start') return { sessionId: 'study-1', view }
       if (command === 'study_reveal') return { ...view, revealed: true }
-      if (command === 'study_grade') return { status: 'graded', view }
+      if (command === 'study_grade') return { status: 'graded', view: { ...view, canUndo: true } }
       if (command === 'study_advance_preview') return view
+      if (command === 'study_undo_last_grade') return view
+      if (command === 'study_suspend_current') return view
       if (command === 'study_end') return undefined
       throw new Error(`unexpected command ${command}`)
     })
@@ -142,6 +145,8 @@ describe('TauriStorage', () => {
     await expect(storage.startStudy(request)).resolves.toEqual({ sessionId: 'study-1', view })
     await storage.revealStudy('study-1')
     await storage.gradeStudy('study-1', 'good')
+    await storage.undoStudyGrade('study-1')
+    await storage.suspendStudyCard('study-1')
     await storage.advanceStudyPreview('study-1')
     await storage.endStudy('study-1')
 
@@ -149,10 +154,12 @@ describe('TauriStorage', () => {
       ['study_start', { request, now: 123 }],
       ['study_reveal', { sessionId: 'study-1', now: 123 }],
       ['study_grade', { sessionId: 'study-1', grade: 'good', now: 123 }],
+      ['study_undo_last_grade', { sessionId: 'study-1', now: 123 }],
+      ['study_suspend_current', { sessionId: 'study-1', now: 123 }],
       ['study_advance_preview', { sessionId: 'study-1', now: 123 }],
       ['study_end', { sessionId: 'study-1' }],
     ])
-    expect(notifications).toBe(1)
+    expect(notifications).toBe(3)
   })
 
   it('maps native null option values to undefined', async () => {
@@ -181,5 +188,34 @@ describe('TauriStorage', () => {
 
     expect(created.bytes).toEqual(new Uint8Array([1, 2, 3]))
     expect(loaded?.bytes).toEqual(new Uint8Array([1, 2, 3]))
+  })
+
+  it('forwards cross-deck search and unified stats to native commands', async () => {
+    const fake = fakeInvoke((command) => {
+      if (command === 'storage_search_cards') return []
+      if (command === 'storage_get_stats') {
+        return {
+          historyCount: 0,
+          totalReviews: 0,
+          recallRate: null,
+          currentStreakDays: 0,
+          activeDays: 0,
+          grades: { again: 0, hard: 0, good: 0, easy: 0 },
+          daily: [],
+          byDeck: [],
+          upcoming7d: [],
+        }
+      }
+      throw new Error(`unexpected command ${command}`)
+    })
+    const storage = new TauriStorage(fake.invoke, () => 456)
+
+    await expect(storage.searchCards('rust', { deckId: 'd1', limit: 25 })).resolves.toEqual([])
+    await expect(storage.getStats('d1', 30)).resolves.toMatchObject({ totalReviews: 0 })
+
+    expect(fake.calls).toEqual([
+      ['storage_search_cards', { query: 'rust', deckId: 'd1', limit: 25 }],
+      ['storage_get_stats', { deckId: 'd1', days: 30, now: 456 }],
+    ])
   })
 })

@@ -275,6 +275,7 @@ test('a stale native grade conflict is explained and not counted as a review', a
       reviewed: 0,
       remaining: 0,
       preview: false,
+      canUndo: false,
       notice: null,
     },
   })
@@ -652,4 +653,97 @@ test('grading a learning-step card persists but bumps no counter', async () => {
     daily: undefined,
   }))
   expect(await storage.listReviewLogs(deck.id)).toEqual([])
+})
+
+test('undo restores the last graded card, review log, and daily stat (including from completion)', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Undo deck')
+  const card = await storage.createCard(deck.id, 'What is RAII?', 'Resource Acquisition Is Initialization.')
+  await storage.updateCard(card.id, {
+    scheduling: { kind: 'fsrs', stability: 10, difficulty: 5, reps: 3, lapses: 0, state: 2, step: 0, lastReview: 1, due: 0 },
+  })
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await expect.element(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await page.getByRole('button', { name: 'Good', exact: false }).click()
+
+  await expect.element(page.getByText('Review complete')).toBeVisible()
+  expect(await storage.listReviewLogs(deck.id)).toHaveLength(1)
+
+  await page.getByRole('button', { name: 'Undo last grade' }).click()
+  await expect.element(page.getByText('What is RAII?')).toBeVisible()
+  await expect.element(page.getByRole('status')).toMatchTextContent('Last grade undone.')
+  expect(await storage.listReviewLogs(deck.id)).toHaveLength(0)
+  expect(await storage.getDailyStat(deck.id, localDay(Date.now()))).toMatchObject({ reviewsDone: 0 })
+  expect((await storage.getCard(card.id))?.scheduling.reps).toBe(3)
+})
+
+test('suspend removes the current card from review and marks it suspended', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Suspend deck')
+  const first = await storage.createCard(deck.id, 'First question', 'First answer')
+  const second = await storage.createCard(deck.id, 'Second question', 'Second answer')
+  await storage.updateCard(first.id, {
+    scheduling: { kind: 'fsrs', stability: 10, difficulty: 5, reps: 1, lapses: 0, state: 2, step: 0, lastReview: 1, due: 0 },
+  })
+  await storage.updateCard(second.id, {
+    scheduling: { kind: 'fsrs', stability: 10, difficulty: 5, reps: 1, lapses: 0, state: 2, step: 0, lastReview: 1, due: 1 },
+  })
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await expect.element(page.getByText('First question')).toBeVisible()
+  await page.getByRole('button', { name: 'Suspend', exact: true }).click()
+
+  await expect.element(page.getByText('Second question')).toBeVisible()
+  await expect.element(page.getByRole('status')).toMatchTextContent('Card suspended.')
+  expect((await storage.getCard(first.id))?.suspended).toBe(true)
+})
+
+test('accepted draft provenance is inspectable when a card is revealed', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Provenance')
+  const proposed = await storage.proposeDrafts(
+    deck.id,
+    [{
+      front: 'Why use HLCs in rem-sync?',
+      back: 'For deterministic, clock-skew-tolerant LWW ordering.',
+      tags: ['sync'],
+      rationale: 'Prevented conflicts between laptop and phone.',
+      sources: [{ locator: 'src-tauri/crates/rem-core/src/hlc.rs', label: 'HLC module' }],
+    }],
+    { proposedBy: 'claude-code' },
+  )
+  const draft = proposed.outcomes[0].status === 'created' ? proposed.outcomes[0].value : null
+  expect(draft).not.toBeNull()
+  await storage.resolveDraft(draft!.id, draft!.revision, {
+    decision: 'accept',
+    deckId: deck.id,
+    card: { front: draft!.front, back: draft!.back, tags: draft!.tags },
+  })
+
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await expect.element(page.getByText('Source & rationale')).not.toBeInTheDocument()
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+  await expect.element(page.getByText('Source & rationale')).toBeVisible()
+  await page.getByText('Source & rationale').click()
+  await expect.element(page.getByText('Prevented conflicts between laptop and phone.')).toBeVisible()
+  await expect.element(page.getByText('src-tauri/crates/rem-core/src/hlc.rs')).toBeVisible()
+  await expect.element(page.getByText('Proposed by claude-code')).toBeVisible()
 })

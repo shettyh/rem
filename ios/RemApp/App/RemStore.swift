@@ -75,6 +75,14 @@ actor RemStore {
         try client.listCards(deckId: deckId)
     }
 
+    func searchCards(
+        query: String,
+        deckId: String? = nil,
+        limit: UInt32 = 50
+    ) throws -> [CardSearchHitDto] {
+        try client.searchCards(query: query, deckId: deckId, limit: limit)
+    }
+
     func getCard(id: String) throws -> CardDto? {
         try client.getCard(id: id)
     }
@@ -123,6 +131,65 @@ actor RemStore {
         try client.startStudy(deckId: deckId, nowMs: nowMs)
     }
 
+    func startCustomStudy(
+        deckId: String,
+        mode: CustomStudyModeDto,
+        amount: UInt32,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> RemStudySession {
+        try client.startCustomStudy(deckId: deckId, mode: mode, amount: amount, nowMs: nowMs)
+    }
+
+    func studyCurrentView(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.currentView(nowMs: nowMs)
+    }
+
+    func studyReveal(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.reveal(nowMs: nowMs)
+    }
+
+    func studyGrade(
+        session: RemStudySession,
+        grade: GradeDto,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyGradeOutcomeDto {
+        try session.grade(grade: grade, nowMs: nowMs)
+    }
+
+    func studyAdvancePreview(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.advancePreview(nowMs: nowMs)
+    }
+
+    func studyUndoLastGrade(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.undoLastGrade(nowMs: nowMs)
+    }
+
+    func studySuspendCurrent(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.suspendCurrent(nowMs: nowMs)
+    }
+
+    func studyReloadCurrent(
+        session: RemStudySession,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> StudyViewDto {
+        try session.reloadCurrent(nowMs: nowMs)
+    }
+
     func getStats(deckId: String?, days: UInt32, nowMs: Int64 = RemStore.nowMs()) throws -> StatsDto {
         try client.getStats(deckId: deckId, days: days, nowMs: nowMs)
     }
@@ -133,6 +200,14 @@ actor RemStore {
 
     func exportBackupJson() throws -> String {
         try client.exportBackupJson()
+    }
+
+    func previewBackupJson(json: String) throws -> BackupPreviewDto {
+        try client.previewBackupJson(json: json)
+    }
+
+    func importBackupJson(json: String, nowMs: Int64 = RemStore.nowMs()) throws -> ImportResultDto {
+        try client.importBackupJson(json: json, nowMs: nowMs)
     }
 
     func fetchAuthProviders(serverUrl: String) throws -> AuthProvidersDto {
