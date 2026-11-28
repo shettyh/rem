@@ -15,7 +15,7 @@ Cloud Sync v1.1 closes these gaps across five cohesive slices while preserving a
 
 - **Single source of merge truth:** Server-side snapshot compaction runs the exact same Rust CRDT/HLC reducer logic as `rem-core` (via a shared pure-Rust crate compiled to WASM), preventing subtle semantic drift between direct op replay and snapshot bootstrap.
 - **Non-destructive bootstrap:** Merging a compacted snapshot never wipes local state or drops offline edits/reviews; clients always push/ack local outbox ops before applying a bootstrap snapshot via CRDT merge rules.
-- **Safe rollout of op pruning:** Compaction writes immutable gzipped snapshots to R2 first; op-log pruning is gated behind an explicit retention window (`RETAIN_TAIL_OPS` and `RETAIN_TAIL_DAYS`) and an opt-in feature flag (`ENABLE_OP_PRUNING`, default `"false"`).
+- **Safe op pruning:** Compaction writes immutable gzipped snapshots to R2 first; op-log pruning is gated behind an explicit retention window (`RETAIN_TAIL_OPS` and `RETAIN_TAIL_DAYS`) and the `ENABLE_OP_PRUNING` feature flag (`"true"` by default in `sync-server/wrangler.toml`; set `"false"` to keep full op history).
 - **Zero background mobile drain:** iOS WebSocket pokes connect strictly while `scenePhase == .active` and disconnect immediately on `.inactive`/`.background`. Auth tokens travel only in HTTP headers, never URL query strings.
 
 ---
@@ -109,7 +109,7 @@ Environment knobs in `sync-server/wrangler.toml`:
 - `COMPACT_AFTER_OPS` (default `5000`)
 - `RETAIN_TAIL_OPS` (default `2000`)
 - `RETAIN_TAIL_DAYS` (default `30`)
-- `ENABLE_OP_PRUNING` (default `"false"` for safe initial rollout)
+- `ENABLE_OP_PRUNING` (default `"true"` in `wrangler.toml`; set `"false"` to disable pruning)
 - `ASSET_GC_GRACE_DAYS` (default `30`)
 
 ### Background `alarm()` compaction

@@ -21,7 +21,7 @@ export interface Env {
   RETAIN_TAIL_OPS?: string
   /** Minimum age in days before compacted ops are eligible for pruning (default 30). */
   RETAIN_TAIL_DAYS?: string
-  /** When "true", prune compacted ops outside the retention window (default "false"). */
+  /** When "true", prune compacted ops outside the retention window (enabled in wrangler.toml; unset behaves as "false"). */
   ENABLE_OP_PRUNING?: string
   /** Grace period in days before unreferenced R2 assets are garbage collected (default 30). */
   ASSET_GC_GRACE_DAYS?: string

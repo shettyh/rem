@@ -342,7 +342,8 @@ are implemented:
    reducer compiled to WASM (`sync-server/src/wasm/` via `tools/build-sync-wasm.sh` + CI freshness
    gate) so `sync-server` compaction and `rem-core` share a single merge implementation.
 3. **Server compaction, `/v1/bootstrap` & non-destructive client merge** — `UserSyncDO` alarm-driven
-   compaction into gzipped R2 snapshots, retention-window op pruning (`ENABLE_OP_PRUNING` gated),
+   compaction into gzipped R2 snapshots, retention-window op pruning (`ENABLE_OP_PRUNING = "true"`
+   in `wrangler.toml`, bounded by `RETAIN_TAIL_OPS = "2000"` and `RETAIN_TAIL_DAYS = "30"`),
    `GET /v1/bootstrap`, and `Collection::apply_bootstrap_snapshot` preserving offline local edits.
 4. **Real-time Hibernatable WebSocket pokes** — header-authenticated `GET /v1/sync/ws` with
    zero-wakeup `ping`/`pong` auto-response, Desktop `rem-sync` background listener with 30-min
@@ -357,7 +358,6 @@ These are real gaps in the resulting product, not features already delivered.
 
 | Area | Current limitation |
 |---|---|
-| Cloud sync pruning rollout | `ENABLE_OP_PRUNING` defaults to `"false"` on `sync-server` until production compaction runs are validated; enabling it activates op-log pruning past the retention window. |
 | iOS habit & capture extensions | WidgetKit Home/Lock Screen widgets (requiring App Group SQLite migration) and a Safari/system Share Sheet capture extension are not yet built. |
 | Draft feedback | Rejection reasons, acceptance/edit-rate summaries, and agent-readable quality feedback are not recorded. |
 | Duplicate help | Draft/card duplicate checks are exact normalized matches, not semantic suggestions. |
@@ -420,13 +420,11 @@ those areas, and add boundary tests in `rem-ffi` / `src-tauri` / `ios` alongside
 
 ### Phase 3 — Cloud Sync Operations & Optional Self-Host Targets
 
-Cloud Sync v1.1 (WASM compaction + `/v1/bootstrap`, Hibernatable WebSocket pokes, wire quick wins,
-and grace-period R2 orphan asset GC) is implemented. Remaining operational follow-ups:
+Cloud Sync v1.1 (WASM compaction + `/v1/bootstrap`, retention-window op pruning enabled via
+`ENABLE_OP_PRUNING = "true"` in `sync-server/wrangler.toml`, Hibernatable WebSocket pokes, wire
+quick wins, and grace-period R2 orphan asset GC) is implemented. Remaining optional follow-up:
 
-1. **Enable production op pruning:** after validating live compacted R2 snapshots in production,
-   flip `ENABLE_OP_PRUNING = "true"` in `sync-server/wrangler.toml` so `UserSyncDO.ops` stays
-   bounded by `RETAIN_TAIL_OPS` / `RETAIN_TAIL_DAYS`.
-2. **Optional non-Cloudflare self-host server** only if self-hosters demonstrate demand for a
+1. **Optional non-Cloudflare self-host server** only if self-hosters demonstrate demand for a
    VPS/Docker deployment target.
 
 **Outcome:** multi-device sync stays instantaneous and bounded in storage cost as collections grow.
