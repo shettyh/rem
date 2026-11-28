@@ -7,33 +7,42 @@ struct DecksView: View {
     @State private var isSearching: Bool = false
     @State private var searchToken: Int = 0
     @State private var deckPendingDelete: DeckSummaryDto?
-    @State private var collapsedDeckPaths: Set<String> = []
 
     private var trimmedSearch: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var allDeckSummaries: [DeckSummaryDto] {
+        appState.todaySummary?.decks ?? []
+    }
+
     private var filteredDecks: [DeckSummaryDto] {
-        let summaries = appState.todaySummary?.decks ?? []
         let query = trimmedSearch.lowercased()
-        guard !query.isEmpty else { return summaries }
-        return summaries.filter { $0.name.lowercased().contains(query) }
+        guard !query.isEmpty else { return allDeckSummaries }
+        return allDeckSummaries.filter { $0.name.lowercased().contains(query) }
+    }
+
+    private func rolledUpTotals(for deck: DeckSummaryDto) -> (due: UInt32, newDue: UInt32, total: UInt32) {
+        let descendants = allDeckSummaries.filter {
+            $0.id == deck.id || DeckTreeBuilder.isDescendantOrSelf($0.name, of: deck.name)
+        }
+        return (
+            due: descendants.reduce(0) { $0 + $1.dueCount },
+            newDue: descendants.reduce(0) { $0 + $1.newDueCount },
+            total: descendants.reduce(0) { $0 + $1.totalCards }
+        )
     }
 
     private var treeNodes: [DeckTreeNode] {
         DeckTreeBuilder.flatten(
-            DeckTreeBuilder.build(from: appState.todaySummary?.decks ?? []),
-            collapsed: collapsedDeckPaths
+            DeckTreeBuilder.build(from: allDeckSummaries),
+            collapsed: appState.collapsedDeckPaths
         )
     }
 
     private func toggleCollapse(_ path: String) {
         withAnimation(.easeOut(duration: 0.16)) {
-            if collapsedDeckPaths.contains(path) {
-                collapsedDeckPaths.remove(path)
-            } else {
-                collapsedDeckPaths.insert(path)
-            }
+            appState.toggleDeckCollapse(path)
         }
     }
 
@@ -64,21 +73,33 @@ struct DecksView: View {
                             Section {
                                 ForEach(treeNodes) { node in
                                     if let deck = node.deck {
-                                        NavigationLink(value: deck.id) {
-                                            DeckSummaryRow(
-                                                deck: deck,
-                                                showChevron: false,
-                                                displayName: node.label,
-                                                depth: node.depth,
-                                                hasChildren: !node.children.isEmpty,
-                                                isCollapsed: collapsedDeckPaths.contains(node.path),
-                                                dueOverride: node.dueCount,
-                                                newDueOverride: node.newDueCount,
-                                                totalOverride: node.totalCards,
-                                                onToggleCollapse: {
+                                        let isCollapsed = appState.collapsedDeckPaths.contains(node.path)
+                                        HStack(spacing: 4) {
+                                            if !node.children.isEmpty {
+                                                Button {
                                                     toggleCollapse(node.path)
+                                                } label: {
+                                                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                                                        .font(.system(size: 11, weight: .bold))
+                                                        .foregroundStyle(RemColor.muted)
+                                                        .frame(width: 28, height: 34)
+                                                        .contentShape(Rectangle())
                                                 }
-                                            )
+                                                .buttonStyle(.plain)
+                                                .padding(.leading, CGFloat(min(node.depth, 4)) * 14)
+                                                .accessibilityLabel(isCollapsed ? "Expand \(node.label)" : "Collapse \(node.label)")
+                                            }
+                                            NavigationLink(value: deck.id) {
+                                                DeckSummaryRow(
+                                                    deck: deck,
+                                                    showChevron: false,
+                                                    displayName: node.label,
+                                                    depth: node.children.isEmpty ? node.depth : 0,
+                                                    dueOverride: node.dueCount,
+                                                    newDueOverride: node.newDueCount,
+                                                    totalOverride: node.totalCards
+                                                )
+                                            }
                                         }
                                         .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                             if node.dueCount > 0 {
@@ -119,7 +140,7 @@ struct DecksView: View {
                                     } else {
                                         VirtualDeckFolderRow(
                                             node: node,
-                                            isCollapsed: collapsedDeckPaths.contains(node.path),
+                                            isCollapsed: appState.collapsedDeckPaths.contains(node.path),
                                             insetPadding: false
                                         ) {
                                             toggleCollapse(node.path)
@@ -132,11 +153,18 @@ struct DecksView: View {
                         } else if !trimmedSearch.isEmpty && !filteredDecks.isEmpty {
                             Section("Decks") {
                                 ForEach(filteredDecks, id: \.id) { deck in
+                                    let totals = rolledUpTotals(for: deck)
                                     NavigationLink(value: deck.id) {
-                                        DeckSummaryRow(deck: deck, showChevron: false)
+                                        DeckSummaryRow(
+                                            deck: deck,
+                                            showChevron: false,
+                                            dueOverride: totals.due,
+                                            newDueOverride: totals.newDue,
+                                            totalOverride: totals.total
+                                        )
                                     }
                                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                        if deck.dueCount > 0 {
+                                        if totals.due > 0 {
                                             Button {
                                                 appState.startStudy(deckId: deck.id)
                                             } label: {

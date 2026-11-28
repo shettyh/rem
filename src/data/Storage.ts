@@ -22,6 +22,7 @@ import type {
   StudyGradeOutcome,
   StudyRequest,
   StudyView,
+  TodaySummary,
 } from '../domain/models'
 import type { DeckBackup } from './backup'
 
@@ -77,8 +78,8 @@ export interface Storage {
   updateDeck(id: ID, patch: DeckPatch): Promise<void>
 
   createCard(deckId: ID, front: string, back: string, tags?: string[]): Promise<Card>
-  createCardOrCloze?(deckId: ID, front: string, back: string, tags?: string[]): Promise<Card[]>
-  updateClozeNote?(cardId: ID, front: string, back: string, tags?: string[]): Promise<Card[]>
+  createCardOrCloze(deckId: ID, front: string, back: string, tags?: string[]): Promise<Card[]>
+  updateClozeNote(cardId: ID, front: string, back: string, tags?: string[]): Promise<Card[]>
   getCard(id: ID): Promise<Card | undefined>
   listCards(deckId: ID): Promise<Card[]>
   searchCards(
@@ -112,6 +113,7 @@ export interface Storage {
   /** Atomically persist card/counter changes and an optional FSRS training event. */
   commitReview(commit: ReviewCommit): Promise<ReviewLog | null>
   listReviewLogs(deckId: ID): Promise<ReviewLog[]>
+  getTodaySummary?(now?: number): Promise<TodaySummary>
   getStats(deckId: ID | null, days: number, now?: number): Promise<CollectionStats>
 
   /** Cards in a deck due at or before `now`, soonest-due first. */

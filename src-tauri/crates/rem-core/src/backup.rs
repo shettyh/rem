@@ -161,13 +161,13 @@ fn parse_deck(raw: &Value, now_ms: i64) -> Result<DeckBackup, CollectionError> {
             "Backup file is malformed.".into(),
         ));
     };
-    let name = obj
+    let raw_name = obj
         .get("name")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| CollectionError::InvalidInput("Backup file is malformed.".into()))?
-        .to_owned();
+        .ok_or_else(|| CollectionError::InvalidInput("Backup file is malformed.".into()))?;
+    let name = crate::deck_tree::normalize_deck_name(raw_name)?;
     let created_at = parse_timestamp(obj.get("createdAt"))
         .ok_or_else(|| CollectionError::InvalidInput("Backup file is malformed.".into()))?;
     let cards_arr = obj

@@ -94,9 +94,9 @@ enum MarkdownFormatter {
         return MarkdownFormatResult(text: updated, selectedRange: nextRange)
     }
 
-    /// Removes `![](asset:<hash>)` or `![...](asset:<hash>)` lines cleanly when a thumbnail is removed.
+    /// Removes `![](asset:<hash>)`, `![...](asset:<hash>)`, and `[...](asset:<hash>)` lines cleanly.
     static func removeAssetReference(hash: String, from text: String) -> String {
-        let pattern = "\\n?!\\[[^\\]]*\\]\\(asset:\(NSRegularExpression.escapedPattern(for: hash))\\)\\n?"
+        let pattern = "\\n?!?\\[[^\\]]*\\]\\(asset:\(NSRegularExpression.escapedPattern(for: hash))\\)\\n?"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
         let range = NSRange(location: 0, length: (text as NSString).length)
         let stripped = regex.stringByReplacingMatches(in: text, range: range, withTemplate: "\n")

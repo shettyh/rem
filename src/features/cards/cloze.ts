@@ -1,3 +1,5 @@
+import { mapOutsideCode } from './mathPreprocess'
+
 export interface ClozeSpan {
   start: number
   end: number
@@ -6,16 +8,31 @@ export interface ClozeSpan {
   hint: string | null
 }
 
+const MAX_CLOZE_INDEX = 4_294_967_295 // matches Rust u32::MAX
+
+function isEscaped(text: string, pos: number): boolean {
+  let backslashes = 0
+  let k = pos - 1
+  while (k >= 0 && text[k] === '\\') {
+    backslashes += 1
+    k -= 1
+  }
+  return backslashes % 2 === 1
+}
+
 /**
  * Parse all valid Anki cloze deletions (`{{cN::answer}}` or `{{cN::answer::hint}}`)
- * in `text`, respecting nested `{...}` pairs such as LaTeX `\frac{1}{2}`.
+ * in `text`, respecting nested `{...}` pairs such as LaTeX `\frac{1}{2}` and
+ * escaped braces `\{` / `\}`.
  */
 export function parseClozeSpans(text: string): ClozeSpan[] {
+  const lastClose = text.lastIndexOf('}}')
+  if (lastClose === -1) return []
   const spans: ClozeSpan[] = []
   const len = text.length
   let i = 0
 
-  while (i + 6 < len) {
+  while (i + 6 < len && i < lastClose) {
     if (
       text[i] === '{'
       && text[i + 1] === '{'
@@ -32,8 +49,8 @@ export function parseClozeSpans(text: string): ClozeSpan[] {
         && text[numEnd + 1] === ':'
       ) {
         const index = Number.parseInt(text.slice(i + 3, numEnd), 10)
-        if (Number.isInteger(index) && index >= 1) {
-          const parsed = scanClozeBody(text, numEnd + 2)
+        if (Number.isInteger(index) && index >= 1 && index <= MAX_CLOZE_INDEX) {
+          const parsed = scanClozeBody(text, numEnd + 2, lastClose + 2)
           if (parsed) {
             spans.push({
               start: i,
@@ -57,17 +74,19 @@ export function parseClozeSpans(text: string): ClozeSpan[] {
 function scanClozeBody(
   text: string,
   bodyStart: number,
+  scanLimit: number,
 ): { answer: string; hint: string | null; closeEnd: number } | null {
+  const limit = Math.min(scanLimit, text.length)
   let depth = 0
   let hintSep = -1
-  for (let j = bodyStart; j < text.length; j += 1) {
+  for (let j = bodyStart; j < limit; j += 1) {
     const ch = text[j]
-    if (ch === '{') {
+    if (ch === '{' && !isEscaped(text, j)) {
       depth += 1
       continue
     }
-    if (ch === '}') {
-      if (depth === 0 && j + 1 < text.length && text[j + 1] === '}') {
+    if (ch === '}' && !isEscaped(text, j)) {
+      if (depth === 0 && j + 1 < limit && text[j + 1] === '}') {
         if (hintSep !== -1) {
           const rawHint = text.slice(hintSep + 2, j).trim()
           return {
@@ -85,7 +104,7 @@ function scanClozeBody(
       depth = Math.max(0, depth - 1)
       continue
     }
-    if (depth === 0 && hintSep === -1 && ch === ':' && j + 1 < text.length && text[j + 1] === ':') {
+    if (depth === 0 && hintSep === -1 && ch === ':' && j + 1 < limit && text[j + 1] === ':') {
       hintSep = j
       j += 1
     }
@@ -124,13 +143,32 @@ export function stripClozeMarkup(text: string): string {
 export const CLOZE_BLANK_HREF = '#rem-cloze-blank'
 export const CLOZE_ANSWER_HREF = '#rem-cloze-answer'
 
+function isUnsafeForMarkdownLinkLabel(content: string): boolean {
+  return (
+    content.includes('[')
+    || content.includes(']')
+    || content.includes('\n')
+    || content.endsWith('\\')
+  )
+}
+
 /**
- * Transform cloze markdown into safe Markdown tokens rendered by `MarkdownView`:
- * - Active unrevealed clozes become `[[...]](#rem-cloze-blank)` or `[[hint]](#rem-cloze-blank)`
+ * Transform cloze markdown outside code fences and inline code spans into safe Markdown
+ * tokens rendered by `MarkdownView`:
+ * - Active unrevealed clozes become `[…](#rem-cloze-blank)` or `[hint](#rem-cloze-blank)`
  * - Active revealed clozes become `[answer](#rem-cloze-answer)` (preserving inline math/formatting)
  * - Inactive clozes render as plain text.
  */
 export function renderClozeMarkdown(
+  text: string,
+  activeIndex: number,
+  revealed: boolean,
+): string {
+  if (!text.includes('{{')) return text
+  return mapOutsideCode(text, (segment) => renderClozeSegment(segment, activeIndex, revealed))
+}
+
+function renderClozeSegment(
   text: string,
   activeIndex: number,
   revealed: boolean,
@@ -143,16 +181,23 @@ export function renderClozeMarkdown(
     out += text.slice(cursor, span.start)
     if (span.index === activeIndex) {
       if (revealed) {
-        // Avoid nesting markdown links or unescaped brackets inside link text; fall back to bold emphasis when needed.
-        const unsafeForLinkText = span.answer.includes('[') || span.answer.includes(']')
-        if (unsafeForLinkText) {
-          out += `**${span.answer}**`
+        const trimmed = span.answer.trim()
+        if (!trimmed) {
+          out += `[…](${CLOZE_BLANK_HREF})`
+        } else if (isUnsafeForMarkdownLinkLabel(span.answer)) {
+          out += `**${trimmed}**`
         } else {
           out += `[${span.answer}](${CLOZE_ANSWER_HREF})`
         }
       } else {
-        const label = (span.hint ? span.hint : '…').replace(/[[\]]/g, '')
-        out += `[${label || '…'}](${CLOZE_BLANK_HREF})`
+        const rawHint = span.hint ?? '…'
+        const safeLabel = rawHint
+          .replace(/\\/g, '\\\\')
+          .replace(/\[/g, '&#91;')
+          .replace(/\]/g, '&#93;')
+          .replace(/\r?\n/g, ' ')
+          .trim()
+        out += `[${safeLabel || '…'}](${CLOZE_BLANK_HREF})`
       }
     } else {
       out += span.answer

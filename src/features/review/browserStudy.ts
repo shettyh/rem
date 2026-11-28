@@ -17,7 +17,12 @@ import {
   selectCustomStudyCards,
 } from './customStudy'
 import { localDay } from './day'
-import { loadDueOverview, shuffle } from './dueOverview'
+import {
+  isSiblingBuriedToday,
+  loadDueOverview,
+  loadReviewedTodaySiblingGroups,
+  shuffle,
+} from './dueOverview'
 import { leechEffect } from './leech'
 import { buildSessionCards, ReviewSession, type SessionCard } from './session'
 
@@ -126,7 +131,7 @@ export class BrowserStudySession {
     const previousNotice = this.notice
     this.session.grade(now, next, { requeue: effect?.suspended !== true })
     const buriedSiblings =
-      !this.customStudy && current.settings.buryRelated && current.card.siblingGroupId
+      !this.customStudy && current.card.siblingGroupId
         ? this.session.burySiblings(current.card.id, current.card.siblingGroupId)
         : []
     this.lastGrade = {
@@ -222,28 +227,44 @@ async function buildInitialCards(
     const targetDecks = allDecks.filter(
       (d) => d.id === rootDeck.id || deckIsDescendantOrSelf(d.name, rootDeck.name),
     )
+    const reviewedTodayByGroup = request.custom
+      ? new Map<string, Set<string>>()
+      : await loadReviewedTodaySiblingGroups(storage, allDecks, now)
+    let remainingIncreaseNew =
+      request.custom?.mode === 'increase-new' ? request.custom.amount : null
     const out: SessionCard[] = []
     for (const deck of targetDecks) {
       const stat = await storage.getDailyStat(deck.id, localDay(now))
       const newSlots = deck.settings.newPerDay - stat.newIntroduced
       if (request.custom) {
+        if (remainingIncreaseNew !== null && remainingIncreaseNew <= 0) continue
+        const effectiveCustom =
+          remainingIncreaseNew !== null
+            ? { mode: request.custom.mode, amount: remainingIncreaseNew }
+            : request.custom
         const cards = await storage.listCards(deck.id)
-        out.push(
-          ...selectCustomStudyCards(cards, request.custom, now, {
-            insertionOrder: deck.settings.insertionOrder,
-            normalNewSlots: newSlots,
-          }).map((card) => ({ card, settings: deck.settings, forceDue: true })),
-        )
+        const selected = selectCustomStudyCards(cards, effectiveCustom, now, {
+          insertionOrder: deck.settings.insertionOrder,
+          normalNewSlots: newSlots,
+        }).map((card) => ({ card, settings: deck.settings, forceDue: true }))
+        if (remainingIncreaseNew !== null) {
+          remainingIncreaseNew = Math.max(0, remainingIncreaseNew - selected.length)
+        }
+        out.push(...selected)
       } else {
         const due = await storage.dueCards(deck.id, now)
+        const filteredDue = deck.settings.buryRelated
+          ? due.filter((card) => !isSiblingBuriedToday(card, reviewedTodayByGroup))
+          : due
         out.push(
           ...buildSessionCards(
-            due.map((card) => ({ card, settings: deck.settings })),
+            filteredDue.map((card) => ({ card, settings: deck.settings })),
             deck.settings.insertionOrder,
             {
               newSlots,
               reviewSlots: deck.settings.maxReviews - stat.reviewsDone,
             },
+            deck.settings.buryRelated,
           ),
         )
       }

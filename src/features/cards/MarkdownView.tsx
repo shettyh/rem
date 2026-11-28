@@ -6,7 +6,7 @@ import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
 import 'highlight.js/styles/github-dark.css'
 import 'katex/dist/katex.min.css'
-import { useAsset } from './assetUrl'
+import { useAsset, useAssetState } from './assetUrl'
 import { parseAssetSrc, isAssetSrc } from './imageSrc'
 import { CLOZE_ANSWER_HREF, CLOZE_BLANK_HREF, renderClozeMarkdown } from './cloze'
 import { normalizeMathDelimiters } from './mathPreprocess'
@@ -35,7 +35,7 @@ function MarkdownImg({ src, alt }: { src?: string; alt?: string }) {
 /** Custom <a> handling cloze pills (`#rem-cloze-*`) and inline audio assets (`asset:<hash>`). */
 function MarkdownLink({ href, children }: { href?: string; children?: ReactNode }) {
   const parsedAsset = parseAssetSrc(href)
-  const resolved = useAsset(parsedAsset?.hash)
+  const { asset: resolved, loading } = useAssetState(parsedAsset?.hash)
 
   if (href === CLOZE_BLANK_HREF) {
     return <span className="cloze-blank">[{children}]</span>
@@ -46,6 +46,9 @@ function MarkdownLink({ href, children }: { href?: string; children?: ReactNode 
   if (parsedAsset) {
     if (resolved?.mime.startsWith('audio/')) {
       return <AudioAssetPlayer url={resolved.url} label={children} />
+    }
+    if (loading) {
+      return <span className="card-audio-label">{children}</span>
     }
     if (!resolved) {
       return <span className="card-audio-missing">{children}</span>

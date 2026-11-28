@@ -15,8 +15,8 @@ export interface Deck {
 export type InsertionOrder = 'sequential' | 'random'
 export type LeechAction = 'tag' | 'suspend'
 
-/** Per-deck options. The review queue honours steps, caps, order, and leeches;
- *  burying awaits a real note/template/sibling model. */
+/** Per-deck options. The review queue honours steps, caps, order, leeches,
+ *  sibling burying (`buryRelated`), and the answer timer (`showTimer`). */
 export interface DeckSettings {
   newPerDay: number
   maxReviews: number
@@ -145,6 +145,28 @@ export interface CollectionStatsDeck {
   deckColor: string
   reviews: number
   recallRate: number
+}
+
+export interface DeckTodaySummary {
+  id: ID
+  name: string
+  color: string
+  totalCards: number
+  dueCount: number
+  newDueCount: number
+  masteredRatio: number
+  desiredRetention: number
+}
+
+export interface TodaySummary {
+  totalDue: number
+  newDue: number
+  reviewDue: number
+  estimatedMinutes: number
+  reviewedToday: number
+  recallTodayPercent: number | null
+  currentStreakDays: number
+  decks: DeckTodaySummary[]
 }
 
 export interface CollectionStats {

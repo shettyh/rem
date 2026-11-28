@@ -7,6 +7,7 @@ import { PageHeader } from '../../ui/PageHeader'
 import { loadDueOverview } from '../review/dueOverview'
 import {
   buildDeckTree,
+  COLLAPSED_DECKS_EVENT,
   flattenVisibleDeckTree,
   loadCollapsedDeckPaths,
   saveCollapsedDeckPaths,
@@ -38,7 +39,14 @@ export function DeckListPage() {
   const location = useLocation()
   const newDeckRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
+  const [deckError, setDeckError] = useState<string | null>(null)
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => loadCollapsedDeckPaths())
+
+  useEffect(() => {
+    const sync = () => setCollapsedPaths(loadCollapsedDeckPaths())
+    window.addEventListener(COLLAPSED_DECKS_EVENT, sync)
+    return () => window.removeEventListener(COLLAPSED_DECKS_EVENT, sync)
+  }, [])
 
   function toggleDeckPath(path: string) {
     setCollapsedPaths((prev) => {
@@ -81,8 +89,13 @@ export function DeckListPage() {
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) return
-    await storage.createDeck(trimmed)
-    setName('')
+    try {
+      await storage.createDeck(trimmed)
+      setName('')
+      setDeckError(null)
+    } catch (err) {
+      setDeckError(err instanceof Error ? err.message : 'Invalid deck name.')
+    }
   }
 
   const loaded = overview !== undefined
@@ -206,7 +219,7 @@ export function DeckListPage() {
                       className={`deck-list-row${node.depth > 0 ? ' deck-list-row--nested' : ''}${!deck ? ' deck-list-row--virtual' : ''}`}
                       style={rowStyle}
                     >
-                      {hasChildren && (
+                      {deck && hasChildren && (
                         <button
                           type="button"
                           className={`deck-tree-toggle${isCollapsed ? ' is-collapsed' : ''}`}
@@ -226,8 +239,12 @@ export function DeckListPage() {
                         <button
                           type="button"
                           className="deck-list-link deck-list-folder-btn"
+                          aria-expanded={!isCollapsed}
                           onClick={() => toggleDeckPath(node.path)}
                         >
+                          <span className={`deck-tree-toggle${isCollapsed ? ' is-collapsed' : ''}`} aria-hidden="true">
+                            ▾
+                          </span>
                           <span className="deck-list-name">{node.label}</span>
                           {meta}
                         </button>
@@ -264,7 +281,10 @@ export function DeckListPage() {
               className="text-input"
               placeholder="New deck name…"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value)
+                setDeckError(null)
+              }}
               aria-label="New deck name"
             />
             <button
@@ -275,6 +295,7 @@ export function DeckListPage() {
               Add deck
             </button>
           </form>
+          {deckError && <p className="ds-row-sub ds-error" role="alert">{deckError}</p>}
 
           {loaded && deckCount === 0 && (
             <div className="empty-state">

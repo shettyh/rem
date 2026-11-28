@@ -72,30 +72,12 @@ enum MarkdownBlockParser {
                 continue
             }
 
-            // Display math block $$...$$ (single-line or multi-line)
-            if trimmed.hasPrefix("$$") {
-                if trimmed.count > 4 && trimmed.hasSuffix("$$") {
-                    let inner = String(trimmed.dropFirst(2).dropLast(2)).trimmingCharacters(in: .whitespaces)
-                    blocks.append(.mathBlock(latex: inner))
-                    i += 1
-                    continue
-                }
-                i += 1
-                var mathLines: [String] = []
-                let restFirst = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-                if !restFirst.isEmpty { mathLines.append(restFirst) }
-                while i < lines.count {
-                    let ml = lines[i].trimmingCharacters(in: .whitespaces)
-                    if ml.hasSuffix("$$") {
-                        let before = String(ml.dropLast(2)).trimmingCharacters(in: .whitespaces)
-                        if !before.isEmpty { mathLines.append(before) }
-                        i += 1
-                        break
-                    }
-                    mathLines.append(lines[i])
-                    i += 1
-                }
-                blocks.append(.mathBlock(latex: mathLines.joined(separator: "\n")))
+            // Display math block $$...$$ (single-line or multi-line).
+            // Never swallow the rest of a card if a line has trailing text after $$...$$
+            // (e.g. `$$E = mc^2$$ is Einstein's formula`) or is empty `$$$$`.
+            if let (mathBlock, nextIdx) = parseMathBlock(lines: lines, startingAt: i) {
+                blocks.append(mathBlock)
+                i = nextIdx
                 continue
             }
 
@@ -194,9 +176,10 @@ enum MarkdownBlockParser {
             while i < lines.count {
                 let current = lines[i]
                 let ct = current.trimmingCharacters(in: .whitespaces)
-                if ct.isEmpty
+                if !paraLines.isEmpty && (
+                    ct.isEmpty
                     || ct.hasPrefix("```")
-                    || ct.hasPrefix("$$")
+                    || parseMathBlock(lines: lines, startingAt: i) != nil
                     || ct.hasPrefix(">")
                     || ct == "---" || ct == "***" || ct == "___"
                     || parseHeading(ct) != nil
@@ -210,7 +193,7 @@ enum MarkdownBlockParser {
                             lines[i + 1].trimmingCharacters(in: .whitespaces),
                             expectedColumns: parseTableRow(ct)?.count ?? 0
                         ))
-                {
+                ) {
                     break
                 }
                 paraLines.append(current)
@@ -223,6 +206,46 @@ enum MarkdownBlockParser {
         }
 
         return blocks
+    }
+
+    private static func parseMathBlock(lines: [String], startingAt i: Int) -> (MarkdownBlock, Int)? {
+        let trimmed = lines[i].trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("$$") else { return nil }
+        let innerSingle = trimmed.count > 4 && trimmed.hasSuffix("$$")
+            ? String(trimmed.dropFirst(2).dropLast(2))
+            : nil
+        if let innerSingle, !innerSingle.contains("$$") {
+            let latex = innerSingle.trimmingCharacters(in: .whitespaces)
+            if !latex.isEmpty {
+                return (.mathBlock(latex: latex), i + 1)
+            }
+            return nil
+        }
+        guard trimmed == "$$" || !String(trimmed.dropFirst(2)).contains("$$") else {
+            return nil
+        }
+        // Only enter multi-line math block when a matching closing `$$` line exists ahead.
+        var closingIdx: Int? = nil
+        var scan = i + 1
+        while scan < lines.count {
+            let candidate = lines[scan].trimmingCharacters(in: .whitespaces)
+            if candidate.hasSuffix("$$") {
+                closingIdx = scan
+                break
+            }
+            scan += 1
+        }
+        guard let closingIdx else { return nil }
+        var mathLines: [String] = []
+        let restFirst = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        if !restFirst.isEmpty { mathLines.append(restFirst) }
+        if i + 1 < closingIdx {
+            mathLines.append(contentsOf: lines[(i + 1)..<closingIdx])
+        }
+        let closingLine = lines[closingIdx].trimmingCharacters(in: .whitespaces)
+        let before = String(closingLine.dropLast(2)).trimmingCharacters(in: .whitespaces)
+        if !before.isEmpty { mathLines.append(before) }
+        return (.mathBlock(latex: mathLines.joined(separator: "\n")), closingIdx + 1)
     }
 
     private static func parseHeading(_ line: String) -> MarkdownBlock? {
@@ -273,14 +296,17 @@ enum MarkdownBlockParser {
     /// Produces a clean single-paragraph plain-text snippet for compact list rows (stripping
     /// headings, bold/italic/code delimiters, image links, and code fence markers).
     static func plainTextPreview(_ markdown: String) -> String {
-        let normalized = ClozeRenderer.stripMarkup(markdown)
+        let normalized = LatexMathFormatter.normalizeDelimiters(ClozeRenderer.stripMarkup(markdown))
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
         var cleanedLines: [String] = []
         for rawLine in normalized.components(separatedBy: "\n") {
             var line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.isEmpty || line.hasPrefix("```") || line == "---" || line == "***" || line == "___" {
+            if line.isEmpty || line.hasPrefix("```") || line == "$$" || line == "---" || line == "***" || line == "___" {
                 continue
+            }
+            if line.hasPrefix("$$") && line.hasSuffix("$$") && line.count > 4 {
+                line = LatexMathFormatter.formatUnicode(String(line.dropFirst(2).dropLast(2)))
             }
             // Strip ATX heading prefix
             while line.hasPrefix("#") { line.removeFirst() }

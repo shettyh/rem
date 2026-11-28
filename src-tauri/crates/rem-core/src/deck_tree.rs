@@ -1,4 +1,4 @@
-use crate::{CollectionError, Deck};
+use crate::{Collection, CollectionError, Deck};
 
 pub const DECK_SEPARATOR: &str = "::";
 
@@ -54,6 +54,17 @@ pub fn deck_and_descendants<'a>(decks: &'a [Deck], root_id: &str) -> Vec<&'a Dec
         .iter()
         .filter(|deck| deck.id == root.id || deck_is_descendant_or_self(&deck.name, &root.name))
         .collect()
+}
+
+impl Collection {
+    /// Return `[deck_id]` plus all `::` descendant deck IDs in collection order.
+    pub fn deck_and_descendant_ids(&self, deck_id: &str) -> Result<Vec<String>, CollectionError> {
+        let decks = self.list_decks()?;
+        Ok(deck_and_descendants(&decks, deck_id)
+            .into_iter()
+            .map(|deck| deck.id.clone())
+            .collect())
+    }
 }
 
 #[cfg(test)]

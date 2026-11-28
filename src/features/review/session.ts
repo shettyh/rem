@@ -23,6 +23,7 @@ export function buildSessionCards(
   cards: SessionCard[],
   order: InsertionOrder,
   caps: Caps = { newSlots: Infinity, reviewSlots: Infinity },
+  buryRelated = false,
 ): SessionCard[] {
   const newSlots = Math.max(0, caps.newSlots)
   const reviewSlots = Math.max(0, caps.reviewSlots)
@@ -33,22 +34,52 @@ export function buildSessionCards(
     (c) => c.card.scheduling.state === 1 || c.card.scheduling.state === 3,
   )
 
-  const orderedNew = (
+  const orderedNewPool =
     order === 'random'
       ? shuffle(news)
       : news.slice().sort((a, b) => a.card.createdAt - b.card.createdAt)
-  ).slice(0, newSlots)
+  const orderedNew = takeCappedRespectingSiblings(orderedNewPool, newSlots, buryRelated)
 
-  const keptReview = reviews
+  const orderedReviewPool = reviews
     .slice()
     .sort((a, b) => a.card.scheduling.due - b.card.scheduling.due)
-    .slice(0, reviewSlots)
+  const keptReview = takeCappedRespectingSiblings(orderedReviewPool, reviewSlots, buryRelated)
 
   const orderedRest = [...inProgress, ...keptReview].sort(
     (a, b) => a.card.scheduling.due - b.card.scheduling.due,
   )
 
   return [...orderedRest, ...orderedNew]
+}
+
+function takeCappedRespectingSiblings(
+  items: SessionCard[],
+  slots: number,
+  buryRelated: boolean,
+): SessionCard[] {
+  if (slots <= 0) return []
+  if (!buryRelated || !Number.isFinite(slots)) return items.slice(0, slots)
+  const selected: SessionCard[] = []
+  const seenGroups = new Set<string>()
+  let usedSlots = 0
+  for (const item of items) {
+    const groupId = item.card.siblingGroupId
+    if (groupId) {
+      if (seenGroups.has(groupId)) {
+        selected.push(item)
+        continue
+      }
+      if (usedSlots >= slots) continue
+      seenGroups.add(groupId)
+      usedSlots += 1
+      selected.push(item)
+    } else {
+      if (usedSlots >= slots) continue
+      usedSlots += 1
+      selected.push(item)
+    }
+  }
+  return selected
 }
 
 /** One review sitting. Holds an ordered working queue; step cards re-insert and
@@ -118,15 +149,17 @@ export class ReviewSession {
     this.current = null
   }
 
-  /** Remove other queued cards sharing `siblingGroupId` and return them for undo restoration. */
+  /** Remove other queued cards sharing `siblingGroupId` (except intraday learning cards) and return them for undo. */
   burySiblings(cardId: string, siblingGroupId: string): SessionCard[] {
     const buried: SessionCard[] = []
     const kept: SessionCard[] = []
     for (const item of this.queue) {
+      const inLearning = item.card.scheduling.state === 1 || item.card.scheduling.state === 3
       if (
         item.card.id !== cardId
         && item.card.siblingGroupId === siblingGroupId
         && item.settings.buryRelated
+        && !inLearning
       ) {
         buried.push(item)
       } else {

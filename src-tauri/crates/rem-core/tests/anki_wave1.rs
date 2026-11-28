@@ -1,8 +1,8 @@
 use std::io::Write;
 
 use rem_core::{
-    Collection, DeckPatch, Grade, StudyGradeOutcome, StudyRequest, StudySession, SyncOp,
-    CURRENT_SCHEMA_VERSION,
+    Collection, DeckPatch, DeckSettings, Grade, StudyGradeOutcome, StudyRequest, StudySession,
+    SyncOp, CURRENT_SCHEMA_VERSION,
 };
 use rusqlite::{params, Connection};
 use tempfile::{NamedTempFile, TempDir};
@@ -254,6 +254,9 @@ fn schema_v5_migrates_cleanly_to_v6() {
         .unwrap();
     assert_eq!(cards.len(), 1);
     assert_eq!(cards[0].cloze_index, Some(1));
+    // FTS5 search must work immediately on the upgrade launch (not require a second restart).
+    let hits = col.search_cards("Works", None, 10).unwrap();
+    assert_eq!(hits.len(), 1);
 }
 
 #[test]
@@ -774,4 +777,303 @@ fn build_sample_anki21_apkg() -> Vec<u8> {
         zip.finish().unwrap();
     }
     buf
+}
+
+#[test]
+fn security_apkg_blocks_double_entity_link_breakout_sqlite_view_dos_and_preserves_math_inequalities(
+) {
+    let temp = NamedTempFile::new().unwrap();
+    let conn = Connection::open(temp.path()).unwrap();
+    let crt_secs = (NOW / 1000) - 10 * 86_400;
+    let decks_json = serde_json::json!({ "1": { "id": 1, "name": "Math" } }).to_string();
+    let models_json = serde_json::json!({
+        "10": {
+            "id": 10,
+            "name": "Basic",
+            "type": 0,
+            "flds": [{"name": "Front"}, {"name": "Back"}],
+            "tmpls": [{"name": "C1", "qfmt": "{{front}}", "afmt": "{{FrontSide}}<hr id=answer>{{back}}"}]
+        }
+    })
+    .to_string();
+    conn.execute_batch(
+        "
+        CREATE TABLE col (id INTEGER PRIMARY KEY, crt INTEGER NOT NULL, models TEXT NOT NULL, decks TEXT NOT NULL);
+        CREATE TABLE notes (id INTEGER PRIMARY KEY, mid INTEGER NOT NULL, tags TEXT NOT NULL, flds TEXT NOT NULL);
+        CREATE TABLE cards (
+            id INTEGER PRIMARY KEY, nid INTEGER NOT NULL, did INTEGER NOT NULL, ord INTEGER NOT NULL,
+            type INTEGER NOT NULL, queue INTEGER NOT NULL, due INTEGER NOT NULL, ivl INTEGER NOT NULL,
+            factor INTEGER NOT NULL, reps INTEGER NOT NULL, lapses INTEGER NOT NULL, data TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE revlog (
+            id INTEGER PRIMARY KEY, cid INTEGER NOT NULL, ease INTEGER NOT NULL,
+            ivl INTEGER NOT NULL, lastIvl INTEGER NOT NULL, factor INTEGER NOT NULL,
+            time INTEGER NOT NULL, type INTEGER NOT NULL
+        );
+        ",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO col(id, crt, models, decks) VALUES (1, ?1, ?2, ?3)",
+        params![crt_secs, models_json, decks_json],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO notes(id, mid, tags, flds) VALUES (1, 10, 'alg', ?1)",
+        [
+            "Inequality \\(x < y \\implies y > x\\) \
+             <a href=\"https://ok.com&amp;#41;[pwn]&amp;#40;javascript:alert&amp;#40;1&amp;#41;&amp;#41;\">foo](javascript:alert(1))</a> \
+             <!-- a > b -->\x1f\
+             Answer",
+        ],
+    )
+    .unwrap();
+    // Forgotten card (type=0, reps=0) with historical revlog must remain New rather than resurrecting as Review.
+    conn.execute(
+        "INSERT INTO cards(id, nid, did, ord, type, queue, due, ivl, factor, reps, lapses, data)
+         VALUES (101, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, '{}')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO revlog(id, cid, ease, ivl, lastIvl, factor, time, type)
+         VALUES (?1, 101, 3, 5, 1, 2500, 1000, 1)",
+        [NOW - 5 * MS_PER_DAY],
+    )
+    .unwrap();
+    drop(conn);
+
+    let db_bytes = std::fs::read(temp.path()).unwrap();
+    let mut apkg = Vec::new();
+    {
+        let mut zip = ZipWriter::new(std::io::Cursor::new(&mut apkg));
+        zip.start_file("collection.anki21", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&db_bytes).unwrap();
+        zip.finish().unwrap();
+    }
+
+    let (dir, col) = open_temp_collection();
+    let apkg_path = dir.path().join("sample.apkg");
+    std::fs::write(&apkg_path, &apkg).unwrap();
+
+    let preview = col.preview_apkg_file(&apkg_path, NOW).unwrap();
+    assert_eq!(preview.total_cards, 1);
+    col.import_apkg_file(&apkg_path, NOW).unwrap();
+
+    let decks = col.list_decks().unwrap();
+    let cards = col.list_cards(&decks[0].id).unwrap();
+    assert_eq!(cards.len(), 1);
+    assert!(
+        cards[0].front.contains("$x < y \\implies y > x$"),
+        "math inequality was corrupted: {}",
+        cards[0].front
+    );
+    assert!(
+        !cards[0].front.contains("[pwn](javascript:"),
+        "double-entity URL breakout occurred: {}",
+        cards[0].front
+    );
+    assert!(
+        !cards[0].front.contains("[foo](javascript:alert(1))")
+            && cards[0].front.contains(r"[foo\](javascript:alert(1))]("),
+        "unescaped link text breakout occurred: {}",
+        cards[0].front
+    );
+    assert!(!cards[0].front.contains("b -->"));
+    assert_eq!(cards[0].scheduling.state, 0);
+    assert_eq!(cards[0].scheduling.reps, 0);
+
+    // Malicious SQLite VIEW with recursive CTE must be rejected cleanly.
+    let evil_db = NamedTempFile::new().unwrap();
+    let evil_conn = Connection::open(evil_db.path()).unwrap();
+    evil_conn
+        .execute_batch(
+            "
+            CREATE TABLE col (id INTEGER PRIMARY KEY, crt INTEGER, models TEXT, decks TEXT);
+            CREATE VIEW notes AS WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r)
+                SELECT n AS id, 1 AS mid, '' AS tags, 'a'||char(31)||'b' AS flds FROM r;
+            CREATE TABLE cards (id INTEGER PRIMARY KEY, nid INTEGER, did INTEGER, ord INTEGER, type INTEGER, queue INTEGER, due INTEGER, ivl INTEGER, factor INTEGER, reps INTEGER, lapses INTEGER);
+            ",
+        )
+        .unwrap();
+    drop(evil_conn);
+    let evil_db_bytes = std::fs::read(evil_db.path()).unwrap();
+    let mut evil_apkg = Vec::new();
+    {
+        let mut zip = ZipWriter::new(std::io::Cursor::new(&mut evil_apkg));
+        zip.start_file("collection.anki21", SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(&evil_db_bytes).unwrap();
+        zip.finish().unwrap();
+    }
+    assert!(col.preview_apkg_bytes(&evil_apkg, NOW).is_err());
+}
+
+#[test]
+fn bury_related_does_not_starve_daily_caps_and_custom_increase_new_respects_global_amount() {
+    let (_dir, col) = open_temp_collection();
+    let parent = col.create_deck("Cap", NOW).unwrap();
+    let child1 = col.create_deck("Cap::One", NOW + 1).unwrap();
+    let child2 = col.create_deck("Cap::Two", NOW + 2).unwrap();
+
+    // Set new_per_day = 2 with bury_related = true on child1.
+    col.update_deck(
+        &child1.id,
+        DeckPatch {
+            settings: Some(DeckSettings {
+                new_per_day: 2,
+                bury_related: true,
+                learn_steps: String::new(),
+                ..DeckSettings::default()
+            }),
+            ..DeckPatch::default()
+        },
+        NOW + 3,
+    )
+    .unwrap();
+    // Create a 3-cloze note (c1, c2, c3) + an unrelated card X.
+    col.create_card_or_cloze(
+        &child1.id,
+        "{{c1::A}} {{c2::B}} {{c3::C}}",
+        "",
+        vec![],
+        NOW + 4,
+    )
+    .unwrap();
+    col.create_card(&child1.id, "Unrelated X", "Ans X", vec![], NOW + 5)
+        .unwrap();
+
+    // Today summary counts 2 studyable new cards (1 from cloze group + X), not 2 buried siblings.
+    let summary = col.compute_today_summary(NOW + 10).unwrap();
+    let c1_summary = summary.decks.iter().find(|d| d.id == child1.id).unwrap();
+    assert_eq!(c1_summary.due_count, 2);
+
+    let mut session =
+        StudySession::start(&col, StudyRequest::deck(child1.id.clone()), NOW + 10).unwrap();
+    session.reveal(NOW + 11).unwrap();
+    let outcome = session.grade(&col, Grade::Easy, NOW + 12).unwrap();
+    let StudyGradeOutcome::Graded { view } = outcome else {
+        panic!("expected graded");
+    };
+    // Grading c1 buries c2 & c3, leaving Unrelated X still ready to study!
+    assert_eq!(view.current.as_ref().unwrap().front, "Unrelated X");
+
+    // Parent CustomStudy IncreaseNew by 3 across child1 + child2 must cap at 3 total, not 3 per subdeck.
+    col.update_deck(
+        &child2.id,
+        DeckPatch {
+            settings: Some(DeckSettings {
+                new_per_day: 0,
+                ..DeckSettings::default()
+            }),
+            ..DeckPatch::default()
+        },
+        NOW + 13,
+    )
+    .unwrap();
+    for i in 0..5 {
+        col.create_card(&child2.id, &format!("C2-{i}"), "Ans", vec![], NOW + 20 + i)
+            .unwrap();
+    }
+    col.update_deck(
+        &child1.id,
+        DeckPatch {
+            settings: Some(DeckSettings {
+                new_per_day: 0,
+                ..DeckSettings::default()
+            }),
+            ..DeckPatch::default()
+        },
+        NOW + 30,
+    )
+    .unwrap();
+    for i in 0..5 {
+        col.create_card(&child1.id, &format!("C1-{i}"), "Ans", vec![], NOW + 40 + i)
+            .unwrap();
+    }
+    let custom = StudySession::start(
+        &col,
+        StudyRequest::custom(parent.id.clone(), rem_core::CustomStudyMode::IncreaseNew, 3),
+        NOW + 50,
+    )
+    .unwrap();
+    assert_eq!(custom.view().remaining, 3);
+}
+
+#[test]
+fn parent_rename_cascades_subdecks_and_cloze_draft_accept_and_removal_stay_consistent() {
+    let (_dir, col) = open_temp_collection();
+    let parent = col.create_deck("CS", NOW).unwrap();
+    let child = col.create_deck("CS::Rust", NOW + 1).unwrap();
+    assert_eq!(
+        col.deck_and_descendant_ids(&parent.id).unwrap(),
+        vec![parent.id.clone(), child.id.clone()]
+    );
+
+    // Renaming parent cascades to descendant subdeck.
+    col.update_deck(
+        &parent.id,
+        DeckPatch {
+            name: Some("Computing".into()),
+            ..DeckPatch::default()
+        },
+        NOW + 2,
+    )
+    .unwrap();
+    assert_eq!(
+        col.get_deck(&child.id).unwrap().unwrap().name,
+        "Computing::Rust"
+    );
+
+    // Accepting a multi-cloze draft creates all sibling cards.
+    let draft_res = col
+        .propose_drafts(
+            &child.id,
+            vec![rem_core::NewDraftInput {
+                front: "{{c1::Ownership}} prevents {{c2::data races}}.".into(),
+                back: "Rust".into(),
+                tags: vec!["rust".into()],
+                rationale: None,
+                sources: vec![],
+            }],
+            rem_core::ProposalMetadata { proposed_by: None },
+            NOW + 5,
+            rem_core::ProposalMode::Create,
+        )
+        .unwrap();
+    let draft_id = match &draft_res.outcomes[0] {
+        rem_core::DraftProposalOutcome::Created(d) => d.id.clone(),
+        other => panic!("expected created draft, got {other:?}"),
+    };
+    col.resolve_draft(
+        &draft_id,
+        0,
+        rem_core::DraftDecision::Accept {
+            deck_id: child.id.clone(),
+            card: rem_core::NewCardInput {
+                front: "{{c1::Ownership}} prevents {{c2::data races}}.".into(),
+                back: "Rust".into(),
+                tags: vec!["rust".into()],
+            },
+        },
+        NOW + 6,
+    )
+    .unwrap();
+    let created = col.list_cards(&child.id).unwrap();
+    assert_eq!(created.len(), 2);
+    assert_eq!(created[0].sibling_group_id, created[1].sibling_group_id);
+
+    // Removing c2 from an unreviewed cloze note deletes the orphaned c2 card.
+    let after_edit = col
+        .update_cloze_note(
+            &created[0].id,
+            "{{c1::Ownership}} prevents races.",
+            "Rust",
+            vec!["rust".into()],
+            NOW + 10,
+        )
+        .unwrap();
+    assert_eq!(after_edit.len(), 1);
+    assert_eq!(col.list_cards(&child.id).unwrap().len(), 1);
 }

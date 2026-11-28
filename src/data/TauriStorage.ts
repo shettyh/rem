@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, type InvokeArgs, type InvokeOptions } from '@tauri-apps/api/core'
 import type {
   ApkgImportPreview,
   ApkgImportResult,
@@ -21,6 +21,7 @@ import type {
   StudyGradeOutcome,
   StudyRequest,
   StudyView,
+  TodaySummary,
 } from '../domain/models'
 import type { DeckBackup } from './backup'
 import type {
@@ -33,7 +34,8 @@ import type {
 
 export type StorageInvoke = <T>(
   command: string,
-  args?: Record<string, unknown>,
+  args?: InvokeArgs,
+  options?: InvokeOptions,
 ) => Promise<T>
 
 type NativeAsset = Omit<Asset, 'bytes'> & { bytes: number[] }
@@ -250,6 +252,10 @@ export class TauriStorage implements Storage {
     return this.call('storage_list_review_logs', { deckId })
   }
 
+  getTodaySummary(now?: number): Promise<TodaySummary> {
+    return this.call('storage_get_today_summary', { now: now ?? this.now() })
+  }
+
   getStats(deckId: ID | null, days: number, now?: number): Promise<CollectionStats> {
     return this.call('storage_get_stats', {
       deckId,
@@ -283,26 +289,25 @@ export class TauriStorage implements Storage {
   }
 
   previewApkg(bytes: Uint8Array): Promise<ApkgImportPreview> {
-    return this.call<ApkgImportPreview>('storage_preview_apkg', {
-      bytes: Array.from(bytes),
-      now: this.now(),
+    return this.call<ApkgImportPreview>('storage_preview_apkg', bytes, {
+      headers: { 'x-rem-now': String(this.now()) },
     })
   }
 
   async importApkg(bytes: Uint8Array): Promise<ApkgImportResult> {
-    const result = await this.call<ApkgImportResult>('storage_import_apkg', {
-      bytes: Array.from(bytes),
-      now: this.now(),
+    const result = await this.call<ApkgImportResult>('storage_import_apkg', bytes, {
+      headers: { 'x-rem-now': String(this.now()) },
     })
     this.notify()
     return result
   }
 
   async putAsset(bytes: Uint8Array, mime: string): Promise<Asset> {
-    const asset = await this.call<NativeAsset>('storage_put_asset', {
-      bytes: Array.from(bytes),
-      mime,
-      now: this.now(),
+    const asset = await this.call<NativeAsset>('storage_put_asset', bytes, {
+      headers: {
+        'x-rem-mime': mime,
+        'x-rem-now': String(this.now()),
+      },
     })
     this.notify()
     return fromNativeAsset(asset)

@@ -22,8 +22,22 @@ function makeDeck(id: string, name: string): Deck {
 describe('deckTree', () => {
   it('normalizes :: paths and checks descendant membership safely', () => {
     expect(normalizeDeckName(' CS :: Systems :: Rust ')).toBe('CS::Systems::Rust')
+    expect(() => normalizeDeckName('   ')).toThrow()
+    expect(() => normalizeDeckName('::Rust')).toThrow()
+    expect(() => normalizeDeckName('Rust::')).toThrow()
+    expect(() => normalizeDeckName('CS::::Rust')).toThrow()
     expect(deckIsDescendantOrSelf('CS::Rust', 'CS')).toBe(true)
     expect(deckIsDescendantOrSelf('CSS', 'CS')).toBe(false)
+  })
+
+  it('preserves duplicate-named decks without overwriting them', () => {
+    const tree = buildDeckTree([
+      { deck: makeDeck('1', 'CS'), due: 2, newCount: 1, total: 5, studied: 4 },
+      { deck: makeDeck('2', 'CS'), due: 3, newCount: 2, total: 6, studied: 4 },
+    ])
+    expect(tree).toHaveLength(2)
+    expect(tree[0].item?.deck.id).toBe('1')
+    expect(tree[1].item?.deck.id).toBe('2')
   })
 
   it('builds a nested tree with virtual folders and rolled-up counts', () => {

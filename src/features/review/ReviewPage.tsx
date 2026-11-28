@@ -45,6 +45,7 @@ export function ReviewPage() {
   const [ready, setReady] = useState(false)
   const [revealedAt, setRevealedAt] = useState(0)
   const [cardElapsedSec, setCardElapsedSec] = useState(0)
+  const [timerAttempt, setTimerAttempt] = useState(0)
   const [schedError, setSchedError] = useState(false)
   const [conflictNotice, setConflictNotice] = useState(false)
   const [actionNotice, setActionNotice] = useState<string | null>(null)
@@ -75,6 +76,7 @@ export function ReviewPage() {
       }
       sessionIdRef.current = started.sessionId
       setView(started.view)
+      setTimerAttempt((n) => n + 1)
       setReady(true)
     })
     return () => {
@@ -108,6 +110,7 @@ export function ReviewPage() {
     try {
       const next = await storage.advanceStudyPreview(sessionId)
       setView(next)
+      setTimerAttempt((n) => n + 1)
       setActionNotice(null)
       if (next.current === null) {
         setSessionStats((prev) => ({ ...prev, elapsedMs: Date.now() - sessionStartRef.current }))
@@ -128,6 +131,7 @@ export function ReviewPage() {
       try {
         const outcome = await storage.gradeStudy(sessionId, grade)
         setView(outcome.view)
+        setTimerAttempt((n) => n + 1)
         setSchedError(false)
         setActionNotice(null)
         setConflictNotice(outcome.status === 'conflict')
@@ -158,6 +162,7 @@ export function ReviewPage() {
       const undoneGrade = lastGradedGradeRef.current
       lastGradedGradeRef.current = null
       setView(nextView)
+      setTimerAttempt((n) => n + 1)
       setSchedError(false)
       setConflictNotice(false)
       setActionNotice('Last grade undone.')
@@ -186,6 +191,7 @@ export function ReviewPage() {
       const nextView = await storage.suspendStudyCard(sessionId)
       lastGradedGradeRef.current = null
       setView(nextView)
+      setTimerAttempt((n) => n + 1)
       setSchedError(false)
       setConflictNotice(false)
       setActionNotice('Card suspended.')
@@ -268,16 +274,34 @@ export function ReviewPage() {
 
   useEffect(() => {
     setCardElapsedSec(0)
-  }, [currentCardId])
+  }, [currentCardId, timerAttempt])
 
   useEffect(() => {
     if (!showCardTimer || isCardRevealed) return
-    const startedAt = Date.now()
-    const timer = window.setInterval(() => {
-      setCardElapsedSec(Math.floor((Date.now() - startedAt) / 1000))
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [showCardTimer, isCardRevealed, currentCardId])
+    let accumulatedMs = 0
+    let resumeAt: number | null = document.visibilityState === 'hidden' ? null : Date.now()
+    const syncElapsed = () => {
+      const liveMs = resumeAt !== null ? Date.now() - resumeAt : 0
+      setCardElapsedSec(Math.floor((accumulatedMs + liveMs) / 1000))
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        if (resumeAt !== null) {
+          accumulatedMs += Date.now() - resumeAt
+          resumeAt = null
+        }
+      } else if (resumeAt === null) {
+        resumeAt = Date.now()
+      }
+      syncElapsed()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    const timer = window.setInterval(syncElapsed, 250)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.clearInterval(timer)
+    }
+  }, [showCardTimer, isCardRevealed, currentCardId, timerAttempt])
 
   if (!ready || !view) return null
 
@@ -461,7 +485,7 @@ export function ReviewPage() {
               </p>
             )}
             {!displayedRevealed ? (
-              <div className="review-card">
+              <div key={current.id} className="review-card">
                 <section className="review-question" aria-label="Question">
                   <div className="review-label-row">
                     <p className="review-label">{current.clozeIndex ? `Cloze · c${current.clozeIndex}` : 'Question'}</p>
@@ -481,7 +505,7 @@ export function ReviewPage() {
                 </section>
               </div>
             ) : (
-              <div className="review-card revealed">
+              <div key={current.id} className="review-card revealed">
                 <section className="review-question" aria-label="Question">
                   <div className="review-label-row">
                     <p className="review-label">{current.clozeIndex ? `Cloze · c${current.clozeIndex}` : 'Question'}</p>

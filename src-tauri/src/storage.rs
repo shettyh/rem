@@ -2,10 +2,10 @@ use rem_core::{
     ApkgImportPreview, ApkgImportResult, Asset, Card, CardDraft, CardPatch, CardSearchHit,
     Collection, CollectionStats, Deck, DeckBackup, DeckPatch, DraftDecision, DraftResolution,
     ImportResult, NewDraftInput, ProposalMetadata, ProposalMode, ProposeDraftsResult, ReviewCommit,
-    ReviewLog,
+    ReviewLog, TodaySummary,
 };
 use serde::Serialize;
-use tauri::State;
+use tauri::{ipc::InvokeBody, ipc::Request, State};
 
 fn message(error: rem_core::CollectionError) -> String {
     error.to_string()
@@ -207,6 +207,14 @@ pub fn storage_list_review_logs(
 }
 
 #[tauri::command]
+pub fn storage_get_today_summary(
+    collection: State<'_, Collection>,
+    now: i64,
+) -> Result<TodaySummary, String> {
+    collection.compute_today_summary(now).map_err(message)
+}
+
+#[tauri::command]
 pub fn storage_get_stats(
     collection: State<'_, Collection>,
     deck_id: Option<String>,
@@ -260,32 +268,62 @@ pub fn storage_import_decks(
     collection.import_decks(decks, now).map_err(message)
 }
 
+fn parse_header_i64(request: &Request<'_>, name: &str) -> Result<i64, String> {
+    request
+        .headers()
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<i64>().ok())
+        .ok_or_else(|| format!("missing or invalid {name} header"))
+}
+
+fn raw_body_bytes<'a>(request: &'a Request<'_>) -> Result<&'a [u8], String> {
+    match request.body() {
+        InvokeBody::Raw(bytes) => Ok(bytes.as_slice()),
+        InvokeBody::Json(_) => Err("expected raw binary payload".into()),
+    }
+}
+
 #[tauri::command]
 pub fn storage_preview_apkg(
     collection: State<'_, Collection>,
-    bytes: Vec<u8>,
-    now: i64,
+    request: Request<'_>,
 ) -> Result<ApkgImportPreview, String> {
-    collection.preview_apkg_bytes(&bytes, now).map_err(message)
+    let now = parse_header_i64(&request, "x-rem-now")?;
+    let bytes = raw_body_bytes(&request)?;
+    collection.preview_apkg_bytes(bytes, now).map_err(message)
 }
 
 #[tauri::command]
 pub fn storage_import_apkg(
     collection: State<'_, Collection>,
-    bytes: Vec<u8>,
-    now: i64,
+    request: Request<'_>,
 ) -> Result<ApkgImportResult, String> {
-    collection.import_apkg_bytes(&bytes, now).map_err(message)
+    let now = parse_header_i64(&request, "x-rem-now")?;
+    let bytes = raw_body_bytes(&request)?;
+    collection.import_apkg_bytes(bytes, now).map_err(message)
 }
+
+const MAX_UPLOAD_ASSET_BYTES: usize = 25 * 1024 * 1024;
 
 #[tauri::command]
 pub fn storage_put_asset(
     collection: State<'_, Collection>,
-    bytes: Vec<u8>,
-    mime: String,
-    now: i64,
+    request: Request<'_>,
 ) -> Result<Asset, String> {
-    collection.put_asset(&bytes, &mime, now).map_err(message)
+    let now = parse_header_i64(&request, "x-rem-now")?;
+    let mime = request
+        .headers()
+        .get("x-rem-mime")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "missing or invalid x-rem-mime header".to_owned())?;
+    let bytes = raw_body_bytes(&request)?;
+    if bytes.len() > MAX_UPLOAD_ASSET_BYTES {
+        return Err("Asset exceeds maximum supported size (25 MB).".into());
+    }
+    collection.put_asset(bytes, mime, now).map_err(message)
 }
 
 #[tauri::command]

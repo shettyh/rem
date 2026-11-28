@@ -3,7 +3,6 @@ import SwiftUI
 struct TodayView: View {
     @Bindable var appState: AppState
     @State private var deckPendingDelete: DeckSummaryDto?
-    @State private var collapsedDeckPaths: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -185,7 +184,7 @@ struct TodayView: View {
         let deckSummaries = appState.todaySummary?.decks ?? []
         let treeNodes = DeckTreeBuilder.flatten(
             DeckTreeBuilder.build(from: deckSummaries),
-            collapsed: collapsedDeckPaths
+            collapsed: appState.collapsedDeckPaths
         )
         if !treeNodes.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
@@ -205,25 +204,39 @@ struct TodayView: View {
                 VStack(spacing: 0) {
                     ForEach(Array(treeNodes.enumerated()), id: \.element.id) { idx, node in
                         if let deck = node.deck {
-                            NavigationLink(value: deck.id) {
-                                DeckSummaryRow(
-                                    deck: deck,
-                                    displayName: node.label,
-                                    depth: node.depth,
-                                    hasChildren: !node.children.isEmpty,
-                                    isCollapsed: collapsedDeckPaths.contains(node.path),
-                                    dueOverride: node.dueCount,
-                                    newDueOverride: node.newDueCount,
-                                    totalOverride: node.totalCards,
-                                    onToggleCollapse: {
+                            let isCollapsed = appState.collapsedDeckPaths.contains(node.path)
+                            HStack(spacing: 0) {
+                                if !node.children.isEmpty {
+                                    Button {
                                         toggleCollapse(node.path)
-                                    },
-                                    onStudy: node.dueCount > 0 ? {
-                                        appState.startStudy(deckId: deck.id)
-                                    } : nil
-                                )
+                                    } label: {
+                                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                                            .font(.system(size: 11, weight: .bold))
+                                            .foregroundStyle(RemColor.muted)
+                                            .frame(width: 34, height: 40)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .padding(.leading, CGFloat(min(node.depth, 4)) * 14 + 4)
+                                    .accessibilityLabel(isCollapsed ? "Expand \(node.label)" : "Collapse \(node.label)")
+                                }
+
+                                NavigationLink(value: deck.id) {
+                                    DeckSummaryRow(
+                                        deck: deck,
+                                        displayName: node.label,
+                                        depth: node.children.isEmpty ? node.depth : 0,
+                                        dueOverride: node.dueCount,
+                                        newDueOverride: node.newDueCount,
+                                        totalOverride: node.totalCards,
+                                        leadingInset: node.children.isEmpty ? 14 : 2,
+                                        onStudy: node.dueCount > 0 ? {
+                                            appState.startStudy(deckId: deck.id)
+                                        } : nil
+                                    )
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                             .contextMenu {
                                 if node.dueCount > 0 {
                                     Button {
@@ -246,7 +259,7 @@ struct TodayView: View {
                         } else {
                             VirtualDeckFolderRow(
                                 node: node,
-                                isCollapsed: collapsedDeckPaths.contains(node.path)
+                                isCollapsed: appState.collapsedDeckPaths.contains(node.path)
                             ) {
                                 toggleCollapse(node.path)
                             }
@@ -269,11 +282,7 @@ struct TodayView: View {
 
     private func toggleCollapse(_ path: String) {
         withAnimation(.easeOut(duration: 0.16)) {
-            if collapsedDeckPaths.contains(path) {
-                collapsedDeckPaths.remove(path)
-            } else {
-                collapsedDeckPaths.insert(path)
-            }
+            appState.toggleDeckCollapse(path)
         }
     }
 
@@ -308,12 +317,10 @@ struct DeckSummaryRow: View {
     var showChevron: Bool = true
     var displayName: String? = nil
     var depth: Int = 0
-    var hasChildren: Bool = false
-    var isCollapsed: Bool = false
     var dueOverride: UInt32? = nil
     var newDueOverride: UInt32? = nil
     var totalOverride: UInt32? = nil
-    var onToggleCollapse: (() -> Void)? = nil
+    var leadingInset: CGFloat? = nil
     var onStudy: (() -> Void)? = nil
 
     private var effectiveName: String { displayName ?? deck.name }
@@ -326,18 +333,6 @@ struct DeckSummaryRow: View {
             if depth > 0 {
                 Color.clear
                     .frame(width: CGFloat(min(depth, 4)) * 14, height: 1)
-            }
-
-            if hasChildren, let onToggleCollapse {
-                Button(action: onToggleCollapse) {
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 10.5, weight: .bold))
-                        .foregroundStyle(RemColor.muted)
-                        .frame(width: 20, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isCollapsed ? "Expand \(effectiveName)" : "Collapse \(effectiveName)")
             }
 
             VStack(alignment: .leading, spacing: 3) {
@@ -375,7 +370,8 @@ struct DeckSummaryRow: View {
                 }
             }
         }
-        .padding(.horizontal, showChevron ? 14 : 0)
+        .padding(.leading, leadingInset ?? (showChevron ? 14 : 0))
+        .padding(.trailing, showChevron ? 14 : 0)
         .padding(.vertical, showChevron ? 13 : 4)
         .contentShape(Rectangle())
     }

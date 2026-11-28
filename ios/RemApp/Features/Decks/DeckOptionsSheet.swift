@@ -99,6 +99,7 @@ struct DeckOptionsSheet: View {
             }
         }
         .tint(RemColor.accent)
+        .remToastOverlay(appState: appState)
         .task {
             await loadDeck()
         }

@@ -22,6 +22,10 @@ export function createEditorExtensions(
     StarterKit.configure({
       codeBlock: false, // replaced by CodeBlockLowlight for syntax highlighting
       heading: { levels: [1, 2, 3] },
+      link: {
+        protocols: ['asset'],
+        openOnClick: false,
+      },
     }),
     CodeBlockLowlight.configure({ lowlight }),
     createImageExtension(resolveAsset),

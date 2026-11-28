@@ -1,17 +1,18 @@
 use std::collections::HashSet;
 
 use rusqlite::types::Type;
-use rusqlite::{params, Connection, Row, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use uuid::Uuid;
 
 use crate::cloze::extract_cloze_indices;
 use crate::collection::write_transaction;
 use crate::deck_tree::normalize_deck_name;
-use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc};
+use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc, put_tombstone_with_hlc};
 use crate::tags::normalize_card_tags;
 use crate::{
     normalize_user_tags, Card, CardPatch, Collection, CollectionError, CreateCardsResult, Deck,
     DeckPatch, DeckSettings, DuplicatePolicy, FsrsState, NewCardInput, SchedulerKind, SyncOp,
+    TombstoneKind,
 };
 
 const DECK_PALETTE: [&str; 5] = ["#7e6cff", "#e8638c", "#2fa86b", "#e8922e", "#3ba0e8"];
@@ -100,7 +101,18 @@ impl Collection {
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
         let transaction = write_transaction(&mut connection)?;
-        let changed = transaction.execute(
+        let old_name: Option<String> = transaction
+            .query_row("SELECT name FROM decks WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        let Some(old_name) = old_name else {
+            return Err(CollectionError::NotFound {
+                kind: "deck",
+                id: id.to_owned(),
+            });
+        };
+        transaction.execute(
             "UPDATE decks SET
                 name = COALESCE(?2, name),
                 color = COALESCE(?3, color),
@@ -109,33 +121,62 @@ impl Collection {
              WHERE id = ?1",
             params![id, name, patch.color, settings, now],
         )?;
-        if changed == 0 {
-            return Err(CollectionError::NotFound {
-                kind: "deck",
-                id: id.to_owned(),
-            });
+
+        // If the deck was renamed, cascade the prefix rename to any `OldName::...` subdecks
+        // so subdecks remain attached to their renamed parent.
+        let mut cascaded_ids: Vec<String> = Vec::new();
+        if let Some(ref new_name) = name {
+            if new_name != &old_name {
+                let old_prefix = format!("{old_name}::");
+                let child_rows: Vec<(String, String)> = {
+                    let mut stmt =
+                        transaction.prepare("SELECT id, name FROM decks WHERE id != ?1")?;
+                    let rows = stmt
+                        .query_map([id], |row| {
+                            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                        })?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    rows
+                };
+                for (child_id, child_name) in child_rows {
+                    if let Some(suffix) = child_name.strip_prefix(&old_prefix) {
+                        let renamed_child = format!("{new_name}::{suffix}");
+                        transaction.execute(
+                            "UPDATE decks SET name = ?2, updated_at = ?3 WHERE id = ?1",
+                            params![child_id, renamed_child, now],
+                        )?;
+                        cascaded_ids.push(child_id);
+                    }
+                }
+            }
         }
+
         if is_cloud_sync_enabled(&transaction)? {
-            let hlc = next_hlc(&transaction, now)?;
-            transaction.execute("UPDATE decks SET hlc = ?2 WHERE id = ?1", params![id, hlc])?;
-            let updated: Deck = transaction.query_row(
-                "SELECT id, name, created_at, updated_at, color, scheduler_kind, settings_json
-                 FROM decks WHERE id = ?1",
-                [id],
-                deck_from_row,
-            )?;
-            enqueue_new_op(
-                &transaction,
-                &SyncOp::DeckUpsert {
-                    id: updated.id,
-                    name: updated.name,
-                    color: updated.color,
-                    settings: updated.settings,
-                    created_at: updated.created_at,
-                    hlc,
-                },
-                now,
-            )?;
+            for deck_id in std::iter::once(id.to_owned()).chain(cascaded_ids) {
+                let hlc = next_hlc(&transaction, now)?;
+                transaction.execute(
+                    "UPDATE decks SET hlc = ?2 WHERE id = ?1",
+                    params![deck_id, hlc],
+                )?;
+                let updated: Deck = transaction.query_row(
+                    "SELECT id, name, created_at, updated_at, color, scheduler_kind, settings_json
+                     FROM decks WHERE id = ?1",
+                    [&deck_id],
+                    deck_from_row,
+                )?;
+                enqueue_new_op(
+                    &transaction,
+                    &SyncOp::DeckUpsert {
+                        id: updated.id,
+                        name: updated.name,
+                        color: updated.color,
+                        settings: updated.settings,
+                        created_at: updated.created_at,
+                        hlc,
+                    },
+                    now,
+                )?;
+            }
         }
         bump_sync_revision(&transaction)?;
         transaction.commit()?;
@@ -218,38 +259,7 @@ impl Collection {
                 sibling_group_id: Some(sibling_group_id.clone()),
                 cloze_index: Some(idx),
             };
-            let scheduling_json = serde_json::to_string(&card.scheduling)?;
-            let content_hlc = if cloud_enabled {
-                next_hlc(&transaction, now)?
-            } else {
-                String::new()
-            };
-            insert_card_with_hlc(
-                &transaction,
-                &card,
-                &tags_json,
-                &scheduling_json,
-                &content_hlc,
-            )?;
-            if cloud_enabled {
-                enqueue_new_op(
-                    &transaction,
-                    &SyncOp::CardCreate {
-                        id: card.id.clone(),
-                        deck_id: card.deck_id.clone(),
-                        front: card.front.clone(),
-                        back: card.back.clone(),
-                        tags: card.tags.clone(),
-                        created_at: card.created_at,
-                        initial_due: card.scheduling.due,
-                        provenance: card.provenance.clone(),
-                        sibling_group_id: card.sibling_group_id.clone(),
-                        cloze_index: card.cloze_index,
-                        hlc: content_hlc,
-                    },
-                    now,
-                )?;
-            }
+            persist_new_card_with_sync(&transaction, &card, &tags_json, cloud_enabled, now)?;
             created.push(card);
         }
         bump_sync_revision(&transaction)?;
@@ -289,11 +299,61 @@ impl Collection {
 
         let mut affected = Vec::new();
         if let (Some(group_id), Some(_)) = (&target.sibling_group_id, target.cloze_index) {
+            let active_cloze_set: HashSet<u32> = cloze_indices.iter().copied().collect();
             let siblings = list_cloze_siblings(&transaction, group_id)?;
             let mut existing_indices = HashSet::new();
             for mut sibling in siblings {
                 if let Some(idx) = sibling.cloze_index {
                     existing_indices.insert(idx);
+                    // If the user removed this cloze index from the note text while keeping other
+                    // clozes, don't leave a broken active card that renders with no blank:
+                    // delete unreviewed orphans, or suspend reviewed ones to preserve history.
+                    if !active_cloze_set.is_empty() && !active_cloze_set.contains(&idx) {
+                        if sibling.scheduling.reps == 0 {
+                            transaction
+                                .execute("DELETE FROM cards WHERE id = ?1", [&sibling.id])?;
+                            let hlc = if cloud_enabled {
+                                let hlc = next_hlc(&transaction, now)?;
+                                enqueue_new_op(
+                                    &transaction,
+                                    &SyncOp::CardDelete {
+                                        id: sibling.id.clone(),
+                                        hlc: hlc.clone(),
+                                    },
+                                    now,
+                                )?;
+                                hlc
+                            } else {
+                                String::new()
+                            };
+                            put_tombstone_with_hlc(
+                                &transaction,
+                                &sibling.id,
+                                TombstoneKind::Card,
+                                now,
+                                &hlc,
+                            )?;
+                            continue;
+                        } else if !sibling.suspended {
+                            sibling.suspended = true;
+                            if cloud_enabled {
+                                let susp_hlc = next_hlc(&transaction, now)?;
+                                transaction.execute(
+                                    "UPDATE cards SET suspended_hlc = ?2 WHERE id = ?1",
+                                    params![sibling.id, susp_hlc],
+                                )?;
+                                enqueue_new_op(
+                                    &transaction,
+                                    &SyncOp::CardSuspendPatch {
+                                        id: sibling.id.clone(),
+                                        suspended: true,
+                                        hlc: susp_hlc,
+                                    },
+                                    now,
+                                )?;
+                            }
+                        }
+                    }
                 }
                 let had_leech = sibling.tags.iter().any(|t| t == "leech");
                 let mut merged = incoming_user_tags.clone();
@@ -304,27 +364,13 @@ impl Collection {
                 sibling.back = back.to_owned();
                 sibling.tags = normalize_card_tags(merged);
                 sibling.updated_at = now;
-                let tags_json = serde_json::to_string(&sibling.tags)?;
-                let scheduling_json = serde_json::to_string(&sibling.scheduling)?;
-                update_card_row(&transaction, &sibling, &tags_json, &scheduling_json)?;
-                if cloud_enabled {
-                    let hlc = next_hlc(&transaction, now)?;
-                    transaction.execute(
-                        "UPDATE cards SET content_hlc = ?2 WHERE id = ?1",
-                        params![sibling.id, hlc],
-                    )?;
-                    enqueue_new_op(
-                        &transaction,
-                        &SyncOp::CardContentPatch {
-                            id: sibling.id.clone(),
-                            front: sibling.front.clone(),
-                            back: sibling.back.clone(),
-                            tags: incoming_user_tags.clone(),
-                            hlc,
-                        },
-                        now,
-                    )?;
-                }
+                persist_card_content_update(
+                    &transaction,
+                    &sibling,
+                    &incoming_user_tags,
+                    cloud_enabled,
+                    now,
+                )?;
                 affected.push(sibling);
             }
 
@@ -349,73 +395,33 @@ impl Collection {
                     sibling_group_id: Some(group_id.clone()),
                     cloze_index: Some(idx),
                 };
-                let scheduling_json = serde_json::to_string(&card.scheduling)?;
-                let content_hlc = if cloud_enabled {
-                    next_hlc(&transaction, now)?
-                } else {
-                    String::new()
-                };
-                insert_card_with_hlc(
+                persist_new_card_with_sync(
                     &transaction,
                     &card,
                     &new_tags_json,
-                    &scheduling_json,
-                    &content_hlc,
+                    cloud_enabled,
+                    now,
                 )?;
-                if cloud_enabled {
-                    enqueue_new_op(
-                        &transaction,
-                        &SyncOp::CardCreate {
-                            id: card.id.clone(),
-                            deck_id: card.deck_id.clone(),
-                            front: card.front.clone(),
-                            back: card.back.clone(),
-                            tags: card.tags.clone(),
-                            created_at: card.created_at,
-                            initial_due: card.scheduling.due,
-                            provenance: card.provenance.clone(),
-                            sibling_group_id: card.sibling_group_id.clone(),
-                            cloze_index: card.cloze_index,
-                            hlc: content_hlc,
-                        },
-                        now,
-                    )?;
-                }
                 affected.push(card);
             }
         } else {
             let mut updated = target;
-            apply_card_patch(
-                &mut updated,
-                CardPatch {
-                    front: Some(front.to_owned()),
-                    back: Some(back.to_owned()),
-                    tags: Some(tags),
-                    ..CardPatch::default()
-                },
+            let had_leech = updated.tags.iter().any(|t| t == "leech");
+            let mut merged = incoming_user_tags.clone();
+            if had_leech {
+                merged.insert(0, "leech".into());
+            }
+            updated.front = front.to_owned();
+            updated.back = back.to_owned();
+            updated.tags = normalize_card_tags(merged);
+            updated.updated_at = now;
+            persist_card_content_update(
+                &transaction,
+                &updated,
+                &incoming_user_tags,
+                cloud_enabled,
                 now,
             )?;
-            let tags_json = serde_json::to_string(&updated.tags)?;
-            let scheduling_json = serde_json::to_string(&updated.scheduling)?;
-            update_card_row(&transaction, &updated, &tags_json, &scheduling_json)?;
-            if cloud_enabled {
-                let hlc = next_hlc(&transaction, now)?;
-                transaction.execute(
-                    "UPDATE cards SET content_hlc = ?2 WHERE id = ?1",
-                    params![updated.id, hlc],
-                )?;
-                enqueue_new_op(
-                    &transaction,
-                    &SyncOp::CardContentPatch {
-                        id: updated.id.clone(),
-                        front: updated.front.clone(),
-                        back: updated.back.clone(),
-                        tags: normalize_user_tags(updated.tags.clone()),
-                        hlc,
-                    },
-                    now,
-                )?;
-            }
             affected.push(updated);
         }
 
@@ -894,6 +900,73 @@ pub(crate) fn insert_card_with_hlc(
             card.cloze_index,
         ],
     )?;
+    Ok(())
+}
+
+fn persist_new_card_with_sync(
+    transaction: &Transaction<'_>,
+    card: &Card,
+    tags_json: &str,
+    cloud_enabled: bool,
+    now: i64,
+) -> Result<(), CollectionError> {
+    let scheduling_json = serde_json::to_string(&card.scheduling)?;
+    let content_hlc = if cloud_enabled {
+        next_hlc(transaction, now)?
+    } else {
+        String::new()
+    };
+    insert_card_with_hlc(transaction, card, tags_json, &scheduling_json, &content_hlc)?;
+    if cloud_enabled {
+        enqueue_new_op(
+            transaction,
+            &SyncOp::CardCreate {
+                id: card.id.clone(),
+                deck_id: card.deck_id.clone(),
+                front: card.front.clone(),
+                back: card.back.clone(),
+                tags: card.tags.clone(),
+                created_at: card.created_at,
+                initial_due: card.scheduling.due,
+                provenance: card.provenance.clone(),
+                sibling_group_id: card.sibling_group_id.clone(),
+                cloze_index: card.cloze_index,
+                hlc: content_hlc,
+            },
+            now,
+        )?;
+    }
+    Ok(())
+}
+
+fn persist_card_content_update(
+    transaction: &Transaction<'_>,
+    card: &Card,
+    sync_user_tags: &[String],
+    cloud_enabled: bool,
+    now: i64,
+) -> Result<(), CollectionError> {
+    let tags_json = serde_json::to_string(&card.tags)?;
+    let scheduling_json = serde_json::to_string(&card.scheduling)?;
+    update_card_row(transaction, card, &tags_json, &scheduling_json)?;
+    if cloud_enabled {
+        let hlc = next_hlc(transaction, now)?;
+        transaction.execute(
+            "UPDATE cards SET content_hlc = ?2 WHERE id = ?1",
+            params![card.id, hlc],
+        )?;
+        enqueue_new_op(
+            transaction,
+            &SyncOp::CardContentPatch {
+                id: card.id.clone(),
+                front: card.front.clone(),
+                back: card.back.clone(),
+                tags: sync_user_tags.to_vec(),
+                hlc,
+            },
+            now,
+        )?;
+    }
     Ok(())
 }
 

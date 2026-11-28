@@ -239,6 +239,9 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
                         )}
                       </div>
                       <div className="search-result-front">
+                        {hit.card.clozeIndex && (
+                          <span className="card-cloze-badge">c{hit.card.clozeIndex}</span>
+                        )}
                         {snippet(hit.card.front, 120) || '(empty front)'}
                       </div>
                       {hit.card.back.trim() && (

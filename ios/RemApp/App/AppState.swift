@@ -31,7 +31,7 @@ struct PendingBackupImport {
 }
 
 struct PendingApkgImport {
-    let data: Data
+    let tempFileURL: URL
     let preview: ApkgImportPreviewDto
 }
 
@@ -57,6 +57,18 @@ final class AppState {
 
     var selectedTab: RemTab = .today
     var activeDeckId: String?
+    var collapsedDeckPaths: Set<String> = Set(
+        UserDefaults.standard.stringArray(forKey: "rem.collapsedDeckPaths") ?? []
+    )
+
+    func toggleDeckCollapse(_ path: String) {
+        if collapsedDeckPaths.contains(path) {
+            collapsedDeckPaths.remove(path)
+        } else {
+            collapsedDeckPaths.insert(path)
+        }
+        UserDefaults.standard.set(Array(collapsedDeckPaths), forKey: "rem.collapsedDeckPaths")
+    }
 
     var todaySummary: TodaySummaryDto?
     var decks: [DeckDto] = []
@@ -789,41 +801,99 @@ final class AppState {
         }
     }
 
+    private static let maxIosApkgBytes: Int64 = 250 * 1024 * 1024
+
+    func discardPendingApkgImport(_ pending: PendingApkgImport?) {
+        guard let url = pending?.tempFileURL else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
     func prepareApkgImport(from url: URL) async -> PendingApkgImport? {
         guard !isImportingApkg else { return nil }
         isImportingApkg = true
         defer { isImportingApkg = false }
+        var stagedURL: URL?
         do {
-            let data = try await Task.detached(priority: .userInitiated) {
+            let maxBytes = Self.maxIosApkgBytes
+            let tempURL = try await Task.detached(priority: .userInitiated) { () throws -> URL in
                 let accessed = url.startAccessingSecurityScopedResource()
                 defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                let values = try? url.resourceValues(forKeys: [.fileSizeKey])
-                if let size = values?.fileSize, size > 250 * 1024 * 1024 {
-                    throw RemFfiError.InvalidInput(message: "Anki archive exceeds the 250 MB iOS import limit.")
+
+                var coordError: NSError?
+                var innerResult: Result<URL, Error>?
+                let coordinator = NSFileCoordinator()
+                coordinator.coordinate(readingItemAt: url, options: [], error: &coordError) { readableURL in
+                    innerResult = Result {
+                        let destURL = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("rem-import-\(UUID().uuidString).apkg")
+                        guard let input = InputStream(url: readableURL) else {
+                            throw RemFfiError.InvalidInput(message: "Could not open the selected .apkg file.")
+                        }
+                        FileManager.default.createFile(atPath: destURL.path, contents: nil)
+                        let outHandle = try FileHandle(forWritingTo: destURL)
+                        defer {
+                            input.close()
+                            try? outHandle.close()
+                        }
+                        input.open()
+                        let chunkSize = 1024 * 1024
+                        var buffer = [UInt8](repeating: 0, count: chunkSize)
+                        var totalBytes: Int64 = 0
+                        while true {
+                            let readCount = input.read(&buffer, maxLength: chunkSize)
+                            if readCount < 0 {
+                                try? FileManager.default.removeItem(at: destURL)
+                                throw input.streamError ?? RemFfiError.InvalidInput(message: "Failed reading .apkg archive.")
+                            }
+                            if readCount == 0 { break }
+                            totalBytes += Int64(readCount)
+                            if totalBytes > maxBytes {
+                                try? FileManager.default.removeItem(at: destURL)
+                                throw RemFfiError.InvalidInput(message: "Anki archive exceeds the 250 MB iOS import limit.")
+                            }
+                            try outHandle.write(contentsOf: buffer[0..<readCount])
+                        }
+                        return destURL
+                    }
                 }
-                return try Data(contentsOf: url)
+                if let coordError {
+                    throw coordError
+                }
+                guard let innerResult else {
+                    throw RemFfiError.InvalidInput(message: "Could not read the selected .apkg file.")
+                }
+                return try innerResult.get()
             }.value
-            let preview = try await store.previewApkg(data: data)
+            stagedURL = tempURL
+            let preview = try await store.previewApkgPath(path: tempURL.path)
             if preview.added.isEmpty && preview.replaced.isEmpty {
+                try? FileManager.default.removeItem(at: tempURL)
                 showToast("No importable cards found in this .apkg file.")
                 return nil
             }
-            return PendingApkgImport(data: data, preview: preview)
+            return PendingApkgImport(tempFileURL: tempURL, preview: preview)
         } catch {
+            if let stagedURL {
+                try? FileManager.default.removeItem(at: stagedURL)
+            }
             showToast("Anki import failed: \(error.remDisplayMessage)")
             return nil
         }
     }
 
-    func commitApkgImport(data: Data) async {
+    func commitApkgImport(tempFileURL: URL) async {
         guard !isImportingApkg else { return }
         isImportingApkg = true
-        defer { isImportingApkg = false }
+        defer {
+            isImportingApkg = false
+            try? FileManager.default.removeItem(at: tempFileURL)
+        }
         do {
-            let result = try await store.importApkg(data: data)
+            let result = try await store.importApkgPath(path: tempFileURL.path)
             await refreshAll()
             let decksCount = result.added.count + result.replaced.count
-            showToast("Imported \(result.importedCards) cards across \(decksCount) \(decksCount == 1 ? "deck" : "decks")")
+            let warnSuffix = result.warnings.isEmpty ? "" : " (\(result.warnings.count) warning\(result.warnings.count == 1 ? "" : "s"))"
+            showToast("Imported \(result.importedCards) cards across \(decksCount) \(decksCount == 1 ? "deck" : "decks")\(warnSuffix)")
             Task { await syncNow(silent: true) }
         } catch {
             showToast("Anki import failed: \(error.remDisplayMessage)")

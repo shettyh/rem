@@ -44,4 +44,25 @@ describe('cloze', () => {
     expect(out).toContain('Code `\\(not math\\)` stays literal.')
     expect(out).toContain('\\(also literal\\)')
   })
+
+  it('handles escaped braces, code-span cloze skipping, trailing backslashes, multiline math, and currency', () => {
+    const withSet = 'Set {{c1::\\left\\{ x \\right\\}}} and {{c2::end}}'
+    const spans = parseClozeSpans(withSet)
+    expect(spans).toHaveLength(2)
+    expect(spans[0].answer).toBe('\\left\\{ x \\right\\}')
+
+    // Code spans are not rewritten into cloze links
+    const codeCloze = renderClozeMarkdown('Use `{{c1::async}}` and {{c1::await}}', 1, false)
+    expect(codeCloze).toContain('`{{c1::async}}`')
+    expect(codeCloze).toContain(`[…](${CLOZE_BLANK_HREF})`)
+
+    // Trailing backslash falls back safely without breaking CommonMark link syntax
+    const trailingBs = renderClozeMarkdown('Path {{c1::C:\\}}', 1, true)
+    expect(trailingBs).not.toContain('](#rem-cloze-answer)')
+
+    // Currency dollars are escaped while real math and multiline \[...\] stay intact
+    expect(normalizeMathDelimiters('Costs $5 and $10 today')).toBe('Costs \\$5 and \\$10 today')
+    expect(normalizeMathDelimiters('Range $5-$10')).toBe('Range \\$5-\\$10')
+    expect(normalizeMathDelimiters('\\[\na + b\n\\]')).toContain('$$\na + b\n$$')
+  })
 })

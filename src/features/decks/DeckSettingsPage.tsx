@@ -32,6 +32,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [name, setName] = useState(deck.name)
+  const [nameError, setNameError] = useState<string | null>(null)
   const [settings, setSettings] = useState<DeckSettings>(deck.settings)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [customMode, setCustomMode] = useState<CustomStudyMode | null>(null)
@@ -118,9 +119,20 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
               id="ds-name"
               className="ds-name-input"
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={() => void storage.updateDeck(deck.id, { name })}
+              onChange={(e) => {
+                setName(e.target.value)
+                setNameError(null)
+              }}
+              onBlur={async () => {
+                try {
+                  await storage.updateDeck(deck.id, { name })
+                  setNameError(null)
+                } catch (err) {
+                  setNameError(err instanceof Error ? err.message : 'Invalid deck name.')
+                }
+              }}
             />
+            {nameError && <div className="ds-row-sub ds-error" role="alert">{nameError}</div>}
             <div className="ds-rule" />
             <div className="ds-row">
               <div>
@@ -270,6 +282,34 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
                 value={settings.leechAction}
                 onChange={(v) => set('leechAction', v)}
                 options={[{ value: 'tag', label: 'TAG' }, { value: 'suspend', label: 'SUSPEND' }]}
+              />
+            </div>
+          </div>
+
+          {/* STUDY BEHAVIOR */}
+          <div className="ds-label">Study</div>
+          <div className="ds-card">
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Bury related siblings</div>
+                <div className="ds-row-sub">Defer sibling cloze and reversed cards until tomorrow after studying one.</div>
+              </div>
+              <SegToggle
+                value={settings.buryRelated ? 'on' : 'off'}
+                onChange={(v) => set('buryRelated', v === 'on')}
+                options={[{ value: 'off', label: 'OFF' }, { value: 'on', label: 'ON' }]}
+              />
+            </div>
+            <div className="ds-rule" />
+            <div className="ds-row">
+              <div>
+                <div className="ds-row-title">Show answer timer</div>
+                <div className="ds-row-sub">Display a quiet elapsed timer while recalling each card.</div>
+              </div>
+              <SegToggle
+                value={settings.showTimer ? 'on' : 'off'}
+                onChange={(v) => set('showTimer', v === 'on')}
+                options={[{ value: 'off', label: 'OFF' }, { value: 'on', label: 'ON' }]}
               />
             </div>
           </div>

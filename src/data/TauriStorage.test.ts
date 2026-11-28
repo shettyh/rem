@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { InvokeArgs, InvokeOptions } from '@tauri-apps/api/core'
 import type { Deck } from '../domain/models'
 import { TauriStorage, type StorageInvoke } from './TauriStorage'
 
@@ -27,12 +28,20 @@ const deck: Deck = {
 }
 
 function fakeInvoke(
-  respond: (command: string, args: Record<string, unknown> | undefined) => unknown,
-): { invoke: StorageInvoke; calls: Array<[string, Record<string, unknown> | undefined]> } {
-  const calls: Array<[string, Record<string, unknown> | undefined]> = []
-  const invoke: StorageInvoke = async <T>(command: string, args?: Record<string, unknown>) => {
+  respond: (
+    command: string,
+    args: InvokeArgs | undefined,
+    options?: InvokeOptions,
+  ) => unknown,
+): { invoke: StorageInvoke; calls: Array<[string, InvokeArgs | undefined]> } {
+  const calls: Array<[string, InvokeArgs | undefined]> = []
+  const invoke: StorageInvoke = async <T>(
+    command: string,
+    args?: InvokeArgs,
+    options?: InvokeOptions,
+  ) => {
     calls.push([command, args])
-    return respond(command, args) as T
+    return respond(command, args, options) as T
   }
   return { invoke, calls }
 }
@@ -171,11 +180,12 @@ describe('TauriStorage', () => {
     expect(await storage.getAsset('missing')).toBeUndefined()
   })
 
-  it('maps Uint8Array asset bytes across JSON IPC', async () => {
+  it('streams Uint8Array asset bytes across raw binary IPC', async () => {
     const nativeAsset = { hash: 'a'.repeat(64), mime: 'image/png', bytes: [1, 2, 3], createdAt: 9 }
-    const fake = fakeInvoke((command, args) => {
+    const fake = fakeInvoke((command, args, options) => {
       if (command === 'storage_put_asset') {
-        expect(args).toEqual({ bytes: [1, 2, 3], mime: 'image/png', now: 123 })
+        expect(args).toEqual(new Uint8Array([1, 2, 3]))
+        expect(options?.headers).toEqual({ 'x-rem-mime': 'image/png', 'x-rem-now': '123' })
         return nativeAsset
       }
       if (command === 'storage_get_asset') return nativeAsset

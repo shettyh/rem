@@ -408,6 +408,8 @@ fn apply_one_remote_op(
                     row.get(0)
                 })
                 .optional()?;
+            let normalized_name = crate::deck_tree::normalize_deck_name(name)
+                .unwrap_or_else(|_| name.trim().to_owned());
             let settings_json = serde_json::to_string(settings)?;
             match existing_hlc {
                 None => {
@@ -416,7 +418,15 @@ fn apply_one_remote_op(
                         "INSERT INTO decks(
                             id, name, created_at, updated_at, color, scheduler_kind, settings_json, hlc
                          ) VALUES (?1, ?2, ?3, ?4, ?5, 'fsrs', ?6, ?7)",
-                        params![id, name, created_at, updated_at, color, settings_json, hlc],
+                        params![
+                            id,
+                            normalized_name,
+                            created_at,
+                            updated_at,
+                            color,
+                            settings_json,
+                            hlc
+                        ],
                     )?;
                     Ok(true)
                 }
@@ -429,7 +439,7 @@ fn apply_one_remote_op(
                             updated_at = MAX(updated_at, ?5),
                             hlc = ?6
                          WHERE id = ?1",
-                        params![id, name, color, settings_json, wall_ms, hlc],
+                        params![id, normalized_name, color, settings_json, wall_ms, hlc],
                     )?;
                     Ok(true)
                 }
@@ -476,6 +486,10 @@ fn apply_one_remote_op(
             let normalized_provenance = provenance.clone().normalize();
             let sources_json = serde_json::to_string(&normalized_provenance.sources)?;
             let updated_at = (*created_at).max(wall_ms);
+            let sanitized_sibling = sibling_group_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
             let sanitized_cloze = cloze_index.filter(|&idx| idx >= 1);
             transaction.execute(
                 "INSERT INTO cards(
@@ -498,7 +512,7 @@ fn apply_one_remote_op(
                     normalized_provenance.rationale,
                     sources_json,
                     normalized_provenance.proposed_by,
-                    sibling_group_id,
+                    sanitized_sibling,
                     sanitized_cloze,
                 ],
             )?;

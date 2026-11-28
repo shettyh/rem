@@ -107,6 +107,7 @@ impl Collection {
                 initialize_schema(&mut connection)?;
             } else if version < CURRENT_SCHEMA_VERSION {
                 migrate_schema(&mut connection)?;
+                ensure_fts_map_current(&mut connection)?;
             } else {
                 ensure_fts_map_current(&mut connection)?;
             }

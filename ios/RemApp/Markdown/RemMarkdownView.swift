@@ -210,7 +210,10 @@ struct RemMarkdownView: View {
                 var pill = renderInlineMarkdownOrMath(inner, fontSize: fontSize)
                 pill.foregroundColor = RemColor.accent
                 pill.backgroundColor = RemColor.accentTint
-                pill.font = .system(size: fontSize, weight: .semibold)
+                // Preserve inner inline code/math fonts while emphasizing plain text runs.
+                for run in pill.runs where run.font == nil {
+                    pill[run.range].font = .system(size: fontSize, weight: .semibold)
+                }
                 result.append(pill)
                 cursor = end.upperBound
                 continue
@@ -233,47 +236,100 @@ struct RemMarkdownView: View {
     }
 
     private func renderInlineMarkdownOrMath(_ raw: String, fontSize: CGFloat) -> AttributedString {
-        guard raw.contains("$") else {
-            return parsePlainInlineMarkdown(raw, fontSize: fontSize)
+        let cleaned = ClozeRenderer.stripSentinels(raw)
+        guard cleaned.contains("$") else {
+            return parsePlainInlineMarkdown(cleaned, fontSize: fontSize)
         }
         var out = AttributedString()
-        var idx = raw.startIndex
+        var idx = cleaned.startIndex
         var buffer = ""
-        var inCode = false
 
-        while idx < raw.endIndex {
-            let ch = raw[idx]
+        func isEscaped(_ pos: String.Index) -> Bool {
+            var count = 0
+            var c = pos
+            while c > cleaned.startIndex {
+                let p = cleaned.index(before: c)
+                if cleaned[p] == "\\" {
+                    count += 1
+                    c = p
+                } else {
+                    break
+                }
+            }
+            return count % 2 == 1
+        }
+
+        while idx < cleaned.endIndex {
+            let ch = cleaned[idx]
             if ch == "`" {
-                inCode.toggle()
-                buffer.append(ch)
-                idx = raw.index(after: idx)
+                var endTicks = idx
+                while endTicks < cleaned.endIndex && cleaned[endTicks] == "`" {
+                    endTicks = cleaned.index(after: endTicks)
+                }
+                let tickCount = cleaned.distance(from: idx, to: endTicks)
+                let tickStr = String(repeating: "`", count: tickCount)
+                var search = endTicks
+                var matchedEnd: String.Index? = nil
+                while let r = cleaned[search...].range(of: tickStr) {
+                    let beforeOk = r.lowerBound == endTicks || cleaned[cleaned.index(before: r.lowerBound)] != "`"
+                    let afterOk = r.upperBound == cleaned.endIndex || cleaned[r.upperBound] != "`"
+                    if beforeOk && afterOk {
+                        matchedEnd = r.upperBound
+                        break
+                    }
+                    search = r.upperBound
+                }
+                if let matchedEnd {
+                    buffer += cleaned[idx..<matchedEnd]
+                    idx = matchedEnd
+                    continue
+                }
+                buffer += cleaned[idx..<endTicks]
+                idx = endTicks
                 continue
             }
-            if !inCode && ch == "$" {
-                let after = raw.index(after: idx)
-                let isDouble = after < raw.endIndex && raw[after] == "$"
+            if ch == "$" && !isEscaped(idx) {
+                let after = cleaned.index(after: idx)
+                let isDouble = after < cleaned.endIndex && cleaned[after] == "$"
                 let delim = isDouble ? "$$" : "$"
-                let bodyStart = isDouble ? raw.index(after: after) : after
-                if bodyStart < raw.endIndex,
-                   let closeRange = raw[bodyStart...].range(of: delim)
-                {
-                    let body = String(raw[bodyStart..<closeRange.lowerBound])
-                    let looksLikeCurrency = !isDouble && (body.hasPrefix(" ") || body.hasSuffix(" ") || body.isEmpty)
-                    if !looksLikeCurrency {
-                        if !buffer.isEmpty {
-                            out.append(parsePlainInlineMarkdown(buffer, fontSize: fontSize))
-                            buffer = ""
+                let bodyStart = isDouble ? cleaned.index(after: after) : after
+                if bodyStart < cleaned.endIndex {
+                    var search = bodyStart
+                    var closeRange: Range<String.Index>? = nil
+                    while let r = cleaned[search...].range(of: delim) {
+                        if !isEscaped(r.lowerBound) {
+                            if !isDouble {
+                                let afterClose = r.upperBound
+                                let followedByDigit = afterClose < cleaned.endIndex && cleaned[afterClose].isASCII && cleaned[afterClose].isNumber
+                                if followedByDigit {
+                                    search = r.upperBound
+                                    continue
+                                }
+                            }
+                            closeRange = r
+                            break
                         }
-                        var math = AttributedString(LatexMathFormatter.formatUnicode(body))
-                        math.font = .system(size: fontSize, weight: .regular, design: .serif).italic()
-                        out.append(math)
-                        idx = closeRange.upperBound
-                        continue
+                        search = cleaned.index(after: r.lowerBound)
+                    }
+                    if let closeRange {
+                        let body = String(cleaned[bodyStart..<closeRange.lowerBound])
+                        let looksLikeCurrency = !isDouble && (body.hasPrefix(" ") || body.hasSuffix(" ") || body.isEmpty)
+                        if !looksLikeCurrency {
+                            if !buffer.isEmpty {
+                                out.append(parsePlainInlineMarkdown(buffer, fontSize: fontSize))
+                                buffer = ""
+                            }
+                            var math = AttributedString(LatexMathFormatter.formatUnicode(body))
+                            math.font = .system(size: fontSize, weight: .regular, design: .serif).italic()
+                            out.append(math)
+                            idx = closeRange.upperBound
+                            continue
+                        }
                     }
                 }
             }
             buffer.append(ch)
-            idx = raw.index(after: idx)
+            idx = cleaned.index(after: idx)
         }
         if !buffer.isEmpty {
             out.append(parsePlainInlineMarkdown(buffer, fontSize: fontSize))

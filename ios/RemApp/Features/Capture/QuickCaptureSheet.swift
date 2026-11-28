@@ -379,8 +379,12 @@ struct QuickCaptureSheet: View {
         }
     }
 
+    private var canInsertCloze: Bool {
+        editingCard == nil || editingCard?.clozeIndex != nil
+    }
+
     private var previewCanvas: some View {
-        let previewCloze = editingCard?.clozeIndex ?? clozeIndices.first
+        let previewCloze: UInt32? = canInsertCloze ? (editingCard?.clozeIndex ?? clozeIndices.first) : nil
         return VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(previewCloze != nil ? "CLOZE PREVIEW · c\(previewCloze!)" : "QUESTION")
@@ -467,7 +471,7 @@ struct QuickCaptureSheet: View {
         }
         .accessibilityLabel("Add tag")
 
-        if activeEditorField == .front {
+        if activeEditorField == .front && canInsertCloze {
             Button {
                 applyFormat(.cloze(index: ClozeRenderer.nextIndex(in: front)))
             } label: {
@@ -559,7 +563,7 @@ struct QuickCaptureSheet: View {
         formatIconButton(systemName: "list.bullet", label: "Bullet list") {
             applyFormat(.bulletList)
         }
-        if activeEditorField == .front {
+        if activeEditorField == .front && canInsertCloze {
             Button {
                 applyFormat(.cloze(index: ClozeRenderer.nextIndex(in: front)))
             } label: {
@@ -715,7 +719,7 @@ struct QuickCaptureSheet: View {
             Task { await appState.syncNow(silent: true) }
             dismiss()
         } catch {
-            appState.showToast(error.localizedDescription)
+            appState.showToast(error.remDisplayMessage)
         }
         isSaving = false
     }
@@ -730,18 +734,19 @@ struct QuickCaptureSheet: View {
             Task { await appState.syncNow(silent: true) }
             dismiss()
         } catch {
-            appState.showToast(error.localizedDescription)
+            appState.showToast(error.remDisplayMessage)
         }
     }
 }
 
-/// Real photo thumbnail tile shown inside `QuickCaptureSheet` instead of raw `asset:<hash>` text.
+/// Real photo or audio thumbnail tile shown inside `QuickCaptureSheet` instead of raw `asset:<hash>` text.
 private struct CaptureAssetThumbnail: View {
     let hash: String
     let store: RemStore
     let onRemove: () -> Void
 
     @State private var loaded: CachedAssetImage?
+    @State private var isAudio: Bool = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -750,6 +755,18 @@ private struct CaptureAssetThumbnail: View {
                     Image(uiImage: loaded.image)
                         .resizable()
                         .scaledToFill()
+                } else if isAudio {
+                    ZStack {
+                        RemColor.bgInset
+                        VStack(spacing: 3) {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundStyle(RemColor.accent)
+                            Text("Audio")
+                                .font(.system(size: 9.5, weight: .medium))
+                                .foregroundStyle(RemColor.muted)
+                        }
+                    }
                 } else {
                     ZStack {
                         RemColor.bgInset
@@ -775,11 +792,19 @@ private struct CaptureAssetThumbnail: View {
                     .clipShape(Circle())
             }
             .offset(x: 4, y: -4)
-            .accessibilityLabel("Remove photo")
+            .accessibilityLabel(isAudio ? "Remove audio" : "Remove photo")
         }
         .padding(.top, 4)
         .padding(.trailing, 4)
         .task(id: hash) {
+            if let asset = try? await store.getAsset(hash: hash),
+               asset.mime.lowercased().hasPrefix("audio/")
+            {
+                isAudio = true
+                loaded = nil
+                return
+            }
+            isAudio = false
             loaded = await AssetImageCache.shared.load(hash: hash, store: store)
         }
     }

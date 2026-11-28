@@ -55,4 +55,22 @@ describe('MarkdownView assets', () => {
     expect(revealSpan).not.toBeNull()
     expect(revealSpan?.querySelector('.katex')).not.toBeNull()
   })
+
+  it('keeps currency like $5 and $10 as plain text while rendering multiline display math', async () => {
+    const storage = new DexieStorage(new RemDB('rem-mdview'))
+    const currency = await render(
+      <StorageProvider storage={storage}>
+        <MarkdownView source="Costs $5 and $10 today (between $5-$10)." />
+      </StorageProvider>,
+    )
+    expect(currency.container.querySelector('.katex')).toBeNull()
+    expect(currency.container.textContent).toContain('$5 and $10')
+
+    const multiline = await render(
+      <StorageProvider storage={storage}>
+        <MarkdownView source={'\\[\nE = mc^2\n\\]'} />
+      </StorageProvider>,
+    )
+    expect(multiline.container.querySelector('.katex-display')).not.toBeNull()
+  })
 })

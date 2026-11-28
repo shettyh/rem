@@ -14,6 +14,7 @@ struct ReviewScreen: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var session: RemStudySession?
     @State private var viewState: StudyViewDto?
     @State private var loadError: String?
@@ -28,13 +29,19 @@ struct ReviewScreen: View {
     @State private var lightboxAsset: CachedAssetImage?
     @State private var completeBounceTrigger: Int = 0
     @State private var cardElapsedSeconds: Int = 0
-    @State private var timerCardId: String?
+    @State private var cardPresentationToken: Int = 0
+    @State private var timerPresentationKey: String?
+
+    private var isTimerPausedByOverlayOrBackground: Bool {
+        scenePhase != .active || editingCard != nil || showCardInfo || lightboxAsset != nil
+    }
 
     private var timerTaskId: String {
         let cardId = viewState?.current?.id ?? ""
         let revealed = viewState?.revealed ?? false
         let showTimer = viewState?.showTimer ?? false
-        return "\(cardId):\(revealed):\(showTimer)"
+        let paused = isTimerPausedByOverlayOrBackground
+        return "\(cardId):\(cardPresentationToken):\(revealed):\(showTimer):\(paused)"
     }
 
     private var sessionProgress: (currentIndex: Int, total: Int, fraction: Double) {
@@ -175,15 +182,16 @@ struct ReviewScreen: View {
         .task { await startSession() }
         .task(id: timerTaskId) {
             guard let viewState, let card = viewState.current else {
-                timerCardId = nil
+                timerPresentationKey = nil
                 cardElapsedSeconds = 0
                 return
             }
-            if timerCardId != card.id {
-                timerCardId = card.id
+            let key = "\(card.id):\(cardPresentationToken)"
+            if timerPresentationKey != key {
+                timerPresentationKey = key
                 cardElapsedSeconds = 0
             }
-            guard viewState.showTimer && !viewState.revealed else { return }
+            guard viewState.showTimer && !viewState.revealed && !isTimerPausedByOverlayOrBackground else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard !Task.isCancelled else { break }
@@ -218,7 +226,7 @@ struct ReviewScreen: View {
             }
             return viewState.preview ? "Preview complete" : "Session complete"
         }
-        return viewState.deckName ?? "Review"
+        return viewState.deckName.map(DeckTreeBuilder.leafName) ?? "Review"
     }
 
     private var progressBar: some View {
@@ -652,6 +660,7 @@ struct ReviewScreen: View {
             let initial = try await appState.store.studyCurrentView(session: started)
             self.session = started
             self.viewState = initial
+            self.cardPresentationToken += 1
             self.sessionPassedCount = 0
             self.lastGradedPassed = nil
             self.sessionStartedAt = Date()
@@ -676,6 +685,7 @@ struct ReviewScreen: View {
             }
             withAnimation(.easeOut(duration: 0.16)) {
                 self.viewState = next
+                self.cardPresentationToken += 1
             }
         } catch {
             appState.showToast(error.remDisplayMessage)
@@ -727,6 +737,7 @@ struct ReviewScreen: View {
             }
             withAnimation(.easeOut(duration: 0.16)) {
                 self.viewState = outcome.view
+                self.cardPresentationToken += 1
             }
         } catch {
             appState.showToast(error.remDisplayMessage)
@@ -753,6 +764,7 @@ struct ReviewScreen: View {
             sessionFinishedAt = nil
             withAnimation(.easeOut(duration: 0.18)) {
                 self.viewState = restored
+                self.cardPresentationToken += 1
             }
             appState.showToast("Restored previous card")
         } catch {
@@ -777,6 +789,7 @@ struct ReviewScreen: View {
             }
             withAnimation(.easeOut(duration: 0.16)) {
                 self.viewState = next
+                self.cardPresentationToken += 1
             }
             appState.showToast("Card suspended")
         } catch {

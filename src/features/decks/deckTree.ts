@@ -1,15 +1,28 @@
 import type { Deck } from '../../domain/models'
 
 export const DECK_SEPARATOR = '::'
+export const COLLAPSED_DECKS_EVENT = 'rem:collapsed-decks-changed'
 
+/**
+ * Normalize a deck name (including `Parent::Child` nested paths).
+ * Rejects blank names and empty `::` segments (such as `::Child`, `Parent::`, or `A::::B`)
+ * to stay strictly consistent with Rust `rem_core::deck_tree::normalize_deck_name`.
+ */
 export function normalizeDeckName(raw: string): string {
   const trimmed = raw.trim()
+  if (!trimmed) {
+    throw new Error('deck name must not be blank')
+  }
   if (!trimmed.includes(DECK_SEPARATOR)) return trimmed
-  return trimmed
-    .split(DECK_SEPARATOR)
-    .map((segment) => segment.trim())
-    .filter(Boolean)
-    .join(DECK_SEPARATOR)
+  const segments: string[] = []
+  for (const part of trimmed.split(DECK_SEPARATOR)) {
+    const seg = part.trim()
+    if (!seg) {
+      throw new Error("deck name must not contain empty '::' segments")
+    }
+    segments.push(seg)
+  }
+  return segments.join(DECK_SEPARATOR)
 }
 
 export function deckSegments(name: string): string[] {
@@ -38,7 +51,7 @@ export interface DeckMetricsItem {
 }
 
 export interface DeckTreeNode<T extends DeckMetricsItem> {
-  /** Full `::`-separated path key (unique per node in tree). */
+  /** Unique tree node key (full `::`-separated path, or `path#<id>` for duplicate-named decks). */
   path: string
   /** Display label (last path segment). */
   label: string
@@ -56,8 +69,8 @@ export interface DeckTreeNode<T extends DeckMetricsItem> {
 
 /**
  * Group flat `::`-delimited decks into a collapsible hierarchy with rolled-up counts.
- * Preserves top-level order and synthesizes virtual parent folders when a child deck
- * exists without an explicit parent deck row.
+ * Preserves top-level order, synthesizes virtual parent folders when a child deck
+ * exists without an explicit parent deck row, and keeps duplicate-named decks visible.
  */
 export function buildDeckTree<T extends DeckMetricsItem>(items: T[]): DeckTreeNode<T>[] {
   const roots: DeckTreeNode<T>[] = []
@@ -92,7 +105,28 @@ export function buildDeckTree<T extends DeckMetricsItem>(items: T[]): DeckTreeNo
     const segments = deckSegments(item.deck.name)
     if (segments.length === 0) continue
     const node = ensureNode(segments, segments.length - 1)
-    node.item = item
+    if (node.item === null) {
+      node.item = item
+    } else {
+      // Preserve duplicate-named decks as sibling nodes rather than silently overwriting.
+      const dupNode: DeckTreeNode<T> = {
+        path: `${node.path}#${item.deck.id}`,
+        label: node.label,
+        depth: node.depth,
+        item,
+        children: [],
+        due: 0,
+        newCount: 0,
+        total: 0,
+        studied: 0,
+      }
+      if (node.depth === 0) {
+        roots.push(dupNode)
+      } else {
+        const parent = ensureNode(segments, node.depth - 1)
+        parent.children.push(dupNode)
+      }
+    }
   }
 
   const rollup = (node: DeckTreeNode<T>): void => {
@@ -153,6 +187,7 @@ export function loadCollapsedDeckPaths(): Set<string> {
 export function saveCollapsedDeckPaths(paths: Set<string>): void {
   try {
     window.localStorage.setItem(COLLAPSED_DECKS_STORAGE_KEY, JSON.stringify([...paths]))
+    window.dispatchEvent(new CustomEvent(COLLAPSED_DECKS_EVENT))
   } catch {
     // ignore storage errors
   }

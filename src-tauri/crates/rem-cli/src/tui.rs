@@ -53,6 +53,8 @@ pub struct StudyApp {
     scroll: u16,
     max_scroll: Cell<u16>,
     interval_base: Option<i64>,
+    card_started_at: i64,
+    card_elapsed_secs: u64,
     conflict_message: Option<String>,
     status_message: Option<String>,
 }
@@ -73,6 +75,8 @@ impl StudyApp {
             scroll: 0,
             max_scroll: Cell::new(u16::MAX),
             interval_base: None,
+            card_started_at: now,
+            card_elapsed_secs: 0,
             conflict_message: None,
             status_message: None,
         })
@@ -80,6 +84,17 @@ impl StudyApp {
 
     pub fn view(&self) -> &StudyView {
         &self.view
+    }
+
+    pub fn tick(&mut self, now: i64) {
+        if self.view.current.is_some() && !self.view.revealed {
+            self.card_elapsed_secs =
+                (now.saturating_sub(self.card_started_at).max(0) / 1_000) as u64;
+        }
+    }
+
+    pub fn elapsed_secs(&self) -> u64 {
+        self.card_elapsed_secs
     }
 
     pub fn handle(
@@ -96,6 +111,7 @@ impl StudyApp {
                 self.scroll = self.scroll.saturating_add(1).min(limit);
             }
             StudyInput::Reveal if self.view.current.is_some() && !self.view.revealed => {
+                self.tick(now);
                 self.view = self.session.reveal(now)?;
                 self.interval_base = Some(now);
                 self.status_message = None;
@@ -122,6 +138,8 @@ impl StudyApp {
                     }
                 }
                 self.interval_base = None;
+                self.card_started_at = now;
+                self.card_elapsed_secs = 0;
                 self.scroll = 0;
                 self.max_scroll.set(u16::MAX);
             }
@@ -142,6 +160,8 @@ impl StudyApp {
                     Err(other) => return Err(other),
                 }
                 self.interval_base = None;
+                self.card_started_at = now;
+                self.card_elapsed_secs = 0;
                 self.scroll = 0;
                 self.max_scroll.set(u16::MAX);
             }
@@ -160,6 +180,8 @@ impl StudyApp {
                     Err(other) => return Err(other),
                 }
                 self.interval_base = None;
+                self.card_started_at = now;
+                self.card_elapsed_secs = 0;
                 self.scroll = 0;
                 self.max_scroll.set(u16::MAX);
             }
@@ -193,13 +215,19 @@ pub fn draw(frame: &mut Frame<'_>, app: &StudyApp) {
 
     let total = app.view.reviewed + app.view.remaining;
     let progress = if app.view.current.is_some() {
-        format!(
+        let base = format!(
             "Card {}/{} · Reviewed {} · Remaining {}",
             app.view.reviewed + 1,
             total,
             app.view.reviewed,
             app.view.remaining
-        )
+        );
+        if app.view.show_timer {
+            let secs = app.elapsed_secs();
+            format!("{base} · {}:{:02}", secs / 60, secs % 60)
+        } else {
+            base
+        }
     } else {
         format!(
             "Reviewed {} · Remaining {}",
@@ -568,12 +596,19 @@ impl MarkdownRenderer {
             Tag::Strong => self.push_style(self.style.add_modifier(Modifier::BOLD)),
             Tag::Strikethrough => self.push_style(self.style.add_modifier(Modifier::CROSSED_OUT)),
             Tag::Link { dest_url, .. } => {
-                self.link = Some(dest_url.into_string());
-                self.push_style(
-                    self.style
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::UNDERLINED),
-                );
+                let url = dest_url.into_string();
+                if url.starts_with("asset:") {
+                    self.link = Some(url);
+                    self.push_style(Style::default().fg(Color::Magenta));
+                    self.spans.push(Span::styled("[", self.style));
+                } else {
+                    self.link = Some(url);
+                    self.push_style(
+                        self.style
+                            .fg(Color::Blue)
+                            .add_modifier(Modifier::UNDERLINED),
+                    );
+                }
             }
             Tag::Image { dest_url, .. } => {
                 if self.image_depth == 0 {
@@ -630,12 +665,19 @@ impl MarkdownRenderer {
             }
             TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => self.pop_style(),
             TagEnd::Link => {
-                self.pop_style();
                 if let Some(link) = self.link.take() {
-                    self.spans.push(Span::styled(
-                        format!(" ({link})"),
-                        Style::default().fg(Color::Blue),
-                    ));
+                    if link.starts_with("asset:") {
+                        self.spans.push(Span::styled("]", self.style));
+                        self.pop_style();
+                    } else {
+                        self.pop_style();
+                        self.spans.push(Span::styled(
+                            format!(" ({link})"),
+                            Style::default().fg(Color::Blue),
+                        ));
+                    }
+                } else {
+                    self.pop_style();
                 }
             }
             TagEnd::Image => self.image_depth = self.image_depth.saturating_sub(1),
