@@ -47,13 +47,13 @@ xcodegen generate --spec ios/project.yml
 
 ### Continuous Integration (`.github/workflows/ci.yml`)
 
-The `ios` CI job runs on `macos-latest` for every PR and push to `main`:
+The `ios` CI job runs on `xcode-27` (selecting the latest pre-installed stable Xcode via `tools/select-latest-xcode.sh`, currently Xcode 27.2 / iOS 27.2 SDK) for every PR and push to `main`:
 1. Builds `RemCore.xcframework` (`--debug --sim-only`) and regenerates UniFFI Swift bindings.
 2. Runs `xcodebuild test -project ios/Rem.xcodeproj -scheme RemApp` (`RemAppTests`) on an available iPhone Simulator.
 
 ### TestFlight Uploads (`.github/workflows/ios-testflight.yml`)
 
-TestFlight builds use **Xcode Cloud Signing** via App Store Connect API keys (`-allowProvisioningUpdates` + `-authenticationKeyPath`), so no `.p12` distribution certificate or manual provisioning profile secret is required.
+TestFlight builds also run on `xcode-27` with the latest stable Xcode/iOS SDK and use **Xcode Cloud Signing** via App Store Connect API keys (`-allowProvisioningUpdates` + `-authenticationKeyPath`), so no `.p12` distribution certificate or manual provisioning profile secret is required.
 
 Uploads run in two ways:
 - **Automatically on release:** `.github/workflows/release.yml` calls `ios-testflight.yml` whenever Release Please creates a new `vX.Y.Z` release.

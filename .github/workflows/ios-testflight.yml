@@ -57,11 +57,14 @@ permissions:
 jobs:
   testflight:
     name: Archive & Upload to TestFlight
-    runs-on: macos-latest
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag_name || github.ref }}
+
+      - name: Select latest stable Xcode
+        run: bash tools/select-latest-xcode.sh
 
       - name: Validate App Store Connect configuration
         if: ${{ !inputs.dry_run }}
@@ -89,7 +92,7 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
-          key: ios-device-release
+          key: ios-device-release-xcode27
 
       - name: Build RemCore.xcframework (iOS device release) & Swift bindings
         run: bash tools/build-ios-xcframework.sh --device-only
@@ -167,12 +170,15 @@ jobs:
           build_ver=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$info_plist")
           non_exempt=$(/usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" "$info_plist")
           device_families=$(/usr/libexec/PlistBuddy -c "Print :UIDeviceFamily" "$info_plist" | tr -d '[:space:]')
+          sdk_name=$(/usr/libexec/PlistBuddy -c "Print :DTSDKName" "$info_plist")
+          expected_sdk=$(xcrun --sdk iphoneos --show-sdk-name)
           archived_entitlements=$(codesign -d --entitlements :- "$app_path" 2>/dev/null)
 
-          echo "Archived bundle: $bundle_id v$short_ver ($build_ver), ITSAppUsesNonExemptEncryption=$non_exempt, UIDeviceFamily=$device_families"
+          echo "Archived bundle: $bundle_id v$short_ver ($build_ver), SDK=$sdk_name, ITSAppUsesNonExemptEncryption=$non_exempt, UIDeviceFamily=$device_families"
           test "$bundle_id" = "com.shettyh.rem"
           test "$short_ver" = "$EXPECTED_VERSION"
           test "$build_ver" = "$EXPECTED_BUILD"
+          test "$sdk_name" = "$expected_sdk"
           test "$non_exempt" = "false"
           test "$device_families" = "Array{1}"
           grep -q "com.apple.developer.applesignin" <<< "$archived_entitlements"

@@ -3,7 +3,9 @@
  * Unit tests for release tooling (`generate-updater-manifest.mjs` and `render-homebrew-cask.mjs`).
  */
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildUpdaterManifest } from './generate-updater-manifest.mjs'
@@ -169,4 +171,53 @@ const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
     'RemApp must remain iPhone-only (TARGETED_DEVICE_FAMILY = 1)',
   )
   console.log('ok   - iOS Info.plist, PrivacyInfo.xcprivacy, Version.xcconfig, device family, and opaque AppIcon are TestFlight-ready')
+}
+
+// 6. Latest stable Xcode selector (`tools/select-latest-xcode.sh`)
+{
+  const scriptPath = path.join(ROOT_DIR, 'tools/select-latest-xcode.sh')
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rem-xcode-select-'))
+  try {
+    // Case A: picks highest stable version, ignoring symlinks and beta/RC bundles.
+    const appsA = path.join(tmpRoot, 'apps-a')
+    fs.mkdirSync(path.join(appsA, 'Xcode_27.app'), { recursive: true })
+    fs.mkdirSync(path.join(appsA, 'Xcode_27.1.app'), { recursive: true })
+    fs.mkdirSync(path.join(appsA, 'Xcode_27.2.app'), { recursive: true })
+    fs.mkdirSync(path.join(appsA, 'Xcode_27.10.app'), { recursive: true })
+    fs.mkdirSync(path.join(appsA, 'Xcode_27.11_beta.app'), { recursive: true })
+    fs.mkdirSync(path.join(appsA, 'Xcode_27.11_Release_Candidate.app'), { recursive: true })
+    fs.symlinkSync(path.join(appsA, 'Xcode_27.1.app'), path.join(appsA, 'Xcode.app'))
+    fs.symlinkSync(path.join(appsA, 'Xcode_27.10.app'), path.join(appsA, 'Xcode_27.10.0.app'))
+
+    const chosenA = execFileSync(
+      'bash',
+      [scriptPath, '--print-only', '--applications-dir', appsA],
+      { encoding: 'utf8' },
+    ).trim()
+    assert.equal(chosenA, path.join(appsA, 'Xcode_27.10.app'))
+
+    // Case B: falls back to Xcode.app when no versioned bundle exists.
+    const appsB = path.join(tmpRoot, 'apps-b')
+    fs.mkdirSync(path.join(appsB, 'Xcode.app'), { recursive: true })
+    const chosenB = execFileSync(
+      'bash',
+      [scriptPath, '--print-only', '--applications-dir', appsB],
+      { encoding: 'utf8' },
+    ).trim()
+    assert.equal(chosenB, path.join(appsB, 'Xcode.app'))
+
+    // Case C: exits non-zero when no stable Xcode bundle exists.
+    const appsC = path.join(tmpRoot, 'apps-c')
+    fs.mkdirSync(path.join(appsC, 'Xcode_27.3_beta.app'), { recursive: true })
+    assert.throws(
+      () =>
+        execFileSync('bash', [scriptPath, '--print-only', '--applications-dir', appsC], {
+          encoding: 'utf8',
+          stdio: 'pipe',
+        }),
+    )
+  } finally {
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
+  }
+  console.log('ok   - select-latest-xcode.sh picks the highest stable Xcode and skips betas/symlinks')
 }
