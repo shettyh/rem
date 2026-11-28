@@ -21,7 +21,7 @@ pub use auth_client::{
 };
 pub use client::{
     sync_collection, sync_collection_with_options, sync_with_http, SyncOptions, SyncReport,
-    DEFAULT_OUTBOX_BATCH_SIZE, DEFAULT_PULL_LIMIT,
+    DEFAULT_OUTBOX_BATCH_SIZE, DEFAULT_PULL_LIMIT, MAX_MISSING_ASSETS_CHUNK,
 };
 #[cfg(feature = "keyring")]
 pub use credentials::KeyringCredentialStore;

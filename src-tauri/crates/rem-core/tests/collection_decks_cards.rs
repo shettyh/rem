@@ -166,6 +166,8 @@ fn update_card_keeps_indexed_due_in_step_with_scheduling_and_due_queries() {
         .create_card(&deck.id, "Q", "A", vec![], 110)
         .unwrap();
     let scheduling = rem_core::FsrsState {
+        stability: 3.0,
+        difficulty: 5.0,
         due: 500,
         reps: 1,
         state: 2,

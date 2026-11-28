@@ -1,5 +1,12 @@
 use serde::{Deserialize, Deserializer, Serialize};
 
+use crate::CollectionError;
+
+/// Maximum absolute timestamp (ms since Unix epoch) supported across JS `Date`, SQLite, and backups.
+pub const MAX_VALID_TIMESTAMP_MS: i64 = 8_640_000_000_000_000;
+/// Maximum allowed FSRS interval in days (100 years).
+pub const MAX_MAXIMUM_INTERVAL_DAYS: u32 = 36_500;
+
 fn deserialize_double_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
 where
     D: Deserializer<'de>,
@@ -62,9 +69,52 @@ impl Default for DeckSettings {
             bury_related: true,
             show_timer: false,
             desired_retention: 0.9,
-            maximum_interval: 36_500,
+            maximum_interval: MAX_MAXIMUM_INTERVAL_DAYS,
             fsrs_weights: None,
         }
+    }
+}
+
+impl DeckSettings {
+    /// Validate numeric bounds and optional FSRS weights so non-finite floats or out-of-range
+    /// settings cannot corrupt SQLite JSON or break scheduling.
+    pub fn validate(&self) -> Result<(), CollectionError> {
+        if !self.desired_retention.is_finite() || !(0.70..=0.99).contains(&self.desired_retention) {
+            return Err(CollectionError::InvalidInput(
+                "desired_retention must be finite and between 0.70 and 0.99".into(),
+            ));
+        }
+        if !(1..=365).contains(&self.minimum_interval) {
+            return Err(CollectionError::InvalidInput(
+                "minimum_interval must be between 1 and 365 days".into(),
+            ));
+        }
+        if !(1..=MAX_MAXIMUM_INTERVAL_DAYS).contains(&self.maximum_interval) {
+            return Err(CollectionError::InvalidInput(format!(
+                "maximum_interval must be between 1 and {MAX_MAXIMUM_INTERVAL_DAYS} days"
+            )));
+        }
+        if !(1..=99).contains(&self.leech_threshold) {
+            return Err(CollectionError::InvalidInput(
+                "leech_threshold must be between 1 and 99".into(),
+            ));
+        }
+        if let Some(weights) = &self.fsrs_weights {
+            let mut as_f32 = Vec::with_capacity(weights.len());
+            for &weight in weights {
+                let w32 = weight as f32;
+                if !weight.is_finite() || !w32.is_finite() {
+                    return Err(CollectionError::InvalidInput(
+                        "fsrs_weights must contain only finite numbers".into(),
+                    ));
+                }
+                as_f32.push(w32);
+            }
+            fsrs::FSRS::new(&as_f32).map_err(|error| {
+                CollectionError::InvalidInput(format!("invalid fsrs_weights: {error}"))
+            })?;
+        }
+        Ok(())
     }
 }
 
@@ -149,6 +199,57 @@ impl FsrsState {
 
     pub fn is_review(&self) -> bool {
         self.state == Self::STATE_REVIEW
+    }
+
+    /// Validate that scheduling floats, state enum, rep/stability invariants, and timestamps are
+    /// safe to persist into SQLite and pass to FSRS.
+    pub fn validate(&self) -> Result<(), CollectionError> {
+        if self.state > Self::STATE_RELEARNING {
+            return Err(CollectionError::InvalidInput(format!(
+                "invalid FSRS card state: {}",
+                self.state
+            )));
+        }
+        if !self.stability.is_finite() || self.stability < 0.0 {
+            return Err(CollectionError::InvalidInput(
+                "FSRS stability must be finite and non-negative".into(),
+            ));
+        }
+        if !self.difficulty.is_finite() || self.difficulty < 0.0 {
+            return Err(CollectionError::InvalidInput(
+                "FSRS difficulty must be finite and non-negative".into(),
+            ));
+        }
+        if let Some(stability_fast) = self.stability_fast {
+            if !stability_fast.is_finite() || stability_fast < 0.0 {
+                return Err(CollectionError::InvalidInput(
+                    "FSRS stability_fast must be finite and non-negative".into(),
+                ));
+            }
+            if self.reps > 0 && stability_fast <= 0.0 {
+                return Err(CollectionError::InvalidInput(
+                    "FSRS stability_fast must be positive when reps > 0".into(),
+                ));
+            }
+        }
+        if self.reps > 0 && self.stability <= 0.0 {
+            return Err(CollectionError::InvalidInput(
+                "FSRS stability must be positive when reps > 0".into(),
+            ));
+        }
+        if !(-MAX_VALID_TIMESTAMP_MS..=MAX_VALID_TIMESTAMP_MS).contains(&self.due) {
+            return Err(CollectionError::InvalidInput(
+                "FSRS due timestamp is outside the supported range".into(),
+            ));
+        }
+        if let Some(last_review) = self.last_review {
+            if !(-MAX_VALID_TIMESTAMP_MS..=MAX_VALID_TIMESTAMP_MS).contains(&last_review) {
+                return Err(CollectionError::InvalidInput(
+                    "FSRS last_review timestamp is outside the supported range".into(),
+                ));
+            }
+        }
+        Ok(())
     }
 }
 

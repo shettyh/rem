@@ -39,7 +39,8 @@ pub use models::{
     DraftProposalOutcome, DraftResolution, DraftSource, DuplicatePolicy, FsrsCardState, FsrsState,
     Grade, Id, ImportResult, InsertionOrder, LeechAction, NewCardInput, NewDraftInput,
     ProposalMetadata, ProposalMode, ProposeDraftsResult, ReviewBackup, ReviewCommit, ReviewLog,
-    SchedulerKind, SchedulingState, Tombstone, TombstoneKind,
+    SchedulerKind, SchedulingState, Tombstone, TombstoneKind, MAX_MAXIMUM_INTERVAL_DAYS,
+    MAX_VALID_TIMESTAMP_MS,
 };
 pub use occlusion::{
     extract_occlusion_indices, has_image_occlusion, parse_occlusion_blocks, parse_occlusion_json,
@@ -57,8 +58,8 @@ pub use stats::{
     GradeCounts, TodaySummary,
 };
 pub use study::{
-    CustomStudyMode, CustomStudyRequest, StudyGradeOutcome, StudyNextStates, StudyRequest,
-    StudySession, StudyView,
+    compute_study_next_states, CustomStudyMode, CustomStudyRequest, StudyGradeOutcome,
+    StudyNextStates, StudyRequest, StudySession, StudyView,
 };
 pub use sync_ops::{ApplyRemoteResult, OutboxOp, RemoteSyncOp, SyncMode, SyncOp, SyncState};
 pub use sync_store::extract_asset_refs;

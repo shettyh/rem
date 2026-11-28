@@ -1699,8 +1699,9 @@ fn load_anki_decks(conn: &Connection) -> Result<HashMap<i64, String>, Collection
                 Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(map_anki_db_err)?;
-        for row in rows.flatten() {
-            decks.insert(row.0, row.1);
+        for row in rows {
+            let (id, name) = row.map_err(map_anki_db_err)?;
+            decks.insert(id, name);
         }
         if !decks.is_empty() {
             return Ok(decks);
@@ -1742,8 +1743,8 @@ fn load_anki_models(conn: &Connection) -> Result<HashMap<i64, AnkiModel>, Collec
                 Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
             })
             .map_err(map_anki_db_err)?;
-        for row in nt_rows.flatten() {
-            let (id, config) = row;
+        for row in nt_rows {
+            let (id, config) = row.map_err(map_anki_db_err)?;
             let is_cloze = parse_notetype_config_is_cloze(&config);
             models.insert(
                 id,
@@ -1763,9 +1764,10 @@ fn load_anki_models(conn: &Connection) -> Result<HashMap<i64, AnkiModel>, Collec
                 Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
             })
             .map_err(map_anki_db_err)?;
-        for row in field_rows.flatten() {
-            if let Some(model) = models.get_mut(&row.0) {
-                model.fields.push(row.1);
+        for row in field_rows {
+            let (ntid, name) = row.map_err(map_anki_db_err)?;
+            if let Some(model) = models.get_mut(&ntid) {
+                model.fields.push(name);
             }
         }
 
@@ -1781,10 +1783,11 @@ fn load_anki_models(conn: &Connection) -> Result<HashMap<i64, AnkiModel>, Collec
                 ))
             })
             .map_err(map_anki_db_err)?;
-        for row in tmpl_rows.flatten() {
-            if let Some(model) = models.get_mut(&row.0) {
-                let (qfmt, afmt) = parse_template_config_formats(&row.2);
-                model.templates.insert(row.1, AnkiTemplate { qfmt, afmt });
+        for row in tmpl_rows {
+            let (ntid, ord, config) = row.map_err(map_anki_db_err)?;
+            if let Some(model) = models.get_mut(&ntid) {
+                let (qfmt, afmt) = parse_template_config_formats(&config);
+                model.templates.insert(ord, AnkiTemplate { qfmt, afmt });
             }
         }
 
@@ -2083,15 +2086,16 @@ impl<'a, R: Read + Seek> MediaLoader<'a, R> {
             return Ok(None);
         };
 
+        if self.archive.index_for_name(&zip_key).is_none() {
+            self.push_warning(format!(
+                "Referenced media file not found in archive: {trimmed}"
+            ));
+            self.filename_to_hash.insert(trimmed.to_owned(), None);
+            return Ok(None);
+        }
+
         if !self.load_media {
-            // Preview mode: verify entry exists in ZIP without decompressing bytes into RAM.
-            if self.archive.index_for_name(&zip_key).is_none() {
-                self.push_warning(format!(
-                    "Referenced media file not found in archive: {trimmed}"
-                ));
-                self.filename_to_hash.insert(trimmed.to_owned(), None);
-                return Ok(None);
-            }
+            // Preview mode: entry presence already verified without decompressing bytes into RAM.
             self.referenced_keys.insert(zip_key.clone());
             let placeholder = hex::encode(Sha256::digest(zip_key.as_bytes()));
             self.filename_to_hash
@@ -2102,10 +2106,18 @@ impl<'a, R: Read + Seek> MediaLoader<'a, R> {
         let remaining_budget = MAX_TOTAL_MEDIA_BYTES.saturating_sub(self.total_decompressed_bytes);
         let single_cap = MAX_SINGLE_MEDIA_BYTES.min(remaining_budget);
 
-        let raw = match read_zip_entry_limited(self.archive, &zip_key, single_cap) {
+        let raw = match read_zip_entry_counted(self.archive, &zip_key, single_cap) {
             Ok(bytes) => bytes,
-            Err(_) => {
-                self.account_decompressed(single_cap.saturating_add(1))?;
+            Err(MediaReadError::NotFound) => {
+                self.push_warning(format!(
+                    "Referenced media file not found in archive: {trimmed}"
+                ));
+                self.filename_to_hash.insert(trimmed.to_owned(), None);
+                return Ok(None);
+            }
+            Err(MediaReadError::SizeLimit { bytes_read })
+            | Err(MediaReadError::Unreadable { bytes_read }) => {
+                self.account_decompressed(bytes_read)?;
                 self.push_warning(format!(
                     "Skipped oversized or unreadable media file: {trimmed}"
                 ));
@@ -2114,13 +2126,18 @@ impl<'a, R: Read + Seek> MediaLoader<'a, R> {
             }
         };
         let raw_len = raw.len();
-        let bytes = match maybe_decompress_zstd(raw, single_cap) {
+        let bytes = match maybe_decompress_zstd_counted(raw, single_cap) {
             Ok(decoded) => decoded,
-            Err(_) => {
-                self.account_decompressed(raw_len.max(single_cap.saturating_add(1)))?;
+            Err(MediaReadError::SizeLimit { bytes_read })
+            | Err(MediaReadError::Unreadable { bytes_read }) => {
+                self.account_decompressed(raw_len.max(bytes_read))?;
                 self.push_warning(format!(
                     "Skipped unreadable compressed media file: {trimmed}"
                 ));
+                self.filename_to_hash.insert(trimmed.to_owned(), None);
+                return Ok(None);
+            }
+            Err(MediaReadError::NotFound) => {
                 self.filename_to_hash.insert(trimmed.to_owned(), None);
                 return Ok(None);
             }
@@ -2159,6 +2176,54 @@ fn read_media_manifest<R: Read + Seek>(
         return Ok(map);
     }
     Ok(parse_media_entries_protobuf(&decoded))
+}
+
+enum MediaReadError {
+    NotFound,
+    SizeLimit { bytes_read: usize },
+    Unreadable { bytes_read: usize },
+}
+
+fn read_zip_entry_counted<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
+    name: &str,
+    max_bytes: usize,
+) -> Result<Vec<u8>, MediaReadError> {
+    let entry = match archive.by_name(name) {
+        Ok(entry) => entry,
+        Err(zip::result::ZipError::FileNotFound) => return Err(MediaReadError::NotFound),
+        Err(_) => return Err(MediaReadError::Unreadable { bytes_read: 0 }),
+    };
+    read_limited_counted(entry, max_bytes)
+}
+
+fn read_limited_counted<R: Read>(reader: R, max_bytes: usize) -> Result<Vec<u8>, MediaReadError> {
+    let mut out = Vec::new();
+    let limit = (max_bytes as u64).saturating_add(1);
+    if reader.take(limit).read_to_end(&mut out).is_err() {
+        return Err(MediaReadError::Unreadable {
+            bytes_read: out.len(),
+        });
+    }
+    if out.len() > max_bytes {
+        return Err(MediaReadError::SizeLimit {
+            bytes_read: out.len(),
+        });
+    }
+    Ok(out)
+}
+
+fn maybe_decompress_zstd_counted(
+    raw: Vec<u8>,
+    max_bytes: usize,
+) -> Result<Vec<u8>, MediaReadError> {
+    if raw.len() >= 4 && raw[..4] == ZSTD_MAGIC {
+        let decoder = ruzstd::decoding::StreamingDecoder::new(raw.as_slice())
+            .map_err(|_| MediaReadError::Unreadable { bytes_read: 0 })?;
+        read_limited_counted(decoder, max_bytes)
+    } else {
+        Ok(raw)
+    }
 }
 
 fn read_zip_entry_limited<R: Read + Seek>(
@@ -2404,4 +2469,140 @@ fn parse_template_config_formats(buf: &[u8]) -> (String, String) {
         }
     }
     (qfmt, afmt)
+}
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+    use zip::ZipWriter;
+
+    fn empty_zip_bytes() -> Vec<u8> {
+        let mut buf = Vec::new();
+        let zip = ZipWriter::new(Cursor::new(&mut buf));
+        zip.finish().unwrap();
+        buf
+    }
+
+    fn arb_html_like() -> impl Strategy<Value = String> {
+        prop::collection::vec(
+            prop_oneof![
+                Just("<script>alert(1)</script>".to_string()),
+                Just("<style>body{display:none}</style>".to_string()),
+                Just("<a href=\"javascript:alert(1)\">x</a>".to_string()),
+                Just("<a href=\"data:text/html,hi\">y</a>".to_string()),
+                Just("<a href=\"https://example.com/a(b)\">ok</a>".to_string()),
+                Just("<img src=\"vbscript:foo\">".to_string()),
+                Just("<!-- comment > -->".to_string()),
+                Just("\\(x < y\\)".to_string()),
+                Just("[sound:a.mp3]".to_string()),
+                Just("<a href=\"https://ok.com&amp;#41;[pwn]&amp;#40;javascript:alert&amp;#40;1&amp;#41;&amp;#41;\">foo](javascript:alert(1))</a>".to_string()),
+                Just("<div><b>hello</b></div>".to_string()),
+                "[a-zA-Z0-9 <>/=\"'&;:-]{0,20}",
+            ],
+            0..=16,
+        )
+        .prop_map(|parts| parts.concat())
+    }
+
+    fn has_unescaped_markdown_link_scheme(lower_md: &str, scheme: &str) -> bool {
+        let needle = format!("]({scheme}");
+        let bytes = lower_md.as_bytes();
+        let mut search = 0;
+        while let Some(rel) = lower_md[search..].find(&needle) {
+            let pos = search + rel;
+            let mut backslashes = 0usize;
+            let mut k = pos;
+            while k > 0 && bytes[k - 1] == b'\\' {
+                backslashes += 1;
+                k -= 1;
+            }
+            let escaped = backslashes % 2 == 1;
+            if !escaped {
+                // Only forms a Markdown link if there is an unclosed unescaped `[` between the
+                // last unescaped `]` (or line start) and `pos`.
+                let line_start = lower_md[..pos].rfind('\n').map_or(0, |n| n + 1);
+                let mut open_brackets = 0usize;
+                let mut i = line_start;
+                while i < pos {
+                    if bytes[i] == b'\\' && i + 1 < pos {
+                        i += 2;
+                        continue;
+                    }
+                    match bytes[i] {
+                        b'[' => open_brackets += 1,
+                        b']' => open_brackets = open_brackets.saturating_sub(1),
+                        _ => {}
+                    }
+                    i += 1;
+                }
+                if open_brackets > 0 {
+                    return true;
+                }
+            }
+            search = pos + needle.len();
+        }
+        false
+    }
+
+    #[test]
+    fn regression_closed_link_before_plain_bracket_scheme_text_is_not_flagged() {
+        let html = r#"<a href="https://example.com/a(b)">ok</a><A<a href="https://ok.com&amp;#41;[pwn]&amp;#40;javascript:alert&amp;#40;1&amp;#41;&amp;#41;">foo](javascript:alert(1))</a>"#;
+        let zip_bytes = empty_zip_bytes();
+        let mut archive = ZipArchive::new(Cursor::new(zip_bytes.as_slice())).unwrap();
+        let mut media = MediaLoader::new(&mut archive, HashMap::new(), false);
+        let md = html_to_markdown(html, &mut media).unwrap();
+        let lower = md.to_ascii_lowercase();
+        assert!(
+            !has_unescaped_markdown_link_scheme(&lower, "javascript:"),
+            "unexpectedly flagged: {md}"
+        );
+        assert!(has_unescaped_markdown_link_scheme(
+            "[pwn](javascript:alert(1))",
+            "javascript:"
+        ));
+        assert!(has_unescaped_markdown_link_scheme(
+            "[ok](https://x) [pwn](javascript:alert(1))",
+            "javascript:"
+        ));
+        assert!(!has_unescaped_markdown_link_scheme(
+            "[ok](https://x) foo](javascript:alert(1))",
+            "javascript:"
+        ));
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(96))]
+
+        #[test]
+        fn protobuf_decoders_never_panic_on_arbitrary_bytes(bytes in prop::collection::vec(any::<u8>(), 0..=256)) {
+            let _ = parse_media_entries_protobuf(&bytes);
+            let _ = parse_notetype_config_is_cloze(&bytes);
+            let _ = parse_template_config_formats(&bytes);
+        }
+
+        #[test]
+        fn html_and_template_converters_never_panic_and_block_unsafe_schemes(
+            html in arb_html_like(),
+            field_val in "[^\\x00]{0,40}",
+        ) {
+            let zip_bytes = empty_zip_bytes();
+            let mut archive = ZipArchive::new(Cursor::new(zip_bytes.as_slice())).unwrap();
+            let mut media = MediaLoader::new(&mut archive, HashMap::new(), false);
+
+            let md = html_to_markdown(&html, &mut media).unwrap();
+            let lower = md.to_ascii_lowercase();
+            assert!(!has_unescaped_markdown_link_scheme(&lower, "javascript:"), "leaked javascript link: {md}");
+            assert!(!has_unescaped_markdown_link_scheme(&lower, "data:"), "leaked data link: {md}");
+            assert!(!has_unescaped_markdown_link_scheme(&lower, "vbscript:"), "leaked vbscript link: {md}");
+            assert!(!lower.contains("alert(1)</script>"), "leaked script body: {md}");
+
+            let mut fields = HashMap::new();
+            fields.insert("front".to_string(), field_val.as_str());
+            fields.insert("back".to_string(), html.as_str());
+            let _ = render_anki_template("{{#Front}}{{Front}}{{/Front}}{{^Front}}{{Back}}{{/Front}}", &fields, &["t".into()]);
+            let _ = render_anki_back_template("{{FrontSide}}<hr id=answer>{{Back}}", &fields, &["t".into()]);
+            let _ = parse_anki_io_mask(1, &field_val);
+        }
+    }
 }

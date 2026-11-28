@@ -69,6 +69,18 @@ impl Collection {
                 referenced.extend(asset_refs(&back));
             }
         }
+        {
+            let mut statement = transaction.prepare("SELECT front, back FROM card_drafts")?;
+            let markdown = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (front, back) in markdown {
+                referenced.extend(asset_refs(&front));
+                referenced.extend(asset_refs(&back));
+            }
+        }
         let hashes = {
             let mut statement = transaction.prepare("SELECT hash FROM assets")?;
             let hashes = statement
@@ -98,6 +110,10 @@ pub(crate) fn put_asset_in_tx(
     now: i64,
 ) -> Result<(Asset, bool), CollectionError> {
     let hash = hex::encode(Sha256::digest(bytes));
+    transaction.execute(
+        "DELETE FROM pending_asset_downloads WHERE hash = ?1",
+        [&hash],
+    )?;
     if let Some(existing) = find_asset(transaction, &hash)? {
         return Ok((existing, false));
     }

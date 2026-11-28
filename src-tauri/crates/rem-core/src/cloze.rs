@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, VecDeque};
 
 /// One parsed Anki cloze deletion (`{{cN::answer}}` or `{{cN::answer::hint}}`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10,55 +10,303 @@ pub struct ClozeSpan {
     pub hint: Option<String>,
 }
 
-/// Find all valid Anki cloze deletions in `text`, respecting nested `{...}` pairs
-/// (for example LaTeX expressions such as `{{c1::\frac{1}{2}}}`).
+enum OpenMarker {
+    Cloze {
+        start: usize,
+        index: u32,
+        body_start: usize,
+        hint_sep: Option<usize>,
+    },
+    Brace,
+}
+
+/// Find all valid Anki cloze deletions in `text` in linear O(N) time, skipping fenced and inline
+/// Markdown code spans and respecting nested `{...}` pairs (e.g., LaTeX `{{c1::\frac{1}{2}}}`).
 pub fn parse_cloze_spans(text: &str) -> Vec<ClozeSpan> {
     let bytes = text.as_bytes();
     let len = bytes.len();
     let Some(last_close) = text.rfind("}}") else {
         return Vec::new();
     };
-    let mut spans = Vec::new();
-    let mut i = 0;
+    let scan_limit = (last_close + 2).min(len);
+    let code_ranges = find_code_ranges(text);
 
-    while i + 6 < len && i < last_close {
-        if bytes[i] == b'{'
+    let mut spans: Vec<ClozeSpan> = Vec::new();
+    let mut stack: Vec<OpenMarker> = Vec::new();
+    let mut code_idx = 0usize;
+    let mut i = 0usize;
+
+    while i < scan_limit {
+        while code_idx < code_ranges.len() && code_ranges[code_idx].1 <= i {
+            code_idx += 1;
+        }
+        let in_code_range = code_ranges
+            .get(code_idx)
+            .copied()
+            .filter(|&(start, end)| i >= start && i < end);
+
+        // When outside any open cloze deletion, jump straight over fenced/inline code spans.
+        if stack.is_empty() {
+            if let Some((_start, end)) = in_code_range {
+                i = end;
+                continue;
+            }
+        }
+
+        // Check for a cloze opener `{{cN::` starting outside any code span.
+        if in_code_range.is_none()
+            && !is_escaped(bytes, i)
+            && i + 6 < scan_limit
+            && bytes[i] == b'{'
             && bytes[i + 1] == b'{'
             && (bytes[i + 2] == b'c' || bytes[i + 2] == b'C')
         {
             let num_start = i + 3;
             let mut num_end = num_start;
-            while num_end < len && bytes[num_end].is_ascii_digit() {
+            while num_end < scan_limit && bytes[num_end].is_ascii_digit() {
                 num_end += 1;
             }
             if num_end > num_start
-                && num_end + 1 < len
+                && num_end + 1 < scan_limit
                 && bytes[num_end] == b':'
                 && bytes[num_end + 1] == b':'
             {
                 if let Ok(index) = text[num_start..num_end].parse::<u32>() {
                     if index >= 1 {
-                        if let Some((answer, hint, close_end)) =
-                            scan_cloze_body(text, num_end + 2, last_close + 2)
-                        {
-                            spans.push(ClozeSpan {
-                                start: i,
-                                end: close_end,
-                                index,
-                                answer,
-                                hint,
-                            });
-                            i = close_end;
-                            continue;
-                        }
+                        stack.push(OpenMarker::Cloze {
+                            start: i,
+                            index,
+                            body_start: num_end + 2,
+                            hint_sep: None,
+                        });
+                        i = num_end + 2;
+                        continue;
                     }
                 }
             }
         }
+
+        if stack.is_empty() {
+            i += 1;
+            continue;
+        }
+
+        if bytes[i] == b'{' && !is_escaped(bytes, i) {
+            stack.push(OpenMarker::Brace);
+            i += 1;
+            continue;
+        }
+
+        if bytes[i] == b'}' && !is_escaped(bytes, i) {
+            match stack.last() {
+                Some(OpenMarker::Brace) => {
+                    stack.pop();
+                    i += 1;
+                    continue;
+                }
+                Some(OpenMarker::Cloze { .. }) if i + 1 < scan_limit && bytes[i + 1] == b'}' => {
+                    let Some(OpenMarker::Cloze {
+                        start,
+                        index,
+                        body_start,
+                        hint_sep,
+                    }) = stack.pop()
+                    else {
+                        unreachable!();
+                    };
+                    let (answer_slice, hint_opt) = match hint_sep {
+                        Some(sep) => (
+                            &text[body_start..sep],
+                            Some(text[sep + 2..i].trim().to_owned()).filter(|h| !h.is_empty()),
+                        ),
+                        None => (&text[body_start..i], None),
+                    };
+                    // Outermost valid cloze wins over any nested cloze span inside its body.
+                    while spans.last().is_some_and(|inner| inner.start >= start) {
+                        spans.pop();
+                    }
+                    spans.push(ClozeSpan {
+                        start,
+                        end: i + 2,
+                        index,
+                        answer: answer_slice.to_owned(),
+                        hint: hint_opt,
+                    });
+                    i += 2;
+                    continue;
+                }
+                _ => {
+                    i += 1;
+                    continue;
+                }
+            }
+        }
+
+        if bytes[i] == b':'
+            && i + 1 < scan_limit
+            && bytes[i + 1] == b':'
+            && matches!(stack.last(), Some(OpenMarker::Cloze { hint_sep: None, .. }))
+        {
+            if let Some(OpenMarker::Cloze { hint_sep, .. }) = stack.last_mut() {
+                *hint_sep = Some(i);
+            }
+            i += 2;
+            continue;
+        }
+
         i += 1;
     }
 
     spans
+}
+
+/// Locate all Markdown fenced code blocks (`` ``` `` / `~~~`) and inline backtick code spans
+/// in linear O(N) time, returning sorted non-overlapping byte ranges `[start, end)`.
+fn find_code_ranges(text: &str) -> Vec<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut fenced: Vec<(usize, usize)> = Vec::new();
+    let mut pos = 0usize;
+
+    while pos < len {
+        let line_start = pos;
+        let line_end = match bytes[pos..].iter().position(|&b| b == b'\n') {
+            Some(rel) => pos + rel,
+            None => len,
+        };
+        let next_pos = if line_end < len { line_end + 1 } else { len };
+        let line = text[line_start..line_end].trim_end_matches('\r');
+
+        if let Some((fence_char, fence_len)) = parse_fence_opener(line) {
+            let mut scan = next_pos;
+            let mut block_end = len;
+            while scan < len {
+                let c_start = scan;
+                let c_end = match bytes[scan..].iter().position(|&b| b == b'\n') {
+                    Some(rel) => scan + rel,
+                    None => len,
+                };
+                let c_next = if c_end < len { c_end + 1 } else { len };
+                let c_line = text[c_start..c_end].trim_end_matches('\r');
+                if is_fence_closer(c_line, fence_char, fence_len) {
+                    block_end = c_next;
+                    break;
+                }
+                scan = c_next;
+            }
+            fenced.push((line_start, block_end));
+            pos = block_end;
+            continue;
+        }
+        pos = next_pos;
+    }
+
+    // Collect backtick runs outside fenced code blocks in one linear pass so inline code matching
+    // stays strictly O(N) even on adversarial inputs.
+    let mut runs_by_len: HashMap<usize, VecDeque<(usize, usize)>> = HashMap::new();
+    let mut all_runs: Vec<(usize, usize)> = Vec::new();
+    let mut f_idx = 0usize;
+    let mut i = 0usize;
+    while i < len {
+        while f_idx < fenced.len() && fenced[f_idx].1 <= i {
+            f_idx += 1;
+        }
+        if let Some(&(f_start, f_end)) = fenced.get(f_idx) {
+            if i >= f_start && i < f_end {
+                i = f_end;
+                continue;
+            }
+        }
+        if bytes[i] == b'`' {
+            let start = i;
+            while i < len && bytes[i] == b'`' {
+                i += 1;
+            }
+            let run_len = i - start;
+            all_runs.push((start, i));
+            runs_by_len
+                .entry(run_len)
+                .or_default()
+                .push_back((start, i));
+        } else {
+            i += 1;
+        }
+    }
+
+    let mut inline: Vec<(usize, usize)> = Vec::new();
+    let mut cursor = 0usize;
+    for (run_start, run_end) in all_runs {
+        if run_start < cursor {
+            continue;
+        }
+        let run_len = run_end - run_start;
+        if let Some(queue) = runs_by_len.get_mut(&run_len) {
+            while queue.front().is_some_and(|&(s, _)| s <= run_start) {
+                queue.pop_front();
+            }
+            if let Some(&(_close_start, close_end)) = queue.front() {
+                // Ensure no fenced code block sits between opener and closer.
+                let crosses_fence = fenced
+                    .binary_search_by(|&(fs, fe)| {
+                        if fe <= run_start {
+                            std::cmp::Ordering::Less
+                        } else if fs >= close_end {
+                            std::cmp::Ordering::Greater
+                        } else {
+                            std::cmp::Ordering::Equal
+                        }
+                    })
+                    .is_ok();
+                if !crosses_fence {
+                    queue.pop_front();
+                    inline.push((run_start, close_end));
+                    cursor = close_end;
+                }
+            }
+        }
+    }
+
+    let mut ranges = fenced;
+    ranges.extend(inline);
+    ranges.sort_by_key(|&(start, _)| start);
+    ranges
+}
+
+fn parse_fence_opener(line: &str) -> Option<(u8, usize)> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && i < 3 && bytes[i] == b' ' {
+        i += 1;
+    }
+    let ch = *bytes.get(i)?;
+    if ch != b'`' && ch != b'~' {
+        return None;
+    }
+    let mut count = 0;
+    while i + count < bytes.len() && bytes[i + count] == ch {
+        count += 1;
+    }
+    if count < 3 {
+        return None;
+    }
+    let rest = line[i + count..].trim();
+    if ch == b'`' && rest.contains('`') {
+        return None;
+    }
+    Some((ch, count))
+}
+
+fn is_fence_closer(line: &str, fence_char: u8, min_len: usize) -> bool {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && i < 3 && bytes[i] == b' ' {
+        i += 1;
+    }
+    let mut count = 0;
+    while i + count < bytes.len() && bytes[i + count] == fence_char {
+        count += 1;
+    }
+    count >= min_len && line[i + count..].trim().is_empty()
 }
 
 fn is_escaped(bytes: &[u8], pos: usize) -> bool {
@@ -69,53 +317,6 @@ fn is_escaped(bytes: &[u8], pos: usize) -> bool {
         k -= 1;
     }
     backslashes % 2 == 1
-}
-
-fn scan_cloze_body(
-    text: &str,
-    body_start: usize,
-    scan_limit: usize,
-) -> Option<(String, Option<String>, usize)> {
-    let bytes = text.as_bytes();
-    let len = scan_limit.min(bytes.len());
-    let mut depth: usize = 0;
-    let mut hint_sep: Option<usize> = None;
-    let mut j = body_start;
-
-    while j < len {
-        if bytes[j] == b'{' && !is_escaped(bytes, j) {
-            depth += 1;
-            j += 1;
-            continue;
-        }
-        if bytes[j] == b'}' && !is_escaped(bytes, j) {
-            if depth == 0 && j + 1 < len && bytes[j + 1] == b'}' {
-                let (answer_slice, hint_opt) = match hint_sep {
-                    Some(sep) => (
-                        &text[body_start..sep],
-                        Some(text[sep + 2..j].trim().to_owned()).filter(|h| !h.is_empty()),
-                    ),
-                    None => (&text[body_start..j], None),
-                };
-                return Some((answer_slice.to_owned(), hint_opt, j + 2));
-            }
-            depth = depth.saturating_sub(1);
-            j += 1;
-            continue;
-        }
-        if depth == 0
-            && hint_sep.is_none()
-            && bytes[j] == b':'
-            && j + 1 < len
-            && bytes[j + 1] == b':'
-        {
-            hint_sep = Some(j);
-            j += 2;
-            continue;
-        }
-        j += 1;
-    }
-    None
 }
 
 /// Sorted, deduplicated cloze indices (`1, 2, ...`) present in `text`.

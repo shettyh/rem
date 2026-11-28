@@ -100,6 +100,9 @@ impl Collection {
             .name
             .map(|name| normalize_deck_name(&name))
             .transpose()?;
+        if let Some(ref deck_settings) = patch.settings {
+            deck_settings.validate()?;
+        }
         let settings = patch
             .settings
             .as_ref()
@@ -315,12 +318,66 @@ impl Collection {
             let siblings = list_cloze_siblings(&transaction, group_id)?;
             let mut existing_indices = HashSet::new();
             for mut sibling in siblings {
-                if let Some(idx) = sibling.cloze_index {
+                if active_cloze_set.is_empty() {
+                    if sibling.id != target.id {
+                        if sibling.scheduling.reps == 0 {
+                            transaction
+                                .execute("DELETE FROM cards WHERE id = ?1", [&sibling.id])?;
+                            let hlc = if cloud_enabled {
+                                let hlc = next_hlc(&transaction, now)?;
+                                enqueue_new_op(
+                                    &transaction,
+                                    &SyncOp::CardDelete {
+                                        id: sibling.id.clone(),
+                                        hlc: hlc.clone(),
+                                    },
+                                    now,
+                                )?;
+                                hlc
+                            } else {
+                                String::new()
+                            };
+                            put_tombstone_with_hlc(
+                                &transaction,
+                                &sibling.id,
+                                TombstoneKind::Card,
+                                now,
+                                &hlc,
+                            )?;
+                            continue;
+                        } else if !sibling.suspended {
+                            sibling.suspended = true;
+                            if cloud_enabled {
+                                let susp_hlc = next_hlc(&transaction, now)?;
+                                transaction.execute(
+                                    "UPDATE cards SET suspended_hlc = ?2 WHERE id = ?1",
+                                    params![sibling.id, susp_hlc],
+                                )?;
+                                enqueue_new_op(
+                                    &transaction,
+                                    &SyncOp::CardSuspendPatch {
+                                        id: sibling.id.clone(),
+                                        suspended: true,
+                                        hlc: susp_hlc,
+                                    },
+                                    now,
+                                )?;
+                            }
+                        }
+                    } else {
+                        sibling.sibling_group_id = None;
+                        sibling.cloze_index = None;
+                        transaction.execute(
+                            "UPDATE cards SET sibling_group_id = NULL, cloze_index = NULL WHERE id = ?1",
+                            [&sibling.id],
+                        )?;
+                    }
+                } else if let Some(idx) = sibling.cloze_index {
                     existing_indices.insert(idx);
                     // If the user removed this cloze index from the note text while keeping other
                     // clozes, don't leave a broken active card that renders with no blank:
                     // delete unreviewed orphans, or suspend reviewed ones to preserve history.
-                    if !active_cloze_set.is_empty() && !active_cloze_set.contains(&idx) {
+                    if !active_cloze_set.contains(&idx) {
                         if sibling.scheduling.reps == 0 {
                             transaction
                                 .execute("DELETE FROM cards WHERE id = ?1", [&sibling.id])?;
@@ -831,6 +888,7 @@ pub(crate) fn apply_card_patch(
         card.last_again_at = last_again_at;
     }
     if let Some(scheduling) = patch.scheduling {
+        scheduling.validate()?;
         card.scheduling = scheduling;
     }
     card.updated_at = now;

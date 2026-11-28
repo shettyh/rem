@@ -101,6 +101,7 @@ impl Collection {
             "
             DELETE FROM sync_outbox;
             DELETE FROM synced_assets;
+            DELETE FROM pending_asset_downloads;
             DELETE FROM review_log_tombstones;
             DELETE FROM sync_meta WHERE key IN ('server_url', 'account_id', 'bootstrapped');
             UPDATE decks SET hlc = '';
@@ -206,6 +207,10 @@ impl Collection {
                 |row| row.get(0),
             )?;
             if !present {
+                transaction.execute(
+                    "INSERT OR IGNORE INTO pending_asset_downloads(hash) VALUES (?1)",
+                    [&hash],
+                )?;
                 missing_asset_hashes.push(hash);
             }
         }
@@ -261,6 +266,25 @@ impl Collection {
         Ok(())
     }
 
+    /// Return all remote asset hashes queued for download that are not yet present in `assets`,
+    /// ordered lexicographically.
+    pub fn list_pending_asset_downloads(&self) -> Result<Vec<String>, CollectionError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| CollectionError::Poisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT p.hash
+             FROM pending_asset_downloads p
+             WHERE NOT EXISTS (SELECT 1 FROM assets a WHERE a.hash = p.hash)
+             ORDER BY p.hash ASC",
+        )?;
+        let hashes = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(hashes)
+    }
+
     pub fn put_remote_asset(
         &self,
         expected_hash: &str,
@@ -288,6 +312,10 @@ impl Collection {
             "INSERT INTO synced_assets(hash, uploaded_at) VALUES (?1, ?2)
              ON CONFLICT(hash) DO UPDATE SET uploaded_at = excluded.uploaded_at",
             params![expected_hash, now],
+        )?;
+        transaction.execute(
+            "DELETE FROM pending_asset_downloads WHERE hash = ?1",
+            [expected_hash],
         )?;
         let asset = transaction.query_row(
             "SELECT hash, mime, bytes, created_at FROM assets WHERE hash = ?1",
@@ -1249,8 +1277,14 @@ pub(crate) fn set_sync_meta(
     Ok(())
 }
 
+/// Returns true when local mutations should stamp HLCs and record outbox ops: either cloud sync
+/// is active, or a cloud account is bound (so signing out / pausing network sync preserves dirty
+/// tracking for offline edits and reviews on already-stamped items).
 pub(crate) fn is_cloud_sync_enabled(transaction: &Transaction<'_>) -> rusqlite::Result<bool> {
-    Ok(get_sync_meta(transaction, "sync_mode")?.as_deref() == Some(SyncMode::Cloud.as_str()))
+    if get_sync_meta(transaction, "sync_mode")?.as_deref() == Some(SyncMode::Cloud.as_str()) {
+        return Ok(true);
+    }
+    Ok(get_sync_meta(transaction, "account_id")?.is_some_and(|account_id| !account_id.is_empty()))
 }
 
 fn get_or_init_device_id(transaction: &Transaction<'_>) -> rusqlite::Result<String> {

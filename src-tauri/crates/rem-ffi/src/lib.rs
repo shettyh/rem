@@ -779,9 +779,12 @@ fn validate_and_merge_deck_settings(
             message: "Leech threshold must be between 1 and 99.".into(),
         });
     }
-    if patch.maximum_interval < 1 {
+    if patch.maximum_interval < 1 || patch.maximum_interval > rem_core::MAX_MAXIMUM_INTERVAL_DAYS {
         return Err(RemFfiError::InvalidInput {
-            message: "Maximum interval must be at least 1 day.".into(),
+            message: format!(
+                "Maximum interval must be between 1 and {} days.",
+                rem_core::MAX_MAXIMUM_INTERVAL_DAYS
+            ),
         });
     }
     Ok(DeckSettings {

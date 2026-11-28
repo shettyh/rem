@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{Duration, Local, NaiveDate, TimeZone};
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
 use crate::deck_tree::deck_and_descendants;
@@ -100,15 +100,18 @@ impl Collection {
         let today_date = local_date(now_ms)?;
         let today_key = today_date.format("%Y-%m-%d").to_string();
 
-        let connection = self
-            .connection
-            .lock()
-            .map_err(|_| CollectionError::Poisoned)?;
-        let decks = load_decks(&connection)?;
-        let daily_map = load_daily_stats_for_day(&connection, &today_key)?;
-        let card_rows = load_card_stat_rows(&connection)?;
-        let log_rows = load_log_stat_rows(&connection)?;
-        drop(connection);
+        let (decks, daily_map, card_rows, log_rows) = {
+            let mut connection = self
+                .connection
+                .lock()
+                .map_err(|_| CollectionError::Poisoned)?;
+            let tx = connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
+            let decks = load_decks(&tx)?;
+            let daily_map = load_daily_stats_for_day(&tx, &today_key)?;
+            let card_rows = load_card_stat_rows(&tx)?;
+            let log_rows = load_log_stat_rows(&tx)?;
+            (decks, daily_map, card_rows, log_rows)
+        };
 
         let today_start_ms = crate::study::local_day_start_ms(now_ms)?;
         let mut reviewed_today_by_group: HashMap<String, HashSet<String>> = HashMap::new();
@@ -160,11 +163,10 @@ impl Collection {
 
             let mut active_total: u32 = 0;
             let mut mastered: u32 = 0;
-            let mut raw_new_due: u32 = 0;
-            let mut raw_review_due: u32 = 0;
             let mut raw_learning_due: u32 = 0;
-            let mut seen_new_groups: HashSet<&str> = HashSet::new();
-            let mut seen_review_groups: HashSet<&str> = HashSet::new();
+            let mut due_reviews: Vec<&CardStatRow> = Vec::new();
+            let mut due_new: Vec<&CardStatRow> = Vec::new();
+            let mut seen_groups: HashSet<&str> = HashSet::new();
 
             for card in cards {
                 if card.suspended {
@@ -183,42 +185,55 @@ impl Collection {
                     );
                 if !buried_today && card.scheduling.due <= now_ms {
                     match card.scheduling.card_state() {
-                        Some(FsrsCardState::New) => {
-                            if deck.settings.bury_related {
-                                if let Some(group) = card.sibling_group_id.as_deref() {
-                                    if seen_new_groups.insert(group) {
-                                        raw_new_due += 1;
-                                    }
-                                } else {
-                                    raw_new_due += 1;
-                                }
-                            } else {
-                                raw_new_due += 1;
-                            }
-                        }
-                        Some(FsrsCardState::Review) => {
-                            if deck.settings.bury_related {
-                                if let Some(group) = card.sibling_group_id.as_deref() {
-                                    if seen_review_groups.insert(group) {
-                                        raw_review_due += 1;
-                                    }
-                                } else {
-                                    raw_review_due += 1;
-                                }
-                            } else {
-                                raw_review_due += 1;
-                            }
-                        }
                         Some(FsrsCardState::Learning | FsrsCardState::Relearning) => {
-                            raw_learning_due += 1
+                            raw_learning_due += 1;
+                            if deck.settings.bury_related {
+                                if let Some(group) = card.sibling_group_id.as_deref() {
+                                    seen_groups.insert(group);
+                                }
+                            }
                         }
+                        Some(FsrsCardState::Review) => due_reviews.push(card),
+                        Some(FsrsCardState::New) => due_new.push(card),
                         None => {}
                     }
                 }
             }
 
-            let deck_new_due = raw_new_due.min(new_slots);
-            let deck_review_due = raw_review_due.min(review_slots) + raw_learning_due;
+            // Share `seen_groups` from Learning/Relearning -> Review -> New so a mixed-state
+            // sibling group (e.g., one Review sibling + one New sibling) is counted once when
+            // `bury_related` is enabled (matching StudySession's Review-before-New bury order).
+            let mut capped_review_due: u32 = 0;
+            for card in due_reviews {
+                if capped_review_due >= review_slots {
+                    break;
+                }
+                if deck.settings.bury_related {
+                    if let Some(group) = card.sibling_group_id.as_deref() {
+                        if !seen_groups.insert(group) {
+                            continue;
+                        }
+                    }
+                }
+                capped_review_due += 1;
+            }
+
+            let mut deck_new_due: u32 = 0;
+            for card in due_new {
+                if deck_new_due >= new_slots {
+                    break;
+                }
+                if deck.settings.bury_related {
+                    if let Some(group) = card.sibling_group_id.as_deref() {
+                        if !seen_groups.insert(group) {
+                            continue;
+                        }
+                    }
+                }
+                deck_new_due += 1;
+            }
+
+            let deck_review_due = capped_review_due + raw_learning_due;
             let deck_total_due = deck_new_due + deck_review_due;
 
             total_due += deck_total_due;
@@ -297,11 +312,17 @@ impl Collection {
         let today_date = local_date(now_ms)?;
         let start_date = today_date - Duration::days(i64::from(range_days) - 1);
 
-        let connection = self
-            .connection
-            .lock()
-            .map_err(|_| CollectionError::Poisoned)?;
-        let all_decks = load_decks(&connection)?;
+        let (all_decks, card_rows, log_rows) = {
+            let mut connection = self
+                .connection
+                .lock()
+                .map_err(|_| CollectionError::Poisoned)?;
+            let tx = connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
+            let all_decks = load_decks(&tx)?;
+            let card_rows = load_card_stat_rows(&tx)?;
+            let log_rows = load_log_stat_rows(&tx)?;
+            (all_decks, card_rows, log_rows)
+        };
         let decks: Vec<Deck> = match deck_id {
             Some(id) => deck_and_descendants(&all_decks, id)
                 .into_iter()
@@ -309,9 +330,6 @@ impl Collection {
                 .collect(),
             None => all_decks,
         };
-        let card_rows = load_card_stat_rows(&connection)?;
-        let log_rows = load_log_stat_rows(&connection)?;
-        drop(connection);
 
         let deck_index: HashMap<&str, &Deck> =
             decks.iter().map(|deck| (deck.id.as_str(), deck)).collect();

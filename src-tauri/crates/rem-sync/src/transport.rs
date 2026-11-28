@@ -4,6 +4,8 @@ use reqwest::blocking::Client;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use reqwest::StatusCode;
 
+use crate::auth_client::validate_server_url;
+use crate::credentials::normalize_server_url;
 use crate::error::SyncError;
 use crate::protocol::{
     DownloadedAsset, MissingAssetsRequest, MissingAssetsResponse, SyncRequest, SyncResponse,
@@ -30,12 +32,8 @@ impl HttpTransport {
         server_url: impl Into<String>,
         bearer_token: impl Into<String>,
     ) -> Result<Self, SyncError> {
-        let base_url = server_url.into().trim().trim_end_matches('/').to_owned();
-        if base_url.is_empty() {
-            return Err(SyncError::NotConfigured(
-                "sync server URL must not be blank".into(),
-            ));
-        }
+        let base_url = normalize_server_url(&server_url.into());
+        validate_server_url(&base_url)?;
         let bearer_token = bearer_token.into().trim().to_owned();
         if bearer_token.is_empty() {
             return Err(SyncError::NotConfigured(

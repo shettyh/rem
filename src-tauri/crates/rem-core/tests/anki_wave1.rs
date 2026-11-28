@@ -246,7 +246,7 @@ fn schema_v5_migrates_cleanly_to_v6() {
         .unwrap();
     }
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 6);
+    const { assert!(CURRENT_SCHEMA_VERSION >= 6) };
     let col = Collection::open(&db_path).unwrap();
     let deck = col.create_deck("Migrated", NOW).unwrap();
     let cards = col

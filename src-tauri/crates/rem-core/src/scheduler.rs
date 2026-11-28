@@ -4,7 +4,7 @@ use fsrs::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{FsrsState, Grade, SchedulerKind};
+use crate::{FsrsState, Grade, SchedulerKind, MAX_MAXIMUM_INTERVAL_DAYS, MAX_VALID_TIMESTAMP_MS};
 
 const MS_PER_DAY: i64 = 86_400_000;
 const FSRS7_FAST_STABILITY_RATIO: f32 = 0.8;
@@ -54,24 +54,39 @@ pub fn calculate_fsrs_next_states(
     now: i64,
     params: &DeckFsrsParams,
 ) -> Result<FsrsNextStates, String> {
+    if !params.desired_retention.is_finite()
+        || params.desired_retention <= 0.0
+        || params.desired_retention >= 1.0
+    {
+        return Err("desired_retention must be finite and between 0 and 1".into());
+    }
+    if !(-MAX_VALID_TIMESTAMP_MS..=MAX_VALID_TIMESTAMP_MS).contains(&now) {
+        return Err("timestamp is outside the supported range".into());
+    }
     let fsrs = build_fsrs(params.weights.as_deref())?;
     let days_elapsed = state
         .last_review
         .map(|last_review| elapsed_days(last_review, now))
         .unwrap_or(0.0);
-    let current = (state.reps != 0).then(|| MemoryState {
-        stability: state.stability,
-        difficulty: state.difficulty,
-        stability_fast: resolve_stability_fast(state, fsrs.version()),
-    });
+    let current = (state.reps != 0
+        && state.stability.is_finite()
+        && state.stability > 0.0
+        && state.difficulty.is_finite()
+        && state.difficulty > 0.0)
+        .then(|| MemoryState {
+            stability: state.stability,
+            difficulty: state.difficulty,
+            stability_fast: resolve_stability_fast(state, fsrs.version()),
+        });
     let next = fsrs
         .next_states_with_elapsed_days(current, params.desired_retention as f32, days_elapsed)
         .map_err(|error| error.to_string())?;
+    let max_interval = params.maximum_interval.clamp(1, MAX_MAXIMUM_INTERVAL_DAYS);
     Ok(FsrsNextStates {
-        again: transition(state, &next.again, true, now, params.maximum_interval),
-        hard: transition(state, &next.hard, false, now, params.maximum_interval),
-        good: transition(state, &next.good, false, now, params.maximum_interval),
-        easy: transition(state, &next.easy, false, now, params.maximum_interval),
+        again: transition(state, &next.again, true, now, max_interval)?,
+        hard: transition(state, &next.hard, false, now, max_interval)?,
+        good: transition(state, &next.good, false, now, max_interval)?,
+        easy: transition(state, &next.easy, false, now, max_interval)?,
     })
 }
 
@@ -151,7 +166,7 @@ fn build_fsrs(weights: Option<&[f64]>) -> Result<FSRS, String> {
 }
 
 fn elapsed_days(from_ms: i64, to_ms: i64) -> f32 {
-    ((to_ms - from_ms).max(0) as f64 / MS_PER_DAY as f64) as f32
+    (to_ms.saturating_sub(from_ms).max(0) as f64 / MS_PER_DAY as f64) as f32
 }
 
 fn fallback_stability_fast(stability: f32, version: ModelVersion) -> f32 {
@@ -185,20 +200,38 @@ fn transition(
     is_again: bool,
     now: i64,
     maximum_interval: u32,
-) -> FsrsState {
-    let interval_days = (item.interval.round() as i64).clamp(1, maximum_interval.max(1) as i64);
-    FsrsState {
+) -> Result<FsrsState, String> {
+    if !item.interval.is_finite()
+        || !item.memory.stability.is_finite()
+        || item.memory.stability <= 0.0
+        || !item.memory.stability_fast.is_finite()
+        || item.memory.stability_fast <= 0.0
+        || !item.memory.difficulty.is_finite()
+        || item.memory.difficulty <= 0.0
+    {
+        return Err("FSRS produced a non-finite or non-positive scheduling state".into());
+    }
+    let max_days = i64::from(maximum_interval.clamp(1, MAX_MAXIMUM_INTERVAL_DAYS));
+    let interval_days = (item.interval.round() as i64).clamp(1, max_days);
+    let due = now
+        .saturating_add(interval_days.saturating_mul(MS_PER_DAY))
+        .clamp(-MAX_VALID_TIMESTAMP_MS, MAX_VALID_TIMESTAMP_MS);
+    let next = FsrsState {
         kind: SchedulerKind::Fsrs,
         stability: item.memory.stability,
         stability_fast: Some(item.memory.stability_fast),
         difficulty: item.memory.difficulty,
-        reps: previous.reps + 1,
-        lapses: previous.lapses + u32::from(is_again && previous.state == 2),
+        reps: previous.reps.saturating_add(1),
+        lapses: previous
+            .lapses
+            .saturating_add(u32::from(is_again && previous.state == 2)),
         state: 2,
         step: 0,
         last_review: Some(now),
-        due: now + interval_days * MS_PER_DAY,
-    }
+        due,
+    };
+    next.validate().map_err(|error| error.to_string())?;
+    Ok(next)
 }
 
 fn training_items(histories: Vec<FsrsReviewHistory>) -> Result<(Vec<FSRSItem>, Vec<i64>), String> {

@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::scheduler::{build_fsrs_for_migration, migrate_card_scheduling_to_fsrs7};
 use crate::{DeckSettings, FsrsState, Grade};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 6;
+pub const CURRENT_SCHEMA_VERSION: u32 = 7;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
@@ -313,8 +313,12 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
             uploaded_at INTEGER NOT NULL
         );
 
+        CREATE TABLE pending_asset_downloads (
+            hash TEXT PRIMARY KEY
+        );
+
         INSERT INTO metadata(key, value) VALUES ('sync_revision', 0);
-        PRAGMA user_version = 6;
+        PRAGMA user_version = 7;
         ",
     )?;
     transaction.execute_batch(CARDS_FTS_DDL)?;
@@ -392,6 +396,16 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), rusqlite::Error> {
     if version < 6 {
         migrate_v5_to_v6_siblings_and_cloze(&transaction)?;
         transaction.execute_batch("PRAGMA user_version = 6;")?;
+    }
+    if version < 7 {
+        transaction.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS pending_asset_downloads (
+                hash TEXT PRIMARY KEY
+            );
+            PRAGMA user_version = 7;
+            ",
+        )?;
     }
     transaction.commit()
 }

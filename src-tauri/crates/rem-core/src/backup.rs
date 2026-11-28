@@ -1,14 +1,16 @@
 use std::collections::{HashMap, HashSet};
 
+use rusqlite::TransactionBehavior;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+use crate::review_store::review_log_from_row;
+use crate::store::{card_from_row, deck_from_row, CARD_COLUMNS};
 use crate::{
     CardBackup, CardProvenance, Collection, CollectionError, DeckBackup, DeckSettings, DraftSource,
     FsrsState, Grade, ImportResult, InsertionOrder, LeechAction, ReviewBackup, SchedulerKind,
+    MAX_MAXIMUM_INTERVAL_DAYS, MAX_VALID_TIMESTAMP_MS,
 };
-
-const MAX_VALID_TIMESTAMP_MS: i64 = 8_640_000_000_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,47 +22,76 @@ pub struct BackupPreview {
 
 impl Collection {
     pub fn export_backup_json(&self, exported_at: i64) -> Result<String, CollectionError> {
-        let decks = self.list_decks()?;
-        let mut backups = Vec::with_capacity(decks.len());
-        for deck in decks {
-            let cards = self.list_cards(&deck.id)?;
-            let logs = self.list_review_logs(&deck.id)?;
-            let mut logs_by_card: HashMap<String, Vec<ReviewBackup>> = HashMap::new();
-            for log in logs {
-                logs_by_card
-                    .entry(log.card_id)
-                    .or_default()
-                    .push(ReviewBackup {
-                        reviewed_at: log.reviewed_at,
-                        grade: log.grade,
-                    });
+        let backups = {
+            let mut connection = self
+                .connection
+                .lock()
+                .map_err(|_| CollectionError::Poisoned)?;
+            let tx = connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
+            let decks = {
+                let mut stmt = tx.prepare(
+                    "SELECT id, name, created_at, updated_at, color, scheduler_kind, settings_json
+                     FROM decks ORDER BY created_at, rowid",
+                )?;
+                let rows = stmt
+                    .query_map([], deck_from_row)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                rows
+            };
+            let card_sql = format!(
+                "SELECT {CARD_COLUMNS} FROM cards WHERE deck_id = ?1 ORDER BY created_at, rowid"
+            );
+            let mut card_stmt = tx.prepare(&card_sql)?;
+            let mut log_stmt = tx.prepare(
+                "SELECT id, deck_id, card_id, reviewed_at, grade
+                 FROM review_logs WHERE deck_id = ?1 ORDER BY reviewed_at, rowid",
+            )?;
+            let mut backups = Vec::with_capacity(decks.len());
+            for deck in decks {
+                let cards = card_stmt
+                    .query_map([&deck.id], card_from_row)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                let logs = log_stmt
+                    .query_map([&deck.id], review_log_from_row)?
+                    .collect::<Result<Vec<_>, _>>()?;
+                let mut logs_by_card: HashMap<String, Vec<ReviewBackup>> = HashMap::new();
+                for log in logs {
+                    logs_by_card
+                        .entry(log.card_id)
+                        .or_default()
+                        .push(ReviewBackup {
+                            reviewed_at: log.reviewed_at,
+                            grade: log.grade,
+                        });
+                }
+                let card_backups = cards
+                    .into_iter()
+                    .map(|card| CardBackup {
+                        reviews: logs_by_card.remove(&card.id).unwrap_or_default(),
+                        front: card.front,
+                        back: card.back,
+                        created_at: card.created_at,
+                        updated_at: card.updated_at,
+                        tags: card.tags,
+                        suspended: card.suspended,
+                        last_again_at: card.last_again_at,
+                        scheduling: card.scheduling,
+                        provenance: card.provenance,
+                        sibling_group_id: card.sibling_group_id,
+                        cloze_index: card.cloze_index,
+                    })
+                    .collect();
+                backups.push(DeckBackup {
+                    name: deck.name,
+                    created_at: deck.created_at,
+                    scheduler_kind: deck.scheduler_kind,
+                    color: Some(deck.color),
+                    settings: deck.settings,
+                    cards: card_backups,
+                });
             }
-            let card_backups = cards
-                .into_iter()
-                .map(|card| CardBackup {
-                    reviews: logs_by_card.remove(&card.id).unwrap_or_default(),
-                    front: card.front,
-                    back: card.back,
-                    created_at: card.created_at,
-                    updated_at: card.updated_at,
-                    tags: card.tags,
-                    suspended: card.suspended,
-                    last_again_at: card.last_again_at,
-                    scheduling: card.scheduling,
-                    provenance: card.provenance,
-                    sibling_group_id: card.sibling_group_id,
-                    cloze_index: card.cloze_index,
-                })
-                .collect();
-            backups.push(DeckBackup {
-                name: deck.name,
-                created_at: deck.created_at,
-                scheduler_kind: deck.scheduler_kind,
-                color: Some(deck.color),
-                settings: deck.settings,
-                cards: card_backups,
-            });
-        }
+            backups
+        };
         let payload = serde_json::json!({
             "format": "rem-backup",
             "version": 1,
@@ -247,7 +278,7 @@ fn parse_deck_settings(raw: Option<&Value>) -> DeckSettings {
     }
     if let Some(v) = obj.get("maximumInterval").and_then(Value::as_u64) {
         if v >= 1 {
-            settings.maximum_interval = v.min(u64::from(u32::MAX)) as u32;
+            settings.maximum_interval = v.min(u64::from(MAX_MAXIMUM_INTERVAL_DAYS)) as u32;
         }
     }
     if let Some(v) = obj.get("fsrsWeights") {
@@ -413,7 +444,7 @@ fn parse_scheduling(obj: &Map<String, Value>, now_ms: i64) -> Result<FsrsState, 
                 CollectionError::InvalidInput("Backup file is malformed.".into())
             })?),
         };
-        return Ok(FsrsState {
+        let parsed = FsrsState {
             kind: SchedulerKind::Fsrs,
             stability,
             stability_fast,
@@ -424,7 +455,11 @@ fn parse_scheduling(obj: &Map<String, Value>, now_ms: i64) -> Result<FsrsState, 
             step,
             last_review,
             due,
-        });
+        };
+        parsed
+            .validate()
+            .map_err(|_| CollectionError::InvalidInput("Backup file is malformed.".into()))?;
+        return Ok(parsed);
     }
 
     // Legacy SM-2 shape: accept and reset to initial FSRS matching Desktop's normalizeScheduling.

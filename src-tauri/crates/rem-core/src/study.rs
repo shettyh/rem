@@ -11,11 +11,12 @@ use crate::store::{card_from_row, CARD_COLUMNS};
 use crate::{
     calculate_fsrs_next_states, Card, CardPatch, Collection, CollectionError, DailyField,
     DailyIncrement, Deck, DeckFsrsParams, DeckSettings, FsrsNextStates, FsrsState, Grade,
-    InsertionOrder, LeechAction, ReviewCommit,
+    InsertionOrder, LeechAction, ReviewCommit, MAX_MAXIMUM_INTERVAL_DAYS, MAX_VALID_TIMESTAMP_MS,
 };
 
 const MS_PER_DAY: i64 = 86_400_000;
 const LEARN_AHEAD_MS: i64 = 20 * 60_000;
+const MAX_STEP_MS: i64 = 365 * MS_PER_DAY;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -424,7 +425,7 @@ impl StudySession {
 
         let still_stepping = !graded.card.suspended
             && matches!(next.state, 1 | 3)
-            && next.due - now <= LEARN_AHEAD_MS;
+            && next.due.saturating_sub(now) <= LEARN_AHEAD_MS;
         if still_stepping {
             graded.force_due = false;
             self.queue.push(graded);
@@ -637,7 +638,7 @@ impl StudySession {
                 .min_by_key(|(_index, item)| item.card.scheduling.due)
                 .map(|(index, _item)| index)
                 .expect("non-empty queue has an earliest item");
-            if self.queue[earliest].card.scheduling.due - now <= LEARN_AHEAD_MS {
+            if self.queue[earliest].card.scheduling.due.saturating_sub(now) <= LEARN_AHEAD_MS {
                 pick = Some(earliest);
             }
         }
@@ -841,6 +842,16 @@ fn take_capped_respecting_siblings(
     selected
 }
 
+/// Compute the four next-state grading outcomes for `state` under `settings` at `now` (epoch ms),
+/// applying learning/relearning steps and interval clamping on top of FSRS.
+pub fn compute_study_next_states(
+    state: &FsrsState,
+    settings: &DeckSettings,
+    now: i64,
+) -> Result<StudyNextStates, CollectionError> {
+    next_states(state, settings, now)
+}
+
 fn next_states(
     state: &FsrsState,
     settings: &DeckSettings,
@@ -935,18 +946,22 @@ fn step_to(previous: &FsrsState, state: u8, step: u32, delay: i64, now: i64) -> 
     FsrsState {
         state,
         step,
-        due: now + delay,
+        due: now
+            .saturating_add(delay.max(0))
+            .clamp(-MAX_VALID_TIMESTAMP_MS, MAX_VALID_TIMESTAMP_MS),
         last_review: Some(now),
         ..previous.clone()
     }
 }
 
 fn clamp_days(mut state: FsrsState, now: i64, min_days: u32, max_days: u32) -> FsrsState {
-    let max_days = max_days.max(1);
+    let max_days = max_days.clamp(1, MAX_MAXIMUM_INTERVAL_DAYS);
     let min_days = min_days.clamp(1, max_days);
-    let days = ((state.due - now) as f64 / MS_PER_DAY as f64).round() as i64;
-    let days = days.clamp(min_days as i64, max_days as i64);
-    state.due = now + days * MS_PER_DAY;
+    let days = (state.due.saturating_sub(now) as f64 / MS_PER_DAY as f64).round() as i64;
+    let days = days.clamp(i64::from(min_days), i64::from(max_days));
+    state.due = now
+        .saturating_add(days.saturating_mul(MS_PER_DAY))
+        .clamp(-MAX_VALID_TIMESTAMP_MS, MAX_VALID_TIMESTAMP_MS);
     state
 }
 
@@ -955,15 +970,23 @@ fn parse_steps_ms(raw: &str) -> Vec<i64> {
 }
 
 fn parse_step_ms(token: &str) -> Option<i64> {
-    let (number, multiplier) = match token.chars().last()? {
+    let (number, multiplier): (&str, u64) = match token.chars().last()? {
         's' => (&token[..token.len() - 1], 1_000),
         'm' => (&token[..token.len() - 1], 60_000),
         'h' => (&token[..token.len() - 1], 3_600_000),
-        'd' => (&token[..token.len() - 1], MS_PER_DAY),
+        'd' => (&token[..token.len() - 1], MS_PER_DAY as u64),
         digit if digit.is_ascii_digit() => (token, 60_000),
         _ => return None,
     };
-    number.parse::<i64>().ok()?.checked_mul(multiplier)
+    let count = number.parse::<u64>().ok()?;
+    if count == 0 {
+        return None;
+    }
+    let ms = count.checked_mul(multiplier)?;
+    if ms > MAX_STEP_MS as u64 {
+        return None;
+    }
+    Some(ms as i64)
 }
 
 fn leech_effect(

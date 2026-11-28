@@ -8,6 +8,7 @@ use crate::transport::{HttpTransport, SyncTransport};
 
 pub const DEFAULT_OUTBOX_BATCH_SIZE: usize = 200;
 pub const DEFAULT_PULL_LIMIT: u32 = 500;
+pub const MAX_MISSING_ASSETS_CHUNK: usize = 500;
 const MAX_SYNC_ROUNDS: usize = 1_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,7 +84,6 @@ pub fn sync_collection_with_options(
         latest_seq: initial_state.last_seq,
         ..SyncReport::default()
     };
-    let mut missing_to_download = BTreeSet::new();
 
     for round in 0..MAX_SYNC_ROUNDS {
         let state = collection.sync_state()?;
@@ -100,7 +100,7 @@ pub fn sync_collection_with_options(
                 self.collection.end_outbox_push(&self.op_ids);
             }
         }
-        let _in_flight_guard = InFlightGuard {
+        let in_flight_guard = InFlightGuard {
             collection,
             op_ids: in_flight_ids,
         };
@@ -115,23 +115,28 @@ pub fn sync_collection_with_options(
                 let candidate_vec: Vec<String> = referenced.into_iter().collect();
                 let unsynced = collection.unsynced_asset_hashes(&candidate_vec)?;
                 if !unsynced.is_empty() {
-                    let missing_on_server = transport.post_missing_assets(&unsynced)?;
-                    let missing_set: HashSet<&str> =
-                        missing_on_server.iter().map(String::as_str).collect();
-                    let already_remote: Vec<String> = unsynced
-                        .iter()
-                        .filter(|hash| !missing_set.contains(hash.as_str()))
-                        .cloned()
-                        .collect();
-                    if !already_remote.is_empty() {
-                        collection.mark_assets_synced(&already_remote, now)?;
-                    }
-                    for hash in missing_on_server {
-                        if let Some(asset) = collection.get_asset(&hash)? {
-                            transport.put_asset(&asset.hash, &asset.mime, &asset.bytes)?;
-                            collection
-                                .mark_assets_synced(std::slice::from_ref(&asset.hash), now)?;
-                            report.uploaded_assets += 1;
+                    for chunk in unsynced.chunks(MAX_MISSING_ASSETS_CHUNK) {
+                        let missing_on_server = transport.post_missing_assets(chunk)?;
+                        let missing_set: HashSet<&str> =
+                            missing_on_server.iter().map(String::as_str).collect();
+                        let already_remote: Vec<String> = chunk
+                            .iter()
+                            .filter(|hash| !missing_set.contains(hash.as_str()))
+                            .cloned()
+                            .collect();
+                        if !already_remote.is_empty() {
+                            collection.mark_assets_synced(&already_remote, now)?;
+                        }
+                        for hash in chunk {
+                            if !missing_set.contains(hash.as_str()) {
+                                continue;
+                            }
+                            if let Some(asset) = collection.get_asset(hash)? {
+                                transport.put_asset(&asset.hash, &asset.mime, &asset.bytes)?;
+                                collection
+                                    .mark_assets_synced(std::slice::from_ref(&asset.hash), now)?;
+                                report.uploaded_assets += 1;
+                            }
                         }
                     }
                 }
@@ -153,24 +158,35 @@ pub fn sync_collection_with_options(
                 .collect(),
         };
         let response = transport.post_sync(&request)?;
-        if pushed_count > 0 && response.acked_op_ids.is_empty() {
-            return Err(SyncError::InvalidResponse(
-                "server acknowledged zero ops for a non-empty push batch".into(),
-            ));
+        if pushed_count > 0 {
+            if response.acked_op_ids.is_empty() {
+                return Err(SyncError::InvalidResponse(
+                    "server acknowledged zero ops for a non-empty push batch".into(),
+                ));
+            }
+            let pushed_ids: HashSet<&str> =
+                in_flight_guard.op_ids.iter().map(String::as_str).collect();
+            if !response
+                .acked_op_ids
+                .iter()
+                .any(|id| pushed_ids.contains(id.as_str()))
+            {
+                return Err(SyncError::InvalidResponse(
+                    "server acknowledged zero pushed outbox ops for a non-empty push batch".into(),
+                ));
+            }
         }
 
         let pulled_count = response.ops.len();
+        let max_returned_seq = response.ops.iter().map(|op| op.seq).max();
         // When `has_more` is true, advance cursor only to the highest seq actually returned in this page
         // so subsequent pages are not skipped.
         let cursor_seq = if response.has_more {
-            response
-                .ops
-                .iter()
-                .map(|op| op.seq)
-                .max()
-                .unwrap_or(state.last_seq)
+            max_returned_seq.unwrap_or(state.last_seq)
         } else {
-            response.latest_seq
+            max_returned_seq.map_or(response.latest_seq, |max_seq| {
+                response.latest_seq.max(max_seq)
+            })
         };
         if response.has_more && cursor_seq <= state.last_seq {
             return Err(SyncError::InvalidResponse(
@@ -181,12 +197,21 @@ pub fn sync_collection_with_options(
         // Step 3: Commit locally in one SQLite transaction.
         let applied =
             collection.apply_remote_ops(&response.ops, &response.acked_op_ids, cursor_seq)?;
-        drop(_in_flight_guard);
+        drop(in_flight_guard);
+        if pushed_count > 0 && applied.acked_ops == 0 {
+            return Err(SyncError::InvalidResponse(
+                "server acknowledged zero local outbox ops for a non-empty push batch".into(),
+            ));
+        }
+        if response.has_more && applied.last_seq <= state.last_seq {
+            return Err(SyncError::InvalidResponse(
+                "server returned hasMore=true without advancing sequence cursor".into(),
+            ));
+        }
         report.pushed_ops += applied.acked_ops;
         report.pulled_ops += pulled_count;
         report.applied_ops += applied.applied_ops;
         report.latest_seq = applied.last_seq;
-        missing_to_download.extend(applied.missing_asset_hashes);
 
         let remaining_outbox = collection.pending_outbox_count()?;
         if !response.has_more && remaining_outbox == 0 {
@@ -199,8 +224,9 @@ pub fn sync_collection_with_options(
         }
     }
 
-    // Step 4: Download newly referenced assets and verify SHA-256.
-    for hash in missing_to_download {
+    // Step 4: Drain all persisted pending remote asset downloads (including any left over from an
+    // earlier interrupted sync or 401 retry) and verify SHA-256 before removing from the queue.
+    for hash in collection.list_pending_asset_downloads()? {
         if collection.get_asset(&hash)?.is_some() {
             continue;
         }
