@@ -15,6 +15,7 @@ struct TodayView: View {
 
     @Bindable var appState: AppState
     @State private var pendingDelete: PendingDeckDelete?
+    @State private var showImportDialog: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -94,6 +95,19 @@ struct TodayView: View {
             } message: {
                 Text(pendingDelete?.copy.message ?? "This deletes the deck and all its cards locally and on synced devices.")
             }
+            .confirmationDialog(
+                "Import deck",
+                isPresented: $showImportDialog,
+                titleVisibility: .visible
+            ) {
+                Button("Anki deck (.apkg)") {
+                    appState.requestDeckImport(.apkg, afterDelayMs: 150)
+                }
+                Button("rem backup (.json)") {
+                    appState.requestDeckImport(.backup, afterDelayMs: 150)
+                }
+                Button("Cancel", role: .cancel) {}
+            }
         }
     }
 
@@ -108,7 +122,7 @@ struct TodayView: View {
                     Text("No decks yet")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(RemColor.text)
-                    Text("Create your first deck or connect rem Cloud in Settings to sync your desktop cards.")
+                    Text("Create your first deck, import from Anki or JSON, or connect rem Cloud in Settings.")
                         .font(.system(size: 13))
                         .foregroundStyle(RemColor.muted)
                         .multilineTextAlignment(.center)
@@ -123,6 +137,18 @@ struct TodayView: View {
                     .controlSize(.large)
                     .tint(RemColor.accent)
                     .padding(.top, 4)
+
+                    Button {
+                        showImportDialog = true
+                    } label: {
+                        Text(appState.isImporting ? "Importing…" : "Import from Anki or JSON")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .tint(RemColor.accent)
+                    .disabled(!appState.canRequestDeckImport)
                 }
             }
         } else if totalDue == 0 {

@@ -1025,4 +1025,98 @@ final class RemAppTests: XCTestCase {
         XCTAssertNil(fetchedDoomed)
         XCTAssertNotNil(fetchedKept)
     }
+
+    @MainActor
+    func testDeckImportRequestCoordinatesSheetDismissalAndAlertFormatting() throws {
+        let (dir, store) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let appState = AppState(store: store)
+
+        // Direct request when no sheet is open activates the file importer immediately.
+        appState.requestDeckImport(.apkg)
+        XCTAssertEqual(appState.activeImportPicker, .apkg)
+        XCTAssertNil(appState.deferredImportPicker)
+
+        // Re-entrant request while picker is already active is ignored.
+        appState.requestDeckImport(.backup)
+        XCTAssertEqual(appState.activeImportPicker, .apkg)
+
+        appState.activeImportPicker = nil
+
+        // Request from inside NewDeckSheet dismisses the sheet and defers picker until onDismiss.
+        appState.showNewDeckSheet = true
+        appState.requestDeckImport(.backup)
+        XCTAssertFalse(appState.showNewDeckSheet)
+        XCTAssertNil(appState.activeImportPicker)
+        XCTAssertEqual(appState.deferredImportPicker, .backup)
+        XCTAssertFalse(appState.canRequestDeckImport)
+
+        // Rapid second tap during dismissal animation must not wedge activeImportPicker.
+        appState.requestDeckImport(.apkg)
+        XCTAssertNil(appState.activeImportPicker)
+        XCTAssertEqual(appState.deferredImportPicker, .backup)
+
+        appState.presentDeferredImportIfNeeded(delayMs: 0)
+        XCTAssertNil(appState.deferredImportPicker)
+        XCTAssertEqual(appState.activeImportPicker, .backup)
+
+        // Busy import or competing modal guards block new picker requests.
+        appState.activeImportPicker = nil
+        appState.isImportingApkg = true
+        appState.requestDeckImport(.backup)
+        XCTAssertNil(appState.activeImportPicker)
+        appState.isImportingApkg = false
+
+        appState.editingDeckRequest = DeckEditRequest(deckId: "deck-1", onDeleted: nil)
+        appState.requestDeckImport(.apkg)
+        XCTAssertNil(appState.activeImportPicker)
+        appState.editingDeckRequest = nil
+
+        // Cancel pending .apkg removes staged temp file cleanly.
+        let stagedURL = dir.appendingPathComponent("staged-test.apkg")
+        try Data([0x50, 0x4B]).write(to: stagedURL)
+        let pending = PendingApkgImport(
+            tempFileURL: stagedURL,
+            preview: ApkgImportPreviewDto(
+                added: ["Test"],
+                replaced: [],
+                totalCards: 1,
+                mediaCount: 0,
+                reviewLogs: 0,
+                warnings: []
+            )
+        )
+        appState.pendingApkgImport = pending
+        appState.cancelPendingApkgImport(pending)
+        XCTAssertNil(appState.pendingApkgImport)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedURL.path))
+
+        // Alert message formatting handles added, replaced, media, review logs, and warnings.
+        let cleanPreview = ApkgImportPreviewDto(
+            added: ["Japanese"],
+            replaced: [],
+            totalCards: 12,
+            mediaCount: 2,
+            reviewLogs: 5,
+            warnings: []
+        )
+        XCTAssertEqual(
+            AppState.apkgImportAlertMessage(cleanPreview),
+            "Found 1 deck, 12 cards, 2 media, 5 review logs."
+        )
+
+        let replacePreview = ApkgImportPreviewDto(
+            added: ["Spanish::Verbs"],
+            replaced: ["Spanish"],
+            totalCards: 1,
+            mediaCount: 0,
+            reviewLogs: 0,
+            warnings: ["Skipped 1 empty note."]
+        )
+        XCTAssertEqual(
+            AppState.apkgImportAlertMessage(replacePreview),
+            "Found 2 decks, 1 card. Existing deck(s) will be replaced: Spanish.\n\nNote: Skipped 1 empty note."
+        )
+    }
 }

@@ -1364,6 +1364,7 @@ select.text-input,
 
 .add-row {
   display: flex;
+  align-items: center;
   gap: 10px;
   margin-top: 20px;
 }
@@ -1374,6 +1375,97 @@ select.text-input,
 .add-row .btn {
   white-space: nowrap;
   flex-shrink: 0;
+}
+.add-import-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.add-import-trigger {
+  gap: 6px;
+}
+.add-import-chevron {
+  width: 11px;
+  height: 11px;
+  color: var(--faint);
+  transition: transform 140ms ease;
+}
+.add-import-trigger[aria-expanded='true'] .add-import-chevron {
+  transform: rotate(180deg);
+}
+.add-import-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 248px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.add-import-menu.is-upward {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.add-import-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 11px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+.add-import-opt:hover,
+.add-import-opt:focus-visible {
+  background: var(--surface-inset);
+}
+.add-import-opt strong {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.add-import-opt span {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.add-import-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+}
+.add-import-status-dismiss {
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+}
+.add-import-status-dismiss:hover {
+  color: var(--text);
+  background: var(--surface-inset);
 }
 
 @media (max-width: 760px) {
@@ -3652,6 +3744,10 @@ select:focus-visible {
   justify-content: center;
   gap: 10px;
   flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+.empty-state-actions .cta {
+  margin-top: 0;
 }
 
 .card-cloze-badge {

@@ -49,6 +49,42 @@ struct NewDeckSheet: View {
                     .padding(.vertical, 6)
                 }
                 .listRowBackground(RemColor.surface)
+
+                Section {
+                    Button {
+                        appState.requestDeckImport(.apkg)
+                    } label: {
+                        HStack {
+                            Label("Import Anki deck (.apkg)", systemImage: "tray.and.arrow.down")
+                                .foregroundStyle(RemColor.text)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(RemColor.faint)
+                        }
+                    }
+                    .disabled(isSaving || !appState.canRequestDeckImport)
+
+                    Button {
+                        appState.requestDeckImport(.backup)
+                    } label: {
+                        HStack {
+                            Label("Import backup (JSON)", systemImage: "square.and.arrow.down")
+                                .foregroundStyle(RemColor.text)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(RemColor.faint)
+                        }
+                    }
+                    .disabled(isSaving || !appState.canRequestDeckImport)
+                } header: {
+                    Text("Or Import")
+                } footer: {
+                    Text("Import decks, cloze cards, LaTeX, media, and review history from Anki, or restore a rem JSON backup.")
+                }
+                .listRowBackground(RemColor.surface)
+                .listRowSeparatorTint(RemColor.border)
             }
             .scrollContentBackground(.hidden)
             .background(RemColor.groupedBg)
@@ -79,7 +115,7 @@ struct NewDeckSheet: View {
         }
         .tint(RemColor.accent)
         .remToastOverlay(appState: appState)
-        .presentationDetents([.medium])
+        .presentationDetents([.fraction(0.78), .large])
         .presentationDragIndicator(.visible)
     }
 }

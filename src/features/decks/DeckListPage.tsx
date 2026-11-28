@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FocusEvent,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useStorage } from '../../data/StorageContext'
 import { useStorageQuery } from '../../data/useStorageQuery'
@@ -17,6 +25,13 @@ import {
   summarizeDeckSubtree,
   type DeckTreeNode,
 } from './deckTree'
+import {
+  APKG_FILE_ACCEPT,
+  BACKUP_FILE_ACCEPT,
+  formatApkgReplaceDescription,
+  formatBackupReplaceDescription,
+  useDeckImport,
+} from './useDeckImport'
 
 /** Time-of-day greeting for the Today header. */
 function greeting(hour: number): string {
@@ -43,8 +58,13 @@ export function DeckListPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const newDeckRef = useRef<HTMLInputElement>(null)
+  const importMenuRef = useRef<HTMLDivElement>(null)
+  const importTriggerRef = useRef<HTMLButtonElement>(null)
+  const deckImport = useDeckImport(storage)
   const [name, setName] = useState('')
   const [deckError, setDeckError] = useState<string | null>(null)
+  const [importMenuOpen, setImportMenuOpen] = useState(false)
+  const [importMenuUpward, setImportMenuUpward] = useState(false)
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => loadCollapsedDeckPaths())
   const [pendingDelete, setPendingDelete] = useState<DeckTreeNode<DeckOverview> | null>(null)
 
@@ -53,6 +73,67 @@ export function DeckListPage() {
     window.addEventListener(COLLAPSED_DECKS_EVENT, sync)
     return () => window.removeEventListener(COLLAPSED_DECKS_EVENT, sync)
   }, [])
+
+  useEffect(() => {
+    if (!importMenuOpen) return
+    const firstItem = importMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')
+    firstItem?.focus()
+    const onDown = (e: MouseEvent) => {
+      if (importMenuRef.current && !importMenuRef.current.contains(e.target as Node)) {
+        setImportMenuOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation()
+        setImportMenuOpen(false)
+        importTriggerRef.current?.focus()
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [importMenuOpen])
+
+  function toggleImportMenu() {
+    if (!importMenuOpen && importTriggerRef.current) {
+      const rect = importTriggerRef.current.getBoundingClientRect()
+      setImportMenuUpward(window.innerHeight - rect.bottom < 160 && rect.top > 160)
+    }
+    setImportMenuOpen((open) => !open)
+  }
+
+  function handleImportWrapBlur(e: FocusEvent<HTMLDivElement>) {
+    if (!importMenuOpen) return
+    const nextTarget = e.relatedTarget as Node | null
+    if (!nextTarget || !importMenuRef.current?.contains(nextTarget)) {
+      setImportMenuOpen(false)
+    }
+  }
+
+  function handleImportMenuKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    const items = Array.from(
+      importMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [],
+    )
+    if (items.length === 0) return
+    const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement)
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      items[(currentIndex + 1 + items.length) % items.length]?.focus()
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      items[(currentIndex - 1 + items.length) % items.length]?.focus()
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      items[0]?.focus()
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      items[items.length - 1]?.focus()
+    }
+  }
 
   function toggleDeckPath(path: string) {
     const next = new Set(collapsedPaths)
@@ -98,8 +179,12 @@ export function DeckListPage() {
   }, [location.state])
 
   // Enter starts the cross-deck review session when something is due.
+  const hasOverlayOpen = Boolean(
+    importMenuOpen || pendingDelete || deckImport.pendingBackup || deckImport.pendingApkg,
+  )
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (hasOverlayOpen) return
       const tag = (e.target as HTMLElement | null)?.tagName ?? ''
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'A') return
       if (e.key === 'Enter' && totalDue > 0) {
@@ -109,7 +194,7 @@ export function DeckListPage() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [totalDue, navigate])
+  }, [totalDue, navigate, hasOverlayOpen])
 
   async function addDeck(e: FormEvent) {
     e.preventDefault()
@@ -119,6 +204,7 @@ export function DeckListPage() {
       await storage.createDeck(trimmed)
       setName('')
       setDeckError(null)
+      deckImport.clearFeedback()
     } catch (err) {
       setDeckError(err instanceof Error ? err.message : 'Invalid deck name.')
     }
@@ -354,14 +440,130 @@ export function DeckListPage() {
             >
               Add deck
             </button>
+            <div className="add-import-wrap" ref={importMenuRef} onBlur={handleImportWrapBlur}>
+              <button
+                ref={importTriggerRef}
+                type="button"
+                className="btn btn-ghost add-import-trigger"
+                aria-haspopup="menu"
+                aria-expanded={importMenuOpen}
+                disabled={deckImport.importing}
+                onClick={toggleImportMenu}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown' && !importMenuOpen) {
+                    e.preventDefault()
+                    toggleImportMenu()
+                  }
+                }}
+              >
+                <span>{deckImport.importing ? 'Importing…' : 'Import'}</span>
+                <svg className="add-import-chevron" viewBox="0 0 12 12" aria-hidden="true">
+                  <path
+                    d="M3 4.5 6 7.5 9 4.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+              {importMenuOpen && (
+                <div
+                  className={`add-import-menu${importMenuUpward ? ' is-upward' : ''}`}
+                  role="menu"
+                  aria-label="Import deck"
+                  onKeyDown={handleImportMenuKeyDown}
+                >
+                  {deckImport.canImportApkg && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="add-import-opt"
+                      onClick={() => {
+                        setImportMenuOpen(false)
+                        deckImport.openApkgPicker()
+                      }}
+                    >
+                      <strong>Anki deck (.apkg)</strong>
+                      <span>Decks, cloze, LaTeX, media &amp; history</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="add-import-opt"
+                    onClick={() => {
+                      setImportMenuOpen(false)
+                      deckImport.openBackupPicker()
+                    }}
+                  >
+                    <strong>rem backup (.json)</strong>
+                    <span>Restore exported decks from a JSON file</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </form>
+          <input
+            ref={deckImport.backupInputRef}
+            className="settings-file-input"
+            type="file"
+            accept={BACKUP_FILE_ACCEPT}
+            aria-label="Import backup file"
+            onChange={deckImport.onBackupFile}
+          />
+          {deckImport.canImportApkg && (
+            <input
+              ref={deckImport.apkgInputRef}
+              className="settings-file-input"
+              type="file"
+              accept={APKG_FILE_ACCEPT}
+              aria-label="Import Anki deck file"
+              onChange={deckImport.onApkgFile}
+            />
+          )}
           {deckError && <p className="ds-row-sub ds-error" role="alert">{deckError}</p>}
+          {deckImport.error && <p className="ds-row-sub ds-error" role="alert">{deckImport.error}</p>}
+          {deckImport.message && (
+            <div className="add-import-status" role="status">
+              <span>{deckImport.message}</span>
+              <button
+                type="button"
+                className="add-import-status-dismiss"
+                aria-label="Dismiss import status"
+                onClick={deckImport.clearFeedback}
+              >
+                ×
+              </button>
+            </div>
+          )}
 
           {loaded && deckCount === 0 && (
             <div className="empty-state">
               <EmptyIcon kind="decks" />
               <h3>No decks yet</h3>
-              <p>Name a deck above to start building your memory.</p>
+              <p>Name a deck above to start building your memory, or import an existing deck.</p>
+              <div className="empty-state-actions">
+                {deckImport.canImportApkg && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={deckImport.importing}
+                    onClick={deckImport.openApkgPicker}
+                  >
+                    Import Anki (.apkg)
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={deckImport.importing}
+                  onClick={deckImport.openBackupPicker}
+                >
+                  Import JSON backup
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -379,6 +581,30 @@ export function DeckListPage() {
           />
         )
       })()}
+      {deckImport.pendingBackup && (
+        <ConfirmDialog
+          danger
+          title="Replace existing decks?"
+          description={formatBackupReplaceDescription(deckImport.pendingBackup)}
+          confirmLabel={deckImport.importingBackup ? 'Importing…' : 'Replace'}
+          confirmDisabled={deckImport.importingBackup}
+          cancelDisabled={deckImport.importingBackup}
+          onConfirm={() => void deckImport.confirmBackupImport()}
+          onCancel={deckImport.cancelBackupImport}
+        />
+      )}
+      {deckImport.pendingApkg && (
+        <ConfirmDialog
+          danger
+          title="Replace existing decks?"
+          description={formatApkgReplaceDescription(deckImport.pendingApkg.preview)}
+          confirmLabel={deckImport.importingApkg ? 'Importing…' : 'Replace & import'}
+          confirmDisabled={deckImport.importingApkg}
+          cancelDisabled={deckImport.importingApkg}
+          onConfirm={() => void deckImport.confirmApkgImport()}
+          onCancel={deckImport.cancelApkgImport}
+        />
+      )}
     </>
   )
 }

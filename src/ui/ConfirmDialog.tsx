@@ -8,6 +8,8 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   danger = false,
+  confirmDisabled = false,
+  cancelDisabled = false,
 }: {
   title: string
   description: string
@@ -16,16 +18,23 @@ export function ConfirmDialog({
   onConfirm: () => void
   onCancel: () => void
   danger?: boolean
+  confirmDisabled?: boolean
+  cancelDisabled?: boolean
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const unmountingRef = useRef(false)
   const titleId = useId()
   const descriptionId = useId()
 
   useEffect(() => {
     const dialog = dialogRef.current
     if (!dialog) return
+    unmountingRef.current = false
     dialog.showModal()
-    return () => dialog.close()
+    return () => {
+      unmountingRef.current = true
+      dialog.close()
+    }
   }, [])
 
   return (
@@ -36,19 +45,34 @@ export function ConfirmDialog({
       aria-describedby={descriptionId}
       onCancel={(event) => {
         event.preventDefault()
-        onCancel()
+        if (!cancelDisabled) onCancel()
+      }}
+      onClose={() => {
+        if (unmountingRef.current) return
+        if (cancelDisabled) {
+          dialogRef.current?.showModal()
+        } else {
+          onCancel()
+        }
       }}
       onKeyDown={(event) => event.stopPropagation()}
     >
       <h2 id={titleId}>{title}</h2>
       <p id={descriptionId}>{description}</p>
       <div className="confirm-dialog-actions">
-        <button type="button" className="btn btn-ghost" autoFocus onClick={onCancel}>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          autoFocus
+          disabled={cancelDisabled}
+          onClick={onCancel}
+        >
           {cancelLabel}
         </button>
         <button
           type="button"
           className={danger ? 'btn btn-danger' : 'btn btn-primary'}
+          disabled={confirmDisabled}
           onClick={onConfirm}
         >
           {confirmLabel}

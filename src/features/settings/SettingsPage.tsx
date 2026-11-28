@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useStorage } from '../../data/StorageContext'
-import type { ApkgImportPreview } from '../../domain/models'
 import { useSync } from '../../data/SyncContext'
 import { useUpdaterOptional } from '../../data/UpdaterContext'
 import {
@@ -29,10 +28,12 @@ import packageInfo from '../../../package.json'
 import {
   collectBackup,
   serializeBackup,
-  parseBackup,
-  planImport,
-  type DeckBackup,
 } from '../../data/backup'
+import {
+  APKG_FILE_ACCEPT,
+  BACKUP_FILE_ACCEPT,
+  useDeckImport,
+} from '../decks/useDeckImport'
 
 const SELF_HOSTING_GUIDE_URL = 'https://shettyh.github.io/rem/'
 
@@ -134,15 +135,10 @@ export function SettingsPage() {
   const updater = useUpdaterOptional()
   const decks = useStorageQuery(() => storage.listDecks(), [])
 
-  const importInput = useRef<HTMLInputElement>(null)
-  const apkgInput = useRef<HTMLInputElement>(null)
+  const deckImport = useDeckImport(storage)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showDeckPicker, setShowDeckPicker] = useState(false)
-  const [pending, setPending] = useState<{ decks: DeckBackup[]; replaced: string[] } | null>(null)
-  const [pendingApkg, setPendingApkg] = useState<{ bytes: Uint8Array; preview: ApkgImportPreview } | null>(null)
-  const [importingApkg, setImportingApkg] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
   const [cardTextSize, setCardTextSize] = useState<CardTextSize>(() => getStoredCardTextSize())
   const [sidebarHoverExpand, setSidebarHoverExpandState] = useState<boolean>(() =>
     getSidebarHoverExpand(),
@@ -471,110 +467,13 @@ export function SettingsPage() {
   }
 
   async function exportDecks(ids: string[]) {
-    setError(null)
+    setExportError(null)
+    deckImport.clearFeedback()
     try {
       const payload = await collectBackup(storage, ids)
       downloadJson(serializeBackup(payload, Date.now()), `rem-backup-${todayStamp()}.json`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not export backup.')
-    }
-  }
-
-  async function runImport(toImport: DeckBackup[]) {
-    setError(null)
-    try {
-      const result = await storage.importDecks(toImport)
-      if (result.replaced.length > 0) {
-        await storage.sweepOrphanAssets()
-      }
-      setPending(null)
-      const replacedNote = result.replaced.length ? ` (replaced ${result.replaced.length})` : ''
-      setMessage(`Imported ${toImport.length} deck${toImport.length === 1 ? '' : 's'}${replacedNote}.`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not import backup.')
-    }
-  }
-
-  async function onFile(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = '' // allow re-selecting the same file later
-    if (!file) return
-    setError(null)
-    setMessage(null)
-    setPending(null)
-    setPendingApkg(null)
-    let parsed: DeckBackup[]
-    try {
-      parsed = parseBackup(await file.text(), Date.now())
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not read the file.')
-      return
-    }
-    const { replaced } = planImport(
-      parsed.map((d) => d.name),
-      list.map((d) => d.name),
-    )
-    if (replaced.length > 0) setPending({ decks: parsed, replaced })
-    else await runImport(parsed)
-  }
-
-  async function runApkgImport(bytes: Uint8Array) {
-    if (!storage.importApkg) return
-    setImportingApkg(true)
-    setError(null)
-    setMessage(null)
-    try {
-      const result = await storage.importApkg(bytes)
-      setPendingApkg(null)
-      const deckTotal = result.added.length + result.replaced.length
-      const parts = [
-        `${result.importedCards} card${result.importedCards === 1 ? '' : 's'}`,
-        `${deckTotal} deck${deckTotal === 1 ? '' : 's'}`,
-      ]
-      if (result.importedReviews > 0) {
-        parts.push(`${result.importedReviews} review${result.importedReviews === 1 ? '' : 's'}`)
-      }
-      if (result.importedMedia > 0) {
-        parts.push(`${result.importedMedia} media`)
-      }
-      const replacedNote = result.replaced.length ? ` (replaced ${result.replaced.length})` : ''
-      const warningNote = result.warnings.length ? ` · Warnings: ${result.warnings.join(' ')}` : ''
-      setMessage(`Imported Anki deck: ${parts.join(', ')}${replacedNote}.${warningNote}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not import the Anki archive.')
-    } finally {
-      setImportingApkg(false)
-    }
-  }
-
-  async function onApkgFile(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file || !storage.previewApkg || !storage.importApkg) return
-    setError(null)
-    setMessage(null)
-    setPending(null)
-    setPendingApkg(null)
-    if (file.size > 512 * 1024 * 1024) {
-      setError('Anki archive exceeds the maximum supported size (512 MB).')
-      return
-    }
-    setImportingApkg(true)
-    try {
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      const preview = await storage.previewApkg(bytes)
-      if (preview.totalCards === 0 && preview.added.length === 0 && preview.replaced.length === 0) {
-        const detail = preview.warnings.length > 0 ? ` (${preview.warnings[0]})` : ''
-        setError(`No importable cards were found in this .apkg file.${detail}`)
-      } else if (preview.replaced.length > 0) {
-        setPendingApkg({ bytes, preview })
-      } else {
-        await runApkgImport(bytes)
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not read the Anki archive.')
-    } finally {
-      setImportingApkg(false)
+      setExportError(err instanceof Error ? err.message : 'Could not export backup.')
     }
   }
 
@@ -1085,20 +984,31 @@ export function SettingsPage() {
                 <strong>Import backup</strong>
                 <span>Restore a rem backup file. Same-named decks require confirmation.</span>
               </div>
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => importInput.current?.click()}>
-                Import backup…
+              <button
+                className="btn btn-ghost btn-sm"
+                type="button"
+                disabled={deckImport.importing}
+                onClick={() => {
+                  setExportError(null)
+                  deckImport.openBackupPicker()
+                }}
+              >
+                {deckImport.importingBackup ? 'Importing…' : 'Import backup…'}
               </button>
               <input
-                ref={importInput}
+                ref={deckImport.backupInputRef}
                 className="settings-file-input"
                 type="file"
-                accept="application/json,.json"
+                accept={BACKUP_FILE_ACCEPT}
                 aria-label="Import backup file"
-                onChange={onFile}
+                onChange={(e) => {
+                  setExportError(null)
+                  void deckImport.onBackupFile(e)
+                }}
               />
             </div>
 
-            {storage.importApkg && storage.previewApkg && (
+            {deckImport.canImportApkg && (
               <div className="settings-action-row">
                 <div className="settings-action-copy">
                   <strong>Import Anki deck (.apkg)</strong>
@@ -1109,80 +1019,113 @@ export function SettingsPage() {
                 <button
                   className="btn btn-ghost btn-sm"
                   type="button"
-                  disabled={importingApkg}
-                  onClick={() => apkgInput.current?.click()}
+                  disabled={deckImport.importing}
+                  onClick={() => {
+                    setExportError(null)
+                    deckImport.openApkgPicker()
+                  }}
                 >
-                  {importingApkg ? 'Importing…' : 'Import .apkg…'}
+                  {deckImport.importingApkg ? 'Importing…' : 'Import .apkg…'}
                 </button>
                 <input
-                  ref={apkgInput}
+                  ref={deckImport.apkgInputRef}
                   className="settings-file-input"
                   type="file"
-                  accept=".apkg,.colpkg,application/octet-stream,application/zip"
+                  accept={APKG_FILE_ACCEPT}
                   aria-label="Import Anki deck file"
-                  onChange={onApkgFile}
+                  onChange={(e) => {
+                    setExportError(null)
+                    void deckImport.onApkgFile(e)
+                  }}
                 />
               </div>
             )}
 
-            {(error || message || pending || pendingApkg) && (
+            {(exportError || deckImport.error || deckImport.message || deckImport.pendingBackup || deckImport.pendingApkg) && (
               <div className="settings-feedback">
-                {error && <p className="settings-error" role="alert">{error}</p>}
-                {message && <p className="settings-status" role="status">{message}</p>}
-                {pending && (
+                {exportError && (
+                  <p className="settings-error" role="alert">
+                    {exportError}
+                  </p>
+                )}
+                {deckImport.error && (
+                  <p className="settings-error" role="alert">
+                    {deckImport.error}
+                  </p>
+                )}
+                {deckImport.message && (
+                  <p className="settings-status" role="status">
+                    {deckImport.message}
+                  </p>
+                )}
+                {deckImport.pendingBackup && (
                   <div className="settings-warning" role="alertdialog" aria-label="Confirm replace">
                     <p>These decks already exist and will be replaced:</p>
                     <ul>
-                      {pending.replaced.map((name) => (
+                      {deckImport.pendingBackup.replaced.map((name) => (
                         <li key={name}>{name}</li>
                       ))}
                     </ul>
                     <div className="settings-inline-actions">
-                      <button className="btn btn-danger btn-sm" type="button" onClick={() => void runImport(pending.decks)}>
-                        Replace
+                      <button
+                        className="btn btn-danger btn-sm"
+                        type="button"
+                        disabled={deckImport.importingBackup}
+                        onClick={() => void deckImport.confirmBackupImport()}
+                      >
+                        {deckImport.importingBackup ? 'Importing…' : 'Replace'}
                       </button>
-                      <button className="btn btn-ghost btn-sm" type="button" onClick={() => setPending(null)}>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        type="button"
+                        disabled={deckImport.importingBackup}
+                        onClick={deckImport.cancelBackupImport}
+                      >
                         Cancel
                       </button>
                     </div>
                   </div>
                 )}
-                {pendingApkg && (
+                {deckImport.pendingApkg && (
                   <div className="settings-warning" role="alertdialog" aria-label="Confirm Anki replace">
                     <p>
-                      Importing {pendingApkg.preview.totalCards} card
-                      {pendingApkg.preview.totalCards === 1 ? '' : 's'}
-                      {pendingApkg.preview.mediaCount > 0 ? `, ${pendingApkg.preview.mediaCount} media` : ''}
-                      {pendingApkg.preview.reviewLogs > 0 ? `, ${pendingApkg.preview.reviewLogs} review logs` : ''}
-                      {pendingApkg.preview.added.length > 0
-                        ? ` (adding ${pendingApkg.preview.added.length} new deck${pendingApkg.preview.added.length === 1 ? '' : 's'})`
+                      Importing {deckImport.pendingApkg.preview.totalCards} card
+                      {deckImport.pendingApkg.preview.totalCards === 1 ? '' : 's'}
+                      {deckImport.pendingApkg.preview.mediaCount > 0
+                        ? `, ${deckImport.pendingApkg.preview.mediaCount} media`
+                        : ''}
+                      {deckImport.pendingApkg.preview.reviewLogs > 0
+                        ? `, ${deckImport.pendingApkg.preview.reviewLogs} review logs`
+                        : ''}
+                      {deckImport.pendingApkg.preview.added.length > 0
+                        ? ` (adding ${deckImport.pendingApkg.preview.added.length} new deck${deckImport.pendingApkg.preview.added.length === 1 ? '' : 's'})`
                         : ''}
                       {' '}will replace these existing decks:
                     </p>
                     <ul>
-                      {pendingApkg.preview.replaced.map((name) => (
+                      {deckImport.pendingApkg.preview.replaced.map((name) => (
                         <li key={name}>{name}</li>
                       ))}
                     </ul>
-                    {pendingApkg.preview.warnings.length > 0 && (
+                    {deckImport.pendingApkg.preview.warnings.length > 0 && (
                       <p className="ds-row-sub">
-                        Warnings: {pendingApkg.preview.warnings.join(' · ')}
+                        Warnings: {deckImport.pendingApkg.preview.warnings.join(' · ')}
                       </p>
                     )}
                     <div className="settings-inline-actions">
                       <button
                         className="btn btn-danger btn-sm"
                         type="button"
-                        disabled={importingApkg}
-                        onClick={() => void runApkgImport(pendingApkg.bytes)}
+                        disabled={deckImport.importingApkg}
+                        onClick={() => void deckImport.confirmApkgImport()}
                       >
-                        {importingApkg ? 'Importing…' : 'Replace & import'}
+                        {deckImport.importingApkg ? 'Importing…' : 'Replace & import'}
                       </button>
                       <button
                         className="btn btn-ghost btn-sm"
                         type="button"
-                        disabled={importingApkg}
-                        onClick={() => setPendingApkg(null)}
+                        disabled={deckImport.importingApkg}
+                        onClick={deckImport.cancelApkgImport}
                       >
                         Cancel
                       </button>
