@@ -381,14 +381,15 @@ struct ReviewScreen: View {
 
     @ViewBuilder
     private func questionEyebrow(card: CardDto, viewState: StudyViewDto) -> some View {
+        let isOcclusion = ImageOcclusionParser.hasOcclusion(card.front)
         HStack(spacing: 6) {
-            Text(card.clozeIndex != nil ? "CLOZE" : "QUESTION")
+            Text(card.clozeIndex != nil ? (isOcclusion ? "IMAGE OCCLUSION" : "CLOZE") : "QUESTION")
                 .font(.caption2.weight(.bold))
                 .tracking(0.9)
                 .foregroundStyle(RemColor.faint)
 
             if let clozeIdx = card.clozeIndex {
-                Text("· c\(clozeIdx)")
+                Text(isOcclusion ? "· #\(clozeIdx)" : "· c\(clozeIdx)")
                     .font(.caption2.weight(.bold).monospaced())
                     .foregroundStyle(RemColor.accent)
             }

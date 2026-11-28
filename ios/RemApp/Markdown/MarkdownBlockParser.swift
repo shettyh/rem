@@ -15,6 +15,7 @@ enum MarkdownBlock: Equatable, Identifiable {
     case orderedList(items: [String])
     case table(headers: [String], rows: [[String]])
     case image(alt: String, source: MarkdownImageSource)
+    case imageOcclusion(OcclusionBlock)
     case audio(label: String, hash: String)
     case divider
     case paragraph(text: String)
@@ -29,6 +30,7 @@ enum MarkdownBlock: Equatable, Identifiable {
         case .orderedList(let items): return "ol-\(items.joined().hashValue)"
         case .table(let headers, let rows): return "tbl-\(headers.joined().hashValue)-\(rows.count)"
         case .image(let alt, let src): return "img-\(alt)-\(String(describing: src).hashValue)"
+        case .imageOcclusion(let block): return "io-\(block.image)-\(block.masks.count)"
         case .audio(let label, let hash): return "audio-\(label)-\(hash)"
         case .divider: return "hr"
         case .paragraph(let text): return "p-\(text.hashValue)"
@@ -68,7 +70,13 @@ enum MarkdownBlockParser {
                     codeLines.append(lines[i])
                     i += 1
                 }
-                blocks.append(.codeBlock(language: language, code: codeLines.joined(separator: "\n")))
+                let body = codeLines.joined(separator: "\n")
+                if language?.lowercased() == ImageOcclusionParser.fenceLang,
+                   let occBlock = ImageOcclusionParser.parseJson(body) {
+                    blocks.append(.imageOcclusion(occBlock))
+                } else {
+                    blocks.append(.codeBlock(language: language, code: body))
+                }
                 continue
             }
 
@@ -296,7 +304,8 @@ enum MarkdownBlockParser {
     /// Produces a clean single-paragraph plain-text snippet for compact list rows (stripping
     /// headings, bold/italic/code delimiters, image links, and code fence markers).
     static func plainTextPreview(_ markdown: String) -> String {
-        let normalized = LatexMathFormatter.normalizeDelimiters(ClozeRenderer.stripMarkup(markdown))
+        let strippedOcclusion = ImageOcclusionParser.stripMarkup(markdown)
+        let normalized = LatexMathFormatter.normalizeDelimiters(ClozeRenderer.stripMarkup(strippedOcclusion))
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
         var cleanedLines: [String] = []

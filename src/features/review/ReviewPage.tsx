@@ -6,6 +6,7 @@ import { useStorageQuery } from '../../data/useStorageQuery'
 import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
 import { MarkdownView } from '../cards/MarkdownView'
+import { hasImageOcclusion } from '../cards/occlusion'
 import { GradeButtons } from './GradeButtons'
 import {
   customStudyPreset,
@@ -488,7 +489,13 @@ export function ReviewPage() {
               <div key={current.id} className="review-card">
                 <section className="review-question" aria-label="Question">
                   <div className="review-label-row">
-                    <p className="review-label">{current.clozeIndex ? `Cloze · c${current.clozeIndex}` : 'Question'}</p>
+                    <p className="review-label">
+                      {current.clozeIndex
+                        ? hasImageOcclusion(current.front)
+                          ? `Image Occlusion · #${current.clozeIndex}`
+                          : `Cloze · c${current.clozeIndex}`
+                        : 'Question'}
+                    </p>
                     {view.showTimer && (
                       <span className="review-timer" aria-label="Answer timer">
                         {formatTimer(cardElapsedSec)}
@@ -508,7 +515,13 @@ export function ReviewPage() {
               <div key={current.id} className="review-card revealed">
                 <section className="review-question" aria-label="Question">
                   <div className="review-label-row">
-                    <p className="review-label">{current.clozeIndex ? `Cloze · c${current.clozeIndex}` : 'Question'}</p>
+                    <p className="review-label">
+                      {current.clozeIndex
+                        ? hasImageOcclusion(current.front)
+                          ? `Image Occlusion · #${current.clozeIndex}`
+                          : `Cloze · c${current.clozeIndex}`
+                        : 'Question'}
+                    </p>
                     {view.showTimer && (
                       <span className="review-timer is-paused" aria-label="Answer timer">
                         {formatTimer(cardElapsedSec)}

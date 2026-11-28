@@ -174,10 +174,14 @@ rem import biology.apkg --output json
 ```
 
 The importer converts Anki HTML to clean Markdown, strips `<script>` and `<style>` blocks, preserves
-nested `Parent::Child` deck hierarchies, maps cloze and multi-template notes into `rem` sibling
-groups (respecting `bury_related`), converts `<img>` and `[sound:...]` references to content-addressed
-`asset:<hash>` blobs, normalizes `\(...\)` / `\[...\]` math delimiters, and replays `revlog` history
-into FSRS-7 scheduling state. Existing decks with the exact same name are replaced.
+nested `Parent::Child` deck hierarchies, maps cloze, Anki 23.10+ built-in Image Occlusion, and
+multi-template notes into `rem` sibling groups (respecting `bury_related`), converts `<img>` and
+`[sound:...]` references to content-addressed `asset:<hash>` blobs, normalizes `\(...\)` / `\[...\]`
+math delimiters, and replays `revlog` history into FSRS-7 scheduling state. Existing decks with the
+exact same name are replaced.
+
+*(In `rem study`, Image Occlusion cards display a concise terminal placeholder showing the active
+mask number and mode rather than raw JSON; study them visually in the desktop or iOS app.)*
 
 ## Cloud sync
 

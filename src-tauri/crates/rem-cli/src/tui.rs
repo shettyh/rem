@@ -9,8 +9,9 @@ use ratatui::{
     Frame,
 };
 use rem_core::{
-    render_cloze_answer, render_cloze_question, CardProvenance, Collection, CollectionError, Grade,
-    LeechAction, StudyGradeOutcome, StudyRequest, StudySession, StudyView,
+    has_image_occlusion, render_cloze_answer, render_cloze_question, render_occlusion_tui_summary,
+    CardProvenance, Collection, CollectionError, Grade, LeechAction, StudyGradeOutcome,
+    StudyRequest, StudySession, StudyView,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -331,12 +332,21 @@ fn content_lines(app: &StudyApp) -> Vec<Line<'static>> {
         ];
     };
 
-    let mut lines = vec![section_label("QUESTION")];
+    let mut lines = vec![section_label(if has_image_occlusion(&card.front) {
+        "IMAGE OCCLUSION"
+    } else {
+        "QUESTION"
+    })];
     if let Some(cloze_idx) = card.cloze_index {
-        let prompt = if app.view.revealed {
-            render_cloze_answer(&card.front, cloze_idx)
+        let base_front = if has_image_occlusion(&card.front) {
+            render_occlusion_tui_summary(&card.front, Some(cloze_idx), app.view.revealed)
         } else {
-            render_cloze_question(&card.front, cloze_idx)
+            card.front.clone()
+        };
+        let prompt = if app.view.revealed {
+            render_cloze_answer(&base_front, cloze_idx)
+        } else {
+            render_cloze_question(&base_front, cloze_idx)
         };
         lines.extend(markdown_lines(&prompt));
         if app.view.revealed {
@@ -348,7 +358,12 @@ fn content_lines(app: &StudyApp) -> Vec<Line<'static>> {
             lines.extend(provenance_lines(&card.provenance));
         }
     } else {
-        lines.extend(markdown_lines(&card.front));
+        let base_front = if has_image_occlusion(&card.front) {
+            render_occlusion_tui_summary(&card.front, None, app.view.revealed)
+        } else {
+            card.front.clone()
+        };
+        lines.extend(markdown_lines(&base_front));
         if app.view.revealed {
             lines.push(Line::default());
             lines.push(section_label("ANSWER"));

@@ -25,7 +25,7 @@ import { deckColor } from '../../ui/deckColor'
 import { hashBytes } from '../assetHash'
 import { assetRefs } from '../assetRefs'
 import { getScheduler } from '../../domain/scheduler'
-import { extractClozeIndices } from '../../features/cards/cloze'
+import { extractSiblingCardIndices } from '../../features/cards/occlusion'
 import { normalizeDeckName } from '../../features/decks/deckTree'
 import { BrowserStudySession, type ReviewRollback } from '../../features/review/browserStudy'
 import { buildStats, type StatsRange } from '../../features/stats/stats'
@@ -140,7 +140,7 @@ export class DexieStorage implements Storage {
     back: string,
     tags: string[] = [],
   ): Promise<Card[]> {
-    const indices = extractClozeIndices(front)
+    const indices = extractSiblingCardIndices(front)
     if (indices.length === 0) {
       return [await this.createCard(deckId, front, back, tags)]
     }
@@ -179,7 +179,7 @@ export class DexieStorage implements Storage {
       if (!target) throw new Error(`card not found: ${cardId}`)
       const out: Card[] = []
       if (target.siblingGroupId && target.clozeIndex) {
-        const activeIndices = extractClozeIndices(front)
+        const activeIndices = extractSiblingCardIndices(front)
         const activeSet = new Set(activeIndices)
         const allCards = await this.db.cards.toArray()
         const siblings = allCards.filter(

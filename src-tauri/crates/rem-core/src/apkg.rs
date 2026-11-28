@@ -12,8 +12,12 @@ use tempfile::NamedTempFile;
 use uuid::Uuid;
 use zip::ZipArchive;
 
-use crate::cloze::{extract_cloze_indices, has_cloze_deletions};
+use crate::cloze::{extract_cloze_indices, has_cloze_deletions, parse_cloze_spans};
 use crate::deck_tree::normalize_deck_name;
+use crate::occlusion::{
+    serialize_occlusion_block, OcclusionBlock, OcclusionMask, OcclusionMode, OcclusionShapeType,
+    MAX_OCCLUSION_MASKS,
+};
 use crate::scheduler::{build_fsrs_for_migration, migrate_card_scheduling_to_fsrs7};
 use crate::{
     CardBackup, CardProvenance, Collection, CollectionError, DeckBackup, DeckSettings, FsrsState,
@@ -325,10 +329,14 @@ fn parse_apkg_reader<R: Read + Seek>(
             .unwrap_or("Imported Anki");
         let deck_name = sanitize_anki_deck_name(raw_deck_name);
 
-        let is_cloze = model.is_some_and(|m| m.is_cloze)
-            || note.fields.first().is_some_and(|f| has_cloze_deletions(f));
+        let is_image_occlusion = is_anki_image_occlusion_note(note);
+        let is_cloze = !is_image_occlusion
+            && (model.is_some_and(|m| m.is_cloze)
+                || note.fields.first().is_some_and(|f| has_cloze_deletions(f)));
 
-        let (front, back, cloze_index) = if is_cloze {
+        let (front, back, cloze_index) = if is_image_occlusion {
+            build_image_occlusion_card_content(note, model, card.ord, &mut media_loader)?
+        } else if is_cloze {
             build_cloze_card_content(note, model, card.ord, &mut media_loader)?
         } else {
             build_standard_card_content(note, model, card.ord, &mut media_loader)?
@@ -340,7 +348,7 @@ fn parse_apkg_reader<R: Read + Seek>(
         }
 
         let note_card_count = cards_per_note.get(&card.nid).copied().unwrap_or(1);
-        let sibling_group_id = if is_cloze || note_card_count > 1 {
+        let sibling_group_id = if is_image_occlusion || is_cloze || note_card_count > 1 {
             Some(
                 note_sibling_ids
                     .entry(card.nid)
@@ -600,6 +608,269 @@ fn parse_anki_fsrs_data(data: &str) -> Option<(f32, f32)> {
     } else {
         None
     }
+}
+
+fn is_anki_image_occlusion_note(note: &AnkiNote) -> bool {
+    note.fields.iter().any(|field| {
+        parse_cloze_spans(field)
+            .into_iter()
+            .any(|span| is_anki_io_spec(&span.answer))
+    })
+}
+
+fn is_anki_io_spec(answer: &str) -> bool {
+    answer
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("image-occlusion:")
+}
+
+fn parse_anki_io_mask(index: u32, answer: &str) -> Option<(OcclusionMask, Option<OcclusionMode>)> {
+    let trimmed = answer.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !lower.starts_with("image-occlusion:") {
+        return None;
+    }
+    let rest = &trimmed["image-occlusion:".len()..];
+    let mut parts = rest.split(':');
+    let kind_raw = parts.next()?.trim().to_ascii_lowercase();
+    let shape_type = match kind_raw.as_str() {
+        "ellipse" => OcclusionShapeType::Ellipse,
+        "rect" | "poly" | "polygon" => OcclusionShapeType::Rect,
+        _ => return None,
+    };
+
+    let mut left: Option<f64> = None;
+    let mut top: Option<f64> = None;
+    let mut width: Option<f64> = None;
+    let mut height: Option<f64> = None;
+    let mut points_bounds: Option<(f64, f64, f64, f64)> = None;
+    let mut mode: Option<OcclusionMode> = None;
+
+    for token in parts {
+        let Some((k, v)) = token.split_once('=') else {
+            continue;
+        };
+        let key = k.trim().to_ascii_lowercase();
+        let val = v.trim();
+        match key.as_str() {
+            "left" | "x" => left = val.parse::<f64>().ok(),
+            "top" | "y" => top = val.parse::<f64>().ok(),
+            "width" | "w" => width = val.parse::<f64>().ok(),
+            "height" | "h" => height = val.parse::<f64>().ok(),
+            "oi" => {
+                if val == "0" {
+                    mode = Some(OcclusionMode::HideOne);
+                } else if val == "1" {
+                    mode = Some(OcclusionMode::HideAll);
+                }
+            }
+            "points" => {
+                let coords: Vec<f64> = val
+                    .split(|c: char| c == ',' || c.is_whitespace())
+                    .filter(|s| !s.is_empty())
+                    .filter_map(|s| s.parse::<f64>().ok())
+                    .filter(|n| n.is_finite())
+                    .collect();
+                if coords.len() >= 6 {
+                    let mut min_x = f64::INFINITY;
+                    let mut max_x = f64::NEG_INFINITY;
+                    let mut min_y = f64::INFINITY;
+                    let mut max_y = f64::NEG_INFINITY;
+                    for pair in coords.chunks_exact(2) {
+                        min_x = min_x.min(pair[0]);
+                        max_x = max_x.max(pair[0]);
+                        min_y = min_y.min(pair[1]);
+                        max_y = max_y.max(pair[1]);
+                    }
+                    if min_x.is_finite()
+                        && max_x > min_x
+                        && min_y.is_finite()
+                        && max_y > min_y
+                        && max_x <= 1.5
+                        && max_y <= 1.5
+                    {
+                        points_bounds = Some((min_x, min_y, max_x - min_x, max_y - min_y));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let (x, y, w, h) = match (left, top, width, height) {
+        (Some(x), Some(y), Some(w), Some(h)) => (x, y, w, h),
+        _ => points_bounds?,
+    };
+    if !x.is_finite()
+        || !y.is_finite()
+        || !w.is_finite()
+        || !h.is_finite()
+        || w < 0.002
+        || h < 0.002
+    {
+        return None;
+    }
+
+    Some((
+        OcclusionMask {
+            id: index.max(1),
+            shape_type,
+            x,
+            y,
+            w,
+            h,
+            label: None,
+        },
+        mode,
+    ))
+}
+
+fn extract_first_img_src(html: &str) -> Option<(String, Option<String>)> {
+    let lower = html.to_ascii_lowercase();
+    let mut search = 0;
+    while let Some(rel) = lower[search..].find("<img") {
+        let start = search + rel;
+        let after = start + 4;
+        if let Some(end_rel) = html[after..].find('>') {
+            let attrs = &html[after..after + end_rel];
+            if let Some(src) = extract_html_attr(attrs, "src") {
+                let alt = extract_html_attr(attrs, "alt").filter(|s| !s.trim().is_empty());
+                if !src.trim().is_empty() {
+                    return Some((src.trim().to_owned(), alt));
+                }
+            }
+            search = after + end_rel + 1;
+        } else {
+            break;
+        }
+    }
+    None
+}
+
+fn build_image_occlusion_card_content<R: Read + Seek>(
+    note: &AnkiNote,
+    model: Option<&AnkiModel>,
+    ord: i64,
+    media: &mut MediaLoader<'_, R>,
+) -> Result<(String, String, Option<u32>), CollectionError> {
+    let occ_field_idx = note
+        .fields
+        .iter()
+        .position(|f| {
+            parse_cloze_spans(f)
+                .iter()
+                .any(|s| is_anki_io_spec(&s.answer))
+        })
+        .unwrap_or(0);
+
+    let occ_field = note
+        .fields
+        .get(occ_field_idx)
+        .map(String::as_str)
+        .unwrap_or("");
+
+    let mut masks = Vec::new();
+    let mut detected_mode = OcclusionMode::HideAll;
+    for span in parse_cloze_spans(occ_field) {
+        if masks.len() >= MAX_OCCLUSION_MASKS {
+            break;
+        }
+        if let Some((mask, mode_opt)) = parse_anki_io_mask(span.index, &span.answer) {
+            if let Some(m) = mode_opt {
+                detected_mode = m;
+            }
+            masks.push(mask);
+        }
+    }
+    if masks.is_empty() {
+        return build_cloze_card_content(note, model, ord, media);
+    }
+
+    // Find the Image field: prefer a field named "Image", else any field containing `<img src=...>`.
+    let image_field_idx = model
+        .and_then(|m| {
+            m.fields
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case("image"))
+        })
+        .filter(|&idx| idx != occ_field_idx && idx < note.fields.len())
+        .or_else(|| {
+            note.fields
+                .iter()
+                .enumerate()
+                .find(|&(idx, val)| idx != occ_field_idx && extract_first_img_src(val).is_some())
+                .map(|(idx, _)| idx)
+        });
+
+    let Some(image_idx) = image_field_idx else {
+        return Ok((String::new(), String::new(), None));
+    };
+    let Some((img_filename, img_alt)) = extract_first_img_src(&note.fields[image_idx]) else {
+        return Ok((String::new(), String::new(), None));
+    };
+    let Some(hash) = media.load_by_filename(&img_filename)? else {
+        return Ok((String::new(), String::new(), None));
+    };
+
+    // Optional Header field goes above the occlusion block; remaining fields go to Back/Extra.
+    let header_field_idx = model
+        .and_then(|m| {
+            m.fields
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case("header"))
+        })
+        .filter(|&idx| idx != occ_field_idx && idx != image_idx && idx < note.fields.len());
+
+    let header_md = match header_field_idx {
+        Some(idx) => html_to_markdown(&note.fields[idx], media)?,
+        None => String::new(),
+    };
+
+    let alt = if !header_md.trim().is_empty() {
+        Some(header_md.lines().next().unwrap_or("").trim().to_owned()).filter(|s| !s.is_empty())
+    } else {
+        img_alt
+    };
+
+    let block = OcclusionBlock {
+        v: 1,
+        image: format!("asset:{hash}"),
+        mode: detected_mode,
+        alt,
+        masks,
+    };
+    let fenced = serialize_occlusion_block(&block).map_err(|err| {
+        CollectionError::InvalidInput(format!("Failed to serialize image occlusion block: {err}"))
+    })?;
+
+    let front = if header_md.trim().is_empty() {
+        fenced
+    } else {
+        format!("{}\n\n{fenced}", header_md.trim())
+    };
+
+    let mut extra_parts = Vec::new();
+    for (idx, value) in note.fields.iter().enumerate() {
+        if idx == occ_field_idx || idx == image_idx || Some(idx) == header_field_idx {
+            continue;
+        }
+        let converted = html_to_markdown(value, media)?;
+        if !converted.trim().is_empty() {
+            extra_parts.push(converted);
+        }
+    }
+    let back = extra_parts.join("\n\n");
+
+    let target_index = u32::try_from(ord.saturating_add(1)).unwrap_or(1).max(1);
+    let has_target = block.masks.iter().any(|m| m.id == target_index);
+    let cloze_index = if has_target {
+        Some(target_index)
+    } else {
+        block.masks.iter().map(|m| m.id).min()
+    };
+
+    Ok((front, back, cloze_index))
 }
 
 fn build_cloze_card_content<R: Read + Seek>(

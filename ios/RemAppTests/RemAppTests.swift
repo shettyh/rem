@@ -828,4 +828,67 @@ final class RemAppTests: XCTestCase {
         // Siblings c2 & c3 buried for today!
         XCTAssertNil(graded.view.current)
     }
+
+    func testImageOcclusionParsingPreviewCompositeAndSiblingLifecycle() async throws {
+        let (dir, store) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let now: Int64 = 1_764_300_000_000
+        let deck = try await store.createDeck(name: "Systems", color: "#5a47e8", nowMs: now)
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64))
+        let img = renderer.image { ctx in
+            UIColor.systemBlue.setFill()
+            ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        }
+        let pngBytes = try XCTUnwrap(img.pngData())
+        let hash = try await store.putAsset(mime: "image/png", bytes: pngBytes, nowMs: now + 1)
+
+        let block = OcclusionBlock(
+            v: 1,
+            image: "asset:\(hash)",
+            mode: .hideAll,
+            alt: "TCP Header",
+            masks: [
+                OcclusionMask(id: 1, type: .rect, x: 0.1, y: 0.1, w: 0.3, h: 0.2),
+                OcclusionMask(id: 1, type: .ellipse, x: 0.5, y: 0.1, w: 0.3, h: 0.2),
+                OcclusionMask(id: 2, type: .rect, x: 0.1, y: 0.5, w: 0.8, h: 0.2),
+            ]
+        )
+        let front = ImageOcclusionParser.composeDocument(header: "TCP Header", block: block)
+
+        XCTAssertTrue(ImageOcclusionParser.hasOcclusion(front))
+        XCTAssertEqual(ImageOcclusionParser.extractIndices(front), [1, 2])
+        let parsedBlocks = MarkdownBlockParser.parse(front)
+        XCTAssertEqual(parsedBlocks.count, 2)
+        if case .imageOcclusion(let parsed) = parsedBlocks[1] {
+            XCTAssertEqual(parsed.masks.count, 3)
+            XCTAssertEqual(parsed.mode, .hideAll)
+        } else {
+            XCTFail("Expected .imageOcclusion block")
+        }
+
+        let preview = MarkdownBlockParser.plainTextPreview(front)
+        XCTAssertTrue(preview.contains("TCP Header"))
+        XCTAssertFalse(preview.contains("\"masks\""))
+
+        let composite = ImageOcclusionParser.renderCompositeImage(
+            base: img,
+            block: block,
+            activeIndex: 1,
+            revealed: false,
+            peekAll: false
+        )
+        XCTAssertEqual(composite.size, img.size)
+
+        let created = try await store.createCardOrCloze(
+            deckId: deck.id,
+            front: front,
+            back: "RFC 9293",
+            tags: ["networking"],
+            nowMs: now + 5
+        )
+        XCTAssertEqual(created.count, 2)
+        XCTAssertEqual(created[0].siblingGroupId, created[1].siblingGroupId)
+        XCTAssertEqual(created.compactMap(\.clozeIndex), [1, 2])
+    }
 }

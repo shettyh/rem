@@ -10,6 +10,14 @@ import { EditorToolbar } from './EditorToolbar'
 import { loadAssetUrl } from './assetUrl'
 import { isSystemTag, mergeUserTags, parseUserTags, userTags } from './cardTags'
 import { extractClozeIndices, nextClozeIndex } from './cloze'
+import {
+  composeOcclusionDocument,
+  extractOcclusionDocument,
+  extractOcclusionIndices,
+  type OcclusionBlock,
+} from './occlusion'
+import { OcclusionEditor } from './OcclusionEditor'
+import { assetRefs } from '../../data/assetRefs'
 import { cardStatus } from './DeckDetailPage'
 
 interface CardDraft {
@@ -45,6 +53,7 @@ export function CardEditorPage() {
   const [mediaError, setMediaError] = useState<string | null>(null)
   const allowNavigationRef = useRef(false)
   const tagInputRef = useRef<HTMLInputElement>(null)
+  const occlusionInputRef = useRef<HTMLInputElement>(null)
   // The field the shared toolbar should act on — defaults to Front, follows focus.
   const [active, setActive] = useState<EditorHandle | null>(null)
   const frontHandle = useRef<EditorHandle | null>(null)
@@ -187,7 +196,95 @@ export function CardEditorPage() {
     }
   }
 
-  const canInsertCloze = !editing || isClozeCard
+  const occlusionDoc = extractOcclusionDocument(front)
+  const isOcclusionMode = occlusionDoc !== null
+  const occlusionIndices = extractOcclusionIndices(front)
+  const canInsertCloze = (!editing || isClozeCard) && !isOcclusionMode
+  const canStartOcclusion = !editing || isOcclusionMode
+
+  const startOcclusionFromFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setMediaError('Please select an image file for Image Occlusion.')
+      return
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      setMediaError('Image exceeds the 25 MB upload limit.')
+      return
+    }
+    try {
+      const { hash } = await ingestAsset(file)
+      const existingDoc = extractOcclusionDocument(front)
+      if (existingDoc) {
+        setFront(
+          composeOcclusionDocument(
+            existingDoc.header,
+            { ...existingDoc.block, image: `asset:${hash}` },
+            existingDoc.footer,
+          ),
+        )
+      } else {
+        const plainTitle = front
+          .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+          .trim()
+        const newBlock: OcclusionBlock = {
+          v: 1,
+          image: `asset:${hash}`,
+          mode: 'hide-all',
+          masks: [],
+        }
+        setFront(composeOcclusionDocument(plainTitle, newBlock))
+      }
+    } catch (err) {
+      setMediaError(err instanceof Error ? err.message : 'Could not attach image.')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [front, storage])
+
+  const triggerImageOcclusion = useCallback(() => {
+    if (!canStartOcclusion) return
+    if (isOcclusionMode) {
+      occlusionInputRef.current?.click()
+      return
+    }
+    // If the user already inserted an image in Front, promote it directly to Image Occlusion.
+    const hashes = assetRefs(front)
+    if (hashes.length > 0) {
+      const plainTitle = front
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+        .trim()
+      const newBlock: OcclusionBlock = {
+        v: 1,
+        image: `asset:${hashes[0]}`,
+        mode: 'hide-all',
+        masks: [],
+      }
+      setFront(composeOcclusionDocument(plainTitle, newBlock))
+      return
+    }
+    occlusionInputRef.current?.click()
+  }, [canStartOcclusion, isOcclusionMode, front])
+
+  const updateOcclusionHeader = useCallback((nextHeader: string) => {
+    const doc = extractOcclusionDocument(front)
+    if (!doc) return
+    setFront(composeOcclusionDocument(nextHeader, doc.block, doc.footer))
+  }, [front])
+
+  const updateOcclusionBlock = useCallback((nextBlock: OcclusionBlock) => {
+    const doc = extractOcclusionDocument(front)
+    if (!doc) return
+    setFront(composeOcclusionDocument(doc.header, nextBlock, doc.footer))
+  }, [front])
+
+  const exitOcclusionMode = useCallback(() => {
+    if (editing) return
+    const doc = extractOcclusionDocument(front)
+    if (!doc) return
+    const restored = [doc.header, `![](${doc.block.image})`, doc.footer]
+      .filter((s) => s.trim().length > 0)
+      .join('\n\n')
+    setFront(restored)
+  }, [editing, front])
 
   const insertCloze = useCallback(() => {
     if (!canInsertCloze) return
@@ -207,8 +304,13 @@ export function CardEditorPage() {
     }
   }, [active, canInsertCloze, front])
 
+  const canSave =
+    Boolean(front.trim())
+    && Boolean(deckId)
+    && (!isOcclusionMode || occlusionIndices.length > 0)
+
   const save = useCallback(async (addAnother = false) => {
-    if (!front.trim() || !deckId) return
+    if (!canSave || !deckId) return
     const nextTags = mergeUserTags(tags, combinedTagInput)
     let createdCount = 1
     if (editing && cardId) {
@@ -238,7 +340,7 @@ export function CardEditorPage() {
     allowNavigationRef.current = true
     leaveEditor()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [front, back, tags, combinedTagInput, deckId, cardId, editing, isClozeCard, storage, returnTo])
+  }, [canSave, front, back, tags, combinedTagInput, deckId, cardId, editing, isClozeCard, storage, returnTo])
 
   async function remove() {
     if (!cardId) return
@@ -311,11 +413,11 @@ export function CardEditorPage() {
         Cancel
       </button>
       {!editing && (
-        <button className="btn btn-ghost" onClick={() => void save(true)} disabled={!front.trim()}>
+        <button className="btn btn-ghost" onClick={() => void save(true)} disabled={!canSave}>
           Save &amp; add another
         </button>
       )}
-      <button className="btn btn-primary" onClick={() => void save(false)} disabled={!front.trim()}>
+      <button className="btn btn-primary" onClick={() => void save(false)} disabled={!canSave}>
         Save card
       </button>
     </>
@@ -353,12 +455,27 @@ export function CardEditorPage() {
           </p>
         )}
 
+        <input
+          ref={occlusionInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          aria-label="Choose image for occlusion"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) void startOcclusionFromFile(file)
+            e.target.value = ''
+          }}
+        />
+
         <div className="md-toolbar-bar">
           <EditorToolbar
             editor={active?.editor ?? null}
             onImage={() => active?.openImagePicker()}
             onAudio={() => active?.openAudioPicker()}
             onCloze={canInsertCloze ? insertCloze : undefined}
+            onImageOcclusion={canStartOcclusion ? triggerImageOcclusion : undefined}
+            occlusionActive={isOcclusionMode}
           />
         </div>
 
@@ -368,7 +485,17 @@ export function CardEditorPage() {
           </p>
         )}
 
-        {((!editing && clozeIndices.length > 0) || isClozeCard) && (
+        {isOcclusionMode && (
+          <p className="editor-cloze-hint" role="status">
+            {occlusionIndices.length === 0
+              ? 'Image Occlusion · draw at least one mask on the diagram to save.'
+              : editing
+                ? `Image Occlusion (${occlusionIndices.map((n) => `#${n}`).join(', ')}) · edits update all sibling mask cards.`
+                : `Image Occlusion · creates ${occlusionIndices.length} ${occlusionIndices.length === 1 ? 'card' : 'cards'} (${occlusionIndices.map((n) => `#${n}`).join(', ')}).`}
+          </p>
+        )}
+
+        {!isOcclusionMode && ((!editing && clozeIndices.length > 0) || isClozeCard) && (
           <p className="editor-cloze-hint" role="status">
             {editing && isClozeCard
               ? `Cloze note (${clozeIndices.map((n) => `c${n}`).join(', ') || 'cloze'}) · edits update sibling cards.`
@@ -378,27 +505,38 @@ export function CardEditorPage() {
 
         <section className="card-editor-surface" aria-label="Card content">
           <div className="editor-field editor-field--front">
-            <div className="editor-field-label">Front</div>
-            <RichMarkdownEditor
-              value={front}
-              onChange={setFront}
-              placeholder="Type the prompt…"
-              ariaLabel="Front"
-              autoFocus={!editing}
-              resolveAsset={resolveAsset}
-              ingestAsset={ingestAsset}
-              onMediaError={setMediaError}
-              onReady={onFrontReady}
-              onFocus={() => frontHandle.current && setActive(frontHandle.current)}
-            />
+            <div className="editor-field-label">{isOcclusionMode ? 'Image Occlusion' : 'Front'}</div>
+            {occlusionDoc ? (
+              <OcclusionEditor
+                header={occlusionDoc.header}
+                onHeaderChange={updateOcclusionHeader}
+                block={occlusionDoc.block}
+                onBlockChange={updateOcclusionBlock}
+                onReplaceImage={startOcclusionFromFile}
+                onRemoveOcclusion={!editing ? exitOcclusionMode : undefined}
+              />
+            ) : (
+              <RichMarkdownEditor
+                value={front}
+                onChange={setFront}
+                placeholder="Type the prompt…"
+                ariaLabel="Front"
+                autoFocus={!editing}
+                resolveAsset={resolveAsset}
+                ingestAsset={ingestAsset}
+                onMediaError={setMediaError}
+                onReady={onFrontReady}
+                onFocus={() => frontHandle.current && setActive(frontHandle.current)}
+              />
+            )}
           </div>
 
           <div className="editor-field editor-field--back">
-            <div className="editor-field-label">Back</div>
+            <div className="editor-field-label">{isOcclusionMode ? 'Extra (optional)' : 'Back'}</div>
             <RichMarkdownEditor
               value={back}
               onChange={setBack}
-              placeholder="Type the answer…"
+              placeholder={isOcclusionMode ? 'Optional notes shown after reveal…' : 'Type the answer…'}
               ariaLabel="Back"
               resolveAsset={resolveAsset}
               ingestAsset={ingestAsset}

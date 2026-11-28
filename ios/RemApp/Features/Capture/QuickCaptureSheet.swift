@@ -20,6 +20,8 @@ struct QuickCaptureSheet: View {
     @State private var isSaving: Bool = false
     @State private var showDeleteConfirm: Bool = false
     @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var occlusionPhotoItem: PhotosPickerItem?
+    @State private var occlusionEditorDraft: OcclusionDocument?
     @State private var attachedAssetHashes: [String] = []
 
     @State private var activeEditorField: ActiveEditorField? = nil
@@ -37,18 +39,34 @@ struct QuickCaptureSheet: View {
 
     private var isEditing: Bool { editingCard != nil }
 
+    private var occlusionDoc: OcclusionDocument? {
+        ImageOcclusionParser.extractDocument(front)
+    }
+
+    private var isOcclusionNote: Bool {
+        occlusionDoc != nil
+    }
+
+    private var occlusionIndices: [UInt32] {
+        ImageOcclusionParser.extractIndices(front)
+    }
+
     private var clozeIndices: [UInt32] {
         ClozeRenderer.extractIndices(front)
     }
 
     private var isClozeNote: Bool {
-        (!isEditing && !clozeIndices.isEmpty) || editingCard?.clozeIndex != nil
+        !isOcclusionNote && ((!isEditing && !clozeIndices.isEmpty) || editingCard?.clozeIndex != nil)
     }
 
     private var canSave: Bool {
-        !front.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let baseOk = !front.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !selectedDeckId.isEmpty
             && !isSaving
+        if isOcclusionNote {
+            return baseOk && !occlusionIndices.isEmpty
+        }
+        return baseOk
     }
 
     private var selectedDeck: DeckDto? {
@@ -127,6 +145,31 @@ struct QuickCaptureSheet: View {
             guard let item else { return }
             Task { await attachPhoto(item) }
         }
+        .onChange(of: occlusionPhotoItem) { _, item in
+            guard let item else { return }
+            Task { await startOcclusionFromPhoto(item) }
+        }
+        .sheet(isPresented: Binding(
+            get: { occlusionEditorDraft != nil },
+            set: { if !$0 { occlusionEditorDraft = nil } }
+        )) {
+            if let draft = occlusionEditorDraft {
+                ImageOcclusionEditorSheet(
+                    store: appState.store,
+                    initialHeader: draft.header,
+                    initialBlock: draft.block
+                ) { nextHeader, nextBlock in
+                    front = ImageOcclusionParser.composeDocument(
+                        header: nextHeader,
+                        block: nextBlock,
+                        footer: draft.footer
+                    )
+                    if let hash = nextBlock.assetHash, !attachedAssetHashes.contains(hash) {
+                        attachedAssetHashes.append(hash)
+                    }
+                }
+            }
+        }
         .alert("Delete card?", isPresented: $showDeleteConfirm) {
             Button("Delete", role: .destructive) {
                 Task { await deleteCard() }
@@ -192,36 +235,83 @@ struct QuickCaptureSheet: View {
     private var paperCanvas: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(isClozeNote ? "CLOZE TEXT" : "QUESTION")
+                Text(isOcclusionNote ? "IMAGE OCCLUSION" : (isClozeNote ? "CLOZE TEXT" : "QUESTION"))
                     .font(.system(size: 10.5, weight: .bold))
                     .tracking(0.8)
                     .foregroundStyle(RemColor.faint)
                 Spacer()
+                if !isOcclusionNote && !isEditing {
+                    PhotosPicker(selection: $occlusionPhotoItem, matching: .images) {
+                        Label("Occlude", systemImage: "rectangle.dashed.and.paperclip")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(RemColor.accent)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(RemColor.accentTint)
+                            .clipShape(Capsule())
+                    }
+                    .padding(.trailing, 6)
+                }
                 previewTogglePill
             }
             .padding(.bottom, 8)
 
-            AutoSizingMarkdownTextView(
-                text: $front,
-                placeholder: "What do you want to remember? Use {{c1::...}} for cloze.",
-                font: .systemFont(ofSize: 19, weight: .semibold),
-                minHeight: 54,
-                controller: frontController,
-                onFocusChange: { focused in
-                    if focused {
-                        activeEditorField = .front
-                    } else if activeEditorField == .front {
-                        activeEditorField = nil
-                        hasTextSelection = false
-                        manualFormatMode = false
+            if let doc = occlusionDoc {
+                VStack(alignment: .leading, spacing: 10) {
+                    if !doc.header.isEmpty {
+                        Text(doc.header)
+                            .font(.headline)
+                            .foregroundStyle(RemColor.text)
                     }
-                },
-                onSelectionChange: { range in
-                    if activeEditorField == .front {
-                        hasTextSelection = range.length > 0
+                    AssetOcclusionImageView(
+                        block: doc.block,
+                        store: appState.store,
+                        activeIndex: nil,
+                        revealed: false
+                    )
+                    HStack(spacing: 10) {
+                        Button {
+                            occlusionEditorDraft = doc
+                        } label: {
+                            Label("Edit masks (\(occlusionIndices.count) \(occlusionIndices.count == 1 ? "card" : "cards"))", systemImage: "square.dashed")
+                                .font(.footnote.weight(.semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(RemColor.accent)
+
+                        if !isEditing {
+                            Button("Text card") {
+                                front = doc.header
+                            }
+                            .font(.footnote.weight(.medium))
+                            .buttonStyle(.bordered)
+                        }
                     }
                 }
-            )
+                .padding(.vertical, 4)
+            } else {
+                AutoSizingMarkdownTextView(
+                    text: $front,
+                    placeholder: "What do you want to remember? Use {{c1::...}} for cloze.",
+                    font: .systemFont(ofSize: 19, weight: .semibold),
+                    minHeight: 54,
+                    controller: frontController,
+                    onFocusChange: { focused in
+                        if focused {
+                            activeEditorField = .front
+                        } else if activeEditorField == .front {
+                            activeEditorField = nil
+                            hasTextSelection = false
+                            manualFormatMode = false
+                        }
+                    },
+                    onSelectionChange: { range in
+                        if activeEditorField == .front {
+                            hasTextSelection = range.length > 0
+                        }
+                    }
+                )
+            }
 
             if isClozeNote && (!clozeIndices.isEmpty || editingCard?.clozeIndex != nil) {
                 HStack(spacing: 6) {
@@ -251,7 +341,7 @@ struct QuickCaptureSheet: View {
                 .overlay(RemColor.border)
                 .padding(.vertical, 16)
 
-            Text(isClozeNote ? "EXTRA (OPTIONAL)" : "ANSWER")
+            Text((isClozeNote || isOcclusionNote) ? "EXTRA (OPTIONAL)" : "ANSWER")
                 .font(.system(size: 10.5, weight: .bold))
                 .tracking(0.8)
                 .foregroundStyle(RemColor.faint)
@@ -259,7 +349,7 @@ struct QuickCaptureSheet: View {
 
             AutoSizingMarkdownTextView(
                 text: $back,
-                placeholder: isClozeNote ? "Optional extra context shown after reveal…" : "Write a concise recall answer…",
+                placeholder: (isClozeNote || isOcclusionNote) ? "Optional extra context shown after reveal…" : "Write a concise recall answer…",
                 font: .systemFont(ofSize: 15.5, weight: .regular),
                 minHeight: 110,
                 controller: backController,
@@ -279,10 +369,11 @@ struct QuickCaptureSheet: View {
                 }
             )
 
-            if !attachedAssetHashes.isEmpty {
+            let visibleAttachments = attachedAssetHashes.filter { $0 != occlusionDoc?.block.assetHash }
+            if !visibleAttachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        ForEach(attachedAssetHashes, id: \.self) { hash in
+                        ForEach(visibleAttachments, id: \.self) { hash in
                             CaptureAssetThumbnail(hash: hash, store: appState.store) {
                                 removeAttachment(hash: hash)
                             }
@@ -384,10 +475,18 @@ struct QuickCaptureSheet: View {
     }
 
     private var previewCanvas: some View {
-        let previewCloze: UInt32? = canInsertCloze ? (editingCard?.clozeIndex ?? clozeIndices.first) : nil
+        let previewCloze: UInt32? = isOcclusionNote
+            ? (editingCard?.clozeIndex ?? occlusionIndices.first)
+            : (canInsertCloze ? (editingCard?.clozeIndex ?? clozeIndices.first) : nil)
+        let previewLabel: String = {
+            if let previewCloze {
+                return isOcclusionNote ? "OCCLUSION PREVIEW · #\(previewCloze)" : "CLOZE PREVIEW · c\(previewCloze)"
+            }
+            return "QUESTION"
+        }()
         return VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(previewCloze != nil ? "CLOZE PREVIEW · c\(previewCloze!)" : "QUESTION")
+                Text(previewLabel)
                     .font(.system(size: 10.5, weight: .bold))
                     .tracking(0.8)
                     .foregroundStyle(RemColor.faint)
@@ -644,6 +743,29 @@ struct QuickCaptureSheet: View {
         newTagText = ""
     }
 
+    private func startOcclusionFromPhoto(_ item: PhotosPickerItem) async {
+        defer { occlusionPhotoItem = nil }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else { return }
+            let mime = item.supportedContentTypes.first?.preferredMIMEType ?? "image/jpeg"
+            let hash = try await appState.store.putAsset(mime: mime, bytes: data)
+            if !attachedAssetHashes.contains(hash) {
+                attachedAssetHashes.append(hash)
+            }
+            let plainTitle = front
+                .replacingOccurrences(of: #"!\[[^\]]*\]\([^)]*\)"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            dismissKeyboard()
+            occlusionEditorDraft = OcclusionDocument(
+                header: plainTitle,
+                block: OcclusionBlock(v: 1, image: "asset:\(hash)", mode: .hideAll, masks: []),
+                footer: ""
+            )
+        } catch {
+            appState.showToast("Could not load photo: \(error.localizedDescription)")
+        }
+    }
+
     private func attachPhoto(_ item: PhotosPickerItem) async {
         defer { selectedPhotoItem = nil }
         do {
@@ -686,8 +808,9 @@ struct QuickCaptureSheet: View {
                     )
                     await appState.refreshAll()
                     onSaved?()
+                    let kindWord = isOcclusionNote ? "occlusion" : "cloze"
                     appState.showToast(
-                        updated.count > 1 ? "Updated \(updated.count) cloze cards" : "Card updated"
+                        updated.count > 1 ? "Updated \(updated.count) \(kindWord) cards" : "Card updated"
                     )
                 } else {
                     try await appState.store.updateCard(
@@ -711,7 +834,8 @@ struct QuickCaptureSheet: View {
                 await appState.refreshAll()
                 onSaved?()
                 if created.count > 1 {
-                    appState.showToast(isCloud ? "\(created.count) cloze cards saved · syncing" : "\(created.count) cloze cards saved")
+                    let kindWord = isOcclusionNote ? "occlusion" : "cloze"
+                    appState.showToast(isCloud ? "\(created.count) \(kindWord) cards saved · syncing" : "\(created.count) \(kindWord) cards saved")
                 } else {
                     appState.showToast(isCloud ? "Card saved · syncing" : "Card saved")
                 }

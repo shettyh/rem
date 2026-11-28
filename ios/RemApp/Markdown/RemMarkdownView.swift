@@ -175,6 +175,15 @@ struct RemMarkdownView: View {
                 }
             }
 
+        case .imageOcclusion(let block):
+            AssetOcclusionImageView(
+                block: block,
+                store: store,
+                activeIndex: clozeIndex,
+                revealed: clozeRevealed,
+                onTapAssetImage: onTapAssetImage
+            )
+
         case .audio(let label, let hash):
             AssetAudioPlayerView(label: label, hash: hash, store: store)
 

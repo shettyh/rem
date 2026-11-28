@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 use rusqlite::types::Type;
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::cloze::extract_cloze_indices;
 use crate::collection::write_transaction;
 use crate::deck_tree::normalize_deck_name;
+use crate::occlusion::extract_occlusion_indices;
 use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc, put_tombstone_with_hlc};
 use crate::tags::normalize_card_tags;
 use crate::{
@@ -16,6 +17,14 @@ use crate::{
 };
 
 const DECK_PALETTE: [&str; 5] = ["#7e6cff", "#e8638c", "#2fa86b", "#e8922e", "#3ba0e8"];
+
+/// Extract sorted, deduplicated positive sibling indices (`1, 2, ...`) from either Anki text
+/// cloze deletions (`{{cN::...}}`) or Markdown-native Image Occlusion (`rem-occlusion`) blocks.
+fn extract_sibling_card_indices(front: &str) -> Vec<u32> {
+    let mut indices: BTreeSet<u32> = extract_cloze_indices(front).into_iter().collect();
+    indices.extend(extract_occlusion_indices(front));
+    indices.into_iter().collect()
+}
 
 pub(crate) const CARD_COLUMNS: &str = "
     id, deck_id, front, back, created_at, updated_at, tags_json,
@@ -220,7 +229,7 @@ impl Collection {
                 "card front must not be blank".into(),
             ));
         }
-        let cloze_indices = extract_cloze_indices(front);
+        let cloze_indices = extract_sibling_card_indices(front);
         if cloze_indices.is_empty() {
             return Ok(vec![self.create_card(deck_id, front, back, tags, now)?]);
         }
@@ -293,7 +302,7 @@ impl Collection {
                 kind: "card",
                 id: card_id.to_owned(),
             })?;
-        let cloze_indices = extract_cloze_indices(front);
+        let cloze_indices = extract_sibling_card_indices(front);
         let cloud_enabled = is_cloud_sync_enabled(&transaction)?;
         let incoming_user_tags = normalize_user_tags(tags.clone());
 
