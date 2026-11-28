@@ -30,8 +30,24 @@ impl Collection {
         assets: &[(&str, &[u8])],
         now: i64,
     ) -> Result<(ImportResult, u32), CollectionError> {
+        let mut seen_incoming = HashSet::with_capacity(decks.len());
         for deck in &mut decks {
             deck.name = normalize_deck_name(&deck.name)?;
+            if !seen_incoming.insert(deck.name.clone()) {
+                return Err(CollectionError::InvalidInput(format!(
+                    "duplicate deck name in import: {}",
+                    deck.name
+                )));
+            }
+            deck.settings.validate()?;
+            for card in &deck.cards {
+                if card.front.trim().is_empty() {
+                    return Err(CollectionError::InvalidInput(
+                        "card front must not be blank".into(),
+                    ));
+                }
+                card.scheduling.validate()?;
+            }
         }
         let incoming_names: Vec<String> = decks.iter().map(|deck| deck.name.clone()).collect();
         let incoming_set: HashSet<&str> = incoming_names.iter().map(String::as_str).collect();
@@ -244,7 +260,7 @@ impl Collection {
                         for (index, (log_id, reviewed_at, grade)) in
                             inserted_logs.into_iter().enumerate()
                         {
-                            let hlc = next_hlc(&transaction, now.max(reviewed_at))?;
+                            let hlc = next_hlc(&transaction, now)?;
                             if index < last_index {
                                 enqueue_new_op(
                                     &transaction,

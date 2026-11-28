@@ -472,6 +472,8 @@ fn tombstones_win_over_stale_offline_edits_reviews_and_orphaned_card_creates() {
                 deck_id: doom_deck.id.clone(),
                 patch: CardPatch {
                     scheduling: Some(FsrsState {
+                        stability: 3.0,
+                        difficulty: 5.0,
                         reps: 1,
                         state: 2,
                         last_review: Some(3_010),
@@ -585,6 +587,8 @@ fn duplicate_remote_delivery_and_self_echo_are_idempotent() {
             deck_id: deck.id.clone(),
             patch: CardPatch {
                 scheduling: Some(FsrsState {
+                    stability: 3.0,
+                    difficulty: 5.0,
                     reps: 1,
                     state: 2,
                     last_review: Some(1_030),
@@ -643,6 +647,8 @@ fn non_empty_collections_merge_via_deterministic_bootstrap_and_track_missing_ass
             deck_id: deck_a.id.clone(),
             patch: CardPatch {
                 scheduling: Some(FsrsState {
+                    stability: 3.0,
+                    difficulty: 5.0,
                     reps: 1,
                     state: 2,
                     last_review: Some(120),
@@ -662,6 +668,8 @@ fn non_empty_collections_merge_via_deterministic_bootstrap_and_track_missing_ass
             deck_id: deck_a.id.clone(),
             patch: CardPatch {
                 scheduling: Some(FsrsState {
+                    stability: 6.0,
+                    difficulty: 4.5,
                     reps: 2,
                     state: 2,
                     last_review: Some(220),
@@ -747,18 +755,27 @@ fn non_empty_collections_merge_via_deterministic_bootstrap_and_track_missing_ass
         .unwrap()
         .is_empty());
 
-    // Push A, pull on B -> B detects missing asset hash!
+    // Push A, pull on B -> B detects missing asset hash and persists it in pending_asset_downloads!
     server.push_and_pull(&dev_a);
     let b_result = server.push_and_pull(&dev_b);
     assert_eq!(b_result.missing_asset_hashes, vec![asset.hash.clone()]);
+    assert_eq!(
+        dev_b.list_pending_asset_downloads().unwrap(),
+        vec![asset.hash.clone()]
+    );
 
-    // Bad hash is rejected; valid bytes are stored & marked synced.
+    // Bad hash is rejected and keeps the pending download queued; valid bytes store & clear it.
     assert!(dev_b
         .put_remote_asset(&asset.hash, "image/png", b"corrupted", 510)
         .is_err());
+    assert_eq!(
+        dev_b.list_pending_asset_downloads().unwrap(),
+        vec![asset.hash.clone()]
+    );
     dev_b
         .put_remote_asset(&asset.hash, "image/png", img_bytes, 510)
         .unwrap();
+    assert!(dev_b.list_pending_asset_downloads().unwrap().is_empty());
     assert_eq!(
         dev_b.get_asset(&asset.hash).unwrap().unwrap().bytes,
         img_bytes
@@ -812,17 +829,32 @@ fn account_binding_rejects_switch_until_explicit_reset_and_pause_keeps_local_dat
         }
     ));
 
-    // Re-enabling with the same account succeeds and picks up offline local writes.
+    // Offline edits and new cards while paused (account still bound) continue recording outbox ops
+    // so re-enabling sync never loses changes to already-stamped decks/cards.
+    collection
+        .update_deck(
+            &deck.id,
+            DeckPatch {
+                name: Some("Notes (edited offline)".into()),
+                ..DeckPatch::default()
+            },
+            305,
+        )
+        .unwrap();
     let offline_card = collection
         .create_card(&deck.id, "Created while paused", "Answer", vec![], 310)
         .unwrap();
     let newly_enqueued = collection
         .enable_cloud_sync(SERVER_URL, "acct-1", 320)
         .unwrap();
-    assert_eq!(newly_enqueued, 1);
-    assert!(collection
-        .pending_outbox_ops(10)
-        .unwrap()
+    assert_eq!(newly_enqueued, 0);
+    let queued = collection.pending_outbox_ops(20).unwrap();
+    assert!(queued.iter().any(|op| matches!(
+        &op.payload,
+        SyncOp::DeckUpsert { id, name, .. }
+            if *id == deck.id && name == "Notes (edited offline)"
+    )));
+    assert!(queued
         .iter()
         .any(|op| matches!(&op.payload, SyncOp::CardCreate { id, .. } if *id == offline_card.id)));
 
@@ -943,6 +975,8 @@ fn manual_unsuspend_after_leech_is_not_clobbered_by_older_leech_review() {
                 tags: Some(vec!["leech".into()]),
                 suspended: Some(true),
                 scheduling: Some(FsrsState {
+                    stability: 2.0,
+                    difficulty: 6.0,
                     reps: 1,
                     lapses: 1,
                     state: 3,

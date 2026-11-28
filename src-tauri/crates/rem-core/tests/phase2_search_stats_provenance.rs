@@ -286,6 +286,8 @@ fn unified_stats_computes_recall_streak_deck_breakdown_and_forecast() {
     let mut sched1 = c1.scheduling.clone();
     sched1.state = 2;
     sched1.reps = 1;
+    sched1.stability = 3.0;
+    sched1.difficulty = 5.0;
     sched1.due = NOW + 2 * DAY_MS;
     collection
         .commit_review(ReviewCommit {
@@ -304,6 +306,8 @@ fn unified_stats_computes_recall_streak_deck_breakdown_and_forecast() {
     let mut sched2 = c2.scheduling.clone();
     sched2.state = 2;
     sched2.reps = 1;
+    sched2.stability = 3.0;
+    sched2.difficulty = 5.0;
     sched2.due = NOW + DAY_MS;
     collection
         .commit_review(ReviewCommit {

@@ -15,6 +15,8 @@ fn review_commit_updates_card_counter_and_optional_log_atomically() {
         .create_card(&deck.id, "Q", "A", vec![], 110)
         .unwrap();
     let scheduling = rem_core::FsrsState {
+        stability: 3.0,
+        difficulty: 5.0,
         reps: 1,
         state: 2,
         last_review: Some(200),
