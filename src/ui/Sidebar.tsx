@@ -4,7 +4,14 @@ import { useStorage } from '../data/StorageContext'
 import { useSyncOptional } from '../data/SyncContext'
 import { useUpdaterOptional } from '../data/UpdaterContext'
 import { useStorageQuery } from '../data/useStorageQuery'
-import { buildDeckTree, flattenVisibleDeckTree } from '../features/decks/deckTree'
+import {
+  buildDeckTree,
+  COLLAPSED_DECKS_EVENT,
+  flattenVisibleDeckTree,
+  loadCollapsedDeckPaths,
+  saveCollapsedDeckPaths,
+} from '../features/decks/deckTree'
+import { loadDueOverview } from '../features/review/dueOverview'
 import { ThemeToggle } from './ThemeToggle'
 
 const HOVER_INTENT_MS = 160
@@ -31,14 +38,33 @@ export function Sidebar({
   const updater = useUpdaterOptional()
   const navigate = useNavigate()
   const [peeking, setPeeking] = useState(false)
+  const [collapsedDeckPaths, setCollapsedDeckPaths] = useState<Set<string>>(() =>
+    loadCollapsedDeckPaths(),
+  )
   const hoverTimerRef = useRef<number | null>(null)
 
+  useEffect(() => {
+    const sync = () => setCollapsedDeckPaths(loadCollapsedDeckPaths())
+    window.addEventListener(COLLAPSED_DECKS_EVENT, sync)
+    return () => window.removeEventListener(COLLAPSED_DECKS_EVENT, sync)
+  }, [])
+
+  function toggleDeckPath(path: string) {
+    setCollapsedDeckPaths((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      saveCollapsedDeckPaths(next)
+      return next
+    })
+  }
+
   const navigation = useStorageQuery(async () => {
-    const [all, drafts] = await Promise.all([storage.listDecks(), storage.listDrafts()])
-    const now = Date.now()
-    const decks = await Promise.all(
-      all.map(async (deck) => ({ deck, due: await storage.countDue(deck.id, now) })),
-    )
+    const [overview, drafts] = await Promise.all([
+      loadDueOverview(storage, Date.now()),
+      storage.listDrafts(),
+    ])
+    const decks = overview.decks.map((entry) => ({ deck: entry.deck, due: entry.due }))
     return { decks, draftCount: drafts.length }
   }, [])
 
@@ -175,39 +201,64 @@ export function Sidebar({
         </div>
 
         <div className="side-decks">
-          {flattenVisibleDeckTree(buildDeckTree(navigation?.decks ?? []), new Set()).map((node) => {
+          {flattenVisibleDeckTree(buildDeckTree(navigation?.decks ?? []), collapsedDeckPaths).map((node) => {
             const deck = node.item?.deck
+            const hasChildren = node.children.length > 0
+            const isCollapsed = collapsedDeckPaths.has(node.path)
             if (!deck) {
               return (
-                <div
+                <button
                   key={`group:${node.path}`}
-                  className="nav-item nav-item-folder"
+                  type="button"
+                  className="nav-item nav-item-btn nav-item-folder"
                   style={node.depth > 0 ? { paddingLeft: `${10 + node.depth * 14}px` } : undefined}
+                  aria-expanded={!isCollapsed}
                   title={node.path}
+                  onClick={() => toggleDeckPath(node.path)}
                 >
-                  <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M2 4.5a1.5 1.5 0 0 1 1.5-1.5h3l1.3 1.5h4.7A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
-                  </svg>
+                  <span className={`deck-tree-toggle${isCollapsed ? ' is-collapsed' : ''}`} aria-hidden="true">
+                    ▾
+                  </span>
                   <span className="nav-grow">{node.label}</span>
                   {node.due > 0 && <span className="side-badge">{node.due}</span>}
-                </div>
+                </button>
               )
             }
             return (
-              <NavLink
+              <div
                 key={deck.id}
-                to={`/decks/${deck.id}`}
-                className={navClass}
-                style={node.depth > 0 ? { paddingLeft: `${10 + node.depth * 14}px` } : undefined}
-                title={deck.name}
+                className="side-deck-row"
+                style={{ display: 'flex', alignItems: 'center' }}
               >
-                <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
-                  <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />
-                  <path d="M4.5 1.5h7a2 2 0 0 1 2 2v6" />
-                </svg>
-                <span className="nav-grow">{node.label}</span>
-                {node.due > 0 && <span className="side-badge">{node.due}</span>}
-              </NavLink>
+                {hasChildren && (
+                  <button
+                    type="button"
+                    className={`deck-tree-toggle${isCollapsed ? ' is-collapsed' : ''}`}
+                    aria-label={isCollapsed ? `Expand ${node.label}` : `Collapse ${node.label}`}
+                    aria-expanded={!isCollapsed}
+                    onClick={() => toggleDeckPath(node.path)}
+                  >
+                    ▾
+                  </button>
+                )}
+                <NavLink
+                  to={`/decks/${deck.id}`}
+                  className={navClass}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    ...(node.depth > 0 ? { paddingLeft: `${10 + node.depth * 14}px` } : {}),
+                  }}
+                  title={deck.name}
+                >
+                  <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />
+                    <path d="M4.5 1.5h7a2 2 0 0 1 2 2v6" />
+                  </svg>
+                  <span className="nav-grow">{node.label}</span>
+                  {node.due > 0 && <span className="side-badge">{node.due}</span>}
+                </NavLink>
+              </div>
             )
           })}
         </div>

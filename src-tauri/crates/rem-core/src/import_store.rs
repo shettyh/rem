@@ -3,7 +3,9 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::params;
 use uuid::Uuid;
 
+use crate::asset_store::put_asset_in_tx;
 use crate::collection::write_transaction;
+use crate::deck_tree::normalize_deck_name;
 use crate::review_store::grade_name;
 use crate::store::{bump_sync_revision, deck_color, insert_card_with_hlc};
 use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc, put_tombstone_with_hlc};
@@ -18,6 +20,19 @@ impl Collection {
         decks: Vec<DeckBackup>,
         now: i64,
     ) -> Result<ImportResult, CollectionError> {
+        let (result, _) = self.import_decks_with_assets(decks, &[], now)?;
+        Ok(result)
+    }
+
+    pub(crate) fn import_decks_with_assets(
+        &self,
+        mut decks: Vec<DeckBackup>,
+        assets: &[(&str, &[u8])],
+        now: i64,
+    ) -> Result<(ImportResult, u32), CollectionError> {
+        for deck in &mut decks {
+            deck.name = normalize_deck_name(&deck.name)?;
+        }
         let incoming_names: Vec<String> = decks.iter().map(|deck| deck.name.clone()).collect();
         let incoming_set: HashSet<&str> = incoming_names.iter().map(String::as_str).collect();
         let mut connection = self
@@ -25,6 +40,11 @@ impl Collection {
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
         let transaction = write_transaction(&mut connection)?;
+        let mut imported_media = 0_u32;
+        for &(mime, bytes) in assets {
+            put_asset_in_tx(&transaction, bytes, mime, now)?;
+            imported_media = imported_media.saturating_add(1);
+        }
         let cloud_enabled = is_cloud_sync_enabled(&transaction)?;
         let existing = {
             let mut statement = transaction.prepare("SELECT id, name FROM decks")?;
@@ -291,10 +311,10 @@ impl Collection {
                 }
             }
         }
-        if !incoming_names.is_empty() {
+        if !incoming_names.is_empty() || imported_media > 0 {
             bump_sync_revision(&transaction)?;
         }
         transaction.commit()?;
-        Ok(result)
+        Ok((result, imported_media))
     }
 }

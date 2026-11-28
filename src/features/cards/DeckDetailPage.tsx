@@ -6,8 +6,8 @@ import type { Card } from '../../domain/models'
 import { MS_PER_DAY } from '../../domain/scheduler'
 import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
-import { isNew } from '../review/dueOverview'
-import { deckIsDescendantOrSelf, deckLeafName } from '../decks/deckTree'
+import { isNew, loadDueOverview } from '../review/dueOverview'
+import { deckIsDescendantOrSelf } from '../decks/deckTree'
 import { userTags } from './cardTags'
 import { stripClozeMarkup } from './cloze'
 
@@ -79,26 +79,36 @@ export function DeckDetailPage() {
   const [tagFilter, setTagFilter] = useState('')
   const [addingSubdeck, setAddingSubdeck] = useState(false)
   const [subdeckName, setSubdeckName] = useState('')
+  const [subdeckError, setSubdeckError] = useState<string | null>(null)
 
   const deck = useStorageQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const cards = useStorageQuery(() => (deckId ? storage.listCards(deckId) : []), [deckId])
   const subdecksInfo = useStorageQuery(async () => {
-    if (!deckId) return { directDue: 0, totalDue: 0, subdecks: [] as { deck: Awaited<ReturnType<typeof storage.listDecks>>[number]; due: number }[] }
-    const [allDecks, directDue] = await Promise.all([
-      storage.listDecks(),
-      storage.countDue(deckId, Date.now()),
-    ])
-    const current = allDecks.find((d) => d.id === deckId)
-    if (!current) return { directDue, totalDue: directDue, subdecks: [] }
-    const children = allDecks.filter(
-      (d) => d.id !== current.id && deckIsDescendantOrSelf(d.name, current.name),
+    if (!deckId) {
+      return {
+        totalDue: 0,
+        rolledNew: 0,
+        rolledTotal: 0,
+        rolledStudied: 0,
+        subdecks: [] as { deck: Awaited<ReturnType<typeof storage.listDecks>>[number]; due: number }[],
+      }
+    }
+    const overview = await loadDueOverview(storage, Date.now())
+    const current = overview.decks.find((entry) => entry.deck.id === deckId)
+    if (!current) {
+      return { totalDue: 0, rolledNew: 0, rolledTotal: 0, rolledStudied: 0, subdecks: [] }
+    }
+    const descendants = overview.decks.filter(
+      (entry) =>
+        entry.deck.id !== current.deck.id
+        && deckIsDescendantOrSelf(entry.deck.name, current.deck.name),
     )
-    const nowMs = Date.now()
-    const subdecks = await Promise.all(
-      children.map(async (child) => ({ deck: child, due: await storage.countDue(child.id, nowMs) })),
-    )
-    const totalDue = directDue + subdecks.reduce((acc, s) => acc + s.due, 0)
-    return { directDue, totalDue, subdecks }
+    const subdecks = descendants.map((entry) => ({ deck: entry.deck, due: entry.due }))
+    const totalDue = current.due + descendants.reduce((acc, s) => acc + s.due, 0)
+    const rolledTotal = current.total + descendants.reduce((acc, s) => acc + s.total, 0)
+    const rolledStudied = current.studied + descendants.reduce((acc, s) => acc + s.studied, 0)
+    const rolledNew = Math.max(0, rolledTotal - rolledStudied)
+    return { totalDue, rolledNew, rolledTotal, rolledStudied, subdecks }
   }, [deckId])
   const due = subdecksInfo?.totalDue ?? 0
   const subdecks = subdecksInfo?.subdecks ?? []
@@ -119,9 +129,12 @@ export function DeckDetailPage() {
   if (!deckId || deck === undefined || cards === undefined) return null
 
   const now = Date.now()
-  const newCount = cards.filter((c) => isNew(c.scheduling)).length
-  const studiedCount = cards.length - newCount
-  const studiedPct = cards.length > 0 ? Math.round((studiedCount / cards.length) * 100) : 0
+  const directNewCount = cards.filter((c) => isNew(c.scheduling)).length
+  const totalCount = subdecks.length > 0 ? (subdecksInfo?.rolledTotal ?? cards.length) : cards.length
+  const newCount = subdecks.length > 0 ? (subdecksInfo?.rolledNew ?? directNewCount) : directNewCount
+  const studiedCount =
+    subdecks.length > 0 ? (subdecksInfo?.rolledStudied ?? (cards.length - directNewCount)) : cards.length - directNewCount
+  const studiedPct = totalCount > 0 ? Math.round((studiedCount / totalCount) * 100) : 0
   const tagOptions = [...new Set(cards.flatMap((card) => userTags(card.tags)))]
     .sort((a, b) => a.localeCompare(b))
   const needle = query.trim().toLowerCase()
@@ -151,9 +164,14 @@ export function DeckDetailPage() {
     e.preventDefault()
     const childLeaf = subdeckName.trim()
     if (!childLeaf || !deck) return
-    await storage.createDeck(`${deck.name}::${childLeaf}`)
-    setSubdeckName('')
-    setAddingSubdeck(false)
+    try {
+      await storage.createDeck(`${deck.name}::${childLeaf}`)
+      setSubdeckName('')
+      setSubdeckError(null)
+      setAddingSubdeck(false)
+    } catch (err) {
+      setSubdeckError(err instanceof Error ? err.message : 'Invalid subdeck name.')
+    }
   }
 
   const title = (
@@ -253,37 +271,50 @@ export function DeckDetailPage() {
               )}
             </div>
             {addingSubdeck && (
-              <form className="subdeck-add-form" onSubmit={(e) => void createSubdeck(e)}>
-                <input
-                  className="text-input"
-                  placeholder={`Subdeck inside ${deck.name}…`}
-                  value={subdeckName}
-                  onChange={(e) => setSubdeckName(e.target.value)}
-                  autoFocus
-                />
-                <button type="submit" className="btn btn-primary btn-sm" disabled={!subdeckName.trim()}>
-                  Create
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => {
-                    setAddingSubdeck(false)
-                    setSubdeckName('')
-                  }}
-                >
-                  Cancel
-                </button>
-              </form>
+              <>
+                <form className="subdeck-add-form" onSubmit={(e) => void createSubdeck(e)}>
+                  <input
+                    className="text-input"
+                    placeholder={`Subdeck inside ${deck.name}…`}
+                    value={subdeckName}
+                    onChange={(e) => {
+                      setSubdeckName(e.target.value)
+                      setSubdeckError(null)
+                    }}
+                    autoFocus
+                  />
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={!subdeckName.trim()}>
+                    Create
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setAddingSubdeck(false)
+                      setSubdeckName('')
+                      setSubdeckError(null)
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </form>
+                {subdeckError && <p className="ds-row-sub ds-error" role="alert">{subdeckError}</p>}
+              </>
             )}
             {subdecks.length > 0 && (
               <div className="subdecks-list">
-                {subdecks.map(({ deck: child, due: childDue }) => (
-                  <Link key={child.id} to={`/decks/${child.id}`} className="subdeck-chip">
-                    <span>{deckLeafName(child.name)}</span>
-                    {childDue > 0 && <span className="subdeck-chip-due">{childDue} due</span>}
-                  </Link>
-                ))}
+                {subdecks.map(({ deck: child, due: childDue }) => {
+                  const prefix = `${deck.name}::`
+                  const relLabel = child.name.startsWith(prefix)
+                    ? child.name.slice(prefix.length)
+                    : child.name
+                  return (
+                    <Link key={child.id} to={`/decks/${child.id}`} className="subdeck-chip">
+                      <span>{relLabel}</span>
+                      {childDue > 0 && <span className="subdeck-chip-due">{childDue} due</span>}
+                    </Link>
+                  )
+                })}
               </div>
             )}
           </section>
@@ -317,15 +348,24 @@ export function DeckDetailPage() {
                   <span className="deck-stat-label">New</span>
                 </div>
                 <div className="deck-stat">
-                  <span className="deck-stat-num">{cards.length}</span>
+                  <span className="deck-stat-num">{totalCount}</span>
                   <span className="deck-stat-label">Total</span>
                 </div>
               </div>
-              <div className="deck-summary-progress" title={`${studiedCount} of ${cards.length} cards studied`}>
-                <span>{studiedCount} / {cards.length} studied</span>
+              <div className="deck-summary-progress" title={`${studiedCount} of ${totalCount} cards studied`}>
+                <span>{studiedCount} / {totalCount} studied</span>
                 <span className="deck-summary-track" aria-hidden="true">
                   <span style={{ width: `${studiedPct}%` }} />
                 </span>
+                {subdecks.length === 0 && !addingSubdeck && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setAddingSubdeck(true)}
+                  >
+                    + Subdeck
+                  </button>
+                )}
               </div>
             </section>
 

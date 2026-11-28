@@ -78,6 +78,7 @@ struct NewDeckSheet: View {
             }
         }
         .tint(RemColor.accent)
+        .remToastOverlay(appState: appState)
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
     }

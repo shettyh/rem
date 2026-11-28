@@ -238,6 +238,20 @@ actor RemStore {
         try client.importApkg(bytes: data, nowMs: nowMs)
     }
 
+    nonisolated func previewApkgPath(path: String, nowMs: Int64 = RemStore.nowMs()) async throws -> ApkgImportPreviewDto {
+        let client = self.client
+        return try await Task.detached(priority: .userInitiated) {
+            try client.previewApkgPath(path: path, nowMs: nowMs)
+        }.value
+    }
+
+    nonisolated func importApkgPath(path: String, nowMs: Int64 = RemStore.nowMs()) async throws -> ApkgImportResultDto {
+        let client = self.client
+        return try await Task.detached(priority: .userInitiated) {
+            try client.importApkgPath(path: path, nowMs: nowMs)
+        }.value
+    }
+
     func fetchAuthProviders(serverUrl: String) throws -> AuthProvidersDto {
         try client.fetchAuthProviders(serverUrl: serverUrl)
     }

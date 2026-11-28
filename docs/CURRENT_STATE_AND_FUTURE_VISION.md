@@ -92,8 +92,9 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
   cloze deletions (`{{cN::answer::hint}}`, `⌘⇧C` on desktop, `[…]` button on iOS).
 - Syntax-highlighted code and LaTeX math (`$...$`, `$$...$$`, and Anki `\(...\)` / `\[...\]`
   delimiters rendered via local KaTeX on desktop and native SwiftUI math formatting on iOS).
-- Image, GIF, and audio clip ingestion (`[Audio: label](asset:<hash>)`) through file picker, paste,
-  drag-and-drop (desktop), and iOS Photos picker, with inline audio playback on desktop and iOS.
+- Image and GIF ingestion through file picker, paste, drag-and-drop (desktop), and iOS Photos
+  picker, plus audio clip ingestion (`[Audio: label](asset:<hash>)`) through the desktop file picker
+  and `.apkg` import, with inline audio playback on desktop and iOS.
 - Content-addressed binary assets (images, GIFs, audio) render in cards and travel through backup
   and cloud sync (via R2).
 - User-defined tags, tag chips, and per-deck tag filtering.
@@ -293,7 +294,7 @@ are implemented:
    (`anki2` / `anki21` / zstd `anki21b`, HTML→Markdown, math, media, `revlog`→FSRS-7 replay) on
    Desktop, CLI (`rem import`), and iOS.
 5. **Show answer timer** — persisted `DeckSettings.show_timer` wired through `StudyView` and
-   rendered during review on Desktop and iOS.
+   rendered during review on Desktop, iOS, and the `rem study` TUI.
 
 ## Known gaps and incomplete behavior
 

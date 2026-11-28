@@ -9,26 +9,15 @@ use crate::{Asset, Collection, CollectionError};
 
 impl Collection {
     pub fn put_asset(&self, bytes: &[u8], mime: &str, now: i64) -> Result<Asset, CollectionError> {
-        let hash = hex::encode(Sha256::digest(bytes));
         let mut connection = self
             .connection
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
         let transaction = write_transaction(&mut connection)?;
-        if let Some(existing) = find_asset(&transaction, &hash)? {
-            return Ok(existing);
+        let (asset, inserted) = put_asset_in_tx(&transaction, bytes, mime, now)?;
+        if inserted {
+            bump_sync_revision(&transaction)?;
         }
-        let asset = Asset {
-            hash,
-            mime: mime.to_owned(),
-            bytes: bytes.to_vec(),
-            created_at: now,
-        };
-        transaction.execute(
-            "INSERT INTO assets(hash, mime, bytes, created_at) VALUES (?1, ?2, ?3, ?4)",
-            params![asset.hash, asset.mime, asset.bytes, asset.created_at],
-        )?;
-        bump_sync_revision(&transaction)?;
         transaction.commit()?;
         Ok(asset)
     }
@@ -100,6 +89,29 @@ impl Collection {
         transaction.commit()?;
         Ok(orphans.len())
     }
+}
+
+pub(crate) fn put_asset_in_tx(
+    transaction: &Transaction<'_>,
+    bytes: &[u8],
+    mime: &str,
+    now: i64,
+) -> Result<(Asset, bool), CollectionError> {
+    let hash = hex::encode(Sha256::digest(bytes));
+    if let Some(existing) = find_asset(transaction, &hash)? {
+        return Ok((existing, false));
+    }
+    let asset = Asset {
+        hash,
+        mime: mime.to_owned(),
+        bytes: bytes.to_vec(),
+        created_at: now,
+    };
+    transaction.execute(
+        "INSERT INTO assets(hash, mime, bytes, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![asset.hash, asset.mime, asset.bytes, asset.created_at],
+    )?;
+    Ok((asset, true))
 }
 
 fn find_asset(transaction: &Transaction<'_>, hash: &str) -> rusqlite::Result<Option<Asset>> {

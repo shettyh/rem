@@ -299,33 +299,10 @@ pub fn list_drafts(collection: &Collection, output: OutputFormat) -> Result<(), 
     Ok(())
 }
 
-const MAX_APKG_FILE_BYTES: u64 = 512 * 1024 * 1024;
-
 pub fn import_apkg(collection: &Collection, args: ImportArgs) -> Result<(), CliError> {
-    let meta = fs::metadata(&args.file).map_err(|error| {
-        input_error(
-            "input_read_failed",
-            format!("could not read {}: {error}", args.file.display()),
-        )
-    })?;
-    if meta.len() > MAX_APKG_FILE_BYTES {
-        return Err(input_error(
-            "file_too_large",
-            format!(
-                "{} exceeds the maximum supported .apkg size (512 MB)",
-                args.file.display()
-            ),
-        ));
-    }
-    let bytes = fs::read(&args.file).map_err(|error| {
-        input_error(
-            "input_read_failed",
-            format!("could not read {}: {error}", args.file.display()),
-        )
-    })?;
     let now = now_millis();
     if args.dry_run {
-        let preview = collection.preview_apkg_bytes(&bytes, now)?;
+        let preview = collection.preview_apkg_file(&args.file, now)?;
         match args.output {
             OutputFormat::Text => {
                 println!(
@@ -359,7 +336,7 @@ pub fn import_apkg(collection: &Collection, args: ImportArgs) -> Result<(), CliE
         return Ok(());
     }
 
-    let result = collection.import_apkg_bytes(&bytes, now)?;
+    let result = collection.import_apkg_file(&args.file, now)?;
     match args.output {
         OutputFormat::Text => {
             println!(

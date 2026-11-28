@@ -737,9 +737,20 @@ final class RemAppTests: XCTestCase {
         let normalized = LatexMathFormatter.normalizeDelimiters("Inline \\(x^2\\) and `\\(code\\)`\n\\[\\frac{a}{b}\\]")
         XCTAssertEqual(normalized, "Inline $x^2$ and `\\(code\\)`\n$$\\frac{a}{b}$$")
         XCTAssertEqual(LatexMathFormatter.formatUnicode("\\alpha + x^2 \\leq \\infty"), "α + x² ≤ ∞")
+        // Regression checks for command prefix collisions & nested commands
+        XCTAssertEqual(LatexMathFormatter.formatUnicode("\\left(x + 1\\right)"), "(x + 1)")
+        XCTAssertEqual(LatexMathFormatter.formatUnicode("\\neg P + a_1 + \\cdots + a_n"), "¬ P + a₁ + ⋯ + aₙ")
+        XCTAssertEqual(LatexMathFormatter.formatUnicode("\\textbf{hi} \\text{world}"), "\\textbf{hi} world")
+        XCTAssertEqual(LatexMathFormatter.formatUnicode("\\frac{1}{\\frac{2}{3}}"), "1/(2/3)")
         let frac = LatexMathFormatter.parseTopLevelFraction("\\frac{1}{2}")
         XCTAssertEqual(frac?.0, "1")
         XCTAssertEqual(frac?.1, "2")
+
+        // Regression check: inline $$...$$ with trailing text or $$$$ must not swallow subsequent paragraphs
+        let trailingMathBlocks = MarkdownBlockParser.parse("$$E = mc^2$$ is Einstein's formula.\n\nNext paragraph.")
+        XCTAssertEqual(trailingMathBlocks.count, 2)
+        let emptyDollarBlocks = MarkdownBlockParser.parse("$$$$\n\nKeep me.")
+        XCTAssertEqual(emptyDollarBlocks.count, 2)
 
         let audioHash = String(repeating: "c", count: 64)
         let blocks = MarkdownBlockParser.parse("$$\nE = mc^2\n$$\n\n[Audio: pron.mp3](asset:\(audioHash))")
@@ -747,6 +758,12 @@ final class RemAppTests: XCTestCase {
             .mathBlock(latex: "E = mc^2"),
             .audio(label: "pron.mp3", hash: audioHash),
         ])
+        // Audio asset removal removes `[Audio: ...](asset:...)` as well as `![...](asset:...)`
+        let strippedAudio = MarkdownFormatter.removeAssetReference(
+            hash: audioHash,
+            from: "Hello\n[Audio: pron.mp3](asset:\(audioHash))"
+        )
+        XCTAssertEqual(strippedAudio, "Hello")
     }
 
     func testWave1StoreClozeSiblingsTimerAndNestedDecks() async throws {

@@ -9,7 +9,7 @@ use crate::store::{
 };
 use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc};
 use crate::{
-    normalize_user_tags, CardDraft, Collection, CollectionError, DraftDecision,
+    normalize_user_tags, Card, CardDraft, Collection, CollectionError, DraftDecision,
     DraftProposalOutcome, DraftResolution, DraftSource, NewDraftInput, ProposalMetadata,
     ProposalMode, ProposeDraftsResult, SyncOp,
 };
@@ -124,50 +124,72 @@ impl Collection {
                     .next()
                     .expect("one accepted card prepared");
                 card.provenance = draft.provenance();
-                if let Some(first_cloze) = extract_cloze_indices(&card.front).first().copied() {
-                    card.cloze_index = Some(first_cloze);
-                    card.sibling_group_id = Some(Uuid::new_v4().to_string());
-                }
+                let cloze_indices = extract_cloze_indices(&card.front);
                 let tags_json = serde_json::to_string(&card.tags)?;
                 if let Some(existing) =
                     find_exact_card(&transaction, &deck_id, &card.front, &card.back, &tags_json)?
                 {
                     DraftResolution::ExistingCard(existing)
                 } else {
-                    let scheduling_json = serde_json::to_string(&card.scheduling)?;
-                    let content_hlc = if is_cloud_sync_enabled(&transaction)? {
-                        next_hlc(&transaction, now)?
+                    let cloud_enabled = is_cloud_sync_enabled(&transaction)?;
+                    let cards_to_insert: Vec<Card> = if cloze_indices.is_empty() {
+                        vec![card]
                     } else {
-                        String::new()
+                        let group_id = Uuid::new_v4().to_string();
+                        cloze_indices
+                            .into_iter()
+                            .enumerate()
+                            .map(|(idx, cloze_idx)| {
+                                let mut c = card.clone();
+                                if idx > 0 {
+                                    c.id = Uuid::new_v4().to_string();
+                                }
+                                c.sibling_group_id = Some(group_id.clone());
+                                c.cloze_index = Some(cloze_idx);
+                                c
+                            })
+                            .collect()
                     };
-                    insert_card_with_hlc(
-                        &transaction,
-                        &card,
-                        &tags_json,
-                        &scheduling_json,
-                        &content_hlc,
-                    )?;
-                    if !content_hlc.is_empty() {
-                        enqueue_new_op(
+                    let mut first_inserted = None;
+                    for inserted in cards_to_insert {
+                        let scheduling_json = serde_json::to_string(&inserted.scheduling)?;
+                        let content_hlc = if cloud_enabled {
+                            next_hlc(&transaction, now)?
+                        } else {
+                            String::new()
+                        };
+                        insert_card_with_hlc(
                             &transaction,
-                            &SyncOp::CardCreate {
-                                id: card.id.clone(),
-                                deck_id: card.deck_id.clone(),
-                                front: card.front.clone(),
-                                back: card.back.clone(),
-                                tags: card.tags.clone(),
-                                created_at: card.created_at,
-                                initial_due: card.scheduling.due,
-                                provenance: card.provenance.clone(),
-                                sibling_group_id: card.sibling_group_id.clone(),
-                                cloze_index: card.cloze_index,
-                                hlc: content_hlc,
-                            },
-                            now,
+                            &inserted,
+                            &tags_json,
+                            &scheduling_json,
+                            &content_hlc,
                         )?;
+                        if !content_hlc.is_empty() {
+                            enqueue_new_op(
+                                &transaction,
+                                &SyncOp::CardCreate {
+                                    id: inserted.id.clone(),
+                                    deck_id: inserted.deck_id.clone(),
+                                    front: inserted.front.clone(),
+                                    back: inserted.back.clone(),
+                                    tags: inserted.tags.clone(),
+                                    created_at: inserted.created_at,
+                                    initial_due: inserted.scheduling.due,
+                                    provenance: inserted.provenance.clone(),
+                                    sibling_group_id: inserted.sibling_group_id.clone(),
+                                    cloze_index: inserted.cloze_index,
+                                    hlc: content_hlc,
+                                },
+                                now,
+                            )?;
+                        }
+                        if first_inserted.is_none() {
+                            first_inserted = Some(inserted);
+                        }
                     }
                     bump_sync_revision(&transaction)?;
-                    DraftResolution::Accepted(card)
+                    DraftResolution::Accepted(first_inserted.expect("at least one card inserted"))
                 }
             }
         };

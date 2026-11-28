@@ -167,18 +167,33 @@ impl StudySession {
             load_reviewed_today_sibling_groups(collection, day_start_ms, now)?
         };
         let mut queue = Vec::new();
+        let mut remaining_increase_new = request
+            .custom
+            .as_ref()
+            .filter(|c| c.mode == CustomStudyMode::IncreaseNew)
+            .map(|c| c.amount as usize);
         for deck in decks {
             let (new_introduced, reviews_done) = collection.get_daily_stat(&deck.id, &day)?;
             let items = load_active_items(collection, &deck)?;
             let new_slots = deck.settings.new_per_day.saturating_sub(new_introduced) as usize;
             if let Some(custom) = &request.custom {
-                queue.extend(build_custom_queue(
-                    items,
-                    &deck.settings,
-                    custom,
-                    now,
-                    new_slots,
-                ));
+                let effective_custom = if let Some(rem) = remaining_increase_new {
+                    if rem == 0 {
+                        continue;
+                    }
+                    CustomStudyRequest {
+                        mode: custom.mode,
+                        amount: rem.min(u32::MAX as usize) as u32,
+                    }
+                } else {
+                    custom.clone()
+                };
+                let added =
+                    build_custom_queue(items, &deck.settings, &effective_custom, now, new_slots);
+                if let Some(ref mut rem) = remaining_increase_new {
+                    *rem = rem.saturating_sub(added.len());
+                }
+                queue.extend(added);
             } else {
                 queue.extend(build_deck_queue(
                     items
@@ -187,7 +202,9 @@ impl StudySession {
                             item.card.scheduling.due <= now
                                 && (!deck.settings.bury_related
                                     || !is_sibling_buried_today(
-                                        &item.card,
+                                        &item.card.id,
+                                        item.card.sibling_group_id.as_deref(),
+                                        item.card.scheduling.state,
                                         &reviewed_today_by_group,
                                     ))
                         })
@@ -371,15 +388,17 @@ impl StudySession {
         self.next_states = None;
 
         // Bury remaining siblings from the same sibling group for the rest of the day when
-        // `bury_related` is enabled on a normal study session.
+        // the sibling's deck has `bury_related` enabled on a normal study session.
+        // Intraday learning/relearning cards (`state` 1 or 3) are not buried mid-step.
         let mut buried_siblings = Vec::new();
-        if !self.custom_study && graded.settings.bury_related {
+        if !self.custom_study {
             if let Some(group_id) = graded.card.sibling_group_id.as_deref() {
                 let mut kept = Vec::with_capacity(self.queue.len());
                 for item in self.queue.drain(..) {
                     if item.card.id != graded.card.id
                         && item.card.sibling_group_id.as_deref() == Some(group_id)
                         && item.settings.bury_related
+                        && !matches!(item.card.scheduling.state, 1 | 3)
                     {
                         buried_siblings.push(item);
                     } else {
@@ -552,6 +571,7 @@ impl StudySession {
             self.select_next(now);
             return Ok(self.view());
         }
+        let reloaded_group = reloaded_card.sibling_group_id.clone();
         let current = self.current.as_mut().expect("current card present");
         current.card = reloaded_card;
         current.local_revision = reloaded_revision;
@@ -561,6 +581,27 @@ impl StudySession {
                 &current.settings,
                 now,
             )?);
+        }
+        // Also refresh any queued siblings in the same sibling group so `update_cloze_note`
+        // doesn't leave queued siblings with stale content or stale `local_revision`.
+        if let Some(group_id) = reloaded_group.as_deref() {
+            let mut refreshed = Vec::with_capacity(self.queue.len());
+            for mut item in self.queue.drain(..) {
+                if item.card.sibling_group_id.as_deref() == Some(group_id) {
+                    if let Some((sib_card, sib_rev)) =
+                        load_card_with_revision(collection, &item.card.id)?
+                    {
+                        if !sib_card.suspended {
+                            item.card = sib_card;
+                            item.local_revision = sib_rev;
+                            refreshed.push(item);
+                        }
+                    }
+                } else {
+                    refreshed.push(item);
+                }
+            }
+            self.queue = refreshed;
         }
         Ok(self.view())
     }
@@ -745,10 +786,59 @@ fn build_deck_queue(
         new.sort_by_key(|item| item.card.created_at);
     }
     review.sort_by_key(|item| item.card.scheduling.due);
-    in_progress.extend(review.into_iter().take(review_slots));
+    in_progress.extend(take_capped_respecting_siblings(
+        review,
+        review_slots,
+        settings.bury_related,
+    ));
     in_progress.sort_by_key(|item| item.card.scheduling.due);
-    in_progress.extend(new.into_iter().take(new_slots));
+    in_progress.extend(take_capped_respecting_siblings(
+        new,
+        new_slots,
+        settings.bury_related,
+    ));
     in_progress
+}
+
+/// Select items up to `slots`. When `bury_related` is enabled, multiple siblings from the same
+/// `sibling_group_id` consume only one daily slot (so a large cloze note never starves unrelated
+/// due cards out of `new_per_day` / `max_reviews`), while retaining siblings of already-selected
+/// groups in the queue so in-session bury + Undo behaves cleanly.
+fn take_capped_respecting_siblings(
+    items: Vec<StudyItem>,
+    slots: usize,
+    bury_related: bool,
+) -> Vec<StudyItem> {
+    if slots == 0 {
+        return Vec::new();
+    }
+    if !bury_related {
+        return items.into_iter().take(slots).collect();
+    }
+    let mut selected = Vec::new();
+    let mut seen_groups: HashSet<String> = HashSet::new();
+    let mut used_slots = 0usize;
+    for item in items {
+        if let Some(group_id) = item.card.sibling_group_id.as_deref() {
+            if seen_groups.contains(group_id) {
+                selected.push(item);
+                continue;
+            }
+            if used_slots >= slots {
+                continue;
+            }
+            seen_groups.insert(group_id.to_owned());
+            used_slots += 1;
+            selected.push(item);
+        } else {
+            if used_slots >= slots {
+                continue;
+            }
+            used_slots += 1;
+            selected.push(item);
+        }
+    }
+    selected
 }
 
 fn next_states(
@@ -909,7 +999,7 @@ fn local_day(now: i64) -> Result<String, CollectionError> {
         })
 }
 
-fn local_day_start_ms(now: i64) -> Result<i64, CollectionError> {
+pub(crate) fn local_day_start_ms(now: i64) -> Result<i64, CollectionError> {
     let date = Local
         .timestamp_millis_opt(now)
         .single()
@@ -985,15 +1075,20 @@ fn load_reviewed_today_sibling_groups(
     Ok(reviewed)
 }
 
-fn is_sibling_buried_today(
-    card: &Card,
+pub(crate) fn is_sibling_buried_today(
+    card_id: &str,
+    sibling_group_id: Option<&str>,
+    card_state: u8,
     reviewed_today_by_group: &HashMap<String, HashSet<String>>,
 ) -> bool {
-    let Some(group_id) = card.sibling_group_id.as_deref() else {
+    if matches!(card_state, 1 | 3) {
+        return false;
+    }
+    let Some(group_id) = sibling_group_id else {
         return false;
     };
     let Some(reviewed_cards) = reviewed_today_by_group.get(group_id) else {
         return false;
     };
-    reviewed_cards.iter().any(|other_id| other_id != &card.id)
+    reviewed_cards.iter().any(|other_id| other_id != card_id)
 }

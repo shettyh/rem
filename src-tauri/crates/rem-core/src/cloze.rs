@@ -15,10 +15,13 @@ pub struct ClozeSpan {
 pub fn parse_cloze_spans(text: &str) -> Vec<ClozeSpan> {
     let bytes = text.as_bytes();
     let len = bytes.len();
+    let Some(last_close) = text.rfind("}}") else {
+        return Vec::new();
+    };
     let mut spans = Vec::new();
     let mut i = 0;
 
-    while i + 6 < len {
+    while i + 6 < len && i < last_close {
         if bytes[i] == b'{'
             && bytes[i + 1] == b'{'
             && (bytes[i + 2] == b'c' || bytes[i + 2] == b'C')
@@ -35,7 +38,8 @@ pub fn parse_cloze_spans(text: &str) -> Vec<ClozeSpan> {
             {
                 if let Ok(index) = text[num_start..num_end].parse::<u32>() {
                     if index >= 1 {
-                        if let Some((answer, hint, close_end)) = scan_cloze_body(text, num_end + 2)
+                        if let Some((answer, hint, close_end)) =
+                            scan_cloze_body(text, num_end + 2, last_close + 2)
                         {
                             spans.push(ClozeSpan {
                                 start: i,
@@ -57,20 +61,34 @@ pub fn parse_cloze_spans(text: &str) -> Vec<ClozeSpan> {
     spans
 }
 
-fn scan_cloze_body(text: &str, body_start: usize) -> Option<(String, Option<String>, usize)> {
+fn is_escaped(bytes: &[u8], pos: usize) -> bool {
+    let mut backslashes = 0usize;
+    let mut k = pos;
+    while k > 0 && bytes[k - 1] == b'\\' {
+        backslashes += 1;
+        k -= 1;
+    }
+    backslashes % 2 == 1
+}
+
+fn scan_cloze_body(
+    text: &str,
+    body_start: usize,
+    scan_limit: usize,
+) -> Option<(String, Option<String>, usize)> {
     let bytes = text.as_bytes();
-    let len = bytes.len();
+    let len = scan_limit.min(bytes.len());
     let mut depth: usize = 0;
     let mut hint_sep: Option<usize> = None;
     let mut j = body_start;
 
     while j < len {
-        if bytes[j] == b'{' {
+        if bytes[j] == b'{' && !is_escaped(bytes, j) {
             depth += 1;
             j += 1;
             continue;
         }
-        if bytes[j] == b'}' {
+        if bytes[j] == b'}' && !is_escaped(bytes, j) {
             if depth == 0 && j + 1 < len && bytes[j + 1] == b'}' {
                 let (answer_slice, hint_opt) = match hint_sep {
                     Some(sep) => (
@@ -156,9 +174,14 @@ fn render_cloze(text: &str, active_index: u32, revealed: bool) -> String {
         out.push_str(&text[cursor..span.start]);
         if span.index == active_index {
             if revealed {
-                out.push_str("**");
-                out.push_str(&span.answer);
-                out.push_str("**");
+                let trimmed = span.answer.trim();
+                if trimmed.is_empty() {
+                    out.push_str("[...]");
+                } else {
+                    out.push_str("**");
+                    out.push_str(trimmed);
+                    out.push_str("**");
+                }
             } else {
                 out.push('[');
                 match &span.hint {

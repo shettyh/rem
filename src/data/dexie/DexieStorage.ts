@@ -70,8 +70,23 @@ export class DexieStorage implements Storage {
   }
 
   async updateDeck(id: ID, patch: DeckPatch): Promise<void> {
-    const nextPatch = patch.name !== undefined ? { ...patch, name: normalizeDeckName(patch.name) } : patch
-    await this.db.decks.update(id, { ...nextPatch, updatedAt: Date.now() })
+    const normalizedName = patch.name !== undefined ? normalizeDeckName(patch.name) : undefined
+    const nextPatch = normalizedName !== undefined ? { ...patch, name: normalizedName } : patch
+    const now = Date.now()
+    await this.db.transaction('rw', this.db.decks, async () => {
+      const existing = await this.db.decks.get(id)
+      await this.db.decks.update(id, { ...nextPatch, updatedAt: now })
+      if (existing && normalizedName && normalizedName !== existing.name) {
+        const oldPrefix = `${existing.name}::`
+        const allDecks = await this.db.decks.toArray()
+        for (const child of allDecks) {
+          if (child.id !== id && child.name.startsWith(oldPrefix)) {
+            const renamed = `${normalizedName}::${child.name.slice(oldPrefix.length)}`
+            await this.db.decks.update(child.id, { name: renamed, updatedAt: now })
+          }
+        }
+      }
+    })
     this.notify()
   }
 
@@ -156,48 +171,79 @@ export class DexieStorage implements Storage {
     back: string,
     tags: string[] = [],
   ): Promise<Card[]> {
-    const target = await this.db.cards.get(cardId)
-    if (!target) throw new Error(`card not found: ${cardId}`)
+    if (!front.trim()) throw new Error('card front must not be blank')
     const now = Date.now()
     const userTags = normalizeUserTags(tags)
-    const affected: Card[] = []
-    if (target.siblingGroupId && target.clozeIndex) {
-      const allInDeck = await this.db.cards.where('deckId').equals(target.deckId).toArray()
-      const siblings = allInDeck.filter(
-        (c) => c.siblingGroupId === target.siblingGroupId && c.clozeIndex != null,
-      )
-      const existingIndices = new Set<number>()
-      for (const sib of siblings) {
-        if (sib.clozeIndex) existingIndices.add(sib.clozeIndex)
-        const nextTags = sib.tags.includes('leech') ? ['leech', ...userTags] : userTags
-        const updated = { ...sib, front, back, tags: nextTags, updatedAt: now }
-        await this.db.cards.put(updated)
-        affected.push(updated)
-      }
-      for (const idx of extractClozeIndices(front)) {
-        if (existingIndices.has(idx)) continue
-        const created: Card = {
-          id: crypto.randomUUID(),
-          deckId: target.deckId,
-          front,
-          back,
-          createdAt: now,
-          updatedAt: now,
-          tags: userTags,
-          suspended: false,
-          lastAgainAt: null,
-          scheduling: getScheduler().initial(now),
-          siblingGroupId: target.siblingGroupId,
-          clozeIndex: idx,
+    const affected = await this.db.transaction('rw', this.db.cards, this.db.tombstones, async () => {
+      const target = await this.db.cards.get(cardId)
+      if (!target) throw new Error(`card not found: ${cardId}`)
+      const out: Card[] = []
+      if (target.siblingGroupId && target.clozeIndex) {
+        const activeIndices = extractClozeIndices(front)
+        const activeSet = new Set(activeIndices)
+        const allCards = await this.db.cards.toArray()
+        const siblings = allCards.filter(
+          (c) => c.siblingGroupId === target.siblingGroupId && c.clozeIndex != null,
+        )
+        const existingIndices = new Set<number>()
+        for (const sib of siblings) {
+          if (sib.clozeIndex) {
+            existingIndices.add(sib.clozeIndex)
+            if (activeSet.size > 0 && !activeSet.has(sib.clozeIndex)) {
+              if (sib.scheduling.reps === 0) {
+                await this.db.cards.delete(sib.id)
+                await this.db.tombstones.put({ id: sib.id, kind: 'card', deletedAt: now })
+                continue
+              }
+              const nextTags = sib.tags.includes('leech') ? ['leech', ...userTags] : userTags
+              const updated = {
+                ...sib,
+                front,
+                back,
+                tags: nextTags,
+                suspended: true,
+                updatedAt: now,
+              }
+              await this.db.cards.put(updated)
+              out.push(updated)
+              continue
+            }
+          }
+          const nextTags = sib.tags.includes('leech') ? ['leech', ...userTags] : userTags
+          const updated = { ...sib, front, back, tags: nextTags, updatedAt: now }
+          await this.db.cards.put(updated)
+          out.push(updated)
         }
-        await this.db.cards.add(created)
-        affected.push(created)
+        for (const idx of activeIndices) {
+          if (existingIndices.has(idx)) continue
+          const created: Card = {
+            id: crypto.randomUUID(),
+            deckId: target.deckId,
+            front,
+            back,
+            createdAt: now,
+            updatedAt: now,
+            tags: userTags,
+            suspended: false,
+            lastAgainAt: null,
+            scheduling: getScheduler().initial(now),
+            rationale: target.rationale ?? null,
+            sources: target.sources ?? [],
+            proposedBy: target.proposedBy ?? null,
+            siblingGroupId: target.siblingGroupId,
+            clozeIndex: idx,
+          }
+          await this.db.cards.add(created)
+          out.push(created)
+        }
+      } else {
+        const nextTags = target.tags.includes('leech') ? ['leech', ...userTags] : userTags
+        const updated = { ...target, front, back, tags: nextTags, updatedAt: now }
+        await this.db.cards.put(updated)
+        out.push(updated)
       }
-    } else {
-      const updated = { ...target, front, back, tags, updatedAt: now }
-      await this.db.cards.put(updated)
-      affected.push(updated)
-    }
+      return out
+    })
     this.notify()
     return affected
   }
@@ -541,7 +587,8 @@ export class DexieStorage implements Storage {
   }
 
   async importDecks(decks: DeckBackup[]): Promise<ImportResult> {
-    const incomingNames = decks.map((d) => d.name)
+    const normalizedDecks = decks.map((d) => ({ ...d, name: normalizeDeckName(d.name) }))
+    const incomingNames = normalizedDecks.map((d) => d.name)
     const result = await this.db.transaction('rw', this.db.decks, this.db.cards, this.db.cardDrafts, this.db.reviewLogs, async () => {
       const existing = await this.db.decks.toArray()
       const result = planImport(incomingNames, existing.map((d) => d.name))
@@ -555,7 +602,8 @@ export class DexieStorage implements Storage {
         await this.db.decks.delete(id)
       }
 
-      for (const d of decks) {
+      const siblingMap = new Map<string, string>()
+      for (const d of normalizedDecks) {
         const deckId = crypto.randomUUID()
         await this.db.decks.add({
           id: deckId,
@@ -566,17 +614,21 @@ export class DexieStorage implements Storage {
           schedulerKind: d.schedulerKind,
           settings: d.settings,
         })
-        const siblingMap = new Map<string, string>()
         for (const c of d.cards) {
           const cardId = crypto.randomUUID()
           let remappedSibling: string | undefined
-          if (c.siblingGroupId) {
-            remappedSibling = siblingMap.get(c.siblingGroupId)
+          if (c.siblingGroupId && c.siblingGroupId.trim()) {
+            const key = c.siblingGroupId.trim()
+            remappedSibling = siblingMap.get(key)
             if (!remappedSibling) {
               remappedSibling = crypto.randomUUID()
-              siblingMap.set(c.siblingGroupId, remappedSibling)
+              siblingMap.set(key, remappedSibling)
             }
           }
+          const sanitizedCloze =
+            typeof c.clozeIndex === 'number' && Number.isInteger(c.clozeIndex) && c.clozeIndex >= 1
+              ? c.clozeIndex
+              : null
           await this.db.cards.add({
             id: cardId,
             deckId,
@@ -592,7 +644,7 @@ export class DexieStorage implements Storage {
             sources: c.sources ?? [],
             proposedBy: c.proposedBy ?? null,
             siblingGroupId: remappedSibling ?? null,
-            clozeIndex: c.clozeIndex ?? null,
+            clozeIndex: sanitizedCloze,
           })
           for (const review of c.reviews) {
             await this.db.reviewLogs.add({

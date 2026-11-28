@@ -6,6 +6,7 @@ struct DeckDetailView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var cards: [CardDto] = []
+    @State private var hasLoadedCards: Bool = false
     @State private var searchText: String = ""
     @State private var selectedTag: String = "All"
     @State private var showCustomStudy: Bool = false
@@ -33,7 +34,20 @@ struct DeckDetailView: View {
     }
 
     private var rolledUpTotalCards: Int {
-        cards.count + subdecks.reduce(0) { $0 + Int($1.totalCards) }
+        let direct = hasLoadedCards ? cards.count : Int(deckSummary?.totalCards ?? 0)
+        return direct + subdecks.reduce(0) { $0 + Int($1.totalCards) }
+    }
+
+    private func rolledUpCounts(for sub: DeckSummaryDto) -> (due: UInt32, newDue: UInt32, total: UInt32) {
+        let all = appState.todaySummary?.decks ?? []
+        let group = all.filter {
+            $0.id == sub.id || DeckTreeBuilder.isDescendantOrSelf($0.name, of: sub.name)
+        }
+        return (
+            due: group.reduce(0) { $0 + $1.dueCount },
+            newDue: group.reduce(0) { $0 + $1.newDueCount },
+            total: group.reduce(0) { $0 + $1.totalCards }
+        )
     }
 
     private var allTags: [String] {
@@ -125,8 +139,16 @@ struct DeckDetailView: View {
                         let relativeName = sub.name.hasPrefix(prefix)
                             ? String(sub.name.dropFirst(prefix.count))
                             : sub.name
+                        let totals = rolledUpCounts(for: sub)
                         NavigationLink(value: sub.id) {
-                            DeckSummaryRow(deck: sub, showChevron: false, displayName: relativeName)
+                            DeckSummaryRow(
+                                deck: sub,
+                                showChevron: false,
+                                displayName: relativeName,
+                                dueOverride: totals.due,
+                                newDueOverride: totals.newDue,
+                                totalOverride: totals.total
+                            )
                         }
                     }
                 }
@@ -305,6 +327,7 @@ struct DeckDetailView: View {
     private func loadCards() async {
         do {
             self.cards = try await appState.store.listCards(deckId: deckId)
+            self.hasLoadedCards = true
         } catch {
             appState.showToast(error.remDisplayMessage)
         }

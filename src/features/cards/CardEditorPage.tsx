@@ -42,6 +42,7 @@ export function CardEditorPage() {
   const [baseline, setBaseline] = useState<CardDraft | null>(editing ? null : EMPTY_DRAFT)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [savedCount, setSavedCount] = useState(0)
+  const [mediaError, setMediaError] = useState<string | null>(null)
   const allowNavigationRef = useRef(false)
   const tagInputRef = useRef<HTMLInputElement>(null)
   // The field the shared toolbar should act on — defaults to Front, follows focus.
@@ -120,9 +121,10 @@ export function CardEditorPage() {
   const combinedTagInput = [...userTagChips, tagDraft].filter(Boolean).join(', ')
   const currentTagsKey = parseUserTags(combinedTagInput).join(', ')
 
-  const ingestImage = async (file: File) => {
+  const ingestAsset = async (file: File, mimeOverride?: string) => {
+    setMediaError(null)
     const bytes = new Uint8Array(await file.arrayBuffer())
-    const asset = await storage.putAsset(bytes, file.type)
+    const asset = await storage.putAsset(bytes, mimeOverride || file.type || 'application/octet-stream')
     return { hash: asset.hash, mime: asset.mime }
   }
   const resolveAsset = (hash: string) => loadAssetUrl(storage, hash)
@@ -185,32 +187,39 @@ export function CardEditorPage() {
     }
   }
 
+  const canInsertCloze = !editing || isClozeCard
+
   const insertCloze = useCallback(() => {
+    if (!canInsertCloze) return
     const target = frontHandle.current ?? active
     if (!target) return
     const ed = target.editor
     const { from, to } = ed.state.selection
     const selectedText = ed.state.doc.textBetween(from, to, ' ')
     const idx = nextClozeIndex(front)
-    const snippet = selectedText ? `{{c${idx}::${selectedText}}}` : `{{c${idx}::}}`
-    ed.chain().focus().insertContent(snippet).run()
-  }, [active, front])
+    if (selectedText) {
+      ed.chain().focus().insertContent(`{{c${idx}::${selectedText}}}`).run()
+    } else {
+      const prefix = `{{c${idx}::`
+      const snippet = `${prefix}}}`
+      const cursorPos = from + prefix.length
+      ed.chain().focus().insertContent(snippet).setTextSelection(cursorPos).run()
+    }
+  }, [active, canInsertCloze, front])
 
   const save = useCallback(async (addAnother = false) => {
     if (!front.trim() || !deckId) return
     const nextTags = mergeUserTags(tags, combinedTagInput)
     let createdCount = 1
     if (editing && cardId) {
-      if (isClozeCard && storage.updateClozeNote) {
+      if (isClozeCard) {
         await storage.updateClozeNote(cardId, front, back, nextTags)
       } else {
         await storage.updateCard(cardId, { front, back, tags: nextTags })
       }
-    } else if (storage.createCardOrCloze) {
+    } else {
       const created = await storage.createCardOrCloze(deckId, front, back, nextTags)
       createdCount = Math.max(1, created.length)
-    } else {
-      await storage.createCard(deckId, front, back, nextTags)
     }
     await storage.sweepOrphanAssets()
 
@@ -260,7 +269,8 @@ export function CardEditorPage() {
         e.preventDefault()
         void save(e.shiftKey && !editing)
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
-        if (cardMissing) return
+        const tag = (e.target as HTMLElement | null)?.tagName ?? ''
+        if (cardMissing || !canInsertCloze || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
         e.preventDefault()
         insertCloze()
       } else if (e.key === 'Escape') {
@@ -348,9 +358,15 @@ export function CardEditorPage() {
             editor={active?.editor ?? null}
             onImage={() => active?.openImagePicker()}
             onAudio={() => active?.openAudioPicker()}
-            onCloze={insertCloze}
+            onCloze={canInsertCloze ? insertCloze : undefined}
           />
         </div>
+
+        {mediaError && (
+          <p className="editor-cloze-hint" role="alert">
+            {mediaError}
+          </p>
+        )}
 
         {((!editing && clozeIndices.length > 0) || isClozeCard) && (
           <p className="editor-cloze-hint" role="status">
@@ -370,7 +386,8 @@ export function CardEditorPage() {
               ariaLabel="Front"
               autoFocus={!editing}
               resolveAsset={resolveAsset}
-              ingestImage={ingestImage}
+              ingestAsset={ingestAsset}
+              onMediaError={setMediaError}
               onReady={onFrontReady}
               onFocus={() => frontHandle.current && setActive(frontHandle.current)}
             />
@@ -384,7 +401,8 @@ export function CardEditorPage() {
               placeholder="Type the answer…"
               ariaLabel="Back"
               resolveAsset={resolveAsset}
-              ingestImage={ingestImage}
+              ingestAsset={ingestAsset}
+              onMediaError={setMediaError}
               onReady={onBackReady}
               onFocus={() => backHandle.current && setActive(backHandle.current)}
             />

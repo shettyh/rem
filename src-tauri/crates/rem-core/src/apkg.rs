@@ -1,5 +1,8 @@
 use std::collections::{HashMap, HashSet};
-use std::io::{Cursor, Read, Write};
+use std::fs::File;
+use std::io::{Cursor, Read, Seek, Write};
+use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rusqlite::config::DbConfig;
 use rusqlite::{Connection, OpenFlags};
@@ -24,6 +27,11 @@ const MAX_DB_BYTES: usize = 256 * 1024 * 1024;
 const MAX_SINGLE_MEDIA_BYTES: usize = 25 * 1024 * 1024;
 const MAX_TOTAL_MEDIA_BYTES: usize = 512 * 1024 * 1024;
 const MAX_MEDIA_MANIFEST_BYTES: usize = 32 * 1024 * 1024;
+const MAX_IMPORT_NOTES: usize = 250_000;
+const MAX_IMPORT_CARDS: usize = 500_000;
+const MAX_IMPORT_REVLOGS: usize = 2_000_000;
+const MAX_SQLITE_PROGRESS_TICKS: usize = 5_000;
+const MAX_VALID_DUE_MS: i64 = 4_102_444_800_000; // 2100-01-01T00:00:00Z
 const MS_PER_DAY: i64 = 86_400_000;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,6 +64,7 @@ struct ParsedMediaAsset {
 struct ParsedApkg {
     decks: Vec<DeckBackup>,
     assets: HashMap<String, ParsedMediaAsset>,
+    referenced_media_count: u32,
     total_cards: u32,
     total_reviews: u32,
     warnings: Vec<String>,
@@ -71,7 +80,7 @@ struct AnkiTemplate {
 struct AnkiModel {
     is_cloze: bool,
     fields: Vec<String>,
-    templates: Vec<AnkiTemplate>,
+    templates: HashMap<i64, AnkiTemplate>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +99,8 @@ struct AnkiCardRow {
     card_type: i64,
     queue: i64,
     due: i64,
+    odid: i64,
+    odue: i64,
     ivl: i64,
     factor: i64,
     reps: i64,
@@ -98,13 +109,60 @@ struct AnkiCardRow {
 }
 
 impl Collection {
-    /// Inspect an Anki `.apkg` archive without mutating the collection.
+    /// Inspect an Anki `.apkg` archive from bytes without mutating the collection.
     pub fn preview_apkg_bytes(
         &self,
         bytes: &[u8],
         now_ms: i64,
     ) -> Result<ApkgImportPreview, CollectionError> {
-        let parsed = parse_apkg_bytes(bytes, now_ms)?;
+        if bytes.len() > MAX_APKG_ARCHIVE_BYTES {
+            return Err(CollectionError::InvalidInput(
+                "Archive exceeds the maximum supported .apkg size (512 MB).".into(),
+            ));
+        }
+        let parsed = parse_apkg_reader(Cursor::new(bytes), now_ms, false)?;
+        self.build_apkg_preview(parsed)
+    }
+
+    /// Inspect an Anki `.apkg` archive directly from a file on disk without loading it into RAM.
+    pub fn preview_apkg_file(
+        &self,
+        path: impl AsRef<Path>,
+        now_ms: i64,
+    ) -> Result<ApkgImportPreview, CollectionError> {
+        let file = open_validated_apkg_file(path.as_ref())?;
+        let parsed = parse_apkg_reader(file, now_ms, false)?;
+        self.build_apkg_preview(parsed)
+    }
+
+    /// Import an Anki `.apkg` archive from bytes into the collection.
+    pub fn import_apkg_bytes(
+        &self,
+        bytes: &[u8],
+        now_ms: i64,
+    ) -> Result<ApkgImportResult, CollectionError> {
+        if bytes.len() > MAX_APKG_ARCHIVE_BYTES {
+            return Err(CollectionError::InvalidInput(
+                "Archive exceeds the maximum supported .apkg size (512 MB).".into(),
+            ));
+        }
+        let parsed = parse_apkg_reader(Cursor::new(bytes), now_ms, true)?;
+        self.commit_parsed_apkg(parsed, now_ms)
+    }
+
+    /// Import an Anki `.apkg` archive directly from a file on disk without loading the whole
+    /// archive into RAM at once.
+    pub fn import_apkg_file(
+        &self,
+        path: impl AsRef<Path>,
+        now_ms: i64,
+    ) -> Result<ApkgImportResult, CollectionError> {
+        let file = open_validated_apkg_file(path.as_ref())?;
+        let parsed = parse_apkg_reader(file, now_ms, true)?;
+        self.commit_parsed_apkg(parsed, now_ms)
+    }
+
+    fn build_apkg_preview(&self, parsed: ParsedApkg) -> Result<ApkgImportPreview, CollectionError> {
         let existing_names: HashSet<String> = self
             .list_decks()?
             .into_iter()
@@ -123,34 +181,29 @@ impl Collection {
             added,
             replaced,
             total_cards: parsed.total_cards,
-            media_count: parsed.assets.len() as u32,
+            media_count: parsed.referenced_media_count,
             review_logs: parsed.total_reviews,
             warnings: parsed.warnings,
         })
     }
 
-    /// Import an Anki `.apkg` archive into the collection (decks, cards, cloze/siblings,
-    /// referenced image/audio media assets, and FSRS-7 reconstructed scheduling/review logs).
-    pub fn import_apkg_bytes(
+    fn commit_parsed_apkg(
         &self,
-        bytes: &[u8],
+        parsed: ParsedApkg,
         now_ms: i64,
     ) -> Result<ApkgImportResult, CollectionError> {
-        let parsed = parse_apkg_bytes(bytes, now_ms)?;
         if parsed.decks.is_empty() {
             return Err(CollectionError::InvalidInput(
                 "No importable cards were found in this .apkg file.".into(),
             ));
         }
-
-        // Store referenced media assets first so cloud sync outbox ops see every asset hash.
-        let mut imported_media = 0_u32;
-        for asset in parsed.assets.values() {
-            self.put_asset(&asset.bytes, &asset.mime, now_ms)?;
-            imported_media = imported_media.saturating_add(1);
-        }
-
-        let import_result = self.import_decks(parsed.decks, now_ms)?;
+        let asset_slices: Vec<(&str, &[u8])> = parsed
+            .assets
+            .values()
+            .map(|asset| (asset.mime.as_str(), asset.bytes.as_slice()))
+            .collect();
+        let (import_result, imported_media) =
+            self.import_decks_with_assets(parsed.decks, &asset_slices, now_ms)?;
         Ok(ApkgImportResult {
             added: import_result.added,
             replaced: import_result.replaced,
@@ -162,14 +215,33 @@ impl Collection {
     }
 }
 
-fn parse_apkg_bytes(bytes: &[u8], now_ms: i64) -> Result<ParsedApkg, CollectionError> {
-    if bytes.len() > MAX_APKG_ARCHIVE_BYTES {
+fn open_validated_apkg_file(path: &Path) -> Result<File, CollectionError> {
+    let file = File::open(path).map_err(|err| {
+        CollectionError::InvalidInput(format!("Could not open {}: {err}", path.display()))
+    })?;
+    let meta = file.metadata().map_err(|err| {
+        CollectionError::InvalidInput(format!("Could not inspect {}: {err}", path.display()))
+    })?;
+    if !meta.file_type().is_file() {
+        return Err(CollectionError::InvalidInput(format!(
+            "{} is not a regular .apkg file.",
+            path.display()
+        )));
+    }
+    if meta.len() > MAX_APKG_ARCHIVE_BYTES as u64 {
         return Err(CollectionError::InvalidInput(
             "Archive exceeds the maximum supported .apkg size (512 MB).".into(),
         ));
     }
-    let cursor = Cursor::new(bytes);
-    let mut archive = ZipArchive::new(cursor).map_err(|_| {
+    Ok(file)
+}
+
+fn parse_apkg_reader<R: Read + Seek>(
+    reader: R,
+    now_ms: i64,
+    load_media: bool,
+) -> Result<ParsedApkg, CollectionError> {
+    let mut archive = ZipArchive::new(reader).map_err(|_| {
         CollectionError::InvalidInput("File is not a valid Anki .apkg (ZIP) archive.".into())
     })?;
     if archive.len() > MAX_ZIP_ENTRIES {
@@ -188,14 +260,15 @@ fn parse_apkg_bytes(bytes: &[u8], now_ms: i64) -> Result<ParsedApkg, CollectionE
             )
         })?;
 
-    let raw_db = read_zip_entry_limited(&mut archive, db_entry_name, MAX_DB_BYTES)?;
-    let db_bytes = maybe_decompress_zstd(&raw_db, MAX_DB_BYTES)?;
-
-    // Write SQLite database to a secure temporary file opened read-only.
     let mut temp_db = NamedTempFile::new()?;
-    temp_db.write_all(&db_bytes)?;
-    temp_db.flush()?;
-    let anki_conn = Connection::open_with_flags(
+    {
+        let raw_db = read_zip_entry_limited(&mut archive, db_entry_name, MAX_DB_BYTES)?;
+        let db_bytes = maybe_decompress_zstd(raw_db, MAX_DB_BYTES)?;
+        temp_db.write_all(&db_bytes)?;
+        temp_db.flush()?;
+    } // `raw_db` and `db_bytes` dropped before opening SQLite or reading media.
+
+    let mut anki_conn = Connection::open_with_flags(
         temp_db.path(),
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
@@ -204,10 +277,17 @@ fn parse_apkg_bytes(bytes: &[u8], now_ms: i64) -> Result<ParsedApkg, CollectionE
     })?;
     let _ = anki_conn.set_db_config(DbConfig::SQLITE_DBCONFIG_DEFENSIVE, true);
     let _ = anki_conn.set_db_config(DbConfig::SQLITE_DBCONFIG_TRUSTED_SCHEMA, false);
+    let _ = anki_conn.set_db_config(DbConfig::SQLITE_DBCONFIG_ENABLE_VIEW, false);
+    let _ = anki_conn.create_collation("unicase", |a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    let ticks = AtomicUsize::new(0);
+    let _ = anki_conn.progress_handler(
+        10_000,
+        Some(move || ticks.fetch_add(1, Ordering::Relaxed) >= MAX_SQLITE_PROGRESS_TICKS),
+    );
 
     // 2. Parse media manifest (`media` entry in ZIP, either JSON or zstd protobuf).
     let media_map = read_media_manifest(&mut archive)?;
-    let mut media_loader = MediaLoader::new(&mut archive, media_map);
+    let mut media_loader = MediaLoader::new(&mut archive, media_map, load_media);
 
     // 3. Load collection metadata, decks, models/notetypes, notes, cards, revlog.
     let col_crt = load_collection_crt(&anki_conn).unwrap_or(now_ms / 1000);
@@ -216,6 +296,8 @@ fn parse_apkg_bytes(bytes: &[u8], now_ms: i64) -> Result<ParsedApkg, CollectionE
     let notes_by_id = load_anki_notes(&anki_conn)?;
     let cards = load_anki_cards(&anki_conn)?;
     let revlogs_by_card = load_anki_revlogs(&anki_conn, now_ms)?;
+    drop(anki_conn);
+    drop(temp_db);
 
     let mut cards_per_note: HashMap<i64, usize> = HashMap::new();
     for card in &cards {
@@ -331,9 +413,15 @@ fn parse_apkg_bytes(bytes: &[u8], now_ms: i64) -> Result<ParsedApkg, CollectionE
         });
     }
 
+    let referenced_media_count = if load_media {
+        media_loader.loaded_assets.len() as u32
+    } else {
+        media_loader.referenced_keys.len() as u32
+    };
     Ok(ParsedApkg {
         decks,
         assets: media_loader.loaded_assets,
+        referenced_media_count,
         total_cards,
         total_reviews,
         warnings,
@@ -381,25 +469,31 @@ fn reconstruct_fsrs_state(
         _ => FsrsState::STATE_NEW,
     };
 
-    if state == FsrsState::STATE_NEW && card.reps <= 0 && reviews.is_empty() {
+    // Anki "Forget" resets a card to type=0, reps=0 while retaining historical revlog rows;
+    // honor the card's reset state rather than resurrecting it as Review.
+    if state == FsrsState::STATE_NEW && card.reps <= 0 {
         return FsrsState::initial(now_ms);
     }
 
     let due = compute_anki_due_ms(card, col_crt_secs, now_ms);
-    let reps = (card.reps.max(0) as u32).max(reviews.len() as u32);
-    let lapses = card.lapses.max(0) as u32;
+    let card_reps = u32::try_from(card.reps.max(0)).unwrap_or(u32::MAX);
+    let rev_len = u32::try_from(reviews.len()).unwrap_or(u32::MAX);
+    let reps = card_reps.max(rev_len);
+    let lapses = u32::try_from(card.lapses.max(0)).unwrap_or(u32::MAX);
     let last_review = reviews.last().map(|r| r.reviewed_at).or_else(|| {
         if card.ivl > 0 && state == FsrsState::STATE_REVIEW {
-            Some(due.saturating_sub(card.ivl.saturating_mul(MS_PER_DAY)))
-        } else if reps > 0 {
-            Some(now_ms)
+            Some(
+                due.saturating_sub(card.ivl.saturating_mul(MS_PER_DAY))
+                    .clamp(0, now_ms),
+            )
         } else {
             None
         }
     });
 
     // Prefer Anki's native FSRS stability/difficulty from `cards.data` JSON if present and valid.
-    let (mut stability, mut difficulty) = parse_anki_fsrs_data(&card.data).unwrap_or_else(|| {
+    let native_fsrs = parse_anki_fsrs_data(&card.data);
+    let (mut stability, mut difficulty) = native_fsrs.unwrap_or_else(|| {
         let est_stability = if card.ivl > 0 {
             (card.ivl as f32).clamp(0.5, 36_500.0)
         } else {
@@ -438,6 +532,11 @@ fn reconstruct_fsrs_state(
         due,
     };
 
+    if native_fsrs.is_some() {
+        // Keep Anki's native FSRS stability/difficulty intact; only derive `stability_fast`.
+        return migrate_card_scheduling_to_fsrs7(fsrs, base, &[]);
+    }
+
     let review_pairs: Vec<(i64, Grade)> = reviews
         .iter()
         .map(|entry| (entry.reviewed_at, entry.grade))
@@ -446,34 +545,45 @@ fn reconstruct_fsrs_state(
 }
 
 fn compute_anki_due_ms(card: &AnkiCardRow, col_crt_secs: i64, now_ms: i64) -> i64 {
-    match card.card_type {
+    // Cards inside an Anki filtered deck (`odid != 0`) store their filtered queue position in
+    // `due` and their real scheduling due value in `odue`.
+    let raw_due = if card.odid != 0 && card.odue != 0 {
+        card.odue
+    } else {
+        card.due
+    };
+    let computed = match card.card_type {
         0 => now_ms,
         2 => {
-            if card.due > 1_000_000_000 {
+            if raw_due > 1_000_000_000 {
                 // Already epoch seconds
-                card.due.saturating_mul(1000)
+                raw_due.saturating_mul(1000)
             } else {
                 // Days relative to collection creation date (`col.crt`)
                 col_crt_secs
                     .saturating_mul(1000)
-                    .saturating_add(card.due.saturating_mul(MS_PER_DAY))
+                    .saturating_add(raw_due.saturating_mul(MS_PER_DAY))
             }
         }
         1 | 3 => {
-            if card.queue == 3 && card.due < 1_000_000_000 {
+            if card.queue == 3 && raw_due < 1_000_000_000 {
                 col_crt_secs
                     .saturating_mul(1000)
-                    .saturating_add(card.due.saturating_mul(MS_PER_DAY))
-            } else if card.due > 1_000_000_000_000 {
-                card.due
-            } else if card.due > 1_000_000_000 {
-                card.due.saturating_mul(1000)
+                    .saturating_add(raw_due.saturating_mul(MS_PER_DAY))
+            } else if raw_due > 1_000_000_000_000 {
+                raw_due
+            } else if raw_due > 1_000_000_000 {
+                raw_due.saturating_mul(1000)
             } else {
                 now_ms
             }
         }
         _ => now_ms,
-    }
+    };
+    let max_due = now_ms
+        .saturating_add(100 * 365 * MS_PER_DAY)
+        .min(MAX_VALID_DUE_MS);
+    computed.clamp(0, max_due)
 }
 
 fn parse_anki_fsrs_data(data: &str) -> Option<(f32, f32)> {
@@ -492,18 +602,21 @@ fn parse_anki_fsrs_data(data: &str) -> Option<(f32, f32)> {
     }
 }
 
-fn build_cloze_card_content(
+fn build_cloze_card_content<R: Read + Seek>(
     note: &AnkiNote,
     model: Option<&AnkiModel>,
     ord: i64,
-    media: &mut MediaLoader<'_>,
+    media: &mut MediaLoader<'_, R>,
 ) -> Result<(String, String, Option<u32>), CollectionError> {
     // Locate cloze field: prefer template `{{cloze:Field}}`, else first field with cloze syntax, else field 0.
     let cloze_field_idx = model
         .and_then(|m| {
-            let tmpl = m.templates.first()?;
+            let tmpl = m
+                .templates
+                .get(&0)
+                .or_else(|| m.templates.values().next())?;
             let name = extract_cloze_field_name(&tmpl.qfmt)?;
-            m.fields.iter().position(|f| f == &name)
+            m.fields.iter().position(|f| f.eq_ignore_ascii_case(&name))
         })
         .or_else(|| note.fields.iter().position(|f| has_cloze_deletions(f)))
         .unwrap_or(0);
@@ -514,6 +627,9 @@ fn build_cloze_card_content(
         .map(String::as_str)
         .unwrap_or("");
     let front = html_to_markdown(raw_front, media)?;
+    if front.trim().is_empty() {
+        return Ok((String::new(), String::new(), None));
+    }
 
     let mut extra_parts = Vec::new();
     for (idx, value) in note.fields.iter().enumerate() {
@@ -527,7 +643,7 @@ fn build_cloze_card_content(
     }
     let back = extra_parts.join("\n\n");
 
-    let target_index = u32::try_from(ord + 1).unwrap_or(1).max(1);
+    let target_index = u32::try_from(ord.saturating_add(1)).unwrap_or(1).max(1);
     let indices = extract_cloze_indices(&front);
     let cloze_index = if indices.contains(&target_index) {
         Some(target_index)
@@ -538,39 +654,43 @@ fn build_cloze_card_content(
     Ok((front, back, cloze_index))
 }
 
-fn build_standard_card_content(
+fn build_standard_card_content<R: Read + Seek>(
     note: &AnkiNote,
     model: Option<&AnkiModel>,
     ord: i64,
-    media: &mut MediaLoader<'_>,
+    media: &mut MediaLoader<'_, R>,
 ) -> Result<(String, String, Option<u32>), CollectionError> {
     if let Some(model) = model {
-        if let Some(template) = model.templates.get(ord.max(0) as usize) {
-            let field_map: HashMap<&str, &str> = model
+        if let Some(template) = model.templates.get(&ord) {
+            let field_map: HashMap<String, &str> = model
                 .fields
                 .iter()
                 .enumerate()
                 .map(|(idx, name)| {
                     (
-                        name.as_str(),
+                        name.to_ascii_lowercase(),
                         note.fields.get(idx).map(String::as_str).unwrap_or(""),
                     )
                 })
                 .collect();
             let raw_front = render_anki_template(&template.qfmt, &field_map, &note.tags);
-            let raw_afmt = strip_front_side_from_afmt(&template.afmt);
-            let raw_back = render_anki_template(&raw_afmt, &field_map, &note.tags);
             let front = html_to_markdown(&raw_front, media)?;
-            let back = html_to_markdown(&raw_back, media)?;
-            if !front.trim().is_empty() {
-                return Ok((front, back, None));
+            if front.trim().is_empty() {
+                // Respect templates that intentionally yield empty fronts (e.g., optional reverse cards).
+                return Ok((String::new(), String::new(), None));
             }
+            let raw_back = render_anki_back_template(&template.afmt, &field_map, &note.tags);
+            let back = html_to_markdown(&raw_back, media)?;
+            return Ok((front, back, None));
         }
     }
 
-    // Fallback: field 0 as front, remaining non-empty fields as back.
+    // Fallback when model/template metadata is absent: field 0 as front, remaining fields as back.
     let raw_front = note.fields.first().map(String::as_str).unwrap_or("");
     let front = html_to_markdown(raw_front, media)?;
+    if front.trim().is_empty() {
+        return Ok((String::new(), String::new(), None));
+    }
     let mut back_parts = Vec::new();
     for field in note.fields.iter().skip(1) {
         let converted = html_to_markdown(field, media)?;
@@ -590,6 +710,25 @@ fn extract_cloze_field_name(qfmt: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.to_owned())
 }
 
+fn render_anki_back_template(
+    afmt: &str,
+    fields: &HashMap<String, &str>,
+    tags: &[String],
+) -> String {
+    // Resolve conditionals *before* slicing after `<hr id=answer>` so conditionals wrapping
+    // `{{FrontSide}}<hr id=answer>...` don't get split mid-block.
+    let mut current = strip_style_and_script(afmt);
+    for _ in 0..8 {
+        let next = resolve_template_conditionals(&current, fields, tags);
+        if next == current {
+            break;
+        }
+        current = next;
+    }
+    let stripped = strip_front_side_from_afmt(&current);
+    substitute_template_fields(&stripped, fields, tags)
+}
+
 fn strip_front_side_from_afmt(afmt: &str) -> String {
     // Most Anki back templates look like `{{FrontSide}}\n<hr id=answer>\n{{Back}}`.
     let lower = afmt.to_ascii_lowercase();
@@ -602,19 +741,26 @@ fn strip_front_side_from_afmt(afmt: &str) -> String {
     replace_case_insensitive(afmt, "{{FrontSide}}", "")
 }
 
-fn render_anki_template(template: &str, fields: &HashMap<&str, &str>, tags: &[String]) -> String {
+fn render_anki_template(template: &str, fields: &HashMap<String, &str>, tags: &[String]) -> String {
     let mut current = strip_style_and_script(template);
     // Resolve simple conditional sections `{{#Field}}...{{/Field}}` and `{{^Field}}...{{/Field}}`
     for _ in 0..8 {
-        let next = resolve_template_conditionals(&current, fields);
+        let next = resolve_template_conditionals(&current, fields, tags);
         if next == current {
             break;
         }
         current = next;
     }
+    substitute_template_fields(&current, fields, tags)
+}
 
+fn substitute_template_fields(
+    current: &str,
+    fields: &HashMap<String, &str>,
+    tags: &[String],
+) -> String {
     let mut out = String::with_capacity(current.len());
-    let mut rest = current.as_str();
+    let mut rest = current;
     while let Some(open) = rest.find("{{") {
         out.push_str(&rest[..open]);
         let after_open = &rest[open + 2..];
@@ -639,7 +785,7 @@ fn render_anki_template(template: &str, fields: &HashMap<&str, &str>, tags: &[St
         }
         // Strip Anki template filters like `type:`, `text:`, `hint:`, `furigana:`, `kana:`, `kanji:`, `cloze:`
         let field_name = token.rsplit(':').next().unwrap_or(token).trim();
-        if let Some(val) = fields.get(field_name) {
+        if let Some(val) = fields.get(&field_name.to_ascii_lowercase()) {
             out.push_str(val);
         }
     }
@@ -647,7 +793,11 @@ fn render_anki_template(template: &str, fields: &HashMap<&str, &str>, tags: &[St
     out
 }
 
-fn resolve_template_conditionals(template: &str, fields: &HashMap<&str, &str>) -> String {
+fn resolve_template_conditionals(
+    template: &str,
+    fields: &HashMap<String, &str>,
+    tags: &[String],
+) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
     while let Some(open) = rest.find("{{") {
@@ -661,15 +811,22 @@ fn resolve_template_conditionals(template: &str, fields: &HashMap<&str, &str>) -
         if let Some(field_name) = tag.strip_prefix('#').or_else(|| tag.strip_prefix('^')) {
             let inverted = tag.starts_with('^');
             let field_name = field_name.trim();
-            let end_tag = format!("{{{{/{field_name}}}}}");
+            let end_tag_lower = format!("{{{{/{}}}}}", field_name.to_ascii_lowercase());
             let body_start = &after_open[close + 2..];
-            if let Some(end_pos) = body_start.find(&end_tag) {
+            let body_lower = body_start.to_ascii_lowercase();
+            if let Some(end_pos) = body_lower.find(&end_tag_lower) {
                 let body = &body_start[..end_pos];
-                let non_empty = fields.get(field_name).is_some_and(|v| !v.trim().is_empty());
+                let non_empty = if field_name.eq_ignore_ascii_case("Tags") {
+                    !tags.is_empty()
+                } else {
+                    fields
+                        .get(&field_name.to_ascii_lowercase())
+                        .is_some_and(|v| !v.trim().is_empty())
+                };
                 if non_empty ^ inverted {
                     out.push_str(body);
                 }
-                rest = &body_start[end_pos + end_tag.len()..];
+                rest = &body_start[end_pos + end_tag_lower.len()..];
                 continue;
             }
         }
@@ -684,119 +841,123 @@ fn resolve_template_conditionals(template: &str, fields: &HashMap<&str, &str>) -
 // HTML + Anki Math + Media -> Clean Markdown
 // ---------------------------------------------------------------------------
 
-fn html_to_markdown(raw: &str, media: &mut MediaLoader<'_>) -> Result<String, CollectionError> {
+fn html_to_markdown<R: Read + Seek>(
+    raw: &str,
+    media: &mut MediaLoader<'_, R>,
+) -> Result<String, CollectionError> {
     if raw.trim().is_empty() {
         return Ok(String::new());
     }
-    let mut s = strip_style_and_script(raw);
-    s = convert_anki_math_delimiters(&s);
-    s = resolve_sound_tags(&s, media)?;
-    s = convert_html_structure(&s, media)?;
-    s = decode_html_entities(&s);
-    Ok(normalize_markdown_whitespace(&s))
+    let stripped = strip_style_and_script(raw);
+    // Protect Anki math spans before HTML parsing so `<` / `>` inside LaTeX (e.g. `\(x < y\)`)
+    // are never stripped as HTML tags, and decode entities inside math once.
+    let (with_math_tokens, math_blocks) = protect_anki_math_delimiters(&stripped);
+    let converted = convert_html_structure(&with_math_tokens, media)?;
+    let restored = restore_math_placeholders(&converted, &math_blocks);
+    Ok(normalize_markdown_whitespace(&restored))
 }
 
 fn strip_style_and_script(input: &str) -> String {
-    let mut out = input.to_owned();
+    let mut current = input.to_owned();
     for tag in ["style", "script"] {
-        let open_pat = format!("<{tag}");
-        let close_pat = format!("</{tag}");
-        let mut search_from = 0;
-        loop {
-            let lower = out.to_ascii_lowercase();
-            let Some(rel_start) = lower[search_from..].find(&open_pat) else {
-                break;
-            };
-            let start = search_from + rel_start;
-            let after_name = start + open_pat.len();
-            let valid_boundary = lower
-                .as_bytes()
-                .get(after_name)
-                .is_none_or(|b| b.is_ascii_whitespace() || *b == b'>' || *b == b'/');
-            if !valid_boundary {
-                search_from = after_name;
-                continue;
-            }
-            if let Some(rel_close) = lower[after_name..].find(&close_pat) {
-                let close_start = after_name + rel_close;
-                let close_end = lower[close_start..]
-                    .find('>')
-                    .map(|rel_gt| close_start + rel_gt + 1)
-                    .unwrap_or(out.len());
-                out.replace_range(start..close_end, "");
-                search_from = start;
-            } else if let Some(rel_gt) = lower[after_name..].find('>') {
-                // Unclosed <style>/<script> tag: strip from start to end of string
-                let _ = rel_gt;
-                out.truncate(start);
-                break;
-            } else {
-                out.truncate(start);
-                break;
-            }
-        }
+        current = strip_tag_block_linear(&current, tag);
     }
-    out
+    current
 }
 
-fn convert_anki_math_delimiters(input: &str) -> String {
-    let mut s = input.to_owned();
-    s = replace_delimited(&s, r"\[", r"\]", "$$", "$$");
-    s = replace_delimited(&s, r"\(", r"\)", "$", "$");
-    s = replace_delimited_ci(&s, "[latex]", "[/latex]", "$$", "$$");
-    s = replace_delimited_ci(&s, "[$$]", "[/$$]", "$$", "$$");
-    s = replace_delimited_ci(&s, "[$]", "[/$]", "$", "$");
-    s
-}
-
-fn replace_delimited(
-    input: &str,
-    open: &str,
-    close: &str,
-    new_open: &str,
-    new_close: &str,
-) -> String {
+fn strip_tag_block_linear(input: &str, tag: &str) -> String {
+    let lower = input.to_ascii_lowercase();
+    let open_pat = format!("<{tag}");
+    let close_pat = format!("</{tag}");
+    if !lower.contains(&open_pat) {
+        return input.to_owned();
+    }
     let mut out = String::with_capacity(input.len());
-    let mut rest = input;
-    while let Some(start) = rest.find(open) {
-        out.push_str(&rest[..start]);
-        let after = &rest[start + open.len()..];
-        if let Some(end) = after.find(close) {
-            out.push_str(new_open);
-            out.push_str(after[..end].trim());
-            out.push_str(new_close);
-            rest = &after[end + close.len()..];
+    let mut cursor = 0usize;
+    let mut search_from = 0usize;
+    let lower_bytes = lower.as_bytes();
+    while let Some(rel_start) = lower[search_from..].find(&open_pat) {
+        let start = search_from + rel_start;
+        let after_name = start + open_pat.len();
+        let valid_boundary = lower_bytes
+            .get(after_name)
+            .is_none_or(|b| b.is_ascii_whitespace() || *b == b'>' || *b == b'/');
+        if !valid_boundary {
+            search_from = after_name;
+            continue;
+        }
+        out.push_str(&input[cursor..start]);
+        if let Some(rel_close) = lower[after_name..].find(&close_pat) {
+            let close_start = after_name + rel_close;
+            let close_end = lower[close_start..]
+                .find('>')
+                .map(|rel_gt| close_start + rel_gt + 1)
+                .unwrap_or(input.len());
+            cursor = close_end;
+            search_from = close_end;
         } else {
-            out.push_str(&rest[start..]);
-            rest = "";
+            // Unclosed <style>/<script>: drop everything from start to end of input.
+            cursor = input.len();
             break;
         }
     }
-    out.push_str(rest);
+    out.push_str(&input[cursor..]);
     out
 }
 
-fn replace_delimited_ci(
+const MATH_TOKEN_PREFIX: &str = "\u{E100}REM_MATH_";
+const MATH_TOKEN_SUFFIX: &str = "\u{E101}";
+
+fn protect_anki_math_delimiters(input: &str) -> (String, Vec<String>) {
+    let mut blocks = Vec::new();
+    let mut s = input.to_owned();
+    s = protect_delimited(&s, r"\[", r"\]", "$$", "$$", false, &mut blocks);
+    s = protect_delimited(&s, r"\(", r"\)", "$", "$", false, &mut blocks);
+    s = protect_delimited(&s, "[latex]", "[/latex]", "$$", "$$", true, &mut blocks);
+    s = protect_delimited(&s, "[$$]", "[/$$]", "$$", "$$", true, &mut blocks);
+    s = protect_delimited(&s, "[$]", "[/$]", "$", "$", true, &mut blocks);
+    (s, blocks)
+}
+
+fn protect_delimited(
     input: &str,
     open: &str,
     close: &str,
     new_open: &str,
     new_close: &str,
+    case_insensitive: bool,
+    blocks: &mut Vec<String>,
 ) -> String {
+    let haystack = if case_insensitive {
+        input.to_ascii_lowercase()
+    } else {
+        input.to_owned()
+    };
+    let open_key = if case_insensitive {
+        open.to_ascii_lowercase()
+    } else {
+        open.to_owned()
+    };
+    let close_key = if case_insensitive {
+        close.to_ascii_lowercase()
+    } else {
+        close.to_owned()
+    };
+    if !haystack.contains(&open_key) {
+        return input.to_owned();
+    }
     let mut out = String::with_capacity(input.len());
     let mut pos = 0;
-    let lower = input.to_ascii_lowercase();
-    let open_l = open.to_ascii_lowercase();
-    let close_l = close.to_ascii_lowercase();
-    while let Some(rel_start) = lower[pos..].find(&open_l) {
+    while let Some(rel_start) = haystack[pos..].find(&open_key) {
         let start = pos + rel_start;
         out.push_str(&input[pos..start]);
         let body_start = start + open.len();
-        if let Some(rel_end) = lower[body_start..].find(&close_l) {
+        if let Some(rel_end) = haystack[body_start..].find(&close_key) {
             let end = body_start + rel_end;
-            out.push_str(new_open);
-            out.push_str(input[body_start..end].trim());
-            out.push_str(new_close);
+            let body = decode_html_entities(input[body_start..end].trim());
+            let idx = blocks.len();
+            blocks.push(format!("{new_open}{body}{new_close}"));
+            out.push_str(&format!("{MATH_TOKEN_PREFIX}{idx}{MATH_TOKEN_SUFFIX}"));
             pos = end + close.len();
         } else {
             out.push_str(&input[start..]);
@@ -808,7 +969,22 @@ fn replace_delimited_ci(
     out
 }
 
-fn resolve_sound_tags(input: &str, media: &mut MediaLoader<'_>) -> Result<String, CollectionError> {
+fn restore_math_placeholders(input: &str, blocks: &[String]) -> String {
+    if blocks.is_empty() {
+        return input.to_owned();
+    }
+    let mut out = input.to_owned();
+    for (idx, math) in blocks.iter().enumerate() {
+        let token = format!("{MATH_TOKEN_PREFIX}{idx}{MATH_TOKEN_SUFFIX}");
+        out = out.replace(&token, math);
+    }
+    out
+}
+
+fn resolve_sound_tags<R: Read + Seek>(
+    input: &str,
+    media: &mut MediaLoader<'_, R>,
+) -> Result<String, CollectionError> {
     let mut out = String::with_capacity(input.len());
     let mut pos = 0;
     let lower = input.to_ascii_lowercase();
@@ -839,11 +1015,58 @@ fn resolve_sound_tags(input: &str, media: &mut MediaLoader<'_>) -> Result<String
     Ok(out)
 }
 
-fn convert_html_structure(
+fn find_html_tag_end(input: &str, lt_pos: usize) -> Option<usize> {
+    let bytes = input.as_bytes();
+    let mut quote: Option<u8> = None;
+    let mut j = lt_pos + 1;
+    while j < bytes.len() {
+        let b = bytes[j];
+        match quote {
+            Some(q) if b == q => quote = None,
+            Some(_) => {}
+            None if b == b'"' || b == b'\'' => quote = Some(b),
+            None if b == b'>' => return Some(j),
+            None => {}
+        }
+        j += 1;
+    }
+    None
+}
+
+fn flush_html_text<R: Read + Seek>(
+    text_buf: &mut String,
+    out: &mut String,
+    in_link: bool,
+    media: &mut MediaLoader<'_, R>,
+) -> Result<(), CollectionError> {
+    if text_buf.is_empty() {
+        return Ok(());
+    }
+    // Decode HTML entities ONCE on raw text nodes (never post-hoc over emitted Markdown URLs).
+    let decoded = decode_html_entities(text_buf);
+    text_buf.clear();
+    let with_audio = resolve_sound_tags(&decoded, media)?;
+    if in_link {
+        for ch in with_audio.chars() {
+            match ch {
+                '\\' => out.push_str(r"\\"),
+                '[' => out.push_str(r"\["),
+                ']' => out.push_str(r"\]"),
+                _ => out.push(ch),
+            }
+        }
+    } else {
+        out.push_str(&with_audio);
+    }
+    Ok(())
+}
+
+fn convert_html_structure<R: Read + Seek>(
     input: &str,
-    media: &mut MediaLoader<'_>,
+    media: &mut MediaLoader<'_, R>,
 ) -> Result<String, CollectionError> {
     let mut out = String::with_capacity(input.len());
+    let mut text_buf = String::new();
     let bytes = input.as_bytes();
     let len = bytes.len();
     let mut i = 0;
@@ -852,97 +1075,116 @@ fn convert_html_structure(
 
     while i < len {
         if bytes[i] == b'<' {
-            if let Some(rel_end) = input[i..].find('>') {
-                let tag_raw = &input[i + 1..i + rel_end];
-                let tag_trimmed = tag_raw.trim();
-                let is_closing = tag_trimmed.starts_with('/');
-                let name_raw = if is_closing {
-                    tag_trimmed[1..].trim()
+            // Skip HTML comments `<!-- ... -->`
+            if input[i..].starts_with("<!--") {
+                flush_html_text(&mut text_buf, &mut out, link_href.is_some(), media)?;
+                if let Some(rel_end) = input[i + 4..].find("-->") {
+                    i = i + 4 + rel_end + 3;
                 } else {
-                    tag_trimmed
-                };
-                let tag_name = name_raw
-                    .split(|c: char| c.is_whitespace() || c == '/')
-                    .next()
-                    .unwrap_or("")
-                    .to_ascii_lowercase();
+                    i = len;
+                }
+                continue;
+            }
+            // Only parse `<...>` as an HTML tag when `<` is immediately followed by an ASCII
+            // letter, `/`, or `!` — preserving prose/math comparisons like `a < b and c > d`.
+            let looks_like_tag = bytes
+                .get(i + 1)
+                .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'/' || *b == b'!');
+            if looks_like_tag {
+                if let Some(gt_pos) = find_html_tag_end(input, i) {
+                    flush_html_text(&mut text_buf, &mut out, link_href.is_some(), media)?;
+                    let tag_raw = &input[i + 1..gt_pos];
+                    let tag_trimmed = tag_raw.trim();
+                    let is_closing = tag_trimmed.starts_with('/');
+                    let name_raw = if is_closing {
+                        tag_trimmed[1..].trim()
+                    } else {
+                        tag_trimmed
+                    };
+                    let tag_name = name_raw
+                        .split(|c: char| c.is_whitespace() || c == '/')
+                        .next()
+                        .unwrap_or("")
+                        .to_ascii_lowercase();
 
-                match (tag_name.as_str(), is_closing) {
-                    ("br", _) => out.push('\n'),
-                    ("hr", _) => out.push_str("\n\n---\n\n"),
-                    ("p" | "div" | "tr", false) => {
-                        if !out.is_empty() && !out.ends_with('\n') {
-                            out.push('\n');
+                    match (tag_name.as_str(), is_closing) {
+                        ("br", _) => out.push('\n'),
+                        ("hr", _) => out.push_str("\n\n---\n\n"),
+                        ("p" | "div" | "tr", false) => {
+                            if !out.is_empty() && !out.ends_with('\n') {
+                                out.push('\n');
+                            }
                         }
-                    }
-                    ("p" | "div" | "tr", true) => {
-                        if !out.ends_with('\n') {
-                            out.push('\n');
+                        ("p" | "div" | "tr", true) => {
+                            if !out.ends_with('\n') {
+                                out.push('\n');
+                            }
                         }
-                    }
-                    ("h1", false) => out.push_str("\n\n# "),
-                    ("h2", false) => out.push_str("\n\n## "),
-                    ("h3", false) => out.push_str("\n\n### "),
-                    ("h4", false) => out.push_str("\n\n#### "),
-                    ("h5", false) => out.push_str("\n\n##### "),
-                    ("h6", false) => out.push_str("\n\n###### "),
-                    ("h1" | "h2" | "h3" | "h4" | "h5" | "h6", true) => out.push_str("\n\n"),
-                    ("b" | "strong", _) => out.push_str("**"),
-                    ("i" | "em", _) => out.push('*'),
-                    ("pre", false) => {
-                        in_pre = true;
-                        out.push_str("\n\n```\n");
-                    }
-                    ("pre", true) => {
-                        in_pre = false;
-                        out.push_str("\n```\n\n");
-                    }
-                    ("code", _) if !in_pre => out.push('`'),
-                    ("ul" | "ol", _) => out.push('\n'),
-                    ("li", false) => out.push_str("\n- "),
-                    ("blockquote", false) => out.push_str("\n> "),
-                    ("blockquote", true) => out.push('\n'),
-                    ("td" | "th", false) => out.push(' '),
-                    ("img", false) => {
-                        if let Some(src) = extract_html_attr(tag_raw, "src") {
-                            let alt = extract_html_attr(tag_raw, "alt")
-                                .unwrap_or_default()
-                                .replace(['[', ']'], "");
-                            if let Some(safe_url) = sanitize_external_url(&src) {
-                                out.push_str(&format!("\n![{alt}]({safe_url})\n"));
-                            } else if !is_disallowed_url_scheme(&src) {
-                                if let Some(hash) = media.load_by_filename(&src)? {
-                                    out.push_str(&format!("\n![{alt}](asset:{hash})\n"));
+                        ("h1", false) => out.push_str("\n\n# "),
+                        ("h2", false) => out.push_str("\n\n## "),
+                        ("h3", false) => out.push_str("\n\n### "),
+                        ("h4", false) => out.push_str("\n\n#### "),
+                        ("h5", false) => out.push_str("\n\n##### "),
+                        ("h6", false) => out.push_str("\n\n###### "),
+                        ("h1" | "h2" | "h3" | "h4" | "h5" | "h6", true) => out.push_str("\n\n"),
+                        ("b" | "strong", _) => out.push_str("**"),
+                        ("i" | "em", _) => out.push('*'),
+                        ("pre", false) => {
+                            in_pre = true;
+                            out.push_str("\n\n```\n");
+                        }
+                        ("pre", true) => {
+                            in_pre = false;
+                            out.push_str("\n```\n\n");
+                        }
+                        ("code", _) if !in_pre => out.push('`'),
+                        ("ul" | "ol", _) => out.push('\n'),
+                        ("li", false) => out.push_str("\n- "),
+                        ("blockquote", false) => out.push_str("\n> "),
+                        ("blockquote", true) => out.push('\n'),
+                        ("td" | "th", false) => out.push(' '),
+                        ("img", false) => {
+                            if let Some(src) = extract_html_attr(tag_raw, "src") {
+                                let alt = extract_html_attr(tag_raw, "alt")
+                                    .unwrap_or_default()
+                                    .replace(['[', ']', '(', ')'], "");
+                                if let Some(safe_url) = sanitize_external_url(&src) {
+                                    out.push_str(&format!("\n![{alt}]({safe_url})\n"));
+                                } else if !is_disallowed_url_scheme(&src) {
+                                    if let Some(hash) = media.load_by_filename(&src)? {
+                                        out.push_str(&format!("\n![{alt}](asset:{hash})\n"));
+                                    }
                                 }
                             }
                         }
-                    }
-                    ("a", false) => {
-                        if let Some(href) = extract_html_attr(tag_raw, "href") {
-                            if let Some(safe_url) = sanitize_external_url(&href) {
-                                link_href = Some(safe_url);
-                                out.push('[');
+                        ("a", false) => {
+                            if let Some(href) = extract_html_attr(tag_raw, "href") {
+                                if let Some(safe_url) = sanitize_external_url(&href) {
+                                    link_href = Some(safe_url);
+                                    out.push('[');
+                                }
                             }
                         }
-                    }
-                    ("a", true) => {
-                        if let Some(href) = link_href.take() {
-                            out.push_str(&format!("]({href})"));
+                        ("a", true) => {
+                            if let Some(href) = link_href.take() {
+                                out.push_str(&format!("]({href})"));
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
-                }
 
-                i += rel_end + 1;
-                continue;
+                    i = gt_pos + 1;
+                    continue;
+                }
             }
         }
 
         let ch = input[i..].chars().next().unwrap();
-        out.push(ch);
+        text_buf.push(ch);
         i += ch.len_utf8();
     }
 
+    flush_html_text(&mut text_buf, &mut out, link_href.is_some(), media)?;
     if let Some(href) = link_href {
         out.push_str(&format!("]({href})"));
     }
@@ -961,7 +1203,12 @@ fn sanitize_external_url(raw: &str) -> Option<String> {
             '(' => safe.push_str("%28"),
             ')' => safe.push_str("%29"),
             ' ' => safe.push_str("%20"),
+            '<' => safe.push_str("%3C"),
+            '>' => safe.push_str("%3E"),
+            '"' => safe.push_str("%22"),
+            '\'' => safe.push_str("%27"),
             '\r' | '\n' | '\t' => {}
+            c if c.is_control() => {}
             _ => safe.push(ch),
         }
     }
@@ -1123,17 +1370,28 @@ fn table_exists(conn: &Connection, table: &str) -> bool {
 }
 
 fn load_collection_crt(conn: &Connection) -> Option<i64> {
+    if !table_exists(conn, "col") {
+        return None;
+    }
     conn.query_row("SELECT crt FROM col LIMIT 1", [], |row| row.get(0))
         .ok()
+}
+
+fn map_anki_db_err(err: rusqlite::Error) -> CollectionError {
+    CollectionError::InvalidInput(format!("Invalid or unsupported Anki database: {err}"))
 }
 
 fn load_anki_decks(conn: &Connection) -> Result<HashMap<i64, String>, CollectionError> {
     let mut decks = HashMap::new();
     if table_exists(conn, "decks") {
-        let mut stmt = conn.prepare("SELECT id, name FROM decks")?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let mut stmt = conn
+            .prepare("SELECT id, name FROM decks")
+            .map_err(map_anki_db_err)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(map_anki_db_err)?;
         for row in rows.flatten() {
             decks.insert(row.0, row.1);
         }
@@ -1143,8 +1401,9 @@ fn load_anki_decks(conn: &Connection) -> Result<HashMap<i64, String>, Collection
     }
 
     if table_exists(conn, "col") {
-        let decks_json: String =
-            conn.query_row("SELECT decks FROM col LIMIT 1", [], |row| row.get(0))?;
+        let decks_json: String = conn
+            .query_row("SELECT decks FROM col LIMIT 1", [], |row| row.get(0))
+            .map_err(map_anki_db_err)?;
         if let Ok(serde_json::Value::Object(map)) = serde_json::from_str(&decks_json) {
             for (key, value) in map {
                 let id = value
@@ -1168,10 +1427,14 @@ fn load_anki_models(conn: &Connection) -> Result<HashMap<i64, AnkiModel>, Collec
         && table_exists(conn, "fields")
         && table_exists(conn, "templates")
     {
-        let mut stmt = conn.prepare("SELECT id, config FROM notetypes")?;
-        let nt_rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
-        })?;
+        let mut stmt = conn
+            .prepare("SELECT id, config FROM notetypes")
+            .map_err(map_anki_db_err)?;
+        let nt_rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })
+            .map_err(map_anki_db_err)?;
         for row in nt_rows.flatten() {
             let (id, config) = row;
             let is_cloze = parse_notetype_config_is_cloze(&config);
@@ -1180,30 +1443,41 @@ fn load_anki_models(conn: &Connection) -> Result<HashMap<i64, AnkiModel>, Collec
                 AnkiModel {
                     is_cloze,
                     fields: Vec::new(),
-                    templates: Vec::new(),
+                    templates: HashMap::new(),
                 },
             );
         }
 
-        let mut field_stmt = conn.prepare("SELECT ntid, name FROM fields ORDER BY ntid, ord")?;
-        let field_rows = field_stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-        })?;
+        let mut field_stmt = conn
+            .prepare("SELECT ntid, name FROM fields ORDER BY ntid, ord")
+            .map_err(map_anki_db_err)?;
+        let field_rows = field_stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(map_anki_db_err)?;
         for row in field_rows.flatten() {
             if let Some(model) = models.get_mut(&row.0) {
                 model.fields.push(row.1);
             }
         }
 
-        let mut tmpl_stmt =
-            conn.prepare("SELECT ntid, config FROM templates ORDER BY ntid, ord")?;
-        let tmpl_rows = tmpl_stmt.query_map([], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
-        })?;
+        let mut tmpl_stmt = conn
+            .prepare("SELECT ntid, ord, config FROM templates ORDER BY ntid, ord")
+            .map_err(map_anki_db_err)?;
+        let tmpl_rows = tmpl_stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                ))
+            })
+            .map_err(map_anki_db_err)?;
         for row in tmpl_rows.flatten() {
             if let Some(model) = models.get_mut(&row.0) {
-                let (qfmt, afmt) = parse_template_config_formats(&row.1);
-                model.templates.push(AnkiTemplate { qfmt, afmt });
+                let (qfmt, afmt) = parse_template_config_formats(&row.2);
+                model.templates.insert(row.1, AnkiTemplate { qfmt, afmt });
             }
         }
 
@@ -1213,8 +1487,9 @@ fn load_anki_models(conn: &Connection) -> Result<HashMap<i64, AnkiModel>, Collec
     }
 
     if table_exists(conn, "col") {
-        let models_json: String =
-            conn.query_row("SELECT models FROM col LIMIT 1", [], |row| row.get(0))?;
+        let models_json: String = conn
+            .query_row("SELECT models FROM col LIMIT 1", [], |row| row.get(0))
+            .map_err(map_anki_db_err)?;
         if let Ok(serde_json::Value::Object(map)) = serde_json::from_str(&models_json) {
             for (key, value) in map {
                 let id = value
@@ -1234,12 +1509,13 @@ fn load_anki_models(conn: &Connection) -> Result<HashMap<i64, AnkiModel>, Collec
                             .collect()
                     })
                     .unwrap_or_default();
-                let templates = value
-                    .get("tmpls")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .map(|t| AnkiTemplate {
+                let mut templates = HashMap::new();
+                if let Some(arr) = value.get("tmpls").and_then(|v| v.as_array()) {
+                    for (idx, t) in arr.iter().enumerate() {
+                        let ord = t.get("ord").and_then(|v| v.as_i64()).unwrap_or(idx as i64);
+                        templates.insert(
+                            ord,
+                            AnkiTemplate {
                                 qfmt: t
                                     .get("qfmt")
                                     .and_then(|v| v.as_str())
@@ -1250,10 +1526,10 @@ fn load_anki_models(conn: &Connection) -> Result<HashMap<i64, AnkiModel>, Collec
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
                                     .to_owned(),
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                            },
+                        );
+                    }
+                }
                 models.insert(
                     id,
                     AnkiModel {
@@ -1270,63 +1546,93 @@ fn load_anki_models(conn: &Connection) -> Result<HashMap<i64, AnkiModel>, Collec
 }
 
 fn load_anki_notes(conn: &Connection) -> Result<HashMap<i64, AnkiNote>, CollectionError> {
-    let mut stmt = conn.prepare("SELECT id, mid, tags, flds FROM notes")?;
-    let rows = stmt.query_map([], |row| {
-        let id: i64 = row.get(0)?;
-        let mid: i64 = row.get(1)?;
-        let tags_raw: String = row.get(2)?;
-        let flds_raw: String = row.get(3)?;
-        let tags = tags_raw
-            .split_whitespace()
-            .filter(|t| !t.is_empty())
-            .map(str::to_owned)
-            .collect();
-        let fields = flds_raw.split('\x1f').map(str::to_owned).collect();
-        Ok((id, AnkiNote { mid, tags, fields }))
-    })?;
+    if !table_exists(conn, "notes") {
+        return Err(CollectionError::InvalidInput(
+            "Anki database is missing the required `notes` table.".into(),
+        ));
+    }
+    let mut stmt = conn
+        .prepare("SELECT id, mid, tags, flds FROM notes")
+        .map_err(map_anki_db_err)?;
+    let rows = stmt
+        .query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let mid: i64 = row.get(1)?;
+            let tags_raw: String = row.get(2)?;
+            let flds_raw: String = row.get(3)?;
+            let tags = tags_raw
+                .split_whitespace()
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned)
+                .collect();
+            let fields = flds_raw.split('\x1f').map(str::to_owned).collect();
+            Ok((id, AnkiNote { mid, tags, fields }))
+        })
+        .map_err(map_anki_db_err)?;
     let mut notes = HashMap::new();
     for row in rows {
-        let (id, note) = row?;
+        if notes.len() >= MAX_IMPORT_NOTES {
+            return Err(CollectionError::InvalidInput(
+                "Archive exceeds the maximum supported note count for import.".into(),
+            ));
+        }
+        let (id, note) = row.map_err(map_anki_db_err)?;
         notes.insert(id, note);
     }
     Ok(notes)
 }
 
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> bool {
+    let sql = format!("SELECT EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1)");
+    conn.query_row(&sql, [column], |row| row.get(0))
+        .unwrap_or(false)
+}
+
 fn load_anki_cards(conn: &Connection) -> Result<Vec<AnkiCardRow>, CollectionError> {
-    let has_data: bool = conn
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('cards') WHERE name = 'data')",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or(false);
-    let sql = if has_data {
-        "SELECT id, nid, did, ord, type, queue, due, ivl, factor, reps, lapses, data
+    if !table_exists(conn, "cards") {
+        return Err(CollectionError::InvalidInput(
+            "Anki database is missing the required `cards` table.".into(),
+        ));
+    }
+    let has_data = table_has_column(conn, "cards", "data");
+    let has_odid = table_has_column(conn, "cards", "odid");
+    let has_odue = table_has_column(conn, "cards", "odue");
+    let data_col = if has_data { "data" } else { "''" };
+    let odid_col = if has_odid { "odid" } else { "0" };
+    let odue_col = if has_odue { "odue" } else { "0" };
+    let sql = format!(
+        "SELECT id, nid, did, ord, type, queue, due, {odid_col}, {odue_col}, ivl, factor, reps, lapses, {data_col}
          FROM cards ORDER BY id"
-    } else {
-        "SELECT id, nid, did, ord, type, queue, due, ivl, factor, reps, lapses, ''
-         FROM cards ORDER BY id"
-    };
-    let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map([], |row| {
-        Ok(AnkiCardRow {
-            id: row.get(0)?,
-            nid: row.get(1)?,
-            did: row.get(2)?,
-            ord: row.get(3)?,
-            card_type: row.get(4)?,
-            queue: row.get(5)?,
-            due: row.get(6)?,
-            ivl: row.get(7)?,
-            factor: row.get(8)?,
-            reps: row.get(9)?,
-            lapses: row.get(10)?,
-            data: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+    );
+    let mut stmt = conn.prepare(&sql).map_err(map_anki_db_err)?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(AnkiCardRow {
+                id: row.get(0)?,
+                nid: row.get(1)?,
+                did: row.get(2)?,
+                ord: row.get(3)?,
+                card_type: row.get(4)?,
+                queue: row.get(5)?,
+                due: row.get(6)?,
+                odid: row.get(7)?,
+                odue: row.get(8)?,
+                ivl: row.get(9)?,
+                factor: row.get(10)?,
+                reps: row.get(11)?,
+                lapses: row.get(12)?,
+                data: row.get::<_, Option<String>>(13)?.unwrap_or_default(),
+            })
         })
-    })?;
+        .map_err(map_anki_db_err)?;
     let mut cards = Vec::new();
     for row in rows {
-        cards.push(row?);
+        if cards.len() >= MAX_IMPORT_CARDS {
+            return Err(CollectionError::InvalidInput(
+                "Archive exceeds the maximum supported card count for import.".into(),
+            ));
+        }
+        cards.push(row.map_err(map_anki_db_err)?);
     }
     Ok(cards)
 }
@@ -1340,17 +1646,28 @@ fn load_anki_revlogs(
         return Ok(out);
     }
     let max_valid_ts = now_ms.saturating_add(MS_PER_DAY);
-    let mut stmt = conn.prepare("SELECT id, cid, ease, type FROM revlog ORDER BY id ASC")?;
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, i64>(1)?,
-            row.get::<_, i64>(2)?,
-            row.get::<_, i64>(3)?,
-        ))
-    })?;
-    for row in rows.flatten() {
-        let (reviewed_at, cid, ease, rev_type) = row;
+    let mut stmt = conn
+        .prepare("SELECT id, cid, ease, type FROM revlog ORDER BY id ASC")
+        .map_err(map_anki_db_err)?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })
+        .map_err(map_anki_db_err)?;
+    let mut count = 0usize;
+    for row in rows {
+        let (reviewed_at, cid, ease, rev_type) = row.map_err(map_anki_db_err)?;
+        count += 1;
+        if count > MAX_IMPORT_REVLOGS {
+            return Err(CollectionError::InvalidInput(
+                "Archive exceeds the maximum supported review log count for import.".into(),
+            ));
+        }
         if rev_type == 4 || reviewed_at <= 0 || reviewed_at > max_valid_ts {
             // Manual reschedule or invalid/corrupt timestamp in Anki
             continue;
@@ -1373,21 +1690,26 @@ fn load_anki_revlogs(
 // Media loading & ZIP/zstd/protobuf helpers
 // ---------------------------------------------------------------------------
 
-struct MediaLoader<'a> {
-    archive: &'a mut ZipArchive<Cursor<&'a [u8]>>,
+const MAX_MEDIA_WARNINGS: u32 = 10;
+
+struct MediaLoader<'a, R: Read + Seek> {
+    archive: &'a mut ZipArchive<R>,
+    load_media: bool,
     filename_to_key: HashMap<String, String>,
     lowercase_to_key: HashMap<String, String>,
     filename_to_hash: HashMap<String, Option<String>>,
+    referenced_keys: HashSet<String>,
     loaded_assets: HashMap<String, ParsedMediaAsset>,
-    total_loaded_bytes: usize,
-    missing_count: u32,
+    total_decompressed_bytes: usize,
+    warning_count: u32,
     warnings: Vec<String>,
 }
 
-impl<'a> MediaLoader<'a> {
+impl<'a, R: Read + Seek> MediaLoader<'a, R> {
     fn new(
-        archive: &'a mut ZipArchive<Cursor<&'a [u8]>>,
+        archive: &'a mut ZipArchive<R>,
         key_to_filename: HashMap<String, String>,
+        load_media: bool,
     ) -> Self {
         let mut filename_to_key = HashMap::with_capacity(key_to_filename.len());
         let mut lowercase_to_key = HashMap::with_capacity(key_to_filename.len());
@@ -1397,14 +1719,33 @@ impl<'a> MediaLoader<'a> {
         }
         Self {
             archive,
+            load_media,
             filename_to_key,
             lowercase_to_key,
             filename_to_hash: HashMap::new(),
+            referenced_keys: HashSet::new(),
             loaded_assets: HashMap::new(),
-            total_loaded_bytes: 0,
-            missing_count: 0,
+            total_decompressed_bytes: 0,
+            warning_count: 0,
             warnings: Vec::new(),
         }
+    }
+
+    fn push_warning(&mut self, msg: String) {
+        self.warning_count = self.warning_count.saturating_add(1);
+        if self.warning_count <= MAX_MEDIA_WARNINGS {
+            self.warnings.push(msg);
+        }
+    }
+
+    fn account_decompressed(&mut self, byte_count: usize) -> Result<(), CollectionError> {
+        self.total_decompressed_bytes = self.total_decompressed_bytes.saturating_add(byte_count);
+        if self.total_decompressed_bytes > MAX_TOTAL_MEDIA_BYTES {
+            return Err(CollectionError::InvalidInput(
+                "Archive media exceeds the maximum supported import size (512 MB).".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn load_by_filename(&mut self, filename: &str) -> Result<Option<String>, CollectionError> {
@@ -1428,30 +1769,49 @@ impl<'a> MediaLoader<'a> {
             })
             .cloned()
         else {
-            self.missing_count += 1;
-            if self.missing_count <= 5 {
-                self.warnings.push(format!(
-                    "Referenced media file not found in archive: {trimmed}"
-                ));
-            }
+            self.push_warning(format!(
+                "Referenced media file not found in archive: {trimmed}"
+            ));
             self.filename_to_hash.insert(trimmed.to_owned(), None);
             return Ok(None);
         };
 
-        let raw = match read_zip_entry_limited(self.archive, &zip_key, MAX_SINGLE_MEDIA_BYTES) {
+        if !self.load_media {
+            // Preview mode: verify entry exists in ZIP without decompressing bytes into RAM.
+            if self.archive.index_for_name(&zip_key).is_none() {
+                self.push_warning(format!(
+                    "Referenced media file not found in archive: {trimmed}"
+                ));
+                self.filename_to_hash.insert(trimmed.to_owned(), None);
+                return Ok(None);
+            }
+            self.referenced_keys.insert(zip_key.clone());
+            let placeholder = hex::encode(Sha256::digest(zip_key.as_bytes()));
+            self.filename_to_hash
+                .insert(trimmed.to_owned(), Some(placeholder.clone()));
+            return Ok(Some(placeholder));
+        }
+
+        let remaining_budget = MAX_TOTAL_MEDIA_BYTES.saturating_sub(self.total_decompressed_bytes);
+        let single_cap = MAX_SINGLE_MEDIA_BYTES.min(remaining_budget);
+
+        let raw = match read_zip_entry_limited(self.archive, &zip_key, single_cap) {
             Ok(bytes) => bytes,
             Err(_) => {
-                self.warnings.push(format!(
+                self.account_decompressed(single_cap.saturating_add(1))?;
+                self.push_warning(format!(
                     "Skipped oversized or unreadable media file: {trimmed}"
                 ));
                 self.filename_to_hash.insert(trimmed.to_owned(), None);
                 return Ok(None);
             }
         };
-        let bytes = match maybe_decompress_zstd(&raw, MAX_SINGLE_MEDIA_BYTES) {
+        let raw_len = raw.len();
+        let bytes = match maybe_decompress_zstd(raw, single_cap) {
             Ok(decoded) => decoded,
             Err(_) => {
-                self.warnings.push(format!(
+                self.account_decompressed(raw_len.max(single_cap.saturating_add(1)))?;
+                self.push_warning(format!(
                     "Skipped unreadable compressed media file: {trimmed}"
                 ));
                 self.filename_to_hash.insert(trimmed.to_owned(), None);
@@ -1459,33 +1819,30 @@ impl<'a> MediaLoader<'a> {
             }
         };
 
-        if self.total_loaded_bytes.saturating_add(bytes.len()) > MAX_TOTAL_MEDIA_BYTES {
-            return Err(CollectionError::InvalidInput(
-                "Archive media exceeds the maximum supported import size (512 MB).".into(),
-            ));
-        }
+        // Count every decompressed byte against the total budget even if deduplicated by SHA-256.
+        self.account_decompressed(bytes.len())?;
 
         let hash = hex::encode(Sha256::digest(&bytes));
         if !self.loaded_assets.contains_key(&hash) {
-            self.total_loaded_bytes += bytes.len();
             let mime = detect_media_mime(trimmed, &bytes);
             self.loaded_assets
                 .insert(hash.clone(), ParsedMediaAsset { mime, bytes });
         }
+        self.referenced_keys.insert(zip_key);
         self.filename_to_hash
             .insert(trimmed.to_owned(), Some(hash.clone()));
         Ok(Some(hash))
     }
 }
 
-fn read_media_manifest(
-    archive: &mut ZipArchive<Cursor<&[u8]>>,
+fn read_media_manifest<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
 ) -> Result<HashMap<String, String>, CollectionError> {
     if archive.index_for_name("media").is_none() {
         return Ok(HashMap::new());
     }
     let raw = read_zip_entry_limited(archive, "media", MAX_MEDIA_MANIFEST_BYTES)?;
-    let decoded = maybe_decompress_zstd(&raw, MAX_MEDIA_MANIFEST_BYTES)?;
+    let decoded = maybe_decompress_zstd(raw, MAX_MEDIA_MANIFEST_BYTES)?;
     if decoded.is_empty() {
         return Ok(HashMap::new());
     }
@@ -1497,8 +1854,8 @@ fn read_media_manifest(
     Ok(parse_media_entries_protobuf(&decoded))
 }
 
-fn read_zip_entry_limited(
-    archive: &mut ZipArchive<Cursor<&[u8]>>,
+fn read_zip_entry_limited<R: Read + Seek>(
+    archive: &mut ZipArchive<R>,
     name: &str,
     max_bytes: usize,
 ) -> Result<Vec<u8>, CollectionError> {
@@ -1520,14 +1877,14 @@ fn read_limited<R: Read>(reader: R, max_bytes: usize) -> Result<Vec<u8>, Collect
     Ok(out)
 }
 
-fn maybe_decompress_zstd(raw: &[u8], max_bytes: usize) -> Result<Vec<u8>, CollectionError> {
+fn maybe_decompress_zstd(raw: Vec<u8>, max_bytes: usize) -> Result<Vec<u8>, CollectionError> {
     if raw.len() >= 4 && raw[..4] == ZSTD_MAGIC {
-        let decoder = ruzstd::decoding::StreamingDecoder::new(raw).map_err(|err| {
+        let decoder = ruzstd::decoding::StreamingDecoder::new(raw.as_slice()).map_err(|err| {
             CollectionError::InvalidInput(format!("Failed to decode zstd stream: {err}"))
         })?;
         read_limited(decoder, max_bytes)
     } else {
-        Ok(raw.to_vec())
+        Ok(raw)
     }
 }
 
@@ -1547,9 +1904,16 @@ fn detect_media_mime(filename: &str, bytes: &[u8]) -> String {
     if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE" {
         return "audio/wav".into();
     }
-    if bytes.starts_with(b"ID3")
-        || (bytes.len() >= 2 && bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0)
-    {
+    // Check ID3 tag or valid MPEG frame header (rejecting UTF-16LE BOM 0xFF 0xFE and reserved bits).
+    let looks_like_mpeg_frame = bytes.len() >= 4
+        && bytes[0] == 0xFF
+        && (bytes[1] & 0xE0) == 0xE0
+        && bytes[1] != 0xFE
+        && (bytes[1] & 0x18) != 0x08
+        && (bytes[1] & 0x06) != 0x00
+        && (bytes[2] & 0xF0) != 0xF0
+        && (bytes[2] & 0x0C) != 0x0C;
+    if bytes.starts_with(b"ID3") || looks_like_mpeg_frame {
         return "audio/mpeg".into();
     }
     if bytes.starts_with(b"OggS") {

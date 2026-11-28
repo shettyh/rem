@@ -255,7 +255,8 @@ Card-add success:
 Results follow input order. Dry-run inputs that would be inserted have status `wouldCreate` and no
 `id`.
 
-Anki `.apkg` import success (`--dry-run` omits writes and reports preview counts):
+Anki `.apkg` import success (`--dry-run` omits writes and returns preview keys `totalCards`,
+`mediaCount`, and `reviewLogs` instead of `importedCards`, `importedReviews`, and `importedMedia`):
 
 ```json
 {

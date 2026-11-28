@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use chrono::{Duration, Local, NaiveDate, TimeZone};
-use rusqlite::{params, Connection};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::deck_tree::deck_and_descendants;
@@ -104,14 +104,14 @@ impl Collection {
             .connection
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
-        let decks = load_decks(&connection, None)?;
+        let decks = load_decks(&connection)?;
         let daily_map = load_daily_stats_for_day(&connection, &today_key)?;
-        let card_rows = load_card_stat_rows(&connection, None)?;
-        let log_rows = load_log_stat_rows(&connection, None)?;
+        let card_rows = load_card_stat_rows(&connection)?;
+        let log_rows = load_log_stat_rows(&connection)?;
         drop(connection);
 
-        let today_start_ms = local_midnight_ms(today_date);
-        let mut reviewed_today_by_group: HashMap<&str, HashSet<&str>> = HashMap::new();
+        let today_start_ms = crate::study::local_day_start_ms(now_ms)?;
+        let mut reviewed_today_by_group: HashMap<String, HashSet<String>> = HashMap::new();
         let mut card_group_by_id: HashMap<&str, &str> = HashMap::new();
         for card in &card_rows {
             if let Some(group_id) = card.sibling_group_id.as_deref() {
@@ -122,9 +122,9 @@ impl Collection {
                     .is_some_and(|ts| ts >= today_start_ms && ts <= now_ms)
                 {
                     reviewed_today_by_group
-                        .entry(group_id)
+                        .entry(group_id.to_owned())
                         .or_default()
-                        .insert(card.id.as_str());
+                        .insert(card.id.clone());
                 }
             }
         }
@@ -132,9 +132,9 @@ impl Collection {
             if log.reviewed_at >= today_start_ms && log.reviewed_at <= now_ms {
                 if let Some(&group_id) = card_group_by_id.get(log.card_id.as_str()) {
                     reviewed_today_by_group
-                        .entry(group_id)
+                        .entry(group_id.to_owned())
                         .or_default()
-                        .insert(log.card_id.as_str());
+                        .insert(log.card_id.clone());
                 }
             }
         }
@@ -163,6 +163,8 @@ impl Collection {
             let mut raw_new_due: u32 = 0;
             let mut raw_review_due: u32 = 0;
             let mut raw_learning_due: u32 = 0;
+            let mut seen_new_groups: HashSet<&str> = HashSet::new();
+            let mut seen_review_groups: HashSet<&str> = HashSet::new();
 
             for card in cards {
                 if card.suspended {
@@ -173,15 +175,40 @@ impl Collection {
                     mastered += 1;
                 }
                 let buried_today = deck.settings.bury_related
-                    && card.sibling_group_id.as_deref().is_some_and(|group| {
-                        reviewed_today_by_group
-                            .get(group)
-                            .is_some_and(|ids| ids.iter().any(|&other| other != card.id.as_str()))
-                    });
+                    && crate::study::is_sibling_buried_today(
+                        &card.id,
+                        card.sibling_group_id.as_deref(),
+                        card.scheduling.state,
+                        &reviewed_today_by_group,
+                    );
                 if !buried_today && card.scheduling.due <= now_ms {
                     match card.scheduling.card_state() {
-                        Some(FsrsCardState::New) => raw_new_due += 1,
-                        Some(FsrsCardState::Review) => raw_review_due += 1,
+                        Some(FsrsCardState::New) => {
+                            if deck.settings.bury_related {
+                                if let Some(group) = card.sibling_group_id.as_deref() {
+                                    if seen_new_groups.insert(group) {
+                                        raw_new_due += 1;
+                                    }
+                                } else {
+                                    raw_new_due += 1;
+                                }
+                            } else {
+                                raw_new_due += 1;
+                            }
+                        }
+                        Some(FsrsCardState::Review) => {
+                            if deck.settings.bury_related {
+                                if let Some(group) = card.sibling_group_id.as_deref() {
+                                    if seen_review_groups.insert(group) {
+                                        raw_review_due += 1;
+                                    }
+                                } else {
+                                    raw_review_due += 1;
+                                }
+                            } else {
+                                raw_review_due += 1;
+                            }
+                        }
                         Some(FsrsCardState::Learning | FsrsCardState::Relearning) => {
                             raw_learning_due += 1
                         }
@@ -274,7 +301,7 @@ impl Collection {
             .connection
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
-        let all_decks = load_decks(&connection, None)?;
+        let all_decks = load_decks(&connection)?;
         let decks: Vec<Deck> = match deck_id {
             Some(id) => deck_and_descendants(&all_decks, id)
                 .into_iter()
@@ -282,8 +309,8 @@ impl Collection {
                 .collect(),
             None => all_decks,
         };
-        let card_rows = load_card_stat_rows(&connection, None)?;
-        let log_rows = load_log_stat_rows(&connection, None)?;
+        let card_rows = load_card_stat_rows(&connection)?;
+        let log_rows = load_log_stat_rows(&connection)?;
         drop(connection);
 
         let deck_index: HashMap<&str, &Deck> =
@@ -429,25 +456,13 @@ impl Collection {
     }
 }
 
-fn load_decks(connection: &Connection, deck_id: Option<&str>) -> rusqlite::Result<Vec<Deck>> {
-    match deck_id {
-        Some(id) => {
-            let mut stmt = connection.prepare(
-                "SELECT id, name, created_at, updated_at, color, scheduler_kind, settings_json
-                 FROM decks WHERE id = ?1",
-            )?;
-            let rows = stmt.query_map([id], deck_from_row)?.collect();
-            rows
-        }
-        None => {
-            let mut stmt = connection.prepare(
-                "SELECT id, name, created_at, updated_at, color, scheduler_kind, settings_json
-                 FROM decks ORDER BY created_at, rowid",
-            )?;
-            let rows = stmt.query_map([], deck_from_row)?.collect();
-            rows
-        }
-    }
+fn load_decks(connection: &Connection) -> rusqlite::Result<Vec<Deck>> {
+    let mut stmt = connection.prepare(
+        "SELECT id, name, created_at, updated_at, color, scheduler_kind, settings_json
+         FROM decks ORDER BY created_at, rowid",
+    )?;
+    let rows = stmt.query_map([], deck_from_row)?.collect();
+    rows
 }
 
 fn load_daily_stats_for_day(
@@ -465,86 +480,60 @@ fn load_daily_stats_for_day(
     rows.collect()
 }
 
-fn load_card_stat_rows(
-    connection: &Connection,
-    deck_id: Option<&str>,
-) -> rusqlite::Result<Vec<CardStatRow>> {
-    let parse_row = |row: &rusqlite::Row<'_>| {
-        let scheduling_json: String = row.get(3)?;
-        let scheduling: FsrsState = serde_json::from_str(&scheduling_json).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                3,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-        Ok(CardStatRow {
-            id: row.get(0)?,
-            deck_id: row.get(1)?,
-            suspended: row.get(2)?,
-            scheduling,
-            sibling_group_id: row.get(4)?,
-        })
-    };
-    match deck_id {
-        Some(id) => {
-            let mut stmt = connection.prepare(
-                "SELECT id, deck_id, suspended, scheduling_json, sibling_group_id FROM cards WHERE deck_id = ?1",
-            )?;
-            let rows = stmt.query_map([id], parse_row)?.collect();
-            rows
-        }
-        None => {
-            let mut stmt = connection.prepare(
-                "SELECT id, deck_id, suspended, scheduling_json, sibling_group_id FROM cards",
-            )?;
-            let rows = stmt.query_map([], parse_row)?.collect();
-            rows
-        }
-    }
+fn load_card_stat_rows(connection: &Connection) -> rusqlite::Result<Vec<CardStatRow>> {
+    let mut stmt = connection
+        .prepare("SELECT id, deck_id, suspended, scheduling_json, sibling_group_id FROM cards")?;
+    let rows = stmt
+        .query_map([], |row| {
+            let scheduling_json: String = row.get(3)?;
+            let scheduling: FsrsState =
+                serde_json::from_str(&scheduling_json).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        3,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?;
+            Ok(CardStatRow {
+                id: row.get(0)?,
+                deck_id: row.get(1)?,
+                suspended: row.get(2)?,
+                scheduling,
+                sibling_group_id: row.get(4)?,
+            })
+        })?
+        .collect();
+    rows
 }
 
-fn load_log_stat_rows(
-    connection: &Connection,
-    deck_id: Option<&str>,
-) -> rusqlite::Result<Vec<LogStatRow>> {
-    let parse_row = |row: &rusqlite::Row<'_>| {
-        let grade_raw: String = row.get(3)?;
-        let grade = match grade_raw.as_str() {
-            "again" => Grade::Again,
-            "hard" => Grade::Hard,
-            "good" => Grade::Good,
-            "easy" => Grade::Easy,
-            _ => {
-                return Err(rusqlite::Error::FromSqlConversionFailure(
-                    3,
-                    rusqlite::types::Type::Text,
-                    format!("unsupported grade: {grade_raw}").into(),
-                ))
-            }
-        };
-        Ok(LogStatRow {
-            card_id: row.get(0)?,
-            deck_id: row.get(1)?,
-            reviewed_at: row.get(2)?,
-            grade,
-        })
-    };
-    match deck_id {
-        Some(id) => {
-            let mut stmt = connection.prepare(
-                "SELECT card_id, deck_id, reviewed_at, grade FROM review_logs WHERE deck_id = ?1",
-            )?;
-            let rows = stmt.query_map(params![id], parse_row)?.collect();
-            rows
-        }
-        None => {
-            let mut stmt = connection
-                .prepare("SELECT card_id, deck_id, reviewed_at, grade FROM review_logs")?;
-            let rows = stmt.query_map([], parse_row)?.collect();
-            rows
-        }
-    }
+fn load_log_stat_rows(connection: &Connection) -> rusqlite::Result<Vec<LogStatRow>> {
+    let mut stmt =
+        connection.prepare("SELECT card_id, deck_id, reviewed_at, grade FROM review_logs")?;
+    let rows = stmt
+        .query_map([], |row| {
+            let grade_raw: String = row.get(3)?;
+            let grade = match grade_raw.as_str() {
+                "again" => Grade::Again,
+                "hard" => Grade::Hard,
+                "good" => Grade::Good,
+                "easy" => Grade::Easy,
+                _ => {
+                    return Err(rusqlite::Error::FromSqlConversionFailure(
+                        3,
+                        rusqlite::types::Type::Text,
+                        format!("unsupported grade: {grade_raw}").into(),
+                    ))
+                }
+            };
+            Ok(LogStatRow {
+                card_id: row.get(0)?,
+                deck_id: row.get(1)?,
+                reviewed_at: row.get(2)?,
+                grade,
+            })
+        })?
+        .collect();
+    rows
 }
 
 fn compute_streak(active_dates: &HashSet<NaiveDate>, today: NaiveDate) -> u32 {

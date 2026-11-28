@@ -241,10 +241,18 @@ fn run_study_terminal(collection: &Collection, mut app: StudyApp) -> Result<(), 
     let mut session = TerminalSession::enter()?;
 
     loop {
+        app.tick(now_millis());
         session
             .terminal
             .draw(|frame| draw(frame, &app))
             .map_err(terminal_error)?;
+        if app.view().show_timer
+            && app.view().current.is_some()
+            && !app.view().revealed
+            && !event::poll(std::time::Duration::from_millis(250)).map_err(terminal_error)?
+        {
+            continue;
+        }
         let input = match event::read().map_err(terminal_error)? {
             Event::Resize(_, _) => continue,
             Event::Key(key) if key.kind != KeyEventKind::Release => match map_study_key(key) {

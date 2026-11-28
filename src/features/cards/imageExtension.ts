@@ -13,12 +13,22 @@ export function createImageExtension(resolveAsset?: (hash: string) => Promise<st
         const src: string = node.attrs.src ?? ''
         if (node.attrs.alt) dom.alt = node.attrs.alt as string
         const parsed = parseAssetSrc(src)
+        let destroyed = false
+        let objectUrl: string | null = null
         if (parsed) {
           dom.dataset.align = parsed.align
           if (resolveAsset) {
-            void resolveAsset(parsed.hash).then((url) => {
-              if (url) dom.src = url
-            })
+            void resolveAsset(parsed.hash)
+              .then((url) => {
+                if (!url) return
+                if (destroyed) {
+                  if (url.startsWith('blob:')) URL.revokeObjectURL(url)
+                  return
+                }
+                objectUrl = url
+                dom.src = url
+              })
+              .catch(() => {})
           }
         } else {
           dom.src = src
@@ -35,7 +45,14 @@ export function createImageExtension(resolveAsset?: (hash: string) => Promise<st
           dom,
           selectNode: () => dom.classList.add('ProseMirror-selectednode'),
           deselectNode: () => dom.classList.remove('ProseMirror-selectednode'),
-          destroy: () => dom.removeEventListener('mousedown', selectImage),
+          destroy: () => {
+            destroyed = true
+            dom.removeEventListener('mousedown', selectImage)
+            if (objectUrl && objectUrl.startsWith('blob:')) {
+              URL.revokeObjectURL(objectUrl)
+              objectUrl = null
+            }
+          },
         }
       }
     },

@@ -489,6 +489,7 @@ export function SettingsPage() {
     setError(null)
     setMessage(null)
     setPending(null)
+    setPendingApkg(null)
     let parsed: DeckBackup[]
     try {
       parsed = parseBackup(await file.text(), Date.now())
@@ -524,7 +525,7 @@ export function SettingsPage() {
         parts.push(`${result.importedMedia} media`)
       }
       const replacedNote = result.replaced.length ? ` (replaced ${result.replaced.length})` : ''
-      const warningNote = result.warnings.length ? ` · ${result.warnings[0]}` : ''
+      const warningNote = result.warnings.length ? ` · Warnings: ${result.warnings.join(' ')}` : ''
       setMessage(`Imported Anki deck: ${parts.join(', ')}${replacedNote}.${warningNote}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not import the Anki archive.')
@@ -541,6 +542,7 @@ export function SettingsPage() {
     setMessage(null)
     setPending(null)
     setPendingApkg(null)
+    setPendingApkg(null)
     if (file.size > 512 * 1024 * 1024) {
       setError('Anki archive exceeds the maximum supported size (512 MB).')
       return
@@ -549,7 +551,10 @@ export function SettingsPage() {
     try {
       const bytes = new Uint8Array(await file.arrayBuffer())
       const preview = await storage.previewApkg(bytes)
-      if (preview.replaced.length > 0) {
+      if (preview.totalCards === 0 && preview.added.length === 0 && preview.replaced.length === 0) {
+        const detail = preview.warnings.length > 0 ? ` (${preview.warnings[0]})` : ''
+        setError(`No importable cards were found in this .apkg file.${detail}`)
+      } else if (preview.replaced.length > 0) {
         setPendingApkg({ bytes, preview })
       } else {
         await runApkgImport(bytes)
@@ -1134,13 +1139,24 @@ export function SettingsPage() {
                   <div className="settings-warning" role="alertdialog" aria-label="Confirm Anki replace">
                     <p>
                       Importing {pendingApkg.preview.totalCards} card
-                      {pendingApkg.preview.totalCards === 1 ? '' : 's'} will replace these existing decks:
+                      {pendingApkg.preview.totalCards === 1 ? '' : 's'}
+                      {pendingApkg.preview.mediaCount > 0 ? `, ${pendingApkg.preview.mediaCount} media` : ''}
+                      {pendingApkg.preview.reviewLogs > 0 ? `, ${pendingApkg.preview.reviewLogs} review logs` : ''}
+                      {pendingApkg.preview.added.length > 0
+                        ? ` (adding ${pendingApkg.preview.added.length} new deck${pendingApkg.preview.added.length === 1 ? '' : 's'})`
+                        : ''}
+                      {' '}will replace these existing decks:
                     </p>
                     <ul>
                       {pendingApkg.preview.replaced.map((name) => (
                         <li key={name}>{name}</li>
                       ))}
                     </ul>
+                    {pendingApkg.preview.warnings.length > 0 && (
+                      <p className="ds-row-sub">
+                        Warnings: {pendingApkg.preview.warnings.join(' · ')}
+                      </p>
+                    )}
                     <div className="settings-inline-actions">
                       <button
                         className="btn btn-danger btn-sm"

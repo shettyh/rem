@@ -443,12 +443,44 @@ impl RemClient {
         })
     }
 
+    pub fn preview_apkg_path(
+        &self,
+        path: String,
+        now_ms: i64,
+    ) -> Result<ApkgImportPreviewDto, RemFfiError> {
+        let preview = self.collection.preview_apkg_file(&path, now_ms)?;
+        Ok(ApkgImportPreviewDto {
+            added: preview.added,
+            replaced: preview.replaced,
+            total_cards: preview.total_cards,
+            media_count: preview.media_count,
+            review_logs: preview.review_logs,
+            warnings: preview.warnings,
+        })
+    }
+
     pub fn import_apkg(
         &self,
         bytes: Vec<u8>,
         now_ms: i64,
     ) -> Result<ApkgImportResultDto, RemFfiError> {
         let result = self.collection.import_apkg_bytes(&bytes, now_ms)?;
+        Ok(ApkgImportResultDto {
+            added: result.added,
+            replaced: result.replaced,
+            imported_cards: result.imported_cards,
+            imported_reviews: result.imported_reviews,
+            imported_media: result.imported_media,
+            warnings: result.warnings,
+        })
+    }
+
+    pub fn import_apkg_path(
+        &self,
+        path: String,
+        now_ms: i64,
+    ) -> Result<ApkgImportResultDto, RemFfiError> {
+        let result = self.collection.import_apkg_file(&path, now_ms)?;
         Ok(ApkgImportResultDto {
             added: result.added,
             replaced: result.replaced,

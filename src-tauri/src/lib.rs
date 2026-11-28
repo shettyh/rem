@@ -41,6 +41,7 @@ pub fn run() {
             storage::storage_delete_card,
             storage::storage_commit_review,
             storage::storage_list_review_logs,
+            storage::storage_get_today_summary,
             storage::storage_get_stats,
             storage::storage_due_cards,
             storage::storage_count_due,
@@ -98,9 +99,13 @@ mod tests {
 
         assert_eq!(csp["default-src"], "'self'");
         assert_eq!(csp["connect-src"], "'self' ipc: http://ipc.localhost");
+        assert_eq!(csp["font-src"], "'self' data:");
         assert_eq!(csp["img-src"], "'self' blob: data:");
+        assert_eq!(csp["media-src"], "'self' blob:");
         assert_eq!(csp["object-src"], "'none'");
         assert_eq!(csp["base-uri"], "'none'");
+        assert_eq!(csp["frame-src"], "'none'");
+        assert_eq!(csp["form-action"], "'none'");
         assert!(!csp["script-src"].as_str().unwrap().contains("unsafe"));
     }
 

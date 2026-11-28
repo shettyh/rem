@@ -102,8 +102,8 @@ test('starts the selected custom-study preset', async () => {
     extraRoutes: [{ path: '/decks/:deckId/study', element: <LocationProbe /> }],
   })
 
-  await expect.element(page.getByText('Bury related new cards')).not.toBeInTheDocument()
-  await expect.element(page.getByText('Show answer timer')).not.toBeInTheDocument()
+  await expect.element(page.getByText('Bury related siblings')).toBeVisible()
+  await expect.element(page.getByText('Show answer timer')).toBeVisible()
 
   const start = page.getByRole('button', { name: 'Start' })
   await expect.element(start).toBeDisabled()
