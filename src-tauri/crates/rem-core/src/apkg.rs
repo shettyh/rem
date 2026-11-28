@@ -2815,13 +2815,17 @@ fn is_pinyin_tone_vowel(ch: char) -> bool {
 
 fn looks_like_cjk_reading(reading: &str) -> bool {
     let trimmed = reading.trim();
-    if trimmed.is_empty() || trimmed.chars().count() > 40 {
+    if trimmed.is_empty() || trimmed.chars().nth(40).is_some() {
         return false;
     }
     if trimmed.contains(['[', ']', '{', '}', '|', '\n', '\r', '<', '>']) {
         return false;
     }
-    if trimmed.to_ascii_lowercase().starts_with("sound:") {
+    if trimmed
+        .as_bytes()
+        .get(..6)
+        .is_some_and(|b| b.eq_ignore_ascii_case(b"sound:"))
+    {
         return false;
     }
     // 1. Japanese kana reading (e.g. こた, まる, ニホンゴ)
@@ -2879,13 +2883,19 @@ enum AnkiReadingMode {
 }
 
 fn transform_anki_bracket_readings(input: &str, mode: AnkiReadingMode) -> String {
-    if !input.contains('[') {
+    if !input.contains('[') || !input.contains(']') {
         return input.to_owned();
     }
     let mut out = String::with_capacity(input.len() + 16);
     let bytes = input.as_bytes();
     let len = bytes.len();
     let mut i = 0;
+    let mut tag_scanner = HtmlTagEndScanner::new(input);
+    let mut next_rbracket = input.find(']');
+    let mut next_lbracket = input.find('[');
+    let mut no_more_bracket_math_close = false;
+    let mut no_more_paren_math_close = false;
+    let mut min_base_start = 0usize;
 
     while i < len {
         // Skip HTML tags verbatim so attributes like `<div data-x="a[b]">` are untouched.
@@ -2894,7 +2904,7 @@ fn transform_anki_bracket_readings(input: &str, mode: AnkiReadingMode) -> String
                 .get(i + 1)
                 .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'/' || *b == b'!')
         {
-            if let Some(gt) = find_html_tag_end(input, i) {
+            if let Some(gt) = tag_scanner.find_tag_end(i) {
                 out.push_str(&input[i..=gt]);
                 i = gt + 1;
                 continue;
@@ -2905,33 +2915,62 @@ fn transform_anki_bracket_readings(input: &str, mode: AnkiReadingMode) -> String
             .get(..7)
             .is_some_and(|b| b.eq_ignore_ascii_case(b"[sound:"))
         {
-            if let Some(rel_close) = input[i..].find(']') {
-                out.push_str(&input[i..i + rel_close + 1]);
-                i += rel_close + 1;
+            if let Some(rb) = next_rbracket {
+                if rb <= i {
+                    next_rbracket = input[i + 1..].find(']').map(|rel| i + 1 + rel);
+                }
+            }
+            if let Some(close_idx) = next_rbracket {
+                out.push_str(&input[i..=close_idx]);
+                i = close_idx + 1;
                 continue;
             }
         }
         // Skip Anki math delimiters `\[...\]`, `\(...\)`, `[latex]...[/latex]`, `[$]...[/$]`, `[$$]...[/$$]`.
         if bytes[i] == b'\\' && i + 1 < len && (bytes[i + 1] == b'[' || bytes[i + 1] == b'(') {
-            let close = if bytes[i + 1] == b'[' { r"\]" } else { r"\)" };
-            if let Some(rel_close) = input[i + 2..].find(close) {
-                let end = i + 2 + rel_close + 2;
-                out.push_str(&input[i..end]);
-                i = end;
-                continue;
+            let is_bracket = bytes[i + 1] == b'[';
+            let no_more = if is_bracket {
+                &mut no_more_bracket_math_close
+            } else {
+                &mut no_more_paren_math_close
+            };
+            if !*no_more {
+                let close = if is_bracket { r"\]" } else { r"\)" };
+                if let Some(rel_close) = input[i + 2..].find(close) {
+                    let end = i + 2 + rel_close + 2;
+                    out.push_str(&input[i..end]);
+                    i = end;
+                    continue;
+                } else {
+                    *no_more = true;
+                }
             }
         }
 
         // Check for `<base>[<reading>]` where `[` is NOT followed by `(` after `]`.
         if bytes[i] == b'[' {
-            if let Some(rel_close) = input[i + 1..].find(']') {
-                let close_idx = i + 1 + rel_close;
+            if let Some(rb) = next_rbracket {
+                if rb <= i {
+                    next_rbracket = input[i + 1..].find(']').map(|rel| i + 1 + rel);
+                }
+            }
+            if let Some(close_idx) = next_rbracket {
+                if let Some(lb) = next_lbracket {
+                    if lb <= i {
+                        next_lbracket = input[i + 1..].find('[').map(|rel| i + 1 + rel);
+                    }
+                }
+                let has_inner_lbracket = next_lbracket.is_some_and(|lb| lb < close_idx);
                 let followed_by_paren = bytes.get(close_idx + 1) == Some(&b'(');
                 let reading = &input[i + 1..close_idx];
-                if !followed_by_paren
+                if !has_inner_lbracket
+                    && !followed_by_paren
                     && !reading.is_empty()
-                    && !reading.contains(['[', '<', '>', '\n', '\r'])
-                    && !reading.to_ascii_lowercase().starts_with("sound:")
+                    && !reading.contains(['<', '>', '\n', '\r'])
+                    && !reading
+                        .as_bytes()
+                        .get(..6)
+                        .is_some_and(|b| b.eq_ignore_ascii_case(b"sound:"))
                     && !reading.eq_ignore_ascii_case("latex")
                     && !reading.eq_ignore_ascii_case("/latex")
                     && reading != "$"
@@ -2940,8 +2979,8 @@ fn transform_anki_bracket_readings(input: &str, mode: AnkiReadingMode) -> String
                     && reading != "/$$"
                 {
                     // Extract the base run from the tail of `out` back to the nearest whitespace,
-                    // HTML tag boundary `>`, or start of string.
-                    let base_start = find_anki_furigana_base_start(&out);
+                    // HTML tag boundary `>`, previous replacement boundary, or start of string.
+                    let base_start = find_anki_furigana_base_start(&out, min_base_start);
                     if base_start < out.len() {
                         let base = out[base_start..].to_owned();
                         out.truncate(base_start);
@@ -2964,6 +3003,7 @@ fn transform_anki_bracket_readings(input: &str, mode: AnkiReadingMode) -> String
                                 out.push_str("</rt></ruby>");
                             }
                         }
+                        min_base_start = out.len();
                         i = close_idx + 1;
                         continue;
                     }
@@ -2978,9 +3018,11 @@ fn transform_anki_bracket_readings(input: &str, mode: AnkiReadingMode) -> String
     out
 }
 
-fn find_anki_furigana_base_start(out: &str) -> usize {
-    let mut idx = out.len();
-    for (pos, ch) in out.char_indices().rev() {
+fn find_anki_furigana_base_start(out: &str, min_start: usize) -> usize {
+    let min_start = min_start.min(out.len());
+    let tail = &out[min_start..];
+    let mut idx = tail.len();
+    for (pos, ch) in tail.char_indices().rev() {
         if ch.is_whitespace() || matches!(ch, '>' | '<' | '[' | ']' | '{' | '}' | '(' | ')') {
             break;
         }
@@ -2988,7 +3030,7 @@ fn find_anki_furigana_base_start(out: &str) -> usize {
     }
     // If the token before `[reading]` has trailing CJK ideographs after kana (e.g. `を勉強`),
     // prefer only the trailing CJK ideograph run as the base so okurigana isn't swept into ruby.
-    let token = &out[idx..];
+    let token = &tail[idx..];
     if token.chars().next_back().is_some_and(is_cjk_ideograph) {
         let mut kanji_start = token.len();
         for (pos, ch) in token.char_indices().rev() {
@@ -2999,10 +3041,10 @@ fn find_anki_furigana_base_start(out: &str) -> usize {
             }
         }
         if kanji_start < token.len() {
-            return idx + kanji_start;
+            return min_start + idx + kanji_start;
         }
     }
-    idx
+    min_start + idx
 }
 
 fn apply_anki_kanji_filter(input: &str) -> String {
@@ -3022,21 +3064,33 @@ fn apply_anki_furigana_filter(input: &str) -> String {
 /// Converts ONLY `<CJK ideograph run>[<kana/bopomofo/pinyin reading>]` (never Markdown links `[x](y)`,
 /// never `[sound:...]`, never footnotes like `丸[1]`) into `{base|reading}`.
 fn convert_cjk_furigana_fallback(text: &str) -> String {
-    if !text.contains('[') {
+    if !text.contains('[') || !text.contains(']') {
         return text.to_owned();
     }
     let mut out = String::with_capacity(text.len() + 16);
     let bytes = text.as_bytes();
     let len = bytes.len();
     let mut i = 0;
+    let mut next_rbracket = text.find(']');
+    let mut next_lbracket = text.find('[');
 
     while i < len {
         if bytes[i] == b'[' {
-            if let Some(rel_close) = text[i + 1..].find(']') {
-                let close_idx = i + 1 + rel_close;
+            if let Some(rb) = next_rbracket {
+                if rb <= i {
+                    next_rbracket = text[i + 1..].find(']').map(|rel| i + 1 + rel);
+                }
+            }
+            if let Some(close_idx) = next_rbracket {
+                if let Some(lb) = next_lbracket {
+                    if lb <= i {
+                        next_lbracket = text[i + 1..].find('[').map(|rel| i + 1 + rel);
+                    }
+                }
+                let has_inner_lbracket = next_lbracket.is_some_and(|lb| lb < close_idx);
                 let followed_by_paren = bytes.get(close_idx + 1) == Some(&b'(');
                 let reading = &text[i + 1..close_idx];
-                if !followed_by_paren && looks_like_cjk_reading(reading) {
+                if !has_inner_lbracket && !followed_by_paren && looks_like_cjk_reading(reading) {
                     let mut kanji_start = out.len();
                     for (pos, ch) in out.char_indices().rev() {
                         if is_cjk_ideograph(ch) {
@@ -3078,6 +3132,7 @@ fn strip_html_tags_plain(input: &str) -> String {
     let mut out = String::with_capacity(stripped.len());
     let bytes = stripped.as_bytes();
     let len = bytes.len();
+    let mut tag_scanner = HtmlTagEndScanner::new(&stripped);
     let mut i = 0;
     while i < len {
         if bytes[i] == b'<' {
@@ -3093,7 +3148,7 @@ fn strip_html_tags_plain(input: &str) -> String {
                 .get(i + 1)
                 .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'/' || *b == b'!')
             {
-                if let Some(gt) = find_html_tag_end(&stripped, i) {
+                if let Some(gt) = tag_scanner.find_tag_end(i) {
                     i = gt + 1;
                     continue;
                 }
@@ -3239,14 +3294,39 @@ fn protect_delimited(
 }
 
 fn restore_math_placeholders(input: &str, blocks: &[String]) -> String {
-    if blocks.is_empty() {
+    if blocks.is_empty() || !input.contains(MATH_TOKEN_PREFIX) {
         return input.to_owned();
     }
-    let mut out = input.to_owned();
-    for (idx, math) in blocks.iter().enumerate() {
-        let token = format!("{MATH_TOKEN_PREFIX}{idx}{MATH_TOKEN_SUFFIX}");
-        out = out.replace(&token, math);
+    let mut out = String::with_capacity(input.len());
+    let mut pos = 0usize;
+    let mut next_suffix = input.find(MATH_TOKEN_SUFFIX);
+    while let Some(rel_start) = input[pos..].find(MATH_TOKEN_PREFIX) {
+        let start = pos + rel_start;
+        out.push_str(&input[pos..start]);
+        let after_prefix = start + MATH_TOKEN_PREFIX.len();
+        if let Some(suffix_pos) = next_suffix {
+            if suffix_pos < after_prefix {
+                next_suffix = input[after_prefix..]
+                    .find(MATH_TOKEN_SUFFIX)
+                    .map(|rel| after_prefix + rel);
+            }
+        }
+        let Some(suffix_pos) = next_suffix else {
+            out.push_str(&input[start..]);
+            return out;
+        };
+        let idx_str = &input[after_prefix..suffix_pos];
+        if let Ok(idx) = idx_str.parse::<usize>() {
+            if let Some(math) = blocks.get(idx) {
+                out.push_str(math);
+                pos = suffix_pos + MATH_TOKEN_SUFFIX.len();
+                continue;
+            }
+        }
+        out.push_str(MATH_TOKEN_PREFIX);
+        pos = after_prefix;
     }
+    out.push_str(&input[pos..]);
     out
 }
 
@@ -3255,6 +3335,9 @@ fn resolve_sound_tags<R: Read + Seek>(
     inline_only: bool,
     media: &mut MediaLoader<'_, R>,
 ) -> Result<String, CollectionError> {
+    if !input.contains('[') {
+        return Ok(input.to_owned());
+    }
     let mut out = String::with_capacity(input.len());
     let mut pos = 0;
     let lower = input.to_ascii_lowercase();
@@ -3305,6 +3388,97 @@ fn find_html_tag_end(input: &str, lt_pos: usize) -> Option<usize> {
         j += 1;
     }
     None
+}
+
+enum HtmlTagEndFallback {
+    /// No failed scan yet; scan forward directly in O(tag_len) with zero extra allocation.
+    Direct,
+    /// No `>` exists anywhere at or after `from_pos`.
+    NoMoreGt { from_pos: usize },
+    /// Precomputed tag-end positions for every `start = lt_pos + 1` in `base..bytes.len()`
+    /// via a single backward 3-state pass (`None` / `"` / `'`), guaranteeing O(N) total work
+    /// even under adversarial unclosed quotes followed by `>`.
+    Table {
+        base: usize,
+        end_from: Vec<Option<std::num::NonZeroUsize>>,
+    },
+}
+
+struct HtmlTagEndScanner<'a> {
+    bytes: &'a [u8],
+    fallback: HtmlTagEndFallback,
+}
+
+impl<'a> HtmlTagEndScanner<'a> {
+    fn new(input: &'a str) -> Self {
+        Self {
+            bytes: input.as_bytes(),
+            fallback: HtmlTagEndFallback::Direct,
+        }
+    }
+
+    fn find_tag_end(&mut self, lt_pos: usize) -> Option<usize> {
+        let start = lt_pos + 1;
+        if start >= self.bytes.len() {
+            return None;
+        }
+        match &self.fallback {
+            HtmlTagEndFallback::NoMoreGt { from_pos } if lt_pos >= *from_pos => return None,
+            HtmlTagEndFallback::Table { base, end_from } if start >= *base => {
+                return end_from[start - *base].map(std::num::NonZeroUsize::get);
+            }
+            _ => {}
+        }
+
+        let mut quote: Option<u8> = None;
+        let mut saw_gt = false;
+        let mut j = start;
+        while j < self.bytes.len() {
+            let b = self.bytes[j];
+            if b == b'>' {
+                saw_gt = true;
+            }
+            match quote {
+                Some(q) if b == q => quote = None,
+                Some(_) => {}
+                None if b == b'"' || b == b'\'' => quote = Some(b),
+                None if b == b'>' => return Some(j),
+                None => {}
+            }
+            j += 1;
+        }
+
+        if matches!(self.fallback, HtmlTagEndFallback::Direct) {
+            if !saw_gt {
+                self.fallback = HtmlTagEndFallback::NoMoreGt { from_pos: lt_pos };
+            } else {
+                let len = self.bytes.len();
+                let mut end_from = vec![None; len - start];
+                // next[0] = state None, next[1] = inside '"', next[2] = inside '\''
+                let mut next = [None; 3];
+                for k in (start..len).rev() {
+                    match self.bytes[k] {
+                        b'>' => {
+                            next[0] = std::num::NonZeroUsize::new(k);
+                        }
+                        b'"' => {
+                            next.swap(0, 1);
+                        }
+                        b'\'' => {
+                            next.swap(0, 2);
+                        }
+                        _ => {}
+                    }
+                    end_from[k - start] = next[0];
+                }
+                self.fallback = HtmlTagEndFallback::Table {
+                    base: start,
+                    end_from,
+                };
+            }
+        }
+        None
+    }
 }
 
 const MAX_HTML_FRAME_DEPTH: usize = 64;
@@ -4730,6 +4904,7 @@ fn convert_html_structure<R: Read + Seek>(
     let mut conv = HtmlConverter::new(media, input.len());
     let bytes = input.as_bytes();
     let len = bytes.len();
+    let mut tag_scanner = HtmlTagEndScanner::new(input);
     let mut i = 0;
 
     while i < len {
@@ -4750,7 +4925,7 @@ fn convert_html_structure<R: Read + Seek>(
                 .get(i + 1)
                 .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'/' || *b == b'!');
             if looks_like_tag {
-                if let Some(gt_pos) = find_html_tag_end(input, i) {
+                if let Some(gt_pos) = tag_scanner.find_tag_end(i) {
                     conv.flush_text()?;
                     let tag_raw = &input[i + 1..gt_pos];
                     let tag_trimmed = tag_raw.trim();
@@ -4922,23 +5097,35 @@ fn extract_html_attr(tag_inner: &str, attr_name: &str) -> Option<String> {
 }
 
 fn decode_html_entities(input: &str) -> String {
+    if !input.contains('&') {
+        return input.to_owned();
+    }
     let mut out = String::with_capacity(input.len());
-    let mut rest = input;
-    while let Some(amp) = rest.find('&') {
-        out.push_str(&rest[..amp]);
-        let after = &rest[amp + 1..];
-        if let Some(semi) = after.find(';') {
-            let entity = &after[..semi];
-            if let Some(decoded) = decode_one_entity(entity) {
-                out.push_str(&decoded);
-                rest = &after[semi + 1..];
-                continue;
+    let mut pos = 0usize;
+    let mut next_semi = input.find(';');
+    while let Some(rel_amp) = input[pos..].find('&') {
+        let amp = pos + rel_amp;
+        out.push_str(&input[pos..amp]);
+        let after_start = amp + 1;
+        if let Some(semi_pos) = next_semi {
+            if semi_pos < after_start {
+                next_semi = input[after_start..].find(';').map(|rel| after_start + rel);
             }
         }
+        let Some(semi_pos) = next_semi else {
+            out.push_str(&input[amp..]);
+            return out;
+        };
+        let entity = &input[after_start..semi_pos];
+        if let Some(decoded) = decode_one_entity(entity) {
+            out.push_str(&decoded);
+            pos = semi_pos + 1;
+            continue;
+        }
         out.push('&');
-        rest = after;
+        pos = after_start;
     }
-    out.push_str(rest);
+    out.push_str(&input[pos..]);
     out
 }
 
@@ -6204,11 +6391,67 @@ mod prop_tests {
         );
         let start2 = Instant::now();
         let _ = html_to_markdown(&adversarial_html, &mut media).unwrap();
+        let elapsed2 = start2.elapsed();
         assert!(
-            start2.elapsed().as_millis() < 500,
-            "adversarial unclosed HTML took too long: {:?}",
-            start2.elapsed()
+            elapsed2.as_millis() < 500,
+            "adversarial unclosed HTML took too long: {elapsed2:?}"
         );
+
+        // Unclosed-quote HTML tags followed by `>` (both odd/even double quotes and mixed quote
+        // types where every `<div` walks to EOF) stay strictly O(N) while preserving valid
+        // quoted-attribute semantics (`>` inside quotes is not a tag end).
+        let unclosed_quote_cases = [
+            format!("{}>", "<div \"".repeat(5_000)),
+            format!("{}>", "<div \"".repeat(5_001)),
+            format!("{}\">", "<div '".repeat(5_000)),
+            format!("{}'>", "<div \"".repeat(5_000)),
+            format!("{}{}", "&".repeat(10_000), ";"),
+            "\\(x\\)".repeat(5_000),
+        ];
+        for (idx, payload) in unclosed_quote_cases.iter().enumerate() {
+            let t = Instant::now();
+            let _ = html_to_markdown(payload, &mut media).unwrap();
+            let d = t.elapsed();
+            assert!(
+                d.as_millis() < 500,
+                "adversarial HTML case {idx} took too long: {d:?}"
+            );
+        }
+        // Quoted `>` inside an attribute must still be preserved as part of the tag.
+        assert_eq!(
+            html_to_markdown(r#"<div title="a > b"><b>ok</b></div>"#, &mut media).unwrap(),
+            "**ok**"
+        );
+        // Valid tag after an unclosed-quote tag is still parsed identically.
+        assert_eq!(
+            html_to_markdown(r#"<a title="unclosed <b>ok</b>"#, &mut media).unwrap(),
+            r#"<a title="unclosed **ok**"#
+        );
+
+        // Adversarial furigana / bracket / plain-strip unclosed delimiter cases stay O(N).
+        let adversarial_furigana_cases = [
+            "[".repeat(5_000),
+            format!("{}]", "[".repeat(5_000)),
+            format!("{}{}]", "[".repeat(5_000), " ".repeat(5_000)),
+            format!("{}]", "[sound:foo".repeat(5_000)),
+            "[sound:foo".repeat(5_000),
+            format!("{}]", "\\(".repeat(5_000)),
+            format!("{}]", "\\[".repeat(5_000)),
+            format!("{}\">]", "<div '".repeat(5_000)),
+            format!("{}{}", "a".repeat(5_000), "[b]".repeat(2_000)),
+        ];
+        for (idx, payload) in adversarial_furigana_cases.iter().enumerate() {
+            let t = Instant::now();
+            let _ = apply_anki_furigana_filter(payload);
+            let _ = apply_anki_kanji_filter(payload);
+            let _ = convert_cjk_furigana_fallback(payload);
+            let _ = strip_html_tags_plain(payload);
+            let d = t.elapsed();
+            assert!(
+                d.as_millis() < 500,
+                "adversarial furigana/strip case {idx} took too long: {d:?}"
+            );
+        }
     }
 
     #[test]
@@ -6239,6 +6482,18 @@ mod prop_tests {
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(96))]
+
+        #[test]
+        fn html_tag_end_scanner_matches_reference_for_all_positions(
+            s in "[<>\"'a-z /]{0,128}",
+        ) {
+            let mut scanner = HtmlTagEndScanner::new(&s);
+            for (i, b) in s.as_bytes().iter().enumerate() {
+                if *b == b'<' {
+                    prop_assert_eq!(scanner.find_tag_end(i), find_html_tag_end(&s, i));
+                }
+            }
+        }
 
         #[test]
         fn protobuf_decoders_never_panic_on_arbitrary_bytes(bytes in prop::collection::vec(any::<u8>(), 0..=256)) {
