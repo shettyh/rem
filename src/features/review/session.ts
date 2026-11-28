@@ -125,14 +125,27 @@ export class ReviewSession {
     return chosen
   }
 
-  grade(now: number, next: FSRSState, options: { requeue?: boolean } = {}): void {
+  grade(
+    now: number,
+    next: FSRSState,
+    options: { requeue?: boolean; tags?: string[]; lastAgainAt?: number | null } = {},
+  ): void {
     const cur = this.current
     if (!cur) return
     this.complete()
     const stillStepping = options.requeue !== false &&
       (next.state === 1 || next.state === 3) && next.due - now <= LEARN_AHEAD_MS
     if (stillStepping) {
-      this.queue.push({ ...cur, forceDue: false, card: { ...cur.card, scheduling: next } })
+      this.queue.push({
+        ...cur,
+        forceDue: false,
+        card: {
+          ...cur.card,
+          ...(options.tags !== undefined ? { tags: options.tags } : {}),
+          ...(options.lastAgainAt !== undefined ? { lastAgainAt: options.lastAgainAt } : {}),
+          scheduling: next,
+        },
+      })
     }
   }
 

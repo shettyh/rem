@@ -112,32 +112,45 @@ function scanClozeBody(
   return null
 }
 
-/** Sorted unique cloze indices (`1, 2, ...`) found in `text`. */
+function collectClozeSpansOutsideCode(text: string): ClozeSpan[] {
+  if (!text.includes('{{')) return []
+  const spans: ClozeSpan[] = []
+  mapOutsideCode(text, (segment) => {
+    spans.push(...parseClozeSpans(segment))
+    return segment
+  })
+  return spans
+}
+
+/** Sorted unique cloze indices (`1, 2, ...`) found outside code fences and inline code spans. */
 export function extractClozeIndices(text: string): number[] {
   const set = new Set<number>()
-  for (const span of parseClozeSpans(text)) {
+  for (const span of collectClozeSpansOutsideCode(text)) {
     set.add(span.index)
   }
   return [...set].sort((a, b) => a - b)
 }
 
 export function hasClozeDeletions(text: string): boolean {
-  return parseClozeSpans(text).length > 0
+  return extractClozeIndices(text).length > 0
 }
 
-/** Strip `{{cN::answer(::hint)?}}` wrappers so lists/search show clean readable text. */
+/** Strip `{{cN::answer(::hint)?}}` wrappers outside code spans so lists/search show clean readable text. */
 export function stripClozeMarkup(text: string): string {
-  const spans = parseClozeSpans(text)
-  if (spans.length === 0) return text
-  let out = ''
-  let cursor = 0
-  for (const span of spans) {
-    out += text.slice(cursor, span.start)
-    out += span.answer
-    cursor = span.end
-  }
-  out += text.slice(cursor)
-  return out
+  if (!text.includes('{{')) return text
+  return mapOutsideCode(text, (segment) => {
+    const spans = parseClozeSpans(segment)
+    if (spans.length === 0) return segment
+    let out = ''
+    let cursor = 0
+    for (const span of spans) {
+      out += segment.slice(cursor, span.start)
+      out += span.answer
+      cursor = span.end
+    }
+    out += segment.slice(cursor)
+    return out
+  })
 }
 
 export const CLOZE_BLANK_HREF = '#rem-cloze-blank'

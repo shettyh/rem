@@ -10,6 +10,13 @@ import { EditorToolbar } from './EditorToolbar'
 import { loadAssetUrl } from './assetUrl'
 import { isSystemTag, mergeUserTags, parseUserTags, userTags } from './cardTags'
 import { extractClozeIndices, nextClozeIndex } from './cloze'
+import {
+  composeOcclusionDocument,
+  extractOcclusionDocument,
+  extractOcclusionIndices,
+  type OcclusionBlock,
+} from './occlusion'
+import { OcclusionEditor } from './OcclusionEditor'
 import { cardStatus } from './DeckDetailPage'
 
 interface CardDraft {
@@ -42,9 +49,13 @@ export function CardEditorPage() {
   const [baseline, setBaseline] = useState<CardDraft | null>(editing ? null : EMPTY_DRAFT)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [savedCount, setSavedCount] = useState(0)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [mediaError, setMediaError] = useState<string | null>(null)
+  const savingRef = useRef(false)
   const allowNavigationRef = useRef(false)
   const tagInputRef = useRef<HTMLInputElement>(null)
+  const occlusionInputRef = useRef<HTMLInputElement>(null)
   // The field the shared toolbar should act on — defaults to Front, follows focus.
   const [active, setActive] = useState<EditorHandle | null>(null)
   const frontHandle = useRef<EditorHandle | null>(null)
@@ -187,7 +198,109 @@ export function CardEditorPage() {
     }
   }
 
-  const canInsertCloze = !editing || isClozeCard
+  const occlusionDoc = extractOcclusionDocument(front)
+  const isOcclusionMode = occlusionDoc !== null
+  const occlusionIndices = extractOcclusionIndices(front)
+  const canInsertCloze = (!editing || isClozeCard) && !isOcclusionMode
+  const canStartOcclusion = !editing || isOcclusionMode
+
+  const startOcclusionFromFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      setMediaError('Please select an image file for Image Occlusion.')
+      return
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      setMediaError('Image exceeds the 25 MB upload limit.')
+      return
+    }
+    try {
+      const { hash } = await ingestAsset(file)
+      const existingDoc = extractOcclusionDocument(front)
+      if (existingDoc) {
+        setFront(
+          composeOcclusionDocument(
+            existingDoc.header,
+            { ...existingDoc.block, image: `asset:${hash}` },
+            existingDoc.footer,
+          ),
+        )
+      } else {
+        const plainTitle = front
+          .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+          .trim()
+        const newBlock: OcclusionBlock = {
+          v: 1,
+          image: `asset:${hash}`,
+          mode: 'hide-all',
+          masks: [],
+        }
+        setFront(composeOcclusionDocument(plainTitle, newBlock))
+      }
+    } catch (err) {
+      setMediaError(err instanceof Error ? err.message : 'Could not attach image.')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [front, storage])
+
+  const triggerImageOcclusion = useCallback(() => {
+    if (!canStartOcclusion) return
+    if (isOcclusionMode) {
+      occlusionInputRef.current?.click()
+      return
+    }
+    // Only promote an existing Markdown image (`![...](asset:<hash>)`) whose stored MIME is `image/*`
+    // (never promote audio links like `[Audio: ...](asset:<hash>)`).
+    const imgMatch = front.match(/!\[[^\]]*\]\(asset:([0-9a-f]{64})[^)]*\)/)
+    if (imgMatch) {
+      const hash = imgMatch[1]
+      void storage.getAsset(hash).then((asset) => {
+        if (asset && asset.mime.startsWith('image/')) {
+          setFront((prev) => {
+            if (extractOcclusionDocument(prev)) return prev
+            const plainTitle = prev.replace(/!\[[^\]]*\]\([^)]*\)/g, '').trim()
+            const newBlock: OcclusionBlock = {
+              v: 1,
+              image: `asset:${hash}`,
+              mode: 'hide-all',
+              masks: [],
+            }
+            return composeOcclusionDocument(plainTitle, newBlock, '', true)
+          })
+        } else {
+          occlusionInputRef.current?.click()
+        }
+      })
+      return
+    }
+    occlusionInputRef.current?.click()
+  }, [canStartOcclusion, isOcclusionMode, front, storage])
+
+  const updateOcclusionHeader = useCallback((nextHeader: string) => {
+    setFront((prev) => {
+      const doc = extractOcclusionDocument(prev)
+      if (!doc) return prev
+      return composeOcclusionDocument(nextHeader, doc.block, doc.footer, true)
+    })
+  }, [])
+
+  const updateOcclusionBlock = useCallback((nextBlock: OcclusionBlock) => {
+    setFront((prev) => {
+      const doc = extractOcclusionDocument(prev)
+      if (!doc) return prev
+      return composeOcclusionDocument(doc.header, nextBlock, doc.footer)
+    })
+  }, [])
+
+  const exitOcclusionMode = useCallback(() => {
+    if (editing) return
+    setFront((prev) => {
+      const doc = extractOcclusionDocument(prev)
+      if (!doc) return prev
+      return [doc.header, `![](${doc.block.image})`, doc.footer]
+        .filter((s) => s.trim().length > 0)
+        .join('\n\n')
+    })
+  }, [editing])
 
   const insertCloze = useCallback(() => {
     if (!canInsertCloze) return
@@ -207,57 +320,102 @@ export function CardEditorPage() {
     }
   }, [active, canInsertCloze, front])
 
+  const canSave =
+    Boolean(front.trim())
+    && Boolean(deckId)
+    && (!isOcclusionMode || occlusionIndices.length > 0)
+
   const save = useCallback(async (addAnother = false) => {
-    if (!front.trim() || !deckId) return
-    const nextTags = mergeUserTags(tags, combinedTagInput)
-    let createdCount = 1
-    if (editing && cardId) {
-      if (isClozeCard) {
-        await storage.updateClozeNote(cardId, front, back, nextTags)
+    if (savingRef.current || !canSave || !deckId) return
+    savingRef.current = true
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const nextTags = mergeUserTags(tags, combinedTagInput)
+      let createdCount = 1
+      if (editing && cardId) {
+        if (isClozeCard) {
+          await storage.updateClozeNote(cardId, front, back, nextTags)
+        } else {
+          await storage.updateCard(cardId, { front, back, tags: nextTags })
+        }
       } else {
-        await storage.updateCard(cardId, { front, back, tags: nextTags })
+        const created = await storage.createCardOrCloze(deckId, front, back, nextTags)
+        createdCount = Math.max(1, created.length)
       }
-    } else {
-      const created = await storage.createCardOrCloze(deckId, front, back, nextTags)
-      createdCount = Math.max(1, created.length)
-    }
-    await storage.sweepOrphanAssets()
+      await storage.sweepOrphanAssets()
 
-    if (addAnother && !editing) {
-      setFront('')
-      setBack('')
-      setTags([])
-      setUserTagChips([])
-      setTagDraft('')
-      setBaseline(EMPTY_DRAFT)
-      setSavedCount((n) => n + createdCount)
-      frontHandle.current?.editor.commands.focus('end')
-      return
-    }
+      if (addAnother && !editing) {
+        setFront('')
+        setBack('')
+        setTags([])
+        setUserTagChips([])
+        setTagDraft('')
+        setBaseline(EMPTY_DRAFT)
+        setSavedCount((n) => n + createdCount)
+        if (frontHandle.current && !frontHandle.current.editor.isDestroyed) {
+          frontHandle.current.editor.commands.focus('end')
+        }
+        return
+      }
 
-    allowNavigationRef.current = true
-    leaveEditor()
+      allowNavigationRef.current = true
+      leaveEditor()
+    } catch (err) {
+      console.error('card save failed', err)
+      setSaveError(err instanceof Error ? err.message : 'Could not save card.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [front, back, tags, combinedTagInput, deckId, cardId, editing, isClozeCard, storage, returnTo])
+  }, [canSave, front, back, tags, combinedTagInput, deckId, cardId, editing, isClozeCard, storage, returnTo])
 
   async function remove() {
-    if (!cardId) return
-    await storage.deleteCard(cardId)
-    await storage.sweepOrphanAssets()
-    allowNavigationRef.current = true
-    leaveEditor()
+    if (savingRef.current || !cardId) return
+    savingRef.current = true
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await storage.deleteCard(cardId)
+      await storage.sweepOrphanAssets()
+      allowNavigationRef.current = true
+      leaveEditor()
+    } catch (err) {
+      console.error('card delete failed', err)
+      setConfirmDelete(false)
+      setSaveError(err instanceof Error ? err.message : 'Could not delete card.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
   }
 
   async function discardAndLeave() {
     allowNavigationRef.current = true
-    await storage.sweepOrphanAssets()
+    try {
+      await storage.sweepOrphanAssets()
+    } catch {
+      // Best-effort cleanup on discard.
+    }
     if (blocker.state === 'blocked') blocker.proceed()
   }
 
   async function unsuspend() {
-    if (!cardId) return
-    await storage.updateCard(cardId, { suspended: false })
-    setSuspended(false)
+    if (savingRef.current || !cardId) return
+    savingRef.current = true
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await storage.updateCard(cardId, { suspended: false })
+      setSuspended(false)
+    } catch (err) {
+      console.error('card unsuspend failed', err)
+      setSaveError(err instanceof Error ? err.message : 'Could not unsuspend card.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
   }
 
   // ⌘⏎ / Ctrl+⏎ saves, ⌘⇧⏎ saves & starts another new card, Esc cancels.
@@ -307,15 +465,15 @@ export function CardEditorPage() {
 
   const actions = (
     <>
-      <button className="btn btn-ghost" onClick={leaveEditor}>
+      <button className="btn btn-ghost" onClick={leaveEditor} disabled={saving}>
         Cancel
       </button>
       {!editing && (
-        <button className="btn btn-ghost" onClick={() => void save(true)} disabled={!front.trim()}>
+        <button className="btn btn-ghost" onClick={() => void save(true)} disabled={saving || !canSave}>
           Save &amp; add another
         </button>
       )}
-      <button className="btn btn-primary" onClick={() => void save(false)} disabled={!front.trim()}>
+      <button className="btn btn-primary" onClick={() => void save(false)} disabled={saving || !canSave}>
         Save card
       </button>
     </>
@@ -353,22 +511,47 @@ export function CardEditorPage() {
           </p>
         )}
 
+        <input
+          ref={occlusionInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          aria-label="Choose image for occlusion"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) void startOcclusionFromFile(file)
+            e.target.value = ''
+          }}
+        />
+
         <div className="md-toolbar-bar">
           <EditorToolbar
             editor={active?.editor ?? null}
             onImage={() => active?.openImagePicker()}
             onAudio={() => active?.openAudioPicker()}
             onCloze={canInsertCloze ? insertCloze : undefined}
+            onImageOcclusion={canStartOcclusion ? triggerImageOcclusion : undefined}
+            occlusionActive={isOcclusionMode}
           />
         </div>
 
-        {mediaError && (
+        {(saveError || mediaError) && (
           <p className="editor-cloze-hint" role="alert">
-            {mediaError}
+            {saveError ?? mediaError}
           </p>
         )}
 
-        {((!editing && clozeIndices.length > 0) || isClozeCard) && (
+        {isOcclusionMode && (
+          <p className="editor-cloze-hint" role="status">
+            {occlusionIndices.length === 0
+              ? 'Image Occlusion · draw at least one mask on the diagram to save.'
+              : editing
+                ? `Image Occlusion (${occlusionIndices.map((n) => `#${n}`).join(', ')}) · edits update all sibling mask cards.`
+                : `Image Occlusion · creates ${occlusionIndices.length} ${occlusionIndices.length === 1 ? 'card' : 'cards'} (${occlusionIndices.map((n) => `#${n}`).join(', ')}).`}
+          </p>
+        )}
+
+        {!isOcclusionMode && ((!editing && clozeIndices.length > 0) || isClozeCard) && (
           <p className="editor-cloze-hint" role="status">
             {editing && isClozeCard
               ? `Cloze note (${clozeIndices.map((n) => `c${n}`).join(', ') || 'cloze'}) · edits update sibling cards.`
@@ -378,27 +561,39 @@ export function CardEditorPage() {
 
         <section className="card-editor-surface" aria-label="Card content">
           <div className="editor-field editor-field--front">
-            <div className="editor-field-label">Front</div>
-            <RichMarkdownEditor
-              value={front}
-              onChange={setFront}
-              placeholder="Type the prompt…"
-              ariaLabel="Front"
-              autoFocus={!editing}
-              resolveAsset={resolveAsset}
-              ingestAsset={ingestAsset}
-              onMediaError={setMediaError}
-              onReady={onFrontReady}
-              onFocus={() => frontHandle.current && setActive(frontHandle.current)}
-            />
+            <div className="editor-field-label">{isOcclusionMode ? 'Image Occlusion' : 'Front'}</div>
+            {occlusionDoc ? (
+              <OcclusionEditor
+                key={cardId ?? 'new-occlusion'}
+                header={occlusionDoc.header}
+                onHeaderChange={updateOcclusionHeader}
+                block={occlusionDoc.block}
+                onBlockChange={updateOcclusionBlock}
+                onReplaceImage={startOcclusionFromFile}
+                onRemoveOcclusion={!editing ? exitOcclusionMode : undefined}
+              />
+            ) : (
+              <RichMarkdownEditor
+                value={front}
+                onChange={setFront}
+                placeholder="Type the prompt…"
+                ariaLabel="Front"
+                autoFocus={!editing}
+                resolveAsset={resolveAsset}
+                ingestAsset={ingestAsset}
+                onMediaError={setMediaError}
+                onReady={onFrontReady}
+                onFocus={() => frontHandle.current && setActive(frontHandle.current)}
+              />
+            )}
           </div>
 
           <div className="editor-field editor-field--back">
-            <div className="editor-field-label">Back</div>
+            <div className="editor-field-label">{isOcclusionMode ? 'Extra (optional)' : 'Back'}</div>
             <RichMarkdownEditor
               value={back}
               onChange={setBack}
-              placeholder="Type the answer…"
+              placeholder={isOcclusionMode ? 'Optional notes shown after reveal…' : 'Type the answer…'}
               ariaLabel="Back"
               resolveAsset={resolveAsset}
               ingestAsset={ingestAsset}

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useStorage } from '../data/StorageContext'
 import type { CardSearchHit } from '../domain/models'
 import { stripClozeMarkup } from '../features/cards/cloze'
+import { hasImageOcclusion, stripOcclusionMarkup } from '../features/cards/occlusion'
 
 interface SearchModalProps {
   open: boolean
@@ -10,7 +11,7 @@ interface SearchModalProps {
 }
 
 function snippet(markdown: string, maxLen = 110): string {
-  const plain = stripClozeMarkup(markdown)
+  const plain = stripClozeMarkup(stripOcclusionMarkup(markdown))
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '[image]')
     .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[^\n]*\n?|```/g, ' '))
     .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?)/gm, '')
@@ -41,6 +42,7 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
       setQuery('')
       setSettledQuery('')
       setHits([])
+      setLoading(false)
       setSearchError(null)
       setActiveIndex(0)
       const previous = restoreFocusRef.current
@@ -128,7 +130,7 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
   }, [open, query, storage])
 
   useEffect(() => {
-    activeRowRef.current?.scrollIntoView({ block: 'nearest' })
+    activeRowRef.current?.scrollIntoView?.({ block: 'nearest' })
   }, [activeIndex, hits])
 
   if (!open) return null
@@ -205,7 +207,7 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
             </p>
           ) : searchError ? (
             <p className="search-modal-empty" role="alert">{searchError}</p>
-          ) : loading && hits.length === 0 ? (
+          ) : !resultsCurrent && hits.length === 0 ? (
             <p className="search-modal-empty">Searching…</p>
           ) : hits.length === 0 ? (
             <p className="search-modal-empty">No cards match “{query.trim()}”.</p>
@@ -245,7 +247,9 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
                       </div>
                       <div className="search-result-front">
                         {hit.card.clozeIndex && (
-                          <span className="card-cloze-badge">c{hit.card.clozeIndex}</span>
+                          <span className="card-cloze-badge">
+                            {hasImageOcclusion(hit.card.front) ? `IO ${hit.card.clozeIndex}` : `c${hit.card.clozeIndex}`}
+                          </span>
                         )}
                         {snippet(hit.card.front, 120) || '(empty front)'}
                       </div>

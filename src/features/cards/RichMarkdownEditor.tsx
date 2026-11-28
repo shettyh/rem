@@ -125,9 +125,11 @@ export function RichMarkdownEditor({
     }
     void ingest(file)
       .then(({ hash }) => {
+        if (editor.isDestroyed) return
         editor.chain().focus().setImage({ src: `asset:${hash}` }).run()
       })
       .catch((err) => {
+        if (editor.isDestroyed) return
         onMediaErrorRef.current?.(
           err instanceof Error ? err.message : 'Could not attach image.',
         )
@@ -148,6 +150,7 @@ export function RichMarkdownEditor({
     const upload = ingestAsset ? ingestAsset(file, audioMime) : ingest(file)
     void upload
       .then(({ hash }) => {
+        if (editor.isDestroyed) return
         const label = file.name.replace(/[\[\]()]/g, '').trim() || 'Audio'
         editor
           .chain()
@@ -163,6 +166,7 @@ export function RichMarkdownEditor({
           .run()
       })
       .catch((err) => {
+        if (editor.isDestroyed) return
         onMediaErrorRef.current?.(
           err instanceof Error ? err.message : 'Could not attach audio.',
         )

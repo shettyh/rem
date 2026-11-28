@@ -1,5 +1,5 @@
 import { handleAppleWebhook, handleVerifyAppleTransaction } from './appleBilling'
-import { authenticateRequest, sha256HexBytes } from './auth'
+import { authenticateRequest, sha256HexBytes, verifyJwtAccountExists } from './auth'
 import { renderCloudPage } from './cloudPage'
 import { checkSyncEntitlement, getAccountInfo, handleStartTrial } from './entitlements'
 import { renderPrivacyPage, renderSupportPage, renderTermsPage } from './legalPages'
@@ -19,7 +19,7 @@ import {
   handleCreatePolarPortal,
   handlePolarWebhook,
 } from './polar'
-import type { Env, MissingAssetsRequest, SyncRequest } from './types'
+import type { Env, MissingAssetsRequest, SyncRequest, SyncRpcResult } from './types'
 import { UserSyncDO } from './userSyncDo'
 
 export { UserSyncDO }
@@ -28,6 +28,7 @@ const SHA256_HEX_RE = /^[0-9a-f]{64}$/
 const DEFAULT_MAX_ASSET_BYTES = 10 * 1024 * 1024
 const DEFAULT_MAX_USER_QUOTA_BYTES = 500 * 1024 * 1024
 const MAX_MISSING_HASHES = 500
+const MAX_SYNC_BODY_BYTES = 4 * 1024 * 1024
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -133,6 +134,13 @@ export default {
       return jsonResponse({ error: 'unauthorized' }, 401)
     }
 
+    if (auth.authMethod === 'jwt') {
+      const exists = await verifyJwtAccountExists(env, auth.userId)
+      if (!exists) {
+        return jsonResponse({ error: 'account_not_found' }, 401)
+      }
+    }
+
     if (url.pathname === '/v1/account') {
       if (request.method === 'GET') {
         const info = await getAccountInfo(env, auth.userId, auth.authMethod)
@@ -176,18 +184,31 @@ export default {
     const stub = env.USER_SYNC.get(env.USER_SYNC.idFromName(auth.userId))
 
     if (request.method === 'POST' && url.pathname === '/v1/sync') {
+      const contentLengthHeader = request.headers.get('Content-Length')
+      if (contentLengthHeader) {
+        const declaredLen = Number.parseInt(contentLengthHeader, 10)
+        if (Number.isFinite(declaredLen) && declaredLen > MAX_SYNC_BODY_BYTES) {
+          return jsonResponse({ error: 'invalid_request', message: 'sync request body too large' }, 400)
+        }
+      }
+      const rawText = await request.text()
+      if (new TextEncoder().encode(rawText).byteLength > MAX_SYNC_BODY_BYTES) {
+        return jsonResponse({ error: 'invalid_request', message: 'sync request body too large' }, 400)
+      }
       let body: SyncRequest
       try {
-        body = (await request.json()) as SyncRequest
+        body = JSON.parse(rawText) as SyncRequest
       } catch {
         return jsonResponse({ error: 'invalid_json' }, 400)
       }
       try {
-        const result = await stub.sync(body)
-        return jsonResponse(result)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'invalid sync request'
-        return jsonResponse({ error: 'invalid_request', message }, 400)
+        const result = (await stub.sync(body)) as SyncRpcResult
+        if (result.status === 'invalid') {
+          return jsonResponse({ error: 'invalid_request', message: result.error }, 400)
+        }
+        return jsonResponse(result.response)
+      } catch {
+        return jsonResponse({ error: 'internal_error', message: 'sync storage error' }, 500)
       }
     }
 

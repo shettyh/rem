@@ -87,6 +87,10 @@ export interface SyncResponse {
   ops: RemoteSyncOp[]
 }
 
+export type SyncRpcResult =
+  | { status: 'ok'; response: SyncResponse }
+  | { status: 'invalid'; error: string }
+
 export interface MissingAssetsRequest {
   hashes: string[]
 }

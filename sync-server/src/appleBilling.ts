@@ -20,6 +20,7 @@ export const APPLE_ROOT_CA_G3_DER_B64 =
   'MIICQzCCAcmgAwIBAgIILcX8iNLFS5UwCgYIKoZIzj0EAwMwZzEbMBkGA1UEAwwSQXBwbGUgUm9vdCBDQSAtIEczMSYwJAYDVQQLDB1BcHBsZSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTETMBEGA1UECgwKQXBwbGUgSW5jLjELMAkGA1UEBhMCVVMwHhcNMTQwNDMwMTgxOTA2WhcNMzkwNDMwMTgxOTA2WjBnMRswGQYDVQQDDBJBcHBsZSBSb290IENBIC0gRzMxJjAkBgNVBAsMHUFwcGxlIENlcnRpZmljYXRpb24gQXV0aG9yaXR5MRMwEQYDVQQKDApBcHBsZSBJbmMuMQswCQYDVQQGEwJVUzB2MBAGByqGSM49AgEGBSuBBAAiA2IABJjpLz1AcqTtkyJygRMc3RCV8cWjTnHcFBbZDuWmBSp3ZHtfTjjTuxxEtX/1H7YyYl3J6YRbTzBPEVoA/VhYDKX1DyxNB0cTddqXl5dvMVztK517IDvYuVTZXpmkOlEKMaNCMEAwHQYDVR0OBBYEFLuw3qFYM4iapIqZ3r6966/ayySrMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMAoGCCqGSM49BAMDA2gAMGUCMQCD6cHEFl4aXTQY2e3v9GwOAEZLuN+yRhHFD/3meoyhpmvOwgPUnPWTxnS4at+qIxUCMG1mihDK1A3UT82NQz60imOlM27jbdoXt2QfyFMm+YhidDkLF1vLUagM6BgD56KyKA=='
 
 const MAX_CHAIN_LENGTH = 5
+const MAX_CERT_DER_BYTES = 16 * 1024
 const FUTURE_SIGNED_DATE_LEEWAY_MS = 5 * 60 * 1000
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const BASE64URL_22_RE = /^[A-Za-z0-9_-]{22}$/
@@ -219,6 +220,9 @@ function decodeOid(bytes: Uint8Array, node: DerNode): string {
   for (let i = node.contentStart + 1; i < node.end; i++) {
     const b = bytes[i]
     value = value * 128 + (b & 0x7f)
+    if (!Number.isSafeInteger(value)) {
+      throw new Error('der_oid_overflow')
+    }
     inArc = true
     if ((b & 0x80) === 0) {
       arcs.push(value)
@@ -278,6 +282,9 @@ function parseBasicConstraintsIsCa(extnValueBytes: Uint8Array): boolean {
 }
 
 function parseX509Certificate(der: Uint8Array): ParsedX509Cert {
+  if (der.byteLength > MAX_CERT_DER_BYTES) {
+    throw new Error('x509_cert_too_large')
+  }
   const certSeq = readDerNode(der, 0, der.byteLength)
   if (certSeq.tag !== 0x30 || certSeq.end !== der.byteLength) {
     throw new Error('x509_invalid_outer_sequence')
@@ -473,6 +480,17 @@ export async function verifyAppleJws<T extends { signedDate?: number }>(
     payload = JSON.parse(decodeBase64UrlToString(payloadB64)) as T
     signatureBytes = decodeBase64Url(signatureB64)
   } catch {
+    return { ok: false, error: 'invalid_jws_encoding' }
+  }
+
+  if (
+    !header ||
+    typeof header !== 'object' ||
+    Array.isArray(header) ||
+    !payload ||
+    typeof payload !== 'object' ||
+    Array.isArray(payload)
+  ) {
     return { ok: false, error: 'invalid_jws_encoding' }
   }
 
@@ -712,6 +730,13 @@ export async function handleVerifyAppleTransaction(
     )
   }
 
+  const userExists = await env.DB.prepare('SELECT id FROM users WHERE id = ?1')
+    .bind(userId)
+    .first<{ id: string }>()
+  if (!userExists) {
+    return jsonResponse({ error: 'account_not_found' }, 401)
+  }
+
   let body: AppleVerifyRequest
   try {
     body = (await request.json()) as AppleVerifyRequest
@@ -853,6 +878,8 @@ export async function handleVerifyAppleTransaction(
     )
   }
 
+  const txUpdatedAt = finiteNumber(tx.signedDate) ?? nowMs
+
   await env.DB.prepare(
     `INSERT INTO user_entitlements (
        user_id, status, plan, provider, provider_customer_id, provider_subscription_id,
@@ -874,7 +901,7 @@ export async function handleVerifyAppleTransaction(
        END,
        updated_at = excluded.updated_at`,
   )
-    .bind(userId, appAccountToken, originalTransactionId, expiresDate, nowMs)
+    .bind(userId, appAccountToken, originalTransactionId, expiresDate, txUpdatedAt)
     .run()
 
   const updated = await getAccountInfo(env, userId, authMethod, nowMs)
@@ -976,23 +1003,32 @@ export async function handleAppleWebhook(
     return jsonResponse({ error: 'invalid_notification_payload' }, 400)
   }
 
-  // Deduplicate notifications idempotently before applying state transitions.
-  const inserted = await env.DB.prepare(
-    `INSERT OR IGNORE INTO billing_events(provider, event_id, processed_at)
-     VALUES ('apple', ?1, ?2)`,
+  const alreadyProcessed = await env.DB.prepare(
+    `SELECT 1 AS seen FROM billing_events WHERE provider = 'apple' AND event_id = ?1`,
   )
-    .bind(notificationUUID, nowMs)
-    .run()
+    .bind(notificationUUID)
+    .first<{ seen: number }>()
 
-  if ((inserted.meta.changes ?? 0) === 0) {
+  if (alreadyProcessed) {
     return jsonResponse({ received: true, duplicate: true })
   }
 
+  const recordIgnoredEvent = async () => {
+    await env.DB!.prepare(
+      `INSERT OR IGNORE INTO billing_events(provider, event_id, processed_at)
+       VALUES ('apple', ?1, ?2)`,
+    )
+      .bind(notificationUUID, nowMs)
+      .run()
+  }
+
   if (notificationType === 'TEST') {
+    await recordIgnoredEvent()
     return jsonResponse({ received: true, test: true })
   }
 
   if (!HANDLED_APPLE_NOTIFICATIONS.has(notificationType)) {
+    await recordIgnoredEvent()
     return jsonResponse({ received: true, ignored: true, reason: 'unhandled_notification_type' })
   }
 
@@ -1006,11 +1042,13 @@ export async function handleAppleWebhook(
 
   const dataBundleId = nonEmptyString(data.bundleId)
   if (dataBundleId && dataBundleId !== expectedBundleId) {
+    await recordIgnoredEvent()
     return jsonResponse({ received: true, ignored: true, reason: 'bundle_id_mismatch' })
   }
 
   const dataEnv = nonEmptyString(data.environment)
   if (dataEnv && !isEnvironmentAllowed(env, dataEnv)) {
+    await recordIgnoredEvent()
     return jsonResponse({ received: true, ignored: true, reason: 'environment_mismatch' })
   }
 
@@ -1028,13 +1066,16 @@ export async function handleAppleWebhook(
 
   const tx = txVerified.payload
   if (nonEmptyString(tx.bundleId) !== expectedBundleId) {
+    await recordIgnoredEvent()
     return jsonResponse({ received: true, ignored: true, reason: 'bundle_id_mismatch' })
   }
   if (nonEmptyString(tx.productId) !== expectedProductId) {
+    await recordIgnoredEvent()
     return jsonResponse({ received: true, ignored: true, reason: 'product_id_mismatch' })
   }
   const txEnv = nonEmptyString(tx.environment) ?? dataEnv
   if (!isEnvironmentAllowed(env, txEnv)) {
+    await recordIgnoredEvent()
     return jsonResponse({ received: true, ignored: true, reason: 'environment_mismatch' })
   }
 
@@ -1055,6 +1096,7 @@ export async function handleAppleWebhook(
 
   const userId = await resolveAppleWebhookUserId(env.DB, originalTransactionId, appAccountToken)
   if (!userId) {
+    await recordIgnoredEvent()
     return jsonResponse({ received: true, ignored: true, reason: 'user_not_found' })
   }
 
@@ -1132,49 +1174,122 @@ export async function handleAppleWebhook(
     }
 
     default:
+      await recordIgnoredEvent()
       return jsonResponse({ received: true, ignored: true })
   }
 
-  // Never overwrite an active Polar subscription with a stale Apple cancellation/expiration.
-  if (mappedStatus === 'canceled') {
-    const existing = await env.DB.prepare(
-      'SELECT provider, status FROM user_entitlements WHERE user_id = ?1',
-    )
-      .bind(userId)
-      .first<{ provider: string | null; status: string }>()
-    if (existing?.provider === 'polar' && existing.status === 'active') {
-      return jsonResponse({ received: true, ignored: true, reason: 'active_polar_subscription' })
+  const existing = await env.DB.prepare(
+    `SELECT provider, status, original_transaction_id, current_period_end, updated_at
+     FROM user_entitlements WHERE user_id = ?1`,
+  )
+    .bind(userId)
+    .first<{
+      provider: string | null
+      status: string
+      original_transaction_id: string | null
+      current_period_end: number | null
+      updated_at: number
+    }>()
+
+  const existingPeriodValid = existing
+    ? existing.current_period_end === null || existing.current_period_end > nowMs
+    : false
+  const isDowngrade =
+    mappedStatus === 'canceled' || mappedStatus === 'past_due' || cancelAtPeriodEnd
+
+  // Never overwrite an active Polar subscription with a stale Apple cancellation/expiration/past_due.
+  if (
+    isDowngrade &&
+    existing?.provider === 'polar' &&
+    existing.status === 'active' &&
+    existingPeriodValid
+  ) {
+    await recordIgnoredEvent()
+    return jsonResponse({ received: true, ignored: true, reason: 'active_polar_subscription' })
+  }
+
+  // Never let a delayed downgrade for a superseded Apple originalTransactionId overwrite a newer active one.
+  if (
+    isDowngrade &&
+    existing?.provider === 'apple' &&
+    existing.status === 'active' &&
+    existingPeriodValid &&
+    existing.original_transaction_id &&
+    originalTransactionId &&
+    existing.original_transaction_id !== originalTransactionId
+  ) {
+    await recordIgnoredEvent()
+    return jsonResponse({ received: true, ignored: true, reason: 'superseded_transaction' })
+  }
+
+  const eventSignedDate =
+    finiteNumber(notification.signedDate) ??
+    finiteNumber(tx.signedDate) ??
+    finiteNumber(renewal?.signedDate)
+  const effectiveUpdatedAt = eventSignedDate ?? nowMs
+
+  if (existing?.provider === 'apple') {
+    const isOlderTimestamp = eventSignedDate !== null && eventSignedDate < existing.updated_at
+    const sameTx =
+      !existing.original_transaction_id ||
+      !originalTransactionId ||
+      existing.original_transaction_id === originalTransactionId
+    const isOlderPeriodOnActive =
+      sameTx &&
+      existing.status === 'active' &&
+      existingPeriodValid &&
+      existing.current_period_end !== null &&
+      expiresDate !== null &&
+      expiresDate < existing.current_period_end &&
+      notificationType !== 'REFUND' &&
+      notificationType !== 'REVOKE'
+
+    if (isOlderTimestamp || isOlderPeriodOnActive) {
+      await recordIgnoredEvent()
+      return jsonResponse({ received: true, ignored: true, reason: 'stale_event' })
     }
   }
 
   const storedCustomerToken = appAccountToken ?? (await deriveAppleAppAccountToken(userId))
 
-  await env.DB.prepare(
-    `INSERT INTO user_entitlements (
-       user_id, status, plan, provider, provider_customer_id, provider_subscription_id,
-       current_period_end, cancel_at_period_end, trial_started_at, original_transaction_id, updated_at
-     ) VALUES (?1, ?2, 'premium_yearly', 'apple', ?3, ?4, ?5, ?6, NULL, ?4, ?7)
-     ON CONFLICT(user_id) DO UPDATE SET
-       status = excluded.status,
-       plan = excluded.plan,
-       provider = 'apple',
-       provider_customer_id = COALESCE(excluded.provider_customer_id, user_entitlements.provider_customer_id),
-       provider_subscription_id = COALESCE(excluded.provider_subscription_id, user_entitlements.provider_subscription_id),
-       original_transaction_id = COALESCE(excluded.original_transaction_id, user_entitlements.original_transaction_id),
-       current_period_end = excluded.current_period_end,
-       cancel_at_period_end = excluded.cancel_at_period_end,
-       updated_at = excluded.updated_at`,
-  )
-    .bind(
-      userId,
-      mappedStatus,
-      storedCustomerToken,
-      originalTransactionId,
-      periodEnd,
-      cancelAtPeriodEnd ? 1 : 0,
-      nowMs,
-    )
-    .run()
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO billing_events(provider, event_id, processed_at)
+         VALUES ('apple', ?1, ?2)`,
+      ).bind(notificationUUID, nowMs),
+      env.DB.prepare(
+        `INSERT INTO user_entitlements (
+           user_id, status, plan, provider, provider_customer_id, provider_subscription_id,
+           current_period_end, cancel_at_period_end, trial_started_at, original_transaction_id, updated_at
+         ) VALUES (?1, ?2, 'premium_yearly', 'apple', ?3, ?4, ?5, ?6, NULL, ?4, ?7)
+         ON CONFLICT(user_id) DO UPDATE SET
+           status = excluded.status,
+           plan = excluded.plan,
+           provider = 'apple',
+           provider_customer_id = COALESCE(excluded.provider_customer_id, user_entitlements.provider_customer_id),
+           provider_subscription_id = COALESCE(excluded.provider_subscription_id, user_entitlements.provider_subscription_id),
+           original_transaction_id = COALESCE(excluded.original_transaction_id, user_entitlements.original_transaction_id),
+           current_period_end = excluded.current_period_end,
+           cancel_at_period_end = excluded.cancel_at_period_end,
+           updated_at = excluded.updated_at`,
+      ).bind(
+        userId,
+        mappedStatus,
+        storedCustomerToken,
+        originalTransactionId,
+        periodEnd,
+        cancelAtPeriodEnd ? 1 : 0,
+        effectiveUpdatedAt,
+      ),
+    ])
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : ''
+    if (msg.includes('UNIQUE constraint failed') && msg.includes('billing_events')) {
+      return jsonResponse({ received: true, duplicate: true })
+    }
+    throw err
+  }
 
   return jsonResponse({ received: true })
 }

@@ -381,7 +381,7 @@ struct CardBrowserRow: View {
 
                 HStack(spacing: 8) {
                     if let clozeIdx = card.clozeIndex {
-                        Text("c\(clozeIdx)")
+                        Text(ImageOcclusionParser.hasOcclusion(card.front) ? "IO \(clozeIdx)" : "c\(clozeIdx)")
                             .font(.caption2.weight(.bold).monospaced())
                             .foregroundStyle(RemColor.accent)
                             .padding(.horizontal, 6)

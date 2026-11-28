@@ -441,6 +441,13 @@ export async function handleStartTrial(
     return jsonResponse(info)
   }
 
+  const userExists = await env.DB.prepare('SELECT id FROM users WHERE id = ?1')
+    .bind(userId)
+    .first<{ id: string }>()
+  if (!userExists) {
+    return jsonResponse({ error: 'account_not_found' }, 401)
+  }
+
   const current = await getAccountInfo(env, userId, authMethod, now)
   const state = current.entitlement.state
   if (state === 'self_hosted' || state === 'active' || state === 'trialing') {

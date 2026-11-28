@@ -30,6 +30,7 @@ const Icon = {
   image: svg(<><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="8.5" cy="10" r="1.5" /><path d="M21 16l-5-5L6 19" /></>),
   audio: svg(<><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></>),
   cloze: svg(<><path d="M7 6H4v12h3" /><path d="M17 6h3v12h-3" /><circle cx="9.5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="14.5" cy="12" r="1" fill="currentColor" stroke="none" /></>),
+  occlusion: svg(<><rect x="3" y="4" width="18" height="16" rx="2" /><rect x="6.5" y="7.5" width="6" height="4.5" rx="1" fill="currentColor" stroke="none" /><rect x="13" y="13" width="5" height="3.5" rx="1" strokeDasharray="2 1.5" /></>),
   alignLeft: svg(<><path d="M4 7h16" /><path d="M4 12h10" /><path d="M4 17h13" /></>),
   alignCenter: svg(<><path d="M4 7h16" /><path d="M7 12h10" /><path d="M5 17h14" /></>),
   alignRight: svg(<><path d="M4 7h16" /><path d="M10 12h10" /><path d="M7 17h13" /></>),
@@ -275,11 +276,15 @@ export function EditorToolbar({
   onImage,
   onAudio,
   onCloze,
+  onImageOcclusion,
+  occlusionActive,
 }: {
   editor: Editor | null
   onImage?: () => void
   onAudio?: () => void
   onCloze?: () => void
+  onImageOcclusion?: () => void
+  occlusionActive?: boolean
 }) {
   const [, force] = useReducer((n: number) => n + 1, 0)
   useEffect(() => {
@@ -359,6 +364,11 @@ export function EditorToolbar({
       {onCloze && (
         <Tool label="Cloze deletion (⌘⇧C)" onRun={onCloze}>
           {Icon.cloze}
+        </Tool>
+      )}
+      {onImageOcclusion && (
+        <Tool label="Image occlusion" active={occlusionActive} onRun={onImageOcclusion}>
+          {Icon.occlusion}
         </Tool>
       )}
       {imageActive && (

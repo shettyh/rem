@@ -1,7 +1,12 @@
-import type { DeckSettings, DraftSource, Grade, ID, SchedulerKind, SchedulingState } from '../domain/models'
+import type { DeckSettings, DraftSource, FSRSState, Grade, ID, SchedulerKind, SchedulingState } from '../domain/models'
 import { DEFAULT_DECK_SETTINGS } from '../domain/models'
 import { getScheduler } from '../domain/scheduler'
+import { normalizeDeckName } from '../features/decks/deckTree'
 import type { Storage } from './Storage'
+
+const MAX_VALID_TIMESTAMP_MS = 8_640_000_000_000_000
+const MAX_U32 = 4_294_967_295
+const MAX_INTERVAL_DAYS = 36_500
 
 export interface ReviewBackup {
   reviewedAt: number
@@ -107,19 +112,38 @@ export function parseBackup(text: string, now: number): DeckBackup[] {
   if (!Array.isArray(data.decks)) {
     throw new Error('Backup file is malformed.')
   }
-  return data.decks.map((d) => parseDeck(d, now))
+  const seenNames = new Set<string>()
+  const decks: DeckBackup[] = []
+  for (const rawDeck of data.decks) {
+    const deck = parseDeck(rawDeck, now)
+    if (seenNames.has(deck.name)) {
+      throw new Error(`Backup contains duplicate deck name: ${deck.name}.`)
+    }
+    seenNames.add(deck.name)
+    decks.push(deck)
+  }
+  return decks
 }
 
-/** Classify incoming deck names against existing names (de-duplicated). */
+function normalizeNameForPlan(raw: string): string {
+  try {
+    return normalizeDeckName(raw)
+  } catch {
+    return raw.trim()
+  }
+}
+
+/** Classify incoming deck names against existing names (normalized & de-duplicated). */
 export function planImport(
   incomingNames: string[],
   existingNames: string[],
 ): { added: string[]; replaced: string[] } {
-  const existing = new Set(existingNames)
+  const existing = new Set(existingNames.map(normalizeNameForPlan))
   const seen = new Set<string>()
   const added: string[] = []
   const replaced: string[] = []
-  for (const name of incomingNames) {
+  for (const rawName of incomingNames) {
+    const name = normalizeNameForPlan(rawName)
     if (seen.has(name)) continue
     seen.add(name)
     if (existing.has(name)) replaced.push(name)
@@ -129,24 +153,89 @@ export function planImport(
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+function isValidTimestamp(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_VALID_TIMESTAMP_MS
+}
+
+function isNonNegativeInt(v: unknown, max = MAX_U32): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= max
+}
+
+function isFiniteNonNegative(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0
+}
+
+function parseDeckSettings(raw: unknown): DeckSettings {
+  const settings: DeckSettings = { ...DEFAULT_DECK_SETTINGS }
+  if (!isObject(raw)) return settings
+  if (isNonNegativeInt(raw.newPerDay, Number.MAX_SAFE_INTEGER)) {
+    settings.newPerDay = Math.min(9_999, raw.newPerDay)
+  }
+  if (isNonNegativeInt(raw.maxReviews, Number.MAX_SAFE_INTEGER)) {
+    settings.maxReviews = Math.min(9_999, raw.maxReviews)
+  }
+  if (typeof raw.learnSteps === 'string') {
+    settings.learnSteps = raw.learnSteps.trim()
+  }
+  if (raw.insertionOrder === 'random' || raw.insertionOrder === 'sequential') {
+    settings.insertionOrder = raw.insertionOrder
+  }
+  if (typeof raw.relearnSteps === 'string') {
+    settings.relearnSteps = raw.relearnSteps.trim()
+  }
+  if (typeof raw.minimumInterval === 'number' && Number.isInteger(raw.minimumInterval) && raw.minimumInterval >= 1 && raw.minimumInterval <= 365) {
+    settings.minimumInterval = raw.minimumInterval
+  }
+  if (typeof raw.leechThreshold === 'number' && Number.isInteger(raw.leechThreshold) && raw.leechThreshold >= 1 && raw.leechThreshold <= 99) {
+    settings.leechThreshold = raw.leechThreshold
+  }
+  if (raw.leechAction === 'suspend' || raw.leechAction === 'tag') {
+    settings.leechAction = raw.leechAction
+  }
+  if (typeof raw.buryRelated === 'boolean') {
+    settings.buryRelated = raw.buryRelated
+  }
+  if (typeof raw.showTimer === 'boolean') {
+    settings.showTimer = raw.showTimer
+  }
+  if (typeof raw.desiredRetention === 'number' && Number.isFinite(raw.desiredRetention) && raw.desiredRetention >= 0.7 && raw.desiredRetention <= 0.99) {
+    settings.desiredRetention = raw.desiredRetention
+  }
+  if (typeof raw.maximumInterval === 'number' && Number.isInteger(raw.maximumInterval) && raw.maximumInterval >= 1) {
+    settings.maximumInterval = Math.min(MAX_INTERVAL_DAYS, raw.maximumInterval)
+  }
+  if (raw.fsrsWeights === null) {
+    settings.fsrsWeights = null
+  } else if (
+    Array.isArray(raw.fsrsWeights) &&
+    raw.fsrsWeights.length > 0 &&
+    raw.fsrsWeights.every((n) => typeof n === 'number' && Number.isFinite(n))
+  ) {
+    settings.fsrsWeights = raw.fsrsWeights.slice()
+  }
+  return settings
 }
 
 function parseDeck(raw: unknown, now: number): DeckBackup {
   if (
     !isObject(raw) ||
     typeof raw.name !== 'string' ||
-    typeof raw.createdAt !== 'number' ||
+    !isValidTimestamp(raw.createdAt) ||
     !Array.isArray(raw.cards)
   ) {
     throw new Error('Backup file is malformed.')
   }
+  const name = normalizeDeckName(raw.name)
+  const color = typeof raw.color === 'string' && raw.color.trim() ? raw.color.trim() : undefined
   return {
-    name: raw.name,
+    name,
     createdAt: raw.createdAt,
     schedulerKind: 'fsrs',
-    color: typeof raw.color === 'string' ? raw.color : undefined,
-    settings: { ...DEFAULT_DECK_SETTINGS, ...(isObject(raw.settings) ? raw.settings : {}) },
+    color,
+    settings: parseDeckSettings(raw.settings),
     cards: raw.cards.map((c) => parseCard(c, now)),
   }
 }
@@ -155,12 +244,20 @@ function parseCard(raw: unknown, now: number): CardBackup {
   if (
     !isObject(raw) ||
     typeof raw.front !== 'string' ||
+    !raw.front.trim() ||
     typeof raw.back !== 'string' ||
-    typeof raw.createdAt !== 'number' ||
-    typeof raw.updatedAt !== 'number' ||
+    !isValidTimestamp(raw.createdAt) ||
+    !isValidTimestamp(raw.updatedAt) ||
     !isSchedulingPayload(raw.scheduling)
   ) {
     throw new Error('Backup file is malformed.')
+  }
+  let lastAgainAt: number | null = null
+  if (raw.lastAgainAt !== undefined && raw.lastAgainAt !== null) {
+    if (!isValidTimestamp(raw.lastAgainAt)) {
+      throw new Error('Backup file is malformed.')
+    }
+    lastAgainAt = raw.lastAgainAt
   }
   const rationale = typeof raw.rationale === 'string' && raw.rationale.trim() ? raw.rationale.trim() : undefined
   const sources = parseSources(raw.sources)
@@ -170,7 +267,7 @@ function parseCard(raw: unknown, now: number): CardBackup {
       ? raw.siblingGroupId.trim()
       : undefined
   const clozeIndex =
-    typeof raw.clozeIndex === 'number' && Number.isInteger(raw.clozeIndex) && raw.clozeIndex >= 1
+    typeof raw.clozeIndex === 'number' && Number.isInteger(raw.clozeIndex) && raw.clozeIndex >= 1 && raw.clozeIndex <= MAX_U32
       ? raw.clozeIndex
       : undefined
   return {
@@ -180,7 +277,7 @@ function parseCard(raw: unknown, now: number): CardBackup {
     updatedAt: raw.updatedAt,
     tags: Array.isArray(raw.tags) && raw.tags.every((tag) => typeof tag === 'string') ? raw.tags : [],
     suspended: raw.suspended === true,
-    lastAgainAt: typeof raw.lastAgainAt === 'number' ? raw.lastAgainAt : null,
+    lastAgainAt,
     scheduling: normalizeScheduling(raw.scheduling, now),
     reviews: parseReviews(raw.reviews),
     ...(rationale ? { rationale } : {}),
@@ -210,7 +307,7 @@ function parseReviews(raw: unknown): ReviewBackup[] {
   return raw.map((review) => {
     if (
       !isObject(review) ||
-      typeof review.reviewedAt !== 'number' ||
+      !isValidTimestamp(review.reviewedAt) ||
       !isGrade(review.grade)
     ) {
       throw new Error('Backup file is malformed.')
@@ -227,35 +324,54 @@ function isGrade(value: unknown): value is Grade {
  *  shape (kind 'sm2' or pre-discriminant). SM-2 payloads are accepted only so
  *  old backups parse; they get reset to FSRS in {@link normalizeScheduling}. */
 function isSchedulingPayload(v: unknown): v is Record<string, unknown> {
-  if (!isObject(v) || typeof v.due !== 'number') return false
+  if (!isObject(v) || !isValidTimestamp(v.due)) return false
   if (v.kind === 'fsrs') {
-    return (
-      typeof v.stability === 'number' &&
-      (v.stabilityFast === undefined || v.stabilityFast === null || typeof v.stabilityFast === 'number') &&
-      typeof v.difficulty === 'number' &&
-      typeof v.reps === 'number' &&
-      typeof v.lapses === 'number' &&
-      typeof v.state === 'number' &&
-      (v.lastReview === null || typeof v.lastReview === 'number')
-    )
+    const validStep = v.step === undefined || v.step === null || isNonNegativeInt(v.step)
+    const validStabilityFast =
+      v.stabilityFast === undefined || v.stabilityFast === null || isFiniteNonNegative(v.stabilityFast)
+    const validLastReview = v.lastReview === null || isValidTimestamp(v.lastReview)
+    if (
+      !isFiniteNonNegative(v.stability) ||
+      !validStabilityFast ||
+      !isFiniteNonNegative(v.difficulty) ||
+      !isNonNegativeInt(v.reps) ||
+      !isNonNegativeInt(v.lapses) ||
+      !isNonNegativeInt(v.state, 3) ||
+      !validStep ||
+      !validLastReview
+    ) {
+      return false
+    }
+    if (v.reps > 0 && !(v.stability > 0)) return false
+    return true
   }
   // legacy SM-2 (kind 'sm2' or absent)
   return (
-    typeof v.repetitions === 'number' &&
-    typeof v.intervalDays === 'number' &&
-    typeof v.easeFactor === 'number'
+    typeof v.repetitions === 'number' && Number.isFinite(v.repetitions) &&
+    typeof v.intervalDays === 'number' && Number.isFinite(v.intervalDays) &&
+    typeof v.easeFactor === 'number' && Number.isFinite(v.easeFactor)
   )
 }
 
-/** FSRS state passes through; any legacy SM-2 state is reset to a fresh FSRS
+/** FSRS state passes through cleanly; any legacy SM-2 state is reset to a fresh FSRS
  *  card (due `now`), since SM-2 is no longer supported. */
 function normalizeScheduling(v: Record<string, unknown>, now: number): SchedulingState {
-  // step may be absent in backups written before #3a (JSON is cast, not validated);
-  // spread order means an existing v.step wins, a missing one defaults to 0.
   if (v.kind === 'fsrs') {
-    const normalized: Record<string, unknown> = { step: 0, ...v }
-    if (normalized.stabilityFast === null) delete normalized.stabilityFast
-    return normalized as unknown as SchedulingState
+    const state: FSRSState = {
+      kind: 'fsrs',
+      stability: v.stability as number,
+      difficulty: v.difficulty as number,
+      reps: v.reps as number,
+      lapses: v.lapses as number,
+      state: v.state as number,
+      step: typeof v.step === 'number' ? v.step : 0,
+      lastReview: (v.lastReview as number | null) ?? null,
+      due: v.due as number,
+    }
+    if (typeof v.stabilityFast === 'number') {
+      state.stabilityFast = v.stabilityFast
+    }
+    return state
   }
   return getScheduler().initial(now)
 }

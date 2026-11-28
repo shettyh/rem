@@ -43,6 +43,22 @@ export async function authenticateRequest(
   return null
 }
 
+export async function verifyJwtAccountExists(env: Env, userId: string): Promise<boolean> {
+  if (!env.DB) return true
+  try {
+    const row = await env.DB.prepare('SELECT id FROM users WHERE id = ?1')
+      .bind(userId)
+      .first<{ id: string }>()
+    return row !== null
+  } catch (err) {
+    const message = err instanceof Error ? err.message : ''
+    if (message.includes('no such table')) {
+      return true
+    }
+    throw err
+  }
+}
+
 function verifyDevToken(token: string, expectedSecret: string): string | null {
   const colonIdx = token.indexOf(':')
   if (colonIdx === -1) {
@@ -89,6 +105,17 @@ export async function verifyHs256Jwt(
     payload = JSON.parse(decodeBase64UrlToString(payloadB64)) as Record<string, unknown>
     signatureBytes = decodeBase64Url(signatureB64)
   } catch {
+    return null
+  }
+
+  if (
+    !header ||
+    typeof header !== 'object' ||
+    Array.isArray(header) ||
+    !payload ||
+    typeof payload !== 'object' ||
+    Array.isArray(payload)
+  ) {
     return null
   }
 

@@ -10,6 +10,7 @@ import { isNew, loadDueOverview } from '../review/dueOverview'
 import { deckIsDescendantOrSelf } from '../decks/deckTree'
 import { userTags } from './cardTags'
 import { stripClozeMarkup } from './cloze'
+import { hasImageOcclusion, stripOcclusionMarkup } from './occlusion'
 
 /** Clean a single line of markdown into plain preview text. */
 function cleanMarkdownLine(line: string): string {
@@ -30,7 +31,8 @@ export function cardPreview(md: string): string {
 
 /** Structured one-line preview that preserves code-block language metadata instead of showing "rust". */
 export function cardSnippet(md: string): { text: string; lang: string | null } {
-  const lines = md.split('\n')
+  const normalized = hasImageOcclusion(md) ? stripOcclusionMarkup(md) : md
+  const lines = normalized.split('\n')
   const firstIdx = lines.findIndex((l) => l.trim().length > 0)
   if (firstIdx === -1) return { text: '', lang: null }
 
@@ -448,7 +450,9 @@ export function DeckDetailPage() {
                       >
                         <span className="card-front">
                           {card.clozeIndex && (
-                            <span className="card-cloze-badge">c{card.clozeIndex}</span>
+                            <span className="card-cloze-badge">
+                              {hasImageOcclusion(card.front) ? `IO ${card.clozeIndex}` : `c${card.clozeIndex}`}
+                            </span>
                           )}
                           {frontText || <span className="muted">Untitled card</span>}
                         </span>

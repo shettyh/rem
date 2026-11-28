@@ -129,7 +129,11 @@ export class BrowserStudySession {
       daily,
     })
     const previousNotice = this.notice
-    this.session.grade(now, next, { requeue: effect?.suspended !== true })
+    this.session.grade(now, next, {
+      requeue: effect?.suspended !== true,
+      tags: patch.tags,
+      lastAgainAt: patch.lastAgainAt,
+    })
     const buriedSiblings =
       !this.customStudy && current.card.siblingGroupId
         ? this.session.burySiblings(current.card.id, current.card.siblingGroupId)
@@ -167,7 +171,6 @@ export class BrowserStudySession {
   async undoLastGrade(): Promise<StudyView> {
     const undo = this.lastGrade
     if (!undo) throw new Error('invalid input: no recent grade to undo')
-    this.lastGrade = null
     const prev = undo.previousItem.card
     const restorePatch: CardPatch = {
       tags: [...prev.tags],
@@ -175,17 +178,26 @@ export class BrowserStudySession {
       lastAgainAt: prev.lastAgainAt,
       scheduling: { ...prev.scheduling },
     }
-    if (this.rollbackReview) {
-      await this.rollbackReview({
-        cardId: prev.id,
-        deckId: prev.deckId,
-        patch: restorePatch,
-        reviewLogId: undo.reviewLogId,
-        daily: undo.daily,
-      })
-    } else {
-      await this.storage.updateCard(prev.id, restorePatch)
+    try {
+      if (this.rollbackReview) {
+        await this.rollbackReview({
+          cardId: prev.id,
+          deckId: prev.deckId,
+          patch: restorePatch,
+          reviewLogId: undo.reviewLogId,
+          daily: undo.daily,
+        })
+      } else {
+        await this.storage.updateCard(prev.id, restorePatch)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (/conflict|not found/i.test(msg)) {
+        this.lastGrade = null
+      }
+      throw err
     }
+    this.lastGrade = null
     const reloaded = (await this.storage.getCard(prev.id)) ?? prev
     const restoredItem: SessionCard = {
       ...undo.previousItem,

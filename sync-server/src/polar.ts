@@ -22,6 +22,7 @@ interface PolarSubscriptionPayload {
   current_period_end?: unknown
   ends_at?: unknown
   ended_at?: unknown
+  modified_at?: unknown
   cancel_at_period_end?: unknown
   metadata?: Record<string, unknown> | null
   customer?: {
@@ -94,7 +95,7 @@ export async function verifyPolarWebhookSignature(
   headers: Headers,
   rawBody: string,
   nowSec = Math.floor(Date.now() / 1000),
-): Promise<{ ok: true; webhookId: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; webhookId: string; timestampSec: number } | { ok: false; error: string }> {
   const webhookId = headers.get('webhook-id')?.trim() ?? ''
   const webhookTimestamp = headers.get('webhook-timestamp')?.trim() ?? ''
   const webhookSignature = headers.get('webhook-signature')?.trim() ?? ''
@@ -126,7 +127,7 @@ export async function verifyPolarWebhookSignature(
     const version = token.slice(0, commaIdx)
     const sig = token.slice(commaIdx + 1)
     if (version === 'v1' && sig.length > 0 && timingSafeStringEqual(sig, expected)) {
-      return { ok: true, webhookId }
+      return { ok: true, webhookId, timestampSec: ts }
     }
   }
 
@@ -247,9 +248,12 @@ export async function handleCreatePolarCheckout(
     )
   }
 
-  const user = await env.DB.prepare('SELECT email FROM users WHERE id = ?1')
+  const user = await env.DB.prepare('SELECT id, email FROM users WHERE id = ?1')
     .bind(userId)
-    .first<{ email: string | null }>()
+    .first<{ id: string; email: string | null }>()
+  if (!user) {
+    return jsonResponse({ error: 'account_not_found' }, 401)
+  }
 
   const origin = new URL(request.url).origin
   const payload: Record<string, unknown> = {
@@ -321,6 +325,13 @@ export async function handleCreatePolarPortal(
       },
       503,
     )
+  }
+
+  const userExists = await env.DB.prepare('SELECT id FROM users WHERE id = ?1')
+    .bind(userId)
+    .first<{ id: string }>()
+  if (!userExists) {
+    return jsonResponse({ error: 'account_not_found' }, 401)
   }
 
   const row = await env.DB.prepare(
@@ -412,18 +423,27 @@ export async function handlePolarWebhook(
     return jsonResponse({ error: 'invalid_webhook_payload' }, 400)
   }
 
-  const inserted = await env.DB.prepare(
-    `INSERT OR IGNORE INTO billing_events(provider, event_id, processed_at)
-     VALUES ('polar', ?1, ?2)`,
+  const alreadyProcessed = await env.DB.prepare(
+    `SELECT 1 AS seen FROM billing_events WHERE provider = 'polar' AND event_id = ?1`,
   )
-    .bind(verified.webhookId, nowMs)
-    .run()
+    .bind(verified.webhookId)
+    .first<{ seen: number }>()
 
-  if ((inserted.meta.changes ?? 0) === 0) {
+  if (alreadyProcessed) {
     return jsonResponse({ received: true, duplicate: true })
   }
 
+  const recordIgnoredEvent = async () => {
+    await env.DB!.prepare(
+      `INSERT OR IGNORE INTO billing_events(provider, event_id, processed_at)
+       VALUES ('polar', ?1, ?2)`,
+    )
+      .bind(verified.webhookId, nowMs)
+      .run()
+  }
+
   if (!POLAR_SUBSCRIPTION_EVENTS.has(eventType)) {
+    await recordIgnoredEvent()
     return jsonResponse({ received: true, ignored: true })
   }
 
@@ -432,16 +452,19 @@ export async function handlePolarWebhook(
   const customerId = nonEmptyString(data.customer_id) ?? nonEmptyString(data.customer?.id)
   const userId = await resolveWebhookUserId(env.DB, data, subscriptionId, customerId)
   if (!userId) {
+    await recordIgnoredEvent()
     return jsonResponse({ received: true, ignored: true, reason: 'user_not_found' })
   }
 
   const rawStatus = nonEmptyString(data.status)?.toLowerCase() ?? ''
   if (rawStatus === 'incomplete') {
+    await recordIgnoredEvent()
     return jsonResponse({ received: true, ignored: true, reason: 'subscription_incomplete' })
   }
 
-  let periodEnd =
+  const rawPeriodEnd =
     parseIsoTimestampMs(data.current_period_end) ?? parseIsoTimestampMs(data.ends_at)
+  let periodEnd = rawPeriodEnd
   const endedAt = parseIsoTimestampMs(data.ended_at)
   let cancelAtPeriodEnd = Boolean(data.cancel_at_period_end)
   let mappedStatus: 'active' | 'past_due' | 'canceled'
@@ -468,43 +491,114 @@ export async function handlePolarWebhook(
     mappedStatus = 'active'
   }
 
-  // Never overwrite an active Apple App Store subscription with a stale Polar cancellation/revocation.
-  if (mappedStatus === 'canceled') {
-    const existing = await env.DB.prepare(
-      'SELECT provider, status FROM user_entitlements WHERE user_id = ?1',
-    )
-      .bind(userId)
-      .first<{ provider: string | null; status: string }>()
-    if (existing?.provider === 'apple' && existing.status === 'active') {
-      return jsonResponse({ received: true, ignored: true, reason: 'active_apple_subscription' })
+  const existing = await env.DB.prepare(
+    `SELECT provider, status, provider_subscription_id, current_period_end, updated_at
+     FROM user_entitlements WHERE user_id = ?1`,
+  )
+    .bind(userId)
+    .first<{
+      provider: string | null
+      status: string
+      provider_subscription_id: string | null
+      current_period_end: number | null
+      updated_at: number
+    }>()
+
+  const existingPeriodValid = existing
+    ? existing.current_period_end === null || existing.current_period_end > nowMs
+    : false
+  const isDowngrade =
+    mappedStatus === 'canceled' || mappedStatus === 'past_due' || cancelAtPeriodEnd
+
+  // Never overwrite an active Apple App Store subscription with a Polar cancellation/revocation/past_due.
+  if (
+    isDowngrade &&
+    existing?.provider === 'apple' &&
+    existing.status === 'active' &&
+    existingPeriodValid
+  ) {
+    await recordIgnoredEvent()
+    return jsonResponse({ received: true, ignored: true, reason: 'active_apple_subscription' })
+  }
+
+  // Never let a delayed downgrade for a superseded Polar subscription overwrite a newer active one.
+  if (
+    isDowngrade &&
+    existing?.provider === 'polar' &&
+    existing.status === 'active' &&
+    existingPeriodValid &&
+    existing.provider_subscription_id &&
+    subscriptionId &&
+    existing.provider_subscription_id !== subscriptionId
+  ) {
+    await recordIgnoredEvent()
+    return jsonResponse({ received: true, ignored: true, reason: 'superseded_subscription' })
+  }
+
+  const modifiedAtMs = parseIsoTimestampMs(data.modified_at)
+  const hasMsPrecision = modifiedAtMs !== null
+  const eventTimeMs = modifiedAtMs ?? verified.timestampSec * 1000
+
+  if (existing?.provider === 'polar') {
+    const isOlderTimestamp = hasMsPrecision
+      ? eventTimeMs < existing.updated_at
+      : Math.floor(eventTimeMs / 1000) < Math.floor(existing.updated_at / 1000)
+    const sameSub =
+      !existing.provider_subscription_id ||
+      !subscriptionId ||
+      existing.provider_subscription_id === subscriptionId
+    const isOlderPeriodOnActive =
+      sameSub &&
+      existing.status === 'active' &&
+      existingPeriodValid &&
+      existing.current_period_end !== null &&
+      rawPeriodEnd !== null &&
+      rawPeriodEnd < existing.current_period_end &&
+      eventType !== 'subscription.revoked'
+
+    if (isOlderTimestamp || isOlderPeriodOnActive) {
+      await recordIgnoredEvent()
+      return jsonResponse({ received: true, ignored: true, reason: 'stale_event' })
     }
   }
 
-  await env.DB.prepare(
-    `INSERT INTO user_entitlements (
-       user_id, status, plan, provider, provider_customer_id, provider_subscription_id,
-       current_period_end, cancel_at_period_end, trial_started_at, original_transaction_id, updated_at
-     ) VALUES (?1, ?2, 'premium_yearly', 'polar', ?3, ?4, ?5, ?6, NULL, NULL, ?7)
-     ON CONFLICT(user_id) DO UPDATE SET
-       status = excluded.status,
-       plan = excluded.plan,
-       provider = 'polar',
-       provider_customer_id = COALESCE(excluded.provider_customer_id, user_entitlements.provider_customer_id),
-       provider_subscription_id = COALESCE(excluded.provider_subscription_id, user_entitlements.provider_subscription_id),
-       current_period_end = excluded.current_period_end,
-       cancel_at_period_end = excluded.cancel_at_period_end,
-       updated_at = excluded.updated_at`,
-  )
-    .bind(
-      userId,
-      mappedStatus,
-      customerId,
-      subscriptionId,
-      periodEnd,
-      cancelAtPeriodEnd ? 1 : 0,
-      nowMs,
-    )
-    .run()
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO billing_events(provider, event_id, processed_at)
+         VALUES ('polar', ?1, ?2)`,
+      ).bind(verified.webhookId, nowMs),
+      env.DB.prepare(
+        `INSERT INTO user_entitlements (
+           user_id, status, plan, provider, provider_customer_id, provider_subscription_id,
+           current_period_end, cancel_at_period_end, trial_started_at, original_transaction_id, updated_at
+         ) VALUES (?1, ?2, 'premium_yearly', 'polar', ?3, ?4, ?5, ?6, NULL, NULL, ?7)
+         ON CONFLICT(user_id) DO UPDATE SET
+           status = excluded.status,
+           plan = excluded.plan,
+           provider = 'polar',
+           provider_customer_id = COALESCE(excluded.provider_customer_id, user_entitlements.provider_customer_id),
+           provider_subscription_id = COALESCE(excluded.provider_subscription_id, user_entitlements.provider_subscription_id),
+           current_period_end = excluded.current_period_end,
+           cancel_at_period_end = excluded.cancel_at_period_end,
+           updated_at = excluded.updated_at`,
+      ).bind(
+        userId,
+        mappedStatus,
+        customerId,
+        subscriptionId,
+        periodEnd,
+        cancelAtPeriodEnd ? 1 : 0,
+        eventTimeMs,
+      ),
+    ])
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : ''
+    if (msg.includes('UNIQUE constraint failed') && msg.includes('billing_events')) {
+      return jsonResponse({ received: true, duplicate: true })
+    }
+    throw err
+  }
 
   return jsonResponse({ received: true })
 }

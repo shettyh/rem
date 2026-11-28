@@ -10,6 +10,8 @@ import { useAsset, useAssetState } from './assetUrl'
 import { parseAssetSrc, isAssetSrc } from './imageSrc'
 import { CLOZE_ANSWER_HREF, CLOZE_BLANK_HREF, renderClozeMarkdown } from './cloze'
 import { normalizeMathDelimiters } from './mathPreprocess'
+import { splitMarkdownOcclusion } from './occlusion'
+import { OcclusionView } from './OcclusionView'
 
 function AudioAssetPlayer({ url, label }: { url: string; label?: ReactNode }) {
   return (
@@ -74,7 +76,7 @@ function urlTransform(url: string): string {
   return defaultUrlTransform(url)
 }
 
-/** Renders markdown source (text, LaTeX math, cloze deletions, code with highlighting, lists, images, audio). */
+/** Renders markdown source (text, LaTeX math, cloze deletions, image occlusion, code with highlighting, lists, images, audio). */
 export function MarkdownView({
   source,
   clozeIndex,
@@ -84,25 +86,41 @@ export function MarkdownView({
   clozeIndex?: number | null
   clozeRevealed?: boolean
 }) {
-  const mathNormalized = normalizeMathDelimiters(source)
-  const prepared =
-    clozeIndex && clozeIndex >= 1
-      ? renderClozeMarkdown(mathNormalized, clozeIndex, clozeRevealed)
-      : mathNormalized
+  const segments = splitMarkdownOcclusion(source)
 
   return (
     <div className="markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
-        rehypePlugins={[
-          [rehypeKatex, { strict: false, throwOnError: false, trust: false, maxExpand: 1000, maxSize: 100 }],
-          rehypeHighlight,
-        ]}
-        components={{ img: MarkdownImg, a: MarkdownLink }}
-        urlTransform={urlTransform}
-      >
-        {prepared}
-      </ReactMarkdown>
+      {segments.map((seg, idx) => {
+        if (seg.kind === 'occlusion') {
+          return (
+            <OcclusionView
+              key={`occ-${idx}-${seg.block.image}`}
+              block={seg.block}
+              activeIndex={clozeIndex}
+              revealed={clozeRevealed}
+            />
+          )
+        }
+        const mathNormalized = normalizeMathDelimiters(seg.text)
+        const prepared =
+          clozeIndex && clozeIndex >= 1
+            ? renderClozeMarkdown(mathNormalized, clozeIndex, clozeRevealed)
+            : mathNormalized
+        return (
+          <ReactMarkdown
+            key={`md-${idx}`}
+            remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
+            rehypePlugins={[
+              [rehypeKatex, { strict: false, throwOnError: false, trust: false, maxExpand: 1000, maxSize: 100 }],
+              rehypeHighlight,
+            ]}
+            components={{ img: MarkdownImg, a: MarkdownLink }}
+            urlTransform={urlTransform}
+          >
+            {prepared}
+          </ReactMarkdown>
+        )
+      })}
     </div>
   )
 }

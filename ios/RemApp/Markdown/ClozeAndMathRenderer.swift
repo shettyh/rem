@@ -243,6 +243,9 @@ enum LatexMathFormatter {
     /// `$...$` and `$$...$$` outside fenced code blocks and inline code spans.
     static func normalizeDelimiters(_ markdown: String) -> String {
         guard markdown.contains("\\(") || markdown.contains("\\[") else { return markdown }
+        let normalizedLineEndings = markdown
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
         var outChunks: [String] = []
         var textLines: [String] = []
         var inFence = false
@@ -258,7 +261,7 @@ enum LatexMathFormatter {
             textLines.removeAll()
         }
 
-        for line in markdown.components(separatedBy: "\n") {
+        for line in normalizedLineEndings.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if let first = trimmed.first, (first == "`" || first == "~") {
                 let runLen = trimmed.prefix(while: { $0 == first }).count

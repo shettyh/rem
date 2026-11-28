@@ -17,6 +17,7 @@
 		31809EFA44DE1417451EB5D5 /* DeckTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A7817A74416657B56AF9B8 /* DeckTree.swift */; };
 		371D90B56FFD3E4DD0071DEC /* PremiumPaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA8613AEACCC074B9C549649 /* PremiumPaywallSheet.swift */; };
 		37E048EB88E2A7CCECE85E69 /* ClozeAndMathRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6E951584C63B81DB41AF6FB /* ClozeAndMathRenderer.swift */; };
+		4A1B2C3D4E5F60718293A4B5 /* ImageOcclusionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B2C3D4E5F60718293A4B5C6 /* ImageOcclusionView.swift */; };
 		557D82CD4FB16A6A73814375 /* StoreKitTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 65C674A494879C0641B3B50C /* StoreKitTest.framework */; };
 		57A0A5EA2D55224B9DAB45ED /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 14ECB14C28F1B91F4165ECA0 /* PrivacyInfo.xcprivacy */; };
 		5D4E3D368F9CB8D48637E559 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 492A290EEEEE6A290D56073D /* MarkdownTextEditor.swift */; };
@@ -107,6 +108,7 @@
 		ED6176CB006FFE48B03DA615 /* CardProvenanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardProvenanceView.swift; sourceTree = "<group>"; };
 		EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsView.swift; sourceTree = "<group>"; };
 		F6E951584C63B81DB41AF6FB /* ClozeAndMathRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClozeAndMathRenderer.swift; sourceTree = "<group>"; };
+		5B2C3D4E5F60718293A4B5C6 /* ImageOcclusionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageOcclusionView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -315,6 +317,7 @@
 			children = (
 				B6F2429A3C21B7147D7B9238 /* AssetImageCache.swift */,
 				F6E951584C63B81DB41AF6FB /* ClozeAndMathRenderer.swift */,
+				5B2C3D4E5F60718293A4B5C6 /* ImageOcclusionView.swift */,
 				E5ADA201F3DEEC39FFA0FB76 /* MarkdownBlockParser.swift */,
 				E670AF040422AD01B9994B2F /* RemMarkdownView.swift */,
 			);
@@ -447,6 +450,7 @@
 				B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */,
 				81401AD06D3E3EC74CE48206 /* FirstRunView.swift in Sources */,
 				7556F594E668E98E3AD6A61C /* ImageLightboxView.swift in Sources */,
+				4A1B2C3D4E5F60718293A4B5 /* ImageOcclusionView.swift in Sources */,
 				6F25913452E569E6029713EE /* KeychainStore.swift in Sources */,
 				2B9E2665163134C4960129C2 /* MarkdownBlockParser.swift in Sources */,
 				5D4E3D368F9CB8D48637E559 /* MarkdownTextEditor.swift in Sources */,

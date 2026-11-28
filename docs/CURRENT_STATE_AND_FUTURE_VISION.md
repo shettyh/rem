@@ -1,6 +1,6 @@
 # rem — Current State & Future Vision
 
-_Last reviewed: 2026-11-27 · based on `v0.28.0` plus Wave 1 Anki compatibility & migration_
+_Last reviewed: 2026-11-28 · based on `v0.29.1` plus Markdown-native Image Occlusion_
 
 This document is the canonical product snapshot for future planning. Dated files under
 `docs/superpowers/` record the decisions and implementation history behind individual slices;
@@ -95,6 +95,11 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 - Image and GIF ingestion through file picker, paste, drag-and-drop (desktop), and iOS Photos
   picker, plus audio clip ingestion (`[Audio: label](asset:<hash>)`) through the desktop file picker
   and `.apkg` import, with inline audio playback on desktop and iOS.
+- Markdown-native **Image Occlusion** (```` ```rem-occlusion ```` blocks with normalized `0..1`
+  rectangle and ellipse masks, *Hide All, Guess One* and *Hide One, Guess One* modes, multi-mask
+  grouping, and spoiler-safe lightbox zoom) authored via a custom SVG canvas editor on desktop and a
+  native SwiftUI editor sheet on iOS, reusing `sibling_group_id`, `cloze_index`, `bury_related`, R2
+  asset sync, and `.apkg` import for Anki 23.10+ built-in Image Occlusion notes.
 - Content-addressed binary assets (images, GIFs, audio) render in cards and travel through backup
   and cloud sync (via R2).
 - User-defined tags, tag chips, and per-deck tag filtering.
@@ -181,8 +186,8 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
   provenance, with confirmation before a same-named deck is replaced on both Desktop and iOS.
 - Pure-Rust Anki `.apkg` importer (`anki2`, `anki21`, and zstd-compressed `anki21b` with JSON and
   protobuf media manifests) converts HTML to Markdown, preserves nested `::` decks, cloze/reversed
-  siblings, LaTeX math, image/audio media assets, and replays `revlog` into FSRS-7 state across
-  Desktop, CLI (`rem import`), and iOS.
+  and Anki 23.10+ Image Occlusion siblings, LaTeX math, image/audio media assets, and replays
+  `revlog` into FSRS-7 state across Desktop, CLI (`rem import`), and iOS.
 - Legacy Git sync has been removed in favor of optional Cloud sync (`Local only` vs. `Cloud sync`).
   The shared `rem-sync` crate talks to the open-source Cloudflare Workers + SQLite Durable Objects +
   D1 + R2 backend in `sync-server/` (either hosted `rem Cloud` or a self-hosted deployment).
@@ -296,6 +301,22 @@ are implemented:
 5. **Show answer timer** — persisted `DeckSettings.show_timer` wired through `StudyView` and
    rendered during review on Desktop, iOS, and the `rem study` TUI.
 
+### 6. Markdown-Native Image Occlusion
+
+Implemented in [`2026-11-28-image-occlusion-design.md`](superpowers/specs/2026-11-28-image-occlusion-design.md):
+
+1. **Zero-migration Markdown format (`rem-occlusion`)** — normalized `0..1` rectangle/ellipse masks
+   referencing content-addressed `asset:<sha256>` images, reusing schema v6 `sibling_group_id`,
+   `cloze_index`, `bury_related`, atomic undo, backup, and R2 Cloud sync.
+2. **Desktop custom-SVG editor & viewer** — interactive Rect/Ellipse/Select/Pan/Zoom canvas with
+   8-handle resize, multi-select grouping, keyboard nudging, local undo/redo, and post-reveal
+   "Show all masks" toggle.
+3. **Native SwiftUI iOS viewer, lightbox & editor** — aspect-fitted overlay rendering, spoiler-safe
+   composite lightbox zoom, and native `ImageOcclusionEditorSheet` inside Quick Capture.
+4. **Anki `.apkg` import & TUI fallback** — imports Anki 23.10+ built-in Image Occlusion notes
+   (`rect`, `ellipse`, `poly` approximated as axis-aligned bounding boxes, `oi=0/1`, `Image`,
+   `Header`, `Back Extra`, `revlog`) and renders a concise placeholder in `rem study` TUI.
+
 ## Known gaps and incomplete behavior
 
 These are real gaps in the resulting product, not features already delivered.
@@ -308,7 +329,7 @@ These are real gaps in the resulting product, not features already delivered.
 | Duplicate help | Draft/card duplicate checks are exact normalized matches, not semantic suggestions. |
 | Draft portability | Pending drafts are local-only and cannot be triaged from another machine. |
 | Habit support | No daily reminders or native notifications on desktop (iOS supports local daily reminders via `UNUserNotificationCenter`). |
-| Image occlusion & Anki templates | Image Occlusion (masking regions on diagrams) is planned for Wave 2; arbitrary Anki HTML/CSS/JS card templates are intentionally out of scope (converted to clean Markdown on `.apkg` import). |
+| Anki templates & export | Arbitrary Anki HTML/CSS/JS card templates are intentionally out of scope (converted to clean Markdown on `.apkg` import); optional `.apkg` export and type-in-the-answer mode remain demand-gated in Phase 5. |
 | CI & Distribution | Windows installers and CLI binaries do not yet have an Authenticode signature; public App Store 1.0 release (beyond TestFlight) is not yet submitted. |
 
 ## Strategic positioning & engineering realities
@@ -392,9 +413,7 @@ Only pursue these when real user feedback justifies the added complexity:
 
 1. **Draft quality feedback loop:** optional rejection reasons and acceptance/edit-rate summaries so
    agents and users can calibrate proposal quality over time.
-2. **Anki Compatibility Wave 2:**
-   - **Image Occlusion:** rectangle/shape masking overlays over diagram assets using the same
-     `sibling_group_id` model (one occluded region per card, bury-related compatible).
+2. **Remaining Anki Compatibility Wave 2 items** *(Image Occlusion is shipped)*:
    - **Optional `.apkg` export** if users request round-trip export back to Anki.
    - **Type-in-the-answer mode** (opt-in per card or deck) for spelling/language drills.
 

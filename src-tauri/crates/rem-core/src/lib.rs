@@ -10,6 +10,7 @@ mod draft_store;
 mod hlc;
 mod import_store;
 mod models;
+pub mod occlusion;
 mod review_store;
 mod scheduler;
 mod search;
@@ -39,6 +40,12 @@ pub use models::{
     Grade, Id, ImportResult, InsertionOrder, LeechAction, NewCardInput, NewDraftInput,
     ProposalMetadata, ProposalMode, ProposeDraftsResult, ReviewBackup, ReviewCommit, ReviewLog,
     SchedulerKind, SchedulingState, Tombstone, TombstoneKind,
+};
+pub use occlusion::{
+    extract_occlusion_indices, has_image_occlusion, parse_occlusion_blocks, parse_occlusion_json,
+    render_occlusion_tui_summary, render_occlusion_tui_with_text_transform,
+    serialize_occlusion_block, strip_occlusion_markup, OcclusionBlock, OcclusionBlockSpan,
+    OcclusionMask, OcclusionMode, OcclusionShapeType, MAX_OCCLUSION_MASKS, OCCLUSION_FENCE_LANG,
 };
 pub use scheduler::{
     calculate_fsrs_next_states, optimize_fsrs_histories, DeckFsrsParams, FsrsNextStates,

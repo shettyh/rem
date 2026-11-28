@@ -31,9 +31,11 @@ function hardStepDelay(steps: number[], index: number): number {
   return steps[index]
 }
 
-/** Clamp an FSRS due date to [minDays, maxDays] whole days from now. */
+/** Clamp an FSRS due date to [minDays, maxDays] whole days from now (floor 1d, matching rem-core). */
 function clampDays(state: FSRSState, now: number, minDays: number, maxDays: number): FSRSState {
-  const days = Math.min(Math.max(Math.round((state.due - now) / MS_PER_DAY), minDays), maxDays)
+  const max = Math.max(1, Math.floor(Number.isFinite(maxDays) ? maxDays : 1))
+  const min = Math.min(max, Math.max(1, Math.floor(Number.isFinite(minDays) ? minDays : 1)))
+  const days = Math.min(Math.max(Math.round((state.due - now) / MS_PER_DAY), min), max)
   return { ...state, due: now + days * MS_PER_DAY }
 }
 

@@ -7,6 +7,8 @@ import { PageHeader } from '../../ui/PageHeader'
 import { EditorToolbar } from '../cards/EditorToolbar'
 import { MarkdownView } from '../cards/MarkdownView'
 import { parseUserTags } from '../cards/cardTags'
+import { composeOcclusionDocument, extractOcclusionDocument } from '../cards/occlusion'
+import { OcclusionEditor } from '../cards/OcclusionEditor'
 import { RichMarkdownEditor, type EditorHandle } from '../cards/RichMarkdownEditor'
 
 interface DraftEdit {
@@ -42,6 +44,7 @@ export function DraftInboxPage() {
   const [edit, setEdit] = useState<DraftEdit>(EMPTY_EDIT)
   const [revealed, setRevealed] = useState(false)
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const [message, setMessage] = useState<string>()
   const [error, setError] = useState<string>()
   const [active, setActive] = useState<EditorHandle | null>(null)
@@ -71,6 +74,8 @@ export function DraftInboxPage() {
   }, [])
 
   const resolve = useCallback(async (draft: CardDraft, action: 'accept' | 'reject') => {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     setError(undefined)
     try {
@@ -94,6 +99,7 @@ export function DraftInboxPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not resolve this draft.')
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }, [storage, edit])
@@ -209,15 +215,68 @@ export function DraftInboxPage() {
               </div>
               <section className="card-editor-surface" aria-label="Draft content">
                 <div className="editor-field editor-field--front">
-                  <div className="editor-field-label">Front</div>
-                  <RichMarkdownEditor
-                    value={edit.front}
-                    onChange={(front) => setEdit((value) => ({ ...value, front }))}
-                    placeholder="Type the prompt…"
-                    ariaLabel="Draft front"
-                    onReady={onFrontReady}
-                    onFocus={() => frontHandle.current && setActive(frontHandle.current)}
-                  />
+                  <div className="editor-field-label">
+                    {extractOcclusionDocument(edit.front) ? 'Image Occlusion' : 'Front'}
+                  </div>
+                  {(() => {
+                    const occDoc = extractOcclusionDocument(edit.front)
+                    if (!occDoc) {
+                      return (
+                        <RichMarkdownEditor
+                          value={edit.front}
+                          onChange={(front) => setEdit((value) => ({ ...value, front }))}
+                          placeholder="Type the prompt…"
+                          ariaLabel="Draft front"
+                          onReady={onFrontReady}
+                          onFocus={() => frontHandle.current && setActive(frontHandle.current)}
+                        />
+                      )
+                    }
+                    return (
+                      <OcclusionEditor
+                        key={current.id}
+                        header={occDoc.header}
+                        onHeaderChange={(nextHeader) =>
+                          setEdit((value) => {
+                            const latest = extractOcclusionDocument(value.front)
+                            if (!latest) return value
+                            return {
+                              ...value,
+                              front: composeOcclusionDocument(nextHeader, latest.block, latest.footer, true),
+                            }
+                          })
+                        }
+                        block={occDoc.block}
+                        onBlockChange={(nextBlock) =>
+                          setEdit((value) => {
+                            const latest = extractOcclusionDocument(value.front)
+                            if (!latest) return value
+                            return {
+                              ...value,
+                              front: composeOcclusionDocument(latest.header, nextBlock, latest.footer),
+                            }
+                          })
+                        }
+                        onReplaceImage={async (file) => {
+                          if (!file.type.startsWith('image/')) return
+                          const bytes = new Uint8Array(await file.arrayBuffer())
+                          const asset = await storage.putAsset(bytes, file.type)
+                          setEdit((value) => {
+                            const latest = extractOcclusionDocument(value.front)
+                            if (!latest) return value
+                            return {
+                              ...value,
+                              front: composeOcclusionDocument(
+                                latest.header,
+                                { ...latest.block, image: `asset:${asset.hash}` },
+                                latest.footer,
+                              ),
+                            }
+                          })
+                        }}
+                      />
+                    )
+                  })()}
                 </div>
                 <div className="editor-field editor-field--back">
                   <div className="editor-field-label">Proposed back</div>
