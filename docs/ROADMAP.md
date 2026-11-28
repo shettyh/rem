@@ -1,5 +1,8 @@
 # rem — Progress & Roadmap
 
+> [!NOTE]
+> **Archived roadmap:** This June 2026 roadmap captures early MVP planning and is superseded by [`docs/CURRENT_STATE_AND_FUTURE_VISION.md`](CURRENT_STATE_AND_FUTURE_VISION.md).
+
 _Last updated: 2026-06-21_
 
 ## Where we are (MVP shipped)
