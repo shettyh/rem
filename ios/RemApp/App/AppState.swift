@@ -59,6 +59,10 @@ final class AppState {
     let store: RemStore
     let storeKit = StoreKitManager()
     private let authManager = AuthSessionManager()
+    private let pokeClient = SyncPokeClient()
+    private let enableLivePokeClient = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+    private var isSceneActive: Bool = false
+    private var pendingPokeSeq: UInt64?
 
     var selectedTab: RemTab = .today
     var activeDeckId: String?
@@ -91,6 +95,7 @@ final class AppState {
 
     var isLoading: Bool = true
     var isSyncing: Bool = false
+    var isPokeConnected: Bool = false
     var isAuthenticating: Bool = false
     var isCheckingEntitlement: Bool = false
     var isStartingTrial: Bool = false
@@ -285,10 +290,72 @@ final class AppState {
                 self.hasDismissedOnboarding = true
             }
             await rescheduleReminder()
+            reconcilePokeConnection()
         } catch {
             showToast(error.remDisplayMessage)
         }
         self.isLoading = false
+    }
+
+    func setSceneActive(_ active: Bool) {
+        isSceneActive = active
+        reconcilePokeConnection()
+    }
+
+    func reconcilePokeConnection(forceRestart: Bool = false) {
+        guard enableLivePokeClient else { return }
+        let shouldConnect = isSceneActive
+            && syncStatus?.mode == .cloud
+            && syncStatus?.signedIn == true
+            && !isSyncPaused
+
+        guard shouldConnect else {
+            pokeClient.stop()
+            isPokeConnected = false
+            pendingPokeSeq = nil
+            return
+        }
+
+        if pokeClient.isRunning && !forceRestart {
+            return
+        }
+
+        let store = self.store
+        pokeClient.start(
+            authProvider: { forceRefresh in
+                let dto = try await store.preparePokeAuth(forceRefresh: forceRefresh)
+                return SyncPokeAuth(
+                    serverURL: dto.serverUrl,
+                    deviceId: dto.deviceId,
+                    accessToken: dto.accessToken
+                )
+            },
+            onPoke: { [weak self] latestSeq in
+                guard let self, self.isSceneActive else { return }
+                let localSeq = self.syncStatus?.lastSeq ?? 0
+                guard SyncPokeClient.shouldTriggerSync(pokeLatestSeq: latestSeq, localLastSeq: localSeq) else {
+                    return
+                }
+                if self.isSyncing {
+                    self.pendingPokeSeq = max(self.pendingPokeSeq ?? 0, latestSeq)
+                    return
+                }
+                Task { @MainActor [weak self] in
+                    await self?.syncNow(silent: true)
+                }
+            },
+            onConnectionChange: { [weak self] connected in
+                self?.isPokeConnected = connected
+            },
+            onSubscriptionRequired: { [weak self] in
+                Task { @MainActor [weak self] in
+                    await self?.refreshAccount(triggerSyncIfUnlocked: false)
+                }
+            },
+            onAccountClosed: { [weak self] in
+                self?.isPokeConnected = false
+            }
+        )
     }
 
     func refreshAccount(triggerSyncIfUnlocked: Bool = false) async {
@@ -442,6 +509,7 @@ final class AppState {
             isSyncing = false
             await refreshAccount(triggerSyncIfUnlocked: false)
             await refreshAll()
+            reconcilePokeConnection()
             return
         } catch {
             lastSyncError = error.remDisplayMessage
@@ -451,6 +519,13 @@ final class AppState {
             }
         }
         isSyncing = false
+        if let queuedSeq = pendingPokeSeq {
+            pendingPokeSeq = nil
+            let currentSeq = syncStatus?.lastSeq ?? 0
+            if SyncPokeClient.shouldTriggerSync(pokeLatestSeq: queuedSeq, localLastSeq: currentSeq) {
+                await syncNow(silent: true)
+            }
+        }
     }
 
     func applyAccountProfile(_ profile: AccountProfileDto) {
@@ -477,6 +552,7 @@ final class AppState {
                 UserDefaults.standard.set(accountId, forKey: Keys.restrictedAccountId)
             }
         }
+        reconcilePokeConnection()
     }
 
     static func saveCachedEntitlement(_ info: EntitlementInfoDto, for accountId: String) {
@@ -723,9 +799,13 @@ final class AppState {
                 showToast("Signed in · synced")
             }
         }
+        reconcilePokeConnection(forceRestart: true)
     }
 
     func signOut(silent: Bool = false) async {
+        pokeClient.stop()
+        isPokeConnected = false
+        pendingPokeSeq = nil
         do {
             try await store.signOut()
             lastSyncError = nil
@@ -738,11 +818,15 @@ final class AppState {
                 showToast("Signed out · local cards kept")
             }
         } catch {
+            reconcilePokeConnection()
             showToast(error.remDisplayMessage)
         }
     }
 
     func deleteCloudAccount() async {
+        pokeClient.stop()
+        isPokeConnected = false
+        pendingPokeSeq = nil
         do {
             try await store.deleteCloudAccount()
             lastSyncError = nil
@@ -753,6 +837,7 @@ final class AppState {
             await refreshAll()
             showToast("Cloud account deleted · local cards kept")
         } catch {
+            reconcilePokeConnection()
             showToast(error.remDisplayMessage)
         }
     }

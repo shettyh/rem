@@ -77,6 +77,8 @@ pub fn run() {
             app.manage(collection);
             app.manage(study::StudySessions::default());
             app.manage(sync::SyncManager::default());
+            app.state::<sync::SyncManager>()
+                .reconcile_poke_listener(app.handle(), &app.state::<rem_core::Collection>());
 
             if cfg!(debug_assertions) {
                 app.handle().plugin(

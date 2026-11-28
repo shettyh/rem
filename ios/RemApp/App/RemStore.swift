@@ -313,6 +313,13 @@ actor RemStore {
         try client.syncNow(nowMs: nowMs)
     }
 
+    func preparePokeAuth(
+        forceRefresh: Bool = false,
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> PokeAuthDto {
+        try client.preparePokeAuth(nowMs: nowMs, forceRefresh: forceRefresh)
+    }
+
     func fetchAccount(nowMs: Int64 = RemStore.nowMs()) throws -> AccountProfileDto {
         try client.fetchAccount(nowMs: nowMs)
     }

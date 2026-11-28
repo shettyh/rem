@@ -76,7 +76,14 @@ struct RootContainerView: View {
             appState: appState,
             enabled: appState.studyLaunch == nil && appState.captureRequest == nil
         )
+        .onAppear {
+            appState.setSceneActive(scenePhase == .active)
+        }
+        .onDisappear {
+            appState.setSceneActive(false)
+        }
         .onChange(of: scenePhase) { _, phase in
+            appState.setSceneActive(phase == .active)
             if phase == .active {
                 Task {
                     await appState.refreshAll()

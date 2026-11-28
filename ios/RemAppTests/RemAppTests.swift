@@ -1119,4 +1119,53 @@ final class RemAppTests: XCTestCase {
             "Found 2 decks, 1 card. Existing deck(s) will be replaced: Spanish.\n\nNote: Skipped 1 empty note."
         )
     }
+
+    @MainActor
+    func testSyncPokeClientURLRequestParsingAndSeqGating() throws {
+        XCTAssertEqual(
+            SyncPokeClient.websocketURL(from: "https://rem-sync.shettyh.fyi/")?.absoluteString,
+            "wss://rem-sync.shettyh.fyi/v1/sync/ws"
+        )
+        XCTAssertEqual(
+            SyncPokeClient.websocketURL(from: "http://127.0.0.1:8787")?.absoluteString,
+            "ws://127.0.0.1:8787/v1/sync/ws"
+        )
+        XCTAssertEqual(
+            SyncPokeClient.websocketURL(from: "https://sync.example.com/rem/")?.absoluteString,
+            "wss://sync.example.com/rem/v1/sync/ws"
+        )
+        XCTAssertNil(SyncPokeClient.websocketURL(from: "ftp://example.com"))
+        XCTAssertNil(SyncPokeClient.websocketURL(from: "   "))
+
+        let auth = SyncPokeAuth(
+            serverURL: "https://rem-sync.shettyh.fyi",
+            deviceId: "dev-iphone-1",
+            accessToken: "jwt-secret-token"
+        )
+        let request = try XCTUnwrap(SyncPokeClient.makeRequest(auth: auth))
+        XCTAssertEqual(request.url?.absoluteString, "wss://rem-sync.shettyh.fyi/v1/sync/ws")
+        XCTAssertNil(request.url?.query)
+        XCTAssertFalse(request.url?.absoluteString.contains("jwt-secret-token") ?? true)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer jwt-secret-token")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Rem-Device-Id"), "dev-iphone-1")
+
+        XCTAssertEqual(
+            SyncPokeMessage.parse(#"{"type":"poke","latestSeq":42}"#),
+            .poke(latestSeq: 42)
+        )
+        XCTAssertEqual(SyncPokeMessage.parse("pong"), .pong)
+        XCTAssertEqual(SyncPokeMessage.parse(#"{"type":"other","latestSeq":42}"#), .ignored)
+        XCTAssertEqual(SyncPokeMessage.parse(#"{"type":"poke","latestSeq":-1}"#), .ignored)
+        XCTAssertEqual(SyncPokeMessage.parse("not json"), .ignored)
+
+        XCTAssertTrue(SyncPokeClient.shouldTriggerSync(pokeLatestSeq: 42, localLastSeq: 41))
+        XCTAssertFalse(SyncPokeClient.shouldTriggerSync(pokeLatestSeq: 42, localLastSeq: 42))
+        XCTAssertFalse(SyncPokeClient.shouldTriggerSync(pokeLatestSeq: 41, localLastSeq: 42))
+
+        XCTAssertEqual(SyncPokeClient.backoffDelayNanoseconds(attempt: 0), 1_000_000_000)
+        XCTAssertEqual(SyncPokeClient.backoffDelayNanoseconds(attempt: 1), 2_000_000_000)
+        XCTAssertEqual(SyncPokeClient.backoffDelayNanoseconds(attempt: 4), 16_000_000_000)
+        XCTAssertEqual(SyncPokeClient.backoffDelayNanoseconds(attempt: 5), 30_000_000_000)
+        XCTAssertEqual(SyncPokeClient.backoffDelayNanoseconds(attempt: 20), 30_000_000_000)
+    }
 }
