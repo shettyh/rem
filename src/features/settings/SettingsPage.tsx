@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useStorage } from '../../data/StorageContext'
+import type { ApkgImportPreview } from '../../domain/models'
 import { useSync } from '../../data/SyncContext'
 import { useUpdaterOptional } from '../../data/UpdaterContext'
 import {
@@ -134,9 +135,12 @@ export function SettingsPage() {
   const decks = useStorageQuery(() => storage.listDecks(), [])
 
   const importInput = useRef<HTMLInputElement>(null)
+  const apkgInput = useRef<HTMLInputElement>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showDeckPicker, setShowDeckPicker] = useState(false)
   const [pending, setPending] = useState<{ decks: DeckBackup[]; replaced: string[] } | null>(null)
+  const [pendingApkg, setPendingApkg] = useState<{ bytes: Uint8Array; preview: ApkgImportPreview } | null>(null)
+  const [importingApkg, setImportingApkg] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cardTextSize, setCardTextSize] = useState<CardTextSize>(() => getStoredCardTextSize())
@@ -498,6 +502,63 @@ export function SettingsPage() {
     )
     if (replaced.length > 0) setPending({ decks: parsed, replaced })
     else await runImport(parsed)
+  }
+
+  async function runApkgImport(bytes: Uint8Array) {
+    if (!storage.importApkg) return
+    setImportingApkg(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const result = await storage.importApkg(bytes)
+      setPendingApkg(null)
+      const deckTotal = result.added.length + result.replaced.length
+      const parts = [
+        `${result.importedCards} card${result.importedCards === 1 ? '' : 's'}`,
+        `${deckTotal} deck${deckTotal === 1 ? '' : 's'}`,
+      ]
+      if (result.importedReviews > 0) {
+        parts.push(`${result.importedReviews} review${result.importedReviews === 1 ? '' : 's'}`)
+      }
+      if (result.importedMedia > 0) {
+        parts.push(`${result.importedMedia} media`)
+      }
+      const replacedNote = result.replaced.length ? ` (replaced ${result.replaced.length})` : ''
+      const warningNote = result.warnings.length ? ` · ${result.warnings[0]}` : ''
+      setMessage(`Imported Anki deck: ${parts.join(', ')}${replacedNote}.${warningNote}`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not import the Anki archive.')
+    } finally {
+      setImportingApkg(false)
+    }
+  }
+
+  async function onApkgFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !storage.previewApkg || !storage.importApkg) return
+    setError(null)
+    setMessage(null)
+    setPending(null)
+    setPendingApkg(null)
+    if (file.size > 512 * 1024 * 1024) {
+      setError('Anki archive exceeds the maximum supported size (512 MB).')
+      return
+    }
+    setImportingApkg(true)
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const preview = await storage.previewApkg(bytes)
+      if (preview.replaced.length > 0) {
+        setPendingApkg({ bytes, preview })
+      } else {
+        await runApkgImport(bytes)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read the Anki archive.')
+    } finally {
+      setImportingApkg(false)
+    }
   }
 
   const serverMatchesChecked = checkedServerUrl !== null && checkedServerUrl === serverUrl.trim().replace(/\/+$/, '')
@@ -1020,7 +1081,34 @@ export function SettingsPage() {
               />
             </div>
 
-            {(error || message || pending) && (
+            {storage.importApkg && storage.previewApkg && (
+              <div className="settings-action-row">
+                <div className="settings-action-copy">
+                  <strong>Import Anki deck (.apkg)</strong>
+                  <span>
+                    Import decks, cloze cards, LaTeX, images, audio, and review history from Anki.
+                  </span>
+                </div>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  type="button"
+                  disabled={importingApkg}
+                  onClick={() => apkgInput.current?.click()}
+                >
+                  {importingApkg ? 'Importing…' : 'Import .apkg…'}
+                </button>
+                <input
+                  ref={apkgInput}
+                  className="settings-file-input"
+                  type="file"
+                  accept=".apkg,application/octet-stream,application/zip"
+                  aria-label="Import Anki deck file"
+                  onChange={onApkgFile}
+                />
+              </div>
+            )}
+
+            {(error || message || pending || pendingApkg) && (
               <div className="settings-feedback">
                 {error && <p className="settings-error" role="alert">{error}</p>}
                 {message && <p className="settings-status" role="status">{message}</p>}
@@ -1037,6 +1125,37 @@ export function SettingsPage() {
                         Replace
                       </button>
                       <button className="btn btn-ghost btn-sm" type="button" onClick={() => setPending(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {pendingApkg && (
+                  <div className="settings-warning" role="alertdialog" aria-label="Confirm Anki replace">
+                    <p>
+                      Importing {pendingApkg.preview.totalCards} card
+                      {pendingApkg.preview.totalCards === 1 ? '' : 's'} will replace these existing decks:
+                    </p>
+                    <ul>
+                      {pendingApkg.preview.replaced.map((name) => (
+                        <li key={name}>{name}</li>
+                      ))}
+                    </ul>
+                    <div className="settings-inline-actions">
+                      <button
+                        className="btn btn-danger btn-sm"
+                        type="button"
+                        disabled={importingApkg}
+                        onClick={() => void runApkgImport(pendingApkg.bytes)}
+                      >
+                        {importingApkg ? 'Importing…' : 'Replace & import'}
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        type="button"
+                        disabled={importingApkg}
+                        onClick={() => setPendingApkg(null)}
+                      >
                         Cancel
                       </button>
                     </div>

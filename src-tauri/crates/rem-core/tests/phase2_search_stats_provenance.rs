@@ -70,7 +70,7 @@ fn schema_v4_migrates_to_v5_with_provenance_columns_and_backfilled_fts() {
     }
 
     let collection = Collection::open(&db_path).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 5);
+    const { assert!(CURRENT_SCHEMA_VERSION >= 5) };
     let card = collection.get_card("c1").unwrap().unwrap();
     assert!(card.provenance.is_empty());
 
@@ -358,6 +358,8 @@ fn unified_stats_computes_recall_streak_deck_breakdown_and_forecast() {
                         }],
                         proposed_by: Some("cli".into()),
                     },
+                    sibling_group_id: None,
+                    cloze_index: None,
                 }],
             }],
             NOW + 10,
@@ -573,6 +575,8 @@ fn fts_update_trigger_skips_scheduling_only_writes_and_handles_replace_import() 
                     scheduling: rem_core::FsrsState::initial(NOW + 10),
                     reviews: vec![],
                     provenance: CardProvenance::default(),
+                    sibling_group_id: None,
+                    cloze_index: None,
                 }],
             }],
             NOW + 10,

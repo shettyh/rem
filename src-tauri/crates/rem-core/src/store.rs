@@ -1,8 +1,12 @@
+use std::collections::HashSet;
+
 use rusqlite::types::Type;
 use rusqlite::{params, Connection, Row, Transaction};
 use uuid::Uuid;
 
+use crate::cloze::extract_cloze_indices;
 use crate::collection::write_transaction;
+use crate::deck_tree::normalize_deck_name;
 use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc};
 use crate::tags::normalize_card_tags;
 use crate::{
@@ -15,27 +19,22 @@ const DECK_PALETTE: [&str; 5] = ["#7e6cff", "#e8638c", "#2fa86b", "#e8922e", "#3
 pub(crate) const CARD_COLUMNS: &str = "
     id, deck_id, front, back, created_at, updated_at, tags_json,
     suspended, last_again_at, scheduling_json, due,
-    rationale, sources_json, proposed_by
+    rationale, sources_json, proposed_by, sibling_group_id, cloze_index
 ";
 
 pub(crate) const CARD_COLUMNS_ALIASED: &str = "
     c.id, c.deck_id, c.front, c.back, c.created_at, c.updated_at, c.tags_json,
     c.suspended, c.last_again_at, c.scheduling_json, c.due,
-    c.rationale, c.sources_json, c.proposed_by
+    c.rationale, c.sources_json, c.proposed_by, c.sibling_group_id, c.cloze_index
 ";
 
 impl Collection {
     pub fn create_deck(&self, name: &str, now: i64) -> Result<Deck, CollectionError> {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err(CollectionError::InvalidInput(
-                "deck name must not be blank".into(),
-            ));
-        }
+        let name = normalize_deck_name(name)?;
         let id = Uuid::new_v4().to_string();
         let deck = Deck {
             id: id.clone(),
-            name: name.to_owned(),
+            name,
             created_at: now,
             updated_at: now,
             color: deck_color(&id),
@@ -87,12 +86,10 @@ impl Collection {
     }
 
     pub fn update_deck(&self, id: &str, patch: DeckPatch, now: i64) -> Result<(), CollectionError> {
-        let name = patch.name.map(|name| name.trim().to_owned());
-        if name.as_deref() == Some("") {
-            return Err(CollectionError::InvalidInput(
-                "deck name must not be blank".into(),
-            ));
-        }
+        let name = patch
+            .name
+            .map(|name| normalize_deck_name(&name))
+            .transpose()?;
         let settings = patch
             .settings
             .as_ref()
@@ -166,6 +163,267 @@ impl Collection {
         Ok(result.created.into_iter().next().expect("one card created"))
     }
 
+    /// Create a regular card, or—when `front` contains Anki cloze deletions (`{{c1::...}}`,
+    /// `{{c2::...}}`)—one independently scheduled card per distinct cloze index sharing a
+    /// `sibling_group_id`.
+    pub fn create_card_or_cloze(
+        &self,
+        deck_id: &str,
+        front: &str,
+        back: &str,
+        tags: Vec<String>,
+        now: i64,
+    ) -> Result<Vec<Card>, CollectionError> {
+        if front.trim().is_empty() {
+            return Err(CollectionError::InvalidInput(
+                "card front must not be blank".into(),
+            ));
+        }
+        let cloze_indices = extract_cloze_indices(front);
+        if cloze_indices.is_empty() {
+            return Ok(vec![self.create_card(deck_id, front, back, tags, now)?]);
+        }
+
+        let sibling_group_id = Uuid::new_v4().to_string();
+        let normalized_tags = normalize_user_tags(tags);
+        let tags_json = serde_json::to_string(&normalized_tags)?;
+
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| CollectionError::Poisoned)?;
+        let transaction = write_transaction(&mut connection)?;
+        if !deck_exists(&transaction, deck_id)? {
+            return Err(CollectionError::NotFound {
+                kind: "deck",
+                id: deck_id.to_owned(),
+            });
+        }
+
+        let cloud_enabled = is_cloud_sync_enabled(&transaction)?;
+        let mut created = Vec::with_capacity(cloze_indices.len());
+        for idx in cloze_indices {
+            let card = Card {
+                id: Uuid::new_v4().to_string(),
+                deck_id: deck_id.to_owned(),
+                front: front.to_owned(),
+                back: back.to_owned(),
+                created_at: now,
+                updated_at: now,
+                tags: normalized_tags.clone(),
+                suspended: false,
+                last_again_at: None,
+                scheduling: FsrsState::initial(now),
+                provenance: crate::CardProvenance::default(),
+                sibling_group_id: Some(sibling_group_id.clone()),
+                cloze_index: Some(idx),
+            };
+            let scheduling_json = serde_json::to_string(&card.scheduling)?;
+            let content_hlc = if cloud_enabled {
+                next_hlc(&transaction, now)?
+            } else {
+                String::new()
+            };
+            insert_card_with_hlc(
+                &transaction,
+                &card,
+                &tags_json,
+                &scheduling_json,
+                &content_hlc,
+            )?;
+            if cloud_enabled {
+                enqueue_new_op(
+                    &transaction,
+                    &SyncOp::CardCreate {
+                        id: card.id.clone(),
+                        deck_id: card.deck_id.clone(),
+                        front: card.front.clone(),
+                        back: card.back.clone(),
+                        tags: card.tags.clone(),
+                        created_at: card.created_at,
+                        initial_due: card.scheduling.due,
+                        provenance: card.provenance.clone(),
+                        sibling_group_id: card.sibling_group_id.clone(),
+                        cloze_index: card.cloze_index,
+                        hlc: content_hlc,
+                    },
+                    now,
+                )?;
+            }
+            created.push(card);
+        }
+        bump_sync_revision(&transaction)?;
+        transaction.commit()?;
+        Ok(created)
+    }
+
+    /// Update a card and, when editing a cloze note, propagate `front`/`back`/user tags to its
+    /// cloze siblings and generate new sibling cards for any newly added `{{cN::...}}` indices.
+    pub fn update_cloze_note(
+        &self,
+        card_id: &str,
+        front: &str,
+        back: &str,
+        tags: Vec<String>,
+        now: i64,
+    ) -> Result<Vec<Card>, CollectionError> {
+        if front.trim().is_empty() {
+            return Err(CollectionError::InvalidInput(
+                "card front must not be blank".into(),
+            ));
+        }
+
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| CollectionError::Poisoned)?;
+        let transaction = write_transaction(&mut connection)?;
+        let target =
+            find_card_by_id(&transaction, card_id)?.ok_or_else(|| CollectionError::NotFound {
+                kind: "card",
+                id: card_id.to_owned(),
+            })?;
+        let cloze_indices = extract_cloze_indices(front);
+        let cloud_enabled = is_cloud_sync_enabled(&transaction)?;
+        let incoming_user_tags = normalize_user_tags(tags.clone());
+
+        let mut affected = Vec::new();
+        if let (Some(group_id), Some(_)) = (&target.sibling_group_id, target.cloze_index) {
+            let siblings = list_cloze_siblings(&transaction, group_id)?;
+            let mut existing_indices = HashSet::new();
+            for mut sibling in siblings {
+                if let Some(idx) = sibling.cloze_index {
+                    existing_indices.insert(idx);
+                }
+                let had_leech = sibling.tags.iter().any(|t| t == "leech");
+                let mut merged = incoming_user_tags.clone();
+                if had_leech {
+                    merged.insert(0, "leech".into());
+                }
+                sibling.front = front.to_owned();
+                sibling.back = back.to_owned();
+                sibling.tags = normalize_card_tags(merged);
+                sibling.updated_at = now;
+                let tags_json = serde_json::to_string(&sibling.tags)?;
+                let scheduling_json = serde_json::to_string(&sibling.scheduling)?;
+                update_card_row(&transaction, &sibling, &tags_json, &scheduling_json)?;
+                if cloud_enabled {
+                    let hlc = next_hlc(&transaction, now)?;
+                    transaction.execute(
+                        "UPDATE cards SET content_hlc = ?2 WHERE id = ?1",
+                        params![sibling.id, hlc],
+                    )?;
+                    enqueue_new_op(
+                        &transaction,
+                        &SyncOp::CardContentPatch {
+                            id: sibling.id.clone(),
+                            front: sibling.front.clone(),
+                            back: sibling.back.clone(),
+                            tags: incoming_user_tags.clone(),
+                            hlc,
+                        },
+                        now,
+                    )?;
+                }
+                affected.push(sibling);
+            }
+
+            // Create cards for any newly added cloze indices in the same sibling group.
+            let new_tags_json = serde_json::to_string(&incoming_user_tags)?;
+            for idx in cloze_indices {
+                if existing_indices.contains(&idx) {
+                    continue;
+                }
+                let card = Card {
+                    id: Uuid::new_v4().to_string(),
+                    deck_id: target.deck_id.clone(),
+                    front: front.to_owned(),
+                    back: back.to_owned(),
+                    created_at: now,
+                    updated_at: now,
+                    tags: incoming_user_tags.clone(),
+                    suspended: false,
+                    last_again_at: None,
+                    scheduling: FsrsState::initial(now),
+                    provenance: target.provenance.clone(),
+                    sibling_group_id: Some(group_id.clone()),
+                    cloze_index: Some(idx),
+                };
+                let scheduling_json = serde_json::to_string(&card.scheduling)?;
+                let content_hlc = if cloud_enabled {
+                    next_hlc(&transaction, now)?
+                } else {
+                    String::new()
+                };
+                insert_card_with_hlc(
+                    &transaction,
+                    &card,
+                    &new_tags_json,
+                    &scheduling_json,
+                    &content_hlc,
+                )?;
+                if cloud_enabled {
+                    enqueue_new_op(
+                        &transaction,
+                        &SyncOp::CardCreate {
+                            id: card.id.clone(),
+                            deck_id: card.deck_id.clone(),
+                            front: card.front.clone(),
+                            back: card.back.clone(),
+                            tags: card.tags.clone(),
+                            created_at: card.created_at,
+                            initial_due: card.scheduling.due,
+                            provenance: card.provenance.clone(),
+                            sibling_group_id: card.sibling_group_id.clone(),
+                            cloze_index: card.cloze_index,
+                            hlc: content_hlc,
+                        },
+                        now,
+                    )?;
+                }
+                affected.push(card);
+            }
+        } else {
+            let mut updated = target;
+            apply_card_patch(
+                &mut updated,
+                CardPatch {
+                    front: Some(front.to_owned()),
+                    back: Some(back.to_owned()),
+                    tags: Some(tags),
+                    ..CardPatch::default()
+                },
+                now,
+            )?;
+            let tags_json = serde_json::to_string(&updated.tags)?;
+            let scheduling_json = serde_json::to_string(&updated.scheduling)?;
+            update_card_row(&transaction, &updated, &tags_json, &scheduling_json)?;
+            if cloud_enabled {
+                let hlc = next_hlc(&transaction, now)?;
+                transaction.execute(
+                    "UPDATE cards SET content_hlc = ?2 WHERE id = ?1",
+                    params![updated.id, hlc],
+                )?;
+                enqueue_new_op(
+                    &transaction,
+                    &SyncOp::CardContentPatch {
+                        id: updated.id.clone(),
+                        front: updated.front.clone(),
+                        back: updated.back.clone(),
+                        tags: normalize_user_tags(updated.tags.clone()),
+                        hlc,
+                    },
+                    now,
+                )?;
+            }
+            affected.push(updated);
+        }
+
+        bump_sync_revision(&transaction)?;
+        transaction.commit()?;
+        Ok(affected)
+    }
+
     pub fn create_cards(
         &self,
         deck_id: &str,
@@ -227,6 +485,8 @@ impl Collection {
                         created_at: card.created_at,
                         initial_due: card.scheduling.due,
                         provenance: card.provenance.clone(),
+                        sibling_group_id: card.sibling_group_id.clone(),
+                        cloze_index: card.cloze_index,
                         hlc: content_hlc,
                     },
                     now,
@@ -489,6 +749,8 @@ pub(crate) fn prepare_cards(
                 last_again_at: None,
                 scheduling: FsrsState::initial(now),
                 provenance: crate::CardProvenance::default(),
+                sibling_group_id: None,
+                cloze_index: None,
             })
         })
         .collect()
@@ -610,8 +872,8 @@ pub(crate) fn insert_card_with_hlc(
         "INSERT INTO cards(
             id, deck_id, front, back, created_at, updated_at, tags_json,
             suspended, last_again_at, scheduling_json, due, content_hlc,
-            rationale, sources_json, proposed_by
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            rationale, sources_json, proposed_by, sibling_group_id, cloze_index
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params![
             card.id,
             card.deck_id,
@@ -628,9 +890,28 @@ pub(crate) fn insert_card_with_hlc(
             card.provenance.rationale,
             sources_json,
             card.provenance.proposed_by,
+            card.sibling_group_id,
+            card.cloze_index,
         ],
     )?;
     Ok(())
+}
+
+fn list_cloze_siblings(
+    transaction: &Transaction<'_>,
+    sibling_group_id: &str,
+) -> rusqlite::Result<Vec<Card>> {
+    let sql = format!(
+        "SELECT {CARD_COLUMNS}
+         FROM cards
+         WHERE sibling_group_id = ?1 AND cloze_index IS NOT NULL
+         ORDER BY cloze_index, created_at, rowid"
+    );
+    let mut statement = transaction.prepare(&sql)?;
+    let cards = statement
+        .query_map([sibling_group_id], card_from_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(cards)
 }
 
 pub(crate) fn deck_exists(connection: &Connection, deck_id: &str) -> rusqlite::Result<bool> {
@@ -672,6 +953,8 @@ pub(crate) fn card_from_row(row: &Row<'_>) -> rusqlite::Result<Card> {
         rusqlite::Error::FromSqlConversionFailure(12, Type::Text, Box::new(error))
     })?;
     let proposed_by: Option<String> = row.get("proposed_by")?;
+    let sibling_group_id: Option<String> = row.get("sibling_group_id")?;
+    let cloze_index: Option<u32> = row.get("cloze_index")?;
     Ok(Card {
         id: row.get("id")?,
         deck_id: row.get("deck_id")?,
@@ -688,6 +971,8 @@ pub(crate) fn card_from_row(row: &Row<'_>) -> rusqlite::Result<Card> {
             sources,
             proposed_by,
         },
+        sibling_group_id,
+        cloze_index,
     })
 }
 

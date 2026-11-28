@@ -17,6 +17,25 @@ struct DeckDetailView: View {
         appState.todaySummary?.decks.first { $0.id == deckId }
     }
 
+    private var subdecks: [DeckSummaryDto] {
+        guard let rootName = deckSummary?.name else { return [] }
+        return (appState.todaySummary?.decks ?? []).filter {
+            $0.id != deckId && DeckTreeBuilder.isDescendantOrSelf($0.name, of: rootName)
+        }
+    }
+
+    private var rolledUpDueCount: UInt32 {
+        (deckSummary?.dueCount ?? 0) + subdecks.reduce(0) { $0 + $1.dueCount }
+    }
+
+    private var rolledUpNewDueCount: UInt32 {
+        (deckSummary?.newDueCount ?? 0) + subdecks.reduce(0) { $0 + $1.newDueCount }
+    }
+
+    private var rolledUpTotalCards: Int {
+        cards.count + subdecks.reduce(0) { $0 + Int($1.totalCards) }
+    }
+
     private var allTags: [String] {
         var set = Set<String>()
         for card in cards {
@@ -48,10 +67,11 @@ struct DeckDetailView: View {
                                 .frame(width: 9, height: 9)
                         }
 
-                        if let summary = deckSummary {
-                            let cardLabel = "\(cards.count) \(cards.count == 1 ? "card" : "cards")"
-                            let newPart = summary.newDueCount > 0 ? " · \(summary.newDueCount) new" : ""
-                            let duePart = summary.dueCount > 0 ? " · \(summary.dueCount) due" : (cards.isEmpty ? "" : " · All caught up")
+                        if deckSummary != nil {
+                            let total = rolledUpTotalCards
+                            let cardLabel = "\(total) \(total == 1 ? "card" : "cards")"
+                            let newPart = rolledUpNewDueCount > 0 ? " · \(rolledUpNewDueCount) new" : ""
+                            let duePart = rolledUpDueCount > 0 ? " · \(rolledUpDueCount) due" : (total == 0 ? "" : " · All caught up")
                             Text("\(cardLabel)\(duePart)\(newPart)")
                                 .font(.footnote)
                                 .foregroundStyle(RemColor.muted)
@@ -59,8 +79,8 @@ struct DeckDetailView: View {
 
                         Spacer(minLength: 8)
 
-                        if let due = deckSummary?.dueCount, due > 0 {
-                            Button("Study (\(due))") {
+                        if rolledUpDueCount > 0 {
+                            Button("Study (\(rolledUpDueCount))") {
                                 appState.startStudy(deckId: deckId)
                             }
                             .font(.subheadline.weight(.semibold))
@@ -96,6 +116,22 @@ struct DeckDetailView: View {
                 }
                 .listRowInsets(EdgeInsets(top: 4, leading: 2, bottom: 4, trailing: 2))
                 .listRowBackground(Color.clear)
+            }
+
+            if !subdecks.isEmpty {
+                Section("Subdecks") {
+                    ForEach(subdecks, id: \.id) { sub in
+                        let prefix = (deckSummary?.name ?? "") + DeckTreeBuilder.separator
+                        let relativeName = sub.name.hasPrefix(prefix)
+                            ? String(sub.name.dropFirst(prefix.count))
+                            : sub.name
+                        NavigationLink(value: sub.id) {
+                            DeckSummaryRow(deck: sub, showChevron: false, displayName: relativeName)
+                        }
+                    }
+                }
+                .listRowBackground(RemColor.surface)
+                .listRowSeparatorTint(RemColor.border)
             }
 
             if filteredCards.isEmpty {
@@ -321,6 +357,15 @@ struct CardBrowserRow: View {
                     .multilineTextAlignment(.leading)
 
                 HStack(spacing: 8) {
+                    if let clozeIdx = card.clozeIndex {
+                        Text("c\(clozeIdx)")
+                            .font(.caption2.weight(.bold).monospaced())
+                            .foregroundStyle(RemColor.accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(RemColor.accentTint)
+                            .clipShape(Capsule())
+                    }
                     if let firstTag = card.tags.first {
                         Text("#\(firstTag)")
                             .font(.caption)

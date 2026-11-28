@@ -15,9 +15,13 @@ struct NewDeckSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Deck Name") {
-                    TextField("e.g. Distributed systems, Rust…", text: $name)
+                Section {
+                    TextField("e.g. Spanish::Verbs, Rust…", text: $name)
                         .foregroundStyle(RemColor.text)
+                } header: {
+                    Text("Deck Name")
+                } footer: {
+                    Text("Use :: to create nested subdecks (e.g. Medicine::Cardiology).")
                 }
                 .listRowBackground(RemColor.surface)
 

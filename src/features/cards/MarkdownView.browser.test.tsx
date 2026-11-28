@@ -22,4 +22,37 @@ describe('MarkdownView assets', () => {
     )
     await expect.poll(() => container.querySelector('img')?.getAttribute('src')).toMatch(/^blob:/)
   })
+
+  it('renders an audio asset link as a blob-backed <audio> player', async () => {
+    const storage = new DexieStorage(new RemDB('rem-mdview'))
+    const asset = await storage.putAsset(new Uint8Array([0x49, 0x44, 0x33]), 'audio/mpeg')
+    const { container } = await render(
+      <StorageProvider storage={storage}>
+        <MarkdownView source={`[Audio: hola.mp3](asset:${asset.hash})`} />
+      </StorageProvider>,
+    )
+    await expect.poll(() => container.querySelector('audio')?.getAttribute('src')).toMatch(/^blob:/)
+  })
+
+  it('renders KaTeX math and cloze blank/revealed states safely', async () => {
+    const storage = new DexieStorage(new RemDB('rem-mdview'))
+    const source = 'Formula {{c1::$E = mc^2$::Einstein}} and \\(a^2 + b^2\\).'
+
+    const unrevealed = await render(
+      <StorageProvider storage={storage}>
+        <MarkdownView source={source} clozeIndex={1} clozeRevealed={false} />
+      </StorageProvider>,
+    )
+    expect(unrevealed.container.querySelector('.cloze-blank')?.textContent).toBe('[Einstein]')
+    expect(unrevealed.container.querySelector('.katex')).not.toBeNull()
+
+    const revealed = await render(
+      <StorageProvider storage={storage}>
+        <MarkdownView source={source} clozeIndex={1} clozeRevealed={true} />
+      </StorageProvider>,
+    )
+    const revealSpan = revealed.container.querySelector('.cloze-reveal')
+    expect(revealSpan).not.toBeNull()
+    expect(revealSpan?.querySelector('.katex')).not.toBeNull()
+  })
 })

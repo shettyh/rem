@@ -7,6 +7,7 @@ enum MarkdownFormatAction {
     case inlineCode
     case codeBlock
     case bulletList
+    case cloze(index: UInt32)
 }
 
 struct MarkdownFormatResult: Equatable {
@@ -79,6 +80,14 @@ enum MarkdownFormatter {
                 replacement = (needsLeadingNewline ? "\n" : "") + "- "
                 nextRange = NSRange(location: clampedLoc + (replacement as NSString).length, length: 0)
             }
+
+        case .cloze(let index):
+            let prefix = "{{c\(index)::"
+            let inner = hasSelection ? selected : "answer"
+            replacement = "\(prefix)\(inner)}}"
+            nextRange = hasSelection
+                ? NSRange(location: clampedLoc + (replacement as NSString).length, length: 0)
+                : NSRange(location: clampedLoc + (prefix as NSString).length, length: (inner as NSString).length)
         }
 
         let updated = ns.replacingCharacters(in: safeRange, with: replacement)

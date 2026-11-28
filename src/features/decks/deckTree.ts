@@ -1,0 +1,159 @@
+import type { Deck } from '../../domain/models'
+
+export const DECK_SEPARATOR = '::'
+
+export function normalizeDeckName(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed.includes(DECK_SEPARATOR)) return trimmed
+  return trimmed
+    .split(DECK_SEPARATOR)
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join(DECK_SEPARATOR)
+}
+
+export function deckSegments(name: string): string[] {
+  return name
+    .split(DECK_SEPARATOR)
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+}
+
+export function deckIsDescendantOrSelf(candidateName: string, rootName: string): boolean {
+  if (candidateName === rootName) return true
+  return candidateName.startsWith(`${rootName}${DECK_SEPARATOR}`)
+}
+
+export function deckLeafName(name: string): string {
+  const parts = deckSegments(name)
+  return parts[parts.length - 1] ?? name
+}
+
+export interface DeckMetricsItem {
+  deck: Deck
+  due: number
+  newCount?: number
+  total?: number
+  studied?: number
+}
+
+export interface DeckTreeNode<T extends DeckMetricsItem> {
+  /** Full `::`-separated path key (unique per node in tree). */
+  path: string
+  /** Display label (last path segment). */
+  label: string
+  /** Nesting depth (0 for top-level). */
+  depth: number
+  /** Backing real deck item, or null for virtual parent folders. */
+  item: T | null
+  children: DeckTreeNode<T>[]
+  /** Rolled-up counts including self and all descendants. */
+  due: number
+  newCount: number
+  total: number
+  studied: number
+}
+
+/**
+ * Group flat `::`-delimited decks into a collapsible hierarchy with rolled-up counts.
+ * Preserves top-level order and synthesizes virtual parent folders when a child deck
+ * exists without an explicit parent deck row.
+ */
+export function buildDeckTree<T extends DeckMetricsItem>(items: T[]): DeckTreeNode<T>[] {
+  const roots: DeckTreeNode<T>[] = []
+  const byPath = new Map<string, DeckTreeNode<T>>()
+
+  const ensureNode = (segments: string[], depth: number): DeckTreeNode<T> => {
+    const path = segments.slice(0, depth + 1).join(DECK_SEPARATOR)
+    const existing = byPath.get(path)
+    if (existing) return existing
+    const node: DeckTreeNode<T> = {
+      path,
+      label: segments[depth],
+      depth,
+      item: null,
+      children: [],
+      due: 0,
+      newCount: 0,
+      total: 0,
+      studied: 0,
+    }
+    byPath.set(path, node)
+    if (depth === 0) {
+      roots.push(node)
+    } else {
+      const parent = ensureNode(segments, depth - 1)
+      parent.children.push(node)
+    }
+    return node
+  }
+
+  for (const item of items) {
+    const segments = deckSegments(item.deck.name)
+    if (segments.length === 0) continue
+    const node = ensureNode(segments, segments.length - 1)
+    node.item = item
+  }
+
+  const rollup = (node: DeckTreeNode<T>): void => {
+    let due = node.item?.due ?? 0
+    let newCount = node.item?.newCount ?? 0
+    let total = node.item?.total ?? 0
+    let studied = node.item?.studied ?? 0
+    for (const child of node.children) {
+      rollup(child)
+      due += child.due
+      newCount += child.newCount
+      total += child.total
+      studied += child.studied
+    }
+    node.due = due
+    node.newCount = newCount
+    node.total = total
+    node.studied = studied
+  }
+
+  for (const root of roots) rollup(root)
+  return roots
+}
+
+export function flattenVisibleDeckTree<T extends DeckMetricsItem>(
+  roots: DeckTreeNode<T>[],
+  collapsedPaths: Set<string>,
+): DeckTreeNode<T>[] {
+  const out: DeckTreeNode<T>[] = []
+  const visit = (nodes: DeckTreeNode<T>[]) => {
+    for (const node of nodes) {
+      out.push(node)
+      if (node.children.length > 0 && !collapsedPaths.has(node.path)) {
+        visit(node.children)
+      }
+    }
+  }
+  visit(roots)
+  return out
+}
+
+const COLLAPSED_DECKS_STORAGE_KEY = 'rem:collapsed-deck-paths'
+
+export function loadCollapsedDeckPaths(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(COLLAPSED_DECKS_STORAGE_KEY)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return new Set(parsed.filter((v): v is string => typeof v === 'string'))
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return new Set()
+}
+
+export function saveCollapsedDeckPaths(paths: Set<string>): void {
+  try {
+    window.localStorage.setItem(COLLAPSED_DECKS_STORAGE_KEY, JSON.stringify([...paths]))
+  } catch {
+    // ignore storage errors
+  }
+}

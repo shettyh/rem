@@ -114,6 +114,7 @@ fn study_models_use_the_tauri_wire_shape() {
         remaining: 0,
         preview: false,
         can_undo: false,
+        show_timer: false,
         notice: None,
     };
     assert_eq!(
@@ -133,6 +134,7 @@ fn study_models_use_the_tauri_wire_shape() {
                 "remaining": 0,
                 "preview": false,
                 "canUndo": false,
+                "showTimer": false,
                 "notice": null
             }
         })
@@ -341,6 +343,8 @@ fn sync_ops_match_the_cloud_wire_contract() {
                     sources: vec![],
                     proposed_by: Some("agent".into()),
                 },
+                sibling_group_id: None,
+                cloze_index: None,
                 hlc: hlc.into(),
             },
             "cardCreate",

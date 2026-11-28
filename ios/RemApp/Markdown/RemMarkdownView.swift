@@ -10,10 +10,20 @@ struct RemMarkdownView: View {
     let codeFontSize: CGFloat
     var textColor: Color = RemColor.text
     var baseWeight: Font.Weight = .regular
+    var clozeIndex: UInt32? = nil
+    var clozeRevealed: Bool = false
     var onTapAssetImage: ((CachedAssetImage) -> Void)?
 
+    private var preparedMarkdown: String {
+        let normalized = LatexMathFormatter.normalizeDelimiters(markdown)
+        if let clozeIndex, clozeIndex >= 1 {
+            return ClozeRenderer.render(normalized, activeIndex: clozeIndex, revealed: clozeRevealed)
+        }
+        return normalized
+    }
+
     private var blocks: [MarkdownBlock] {
-        MarkdownBlockParser.parse(markdown)
+        MarkdownBlockParser.parse(preparedMarkdown)
     }
 
     private var scaledBaseFontSize: CGFloat {
@@ -53,6 +63,9 @@ struct RemMarkdownView: View {
 
         case .codeBlock(let language, let code):
             CodeBlockView(code: code, language: language, fontSize: scaledCodeFontSize)
+
+        case .mathBlock(let latex):
+            MathBlockView(latex: latex, fontSize: bodySize)
 
         case .blockquote(let text):
             HStack(alignment: .top, spacing: 12) {
@@ -162,12 +175,113 @@ struct RemMarkdownView: View {
                 }
             }
 
+        case .audio(let label, let hash):
+            AssetAudioPlayerView(label: label, hash: hash, store: store)
+
         case .divider:
             Divider().overlay(RemColor.border)
         }
     }
 
     private func inlineMarkdown(_ raw: String, fontSize: CGFloat) -> AttributedString {
+        // Split out cloze highlight sentinels and inline $...$ math spans before markdown styling.
+        var result = AttributedString()
+        var cursor = raw.startIndex
+
+        while cursor < raw.endIndex {
+            let ch = raw[cursor]
+            if String(ch) == ClozeRenderer.blankPrefix,
+               let end = raw[raw.index(after: cursor)...].range(of: ClozeRenderer.blankSuffix)
+            {
+                let inner = String(raw[raw.index(after: cursor)..<end.lowerBound])
+                var pill = AttributedString(" \(inner) ")
+                pill.foregroundColor = RemColor.accent
+                pill.backgroundColor = RemColor.accentTint
+                pill.font = .system(size: fontSize, weight: .semibold)
+                result.append(pill)
+                cursor = end.upperBound
+                continue
+            }
+
+            if String(ch) == ClozeRenderer.revealPrefix,
+               let end = raw[raw.index(after: cursor)...].range(of: ClozeRenderer.revealSuffix)
+            {
+                let inner = String(raw[raw.index(after: cursor)..<end.lowerBound])
+                var pill = renderInlineMarkdownOrMath(inner, fontSize: fontSize)
+                pill.foregroundColor = RemColor.accent
+                pill.backgroundColor = RemColor.accentTint
+                pill.font = .system(size: fontSize, weight: .semibold)
+                result.append(pill)
+                cursor = end.upperBound
+                continue
+            }
+
+            // Scan plain chunk up to next cloze sentinel
+            var nextSpecial = raw.index(after: cursor)
+            while nextSpecial < raw.endIndex {
+                let s = String(raw[nextSpecial])
+                if s == ClozeRenderer.blankPrefix || s == ClozeRenderer.revealPrefix {
+                    break
+                }
+                nextSpecial = raw.index(after: nextSpecial)
+            }
+            let chunk = String(raw[cursor..<nextSpecial])
+            result.append(renderInlineMarkdownOrMath(chunk, fontSize: fontSize))
+            cursor = nextSpecial
+        }
+        return result
+    }
+
+    private func renderInlineMarkdownOrMath(_ raw: String, fontSize: CGFloat) -> AttributedString {
+        guard raw.contains("$") else {
+            return parsePlainInlineMarkdown(raw, fontSize: fontSize)
+        }
+        var out = AttributedString()
+        var idx = raw.startIndex
+        var buffer = ""
+        var inCode = false
+
+        while idx < raw.endIndex {
+            let ch = raw[idx]
+            if ch == "`" {
+                inCode.toggle()
+                buffer.append(ch)
+                idx = raw.index(after: idx)
+                continue
+            }
+            if !inCode && ch == "$" {
+                let after = raw.index(after: idx)
+                let isDouble = after < raw.endIndex && raw[after] == "$"
+                let delim = isDouble ? "$$" : "$"
+                let bodyStart = isDouble ? raw.index(after: after) : after
+                if bodyStart < raw.endIndex,
+                   let closeRange = raw[bodyStart...].range(of: delim)
+                {
+                    let body = String(raw[bodyStart..<closeRange.lowerBound])
+                    let looksLikeCurrency = !isDouble && (body.hasPrefix(" ") || body.hasSuffix(" ") || body.isEmpty)
+                    if !looksLikeCurrency {
+                        if !buffer.isEmpty {
+                            out.append(parsePlainInlineMarkdown(buffer, fontSize: fontSize))
+                            buffer = ""
+                        }
+                        var math = AttributedString(LatexMathFormatter.formatUnicode(body))
+                        math.font = .system(size: fontSize, weight: .regular, design: .serif).italic()
+                        out.append(math)
+                        idx = closeRange.upperBound
+                        continue
+                    }
+                }
+            }
+            buffer.append(ch)
+            idx = raw.index(after: idx)
+        }
+        if !buffer.isEmpty {
+            out.append(parsePlainInlineMarkdown(buffer, fontSize: fontSize))
+        }
+        return out
+    }
+
+    private func parsePlainInlineMarkdown(_ raw: String, fontSize: CGFloat) -> AttributedString {
         var attributed = (try? AttributedString(
             markdown: raw,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)

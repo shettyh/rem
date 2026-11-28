@@ -21,13 +21,13 @@ use rem_sync::{
 
 pub use credentials::FfiCredentialStore;
 pub use types::{
-    AccountProfileDto, AssetDataDto, AuthProvidersDto, BackupPreviewDto, CardDto, CardSearchHitDto,
-    ConnectResultDto, CustomStudyModeDto, DailyActivityDto, DeckDto, DeckFsrsStatusDto,
-    DeckSettingsDto, DeckSettingsPatchDto, DeckStatsDto, DeckSummaryDto, DraftSourceDto,
-    EntitlementInfoDto, EntitlementStateDto, GradeDto, GradeIntervalsDto, ImportResultDto,
-    InsertionOrderDto, LeechActionDto, LeechNoticeDto, OAuthProviderDto, OAuthStartDto,
-    RemFfiError, StatsDto, StorageSummaryDto, StudyGradeOutcomeDto, StudyViewDto, SyncModeDto,
-    SyncReportDto, SyncStatusDto, TodaySummaryDto,
+    AccountProfileDto, ApkgImportPreviewDto, ApkgImportResultDto, AssetDataDto, AuthProvidersDto,
+    BackupPreviewDto, CardDto, CardSearchHitDto, ConnectResultDto, CustomStudyModeDto,
+    DailyActivityDto, DeckDto, DeckFsrsStatusDto, DeckSettingsDto, DeckSettingsPatchDto,
+    DeckStatsDto, DeckSummaryDto, DraftSourceDto, EntitlementInfoDto, EntitlementStateDto,
+    GradeDto, GradeIntervalsDto, ImportResultDto, InsertionOrderDto, LeechActionDto,
+    LeechNoticeDto, OAuthProviderDto, OAuthStartDto, RemFfiError, StatsDto, StorageSummaryDto,
+    StudyGradeOutcomeDto, StudyViewDto, SyncModeDto, SyncReportDto, SyncStatusDto, TodaySummaryDto,
 };
 
 use credentials::CredentialStoreBridge;
@@ -269,6 +269,34 @@ impl RemClient {
         Ok(card_to_dto(card))
     }
 
+    pub fn create_card_or_cloze(
+        &self,
+        deck_id: String,
+        front: String,
+        back: String,
+        tags: Vec<String>,
+        now_ms: i64,
+    ) -> Result<Vec<CardDto>, RemFfiError> {
+        let cards = self
+            .collection
+            .create_card_or_cloze(&deck_id, &front, &back, tags, now_ms)?;
+        Ok(cards.into_iter().map(card_to_dto).collect())
+    }
+
+    pub fn update_cloze_note(
+        &self,
+        card_id: String,
+        front: String,
+        back: String,
+        tags: Vec<String>,
+        now_ms: i64,
+    ) -> Result<Vec<CardDto>, RemFfiError> {
+        let cards = self
+            .collection
+            .update_cloze_note(&card_id, &front, &back, tags, now_ms)?;
+        Ok(cards.into_iter().map(card_to_dto).collect())
+    }
+
     pub fn update_card(
         &self,
         id: String,
@@ -396,6 +424,38 @@ impl RemClient {
         Ok(ImportResultDto {
             added: result.added,
             replaced: result.replaced,
+        })
+    }
+
+    pub fn preview_apkg(
+        &self,
+        bytes: Vec<u8>,
+        now_ms: i64,
+    ) -> Result<ApkgImportPreviewDto, RemFfiError> {
+        let preview = self.collection.preview_apkg_bytes(&bytes, now_ms)?;
+        Ok(ApkgImportPreviewDto {
+            added: preview.added,
+            replaced: preview.replaced,
+            total_cards: preview.total_cards,
+            media_count: preview.media_count,
+            review_logs: preview.review_logs,
+            warnings: preview.warnings,
+        })
+    }
+
+    pub fn import_apkg(
+        &self,
+        bytes: Vec<u8>,
+        now_ms: i64,
+    ) -> Result<ApkgImportResultDto, RemFfiError> {
+        let result = self.collection.import_apkg_bytes(&bytes, now_ms)?;
+        Ok(ApkgImportResultDto {
+            added: result.added,
+            replaced: result.replaced,
+            imported_cards: result.imported_cards,
+            imported_reviews: result.imported_reviews,
+            imported_media: result.imported_media,
+            warnings: result.warnings,
         })
     }
 
@@ -660,6 +720,7 @@ impl RemStudySession {
             remaining: view.remaining,
             preview: view.preview,
             can_undo: view.can_undo,
+            show_timer: view.show_timer,
             leech_notice: view.notice.map(Into::into),
         }
     }
@@ -809,6 +870,8 @@ fn card_to_dto(card: Card) -> CardDto {
             })
             .collect(),
         proposed_by: card.provenance.proposed_by,
+        sibling_group_id: card.sibling_group_id,
+        cloze_index: card.cloze_index,
     }
 }
 
@@ -1205,5 +1268,79 @@ mod tests {
             client.search_cards("Send".into(), None, 10).unwrap().len(),
             1
         );
+    }
+
+    #[test]
+    fn ffi_wave1_cloze_siblings_show_timer_and_nested_decks() {
+        let (_dir, client) = open_test_client();
+        let now = 1_764_300_000_000_i64;
+        let parent = client.create_deck("Math".into(), None, now).unwrap();
+        let child = client
+            .create_deck("Math :: Algebra".into(), None, now + 1)
+            .unwrap();
+        assert_eq!(child.name, "Math::Algebra");
+
+        let patch = DeckSettingsPatchDto {
+            new_per_day: 20,
+            max_reviews: 200,
+            learn_steps: "".into(),
+            insertion_order: InsertionOrderDto::Sequential,
+            relearn_steps: "".into(),
+            minimum_interval: 1,
+            leech_threshold: 8,
+            leech_action: LeechActionDto::Tag,
+            bury_related: true,
+            show_timer: true,
+            desired_retention: 0.9,
+            maximum_interval: 36_500,
+        };
+        client
+            .update_deck(parent.id.clone(), None, None, Some(patch.clone()), now + 2)
+            .unwrap();
+        client
+            .update_deck(child.id.clone(), None, None, Some(patch), now + 3)
+            .unwrap();
+
+        let created = client
+            .create_card_or_cloze(
+                child.id.clone(),
+                "{{c1::Eigenvalues}} solve {{c2::Ax = λx}}.".into(),
+                "Linear algebra".into(),
+                vec!["linalg".into()],
+                now + 5,
+            )
+            .unwrap();
+        assert_eq!(created.len(), 2);
+        assert_eq!(created[0].sibling_group_id, created[1].sibling_group_id);
+        assert_eq!(created[0].cloze_index, Some(1));
+        assert_eq!(created[1].cloze_index, Some(2));
+
+        let updated = client
+            .update_cloze_note(
+                created[0].id.clone(),
+                "{{c1::Eigenvalues}} & {{c2::eigenvectors}} solve {{c3::Ax = λx}}.".into(),
+                "Linear algebra".into(),
+                vec!["linalg".into()],
+                now + 8,
+            )
+            .unwrap();
+        assert_eq!(updated.len(), 3);
+
+        // Studying parent includes child cards, inherits parent's show_timer, and buries siblings
+        let session = client
+            .start_study(Some(parent.id.clone()), now + 20)
+            .unwrap();
+        let v0 = session.current_view(now + 20).unwrap();
+        assert!(v0.show_timer);
+        assert_eq!(v0.remaining, 3);
+        session.reveal(now + 25).unwrap();
+        let graded = session.grade(GradeDto::Easy, now + 30).unwrap();
+        assert!(graded.view.current.is_none());
+
+        // Invalid apkg bytes return an InvalidInput FFI error
+        assert!(matches!(
+            client.preview_apkg(b"invalid".to_vec(), now + 40),
+            Err(RemFfiError::InvalidInput { .. })
+        ));
     }
 }

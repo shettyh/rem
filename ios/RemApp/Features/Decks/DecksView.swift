@@ -7,6 +7,7 @@ struct DecksView: View {
     @State private var isSearching: Bool = false
     @State private var searchToken: Int = 0
     @State private var deckPendingDelete: DeckSummaryDto?
+    @State private var collapsedDeckPaths: Set<String> = []
 
     private var trimmedSearch: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -17,6 +18,23 @@ struct DecksView: View {
         let query = trimmedSearch.lowercased()
         guard !query.isEmpty else { return summaries }
         return summaries.filter { $0.name.lowercased().contains(query) }
+    }
+
+    private var treeNodes: [DeckTreeNode] {
+        DeckTreeBuilder.flatten(
+            DeckTreeBuilder.build(from: appState.todaySummary?.decks ?? []),
+            collapsed: collapsedDeckPaths
+        )
+    }
+
+    private func toggleCollapse(_ path: String) {
+        withAnimation(.easeOut(duration: 0.16)) {
+            if collapsedDeckPaths.contains(path) {
+                collapsedDeckPaths.remove(path)
+            } else {
+                collapsedDeckPaths.insert(path)
+            }
+        }
     }
 
     var body: some View {
@@ -42,8 +60,77 @@ struct DecksView: View {
                     .background(RemColor.groupedBg)
                 } else {
                     List {
-                        if !filteredDecks.isEmpty {
-                            Section(trimmedSearch.isEmpty ? "" : "Decks") {
+                        if trimmedSearch.isEmpty && !treeNodes.isEmpty {
+                            Section {
+                                ForEach(treeNodes) { node in
+                                    if let deck = node.deck {
+                                        NavigationLink(value: deck.id) {
+                                            DeckSummaryRow(
+                                                deck: deck,
+                                                showChevron: false,
+                                                displayName: node.label,
+                                                depth: node.depth,
+                                                hasChildren: !node.children.isEmpty,
+                                                isCollapsed: collapsedDeckPaths.contains(node.path),
+                                                dueOverride: node.dueCount,
+                                                newDueOverride: node.newDueCount,
+                                                totalOverride: node.totalCards,
+                                                onToggleCollapse: {
+                                                    toggleCollapse(node.path)
+                                                }
+                                            )
+                                        }
+                                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                            if node.dueCount > 0 {
+                                                Button {
+                                                    appState.startStudy(deckId: deck.id)
+                                                } label: {
+                                                    Label("Study", systemImage: "play.fill")
+                                                }
+                                                .tint(RemColor.accent)
+                                            }
+                                        }
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                            Button(role: .destructive) {
+                                                deckPendingDelete = deck
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+
+                                            Button {
+                                                appState.openEditDeck(deckId: deck.id)
+                                            } label: {
+                                                Label("Edit", systemImage: "slider.horizontal.3")
+                                            }
+                                            .tint(RemColor.accent)
+                                        }
+                                        .contextMenu {
+                                            Button {
+                                                appState.openEditDeck(deckId: deck.id)
+                                            } label: {
+                                                Label("Edit deck", systemImage: "slider.horizontal.3")
+                                            }
+                                            Button(role: .destructive) {
+                                                deckPendingDelete = deck
+                                            } label: {
+                                                Label("Delete deck", systemImage: "trash")
+                                            }
+                                        }
+                                    } else {
+                                        VirtualDeckFolderRow(
+                                            node: node,
+                                            isCollapsed: collapsedDeckPaths.contains(node.path),
+                                            insetPadding: false
+                                        ) {
+                                            toggleCollapse(node.path)
+                                        }
+                                    }
+                                }
+                            }
+                            .listRowBackground(RemColor.surface)
+                            .listRowSeparatorTint(RemColor.border)
+                        } else if !trimmedSearch.isEmpty && !filteredDecks.isEmpty {
+                            Section("Decks") {
                                 ForEach(filteredDecks, id: \.id) { deck in
                                     NavigationLink(value: deck.id) {
                                         DeckSummaryRow(deck: deck, showChevron: false)

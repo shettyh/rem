@@ -77,6 +77,7 @@ struct DeckOptionsSheet: View {
                 dailyLimitsSection
                 newCardsSection
                 lapsesSection
+                studyAndSiblingsSection
                 dangerZoneSection
             }
             .scrollContentBackground(.hidden)
@@ -336,6 +337,36 @@ struct DeckOptionsSheet: View {
                 Text("Tag").tag(LeechActionDto.tag)
                 Text("Suspend").tag(LeechActionDto.suspend)
             }
+        }
+        .listRowBackground(RemColor.surface)
+        .listRowSeparatorTint(RemColor.border)
+    }
+
+    private var studyAndSiblingsSection: some View {
+        Section {
+            Toggle(isOn: $buryRelated) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Bury related siblings")
+                        .foregroundStyle(RemColor.text)
+                    Text("Delay other cloze cards from the same note until tomorrow.")
+                        .font(.caption)
+                        .foregroundStyle(RemColor.muted)
+                }
+            }
+            .tint(RemColor.accent)
+
+            Toggle(isOn: $showTimer) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Show answer timer")
+                        .foregroundStyle(RemColor.text)
+                    Text("Display an elapsed clock while answering cards in this deck.")
+                        .font(.caption)
+                        .foregroundStyle(RemColor.muted)
+                }
+            }
+            .tint(RemColor.accent)
+        } header: {
+            Text("Study & Siblings")
         }
         .listRowBackground(RemColor.surface)
         .listRowSeparatorTint(RemColor.border)

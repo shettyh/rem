@@ -25,6 +25,8 @@ import { deckColor } from '../../ui/deckColor'
 import { hashBytes } from '../assetHash'
 import { assetRefs } from '../assetRefs'
 import { getScheduler } from '../../domain/scheduler'
+import { extractClozeIndices } from '../../features/cards/cloze'
+import { normalizeDeckName } from '../../features/decks/deckTree'
 import { BrowserStudySession, type ReviewRollback } from '../../features/review/browserStudy'
 import { buildStats, type StatsRange } from '../../features/stats/stats'
 import { localDay } from '../../features/review/day'
@@ -55,7 +57,7 @@ export class DexieStorage implements Storage {
     const id = crypto.randomUUID()
     const deck: Deck = {
       id,
-      name: name.trim(),
+      name: normalizeDeckName(name),
       createdAt: now,
       updatedAt: now,
       color: deckColor(id),
@@ -68,7 +70,8 @@ export class DexieStorage implements Storage {
   }
 
   async updateDeck(id: ID, patch: DeckPatch): Promise<void> {
-    await this.db.decks.update(id, { ...patch, updatedAt: Date.now() })
+    const nextPatch = patch.name !== undefined ? { ...patch, name: normalizeDeckName(patch.name) } : patch
+    await this.db.decks.update(id, { ...nextPatch, updatedAt: Date.now() })
     this.notify()
   }
 
@@ -114,6 +117,89 @@ export class DexieStorage implements Storage {
     await this.db.cards.add(card)
     this.notify()
     return card
+  }
+
+  async createCardOrCloze(
+    deckId: ID,
+    front: string,
+    back: string,
+    tags: string[] = [],
+  ): Promise<Card[]> {
+    const indices = extractClozeIndices(front)
+    if (indices.length === 0) {
+      return [await this.createCard(deckId, front, back, tags)]
+    }
+    const now = Date.now()
+    const siblingGroupId = crypto.randomUUID()
+    const created: Card[] = indices.map((clozeIndex) => ({
+      id: crypto.randomUUID(),
+      deckId,
+      front,
+      back,
+      createdAt: now,
+      updatedAt: now,
+      tags: normalizeUserTags(tags),
+      suspended: false,
+      lastAgainAt: null,
+      scheduling: getScheduler().initial(now),
+      siblingGroupId,
+      clozeIndex,
+    }))
+    await this.db.cards.bulkAdd(created)
+    this.notify()
+    return created
+  }
+
+  async updateClozeNote(
+    cardId: ID,
+    front: string,
+    back: string,
+    tags: string[] = [],
+  ): Promise<Card[]> {
+    const target = await this.db.cards.get(cardId)
+    if (!target) throw new Error(`card not found: ${cardId}`)
+    const now = Date.now()
+    const userTags = normalizeUserTags(tags)
+    const affected: Card[] = []
+    if (target.siblingGroupId && target.clozeIndex) {
+      const allInDeck = await this.db.cards.where('deckId').equals(target.deckId).toArray()
+      const siblings = allInDeck.filter(
+        (c) => c.siblingGroupId === target.siblingGroupId && c.clozeIndex != null,
+      )
+      const existingIndices = new Set<number>()
+      for (const sib of siblings) {
+        if (sib.clozeIndex) existingIndices.add(sib.clozeIndex)
+        const nextTags = sib.tags.includes('leech') ? ['leech', ...userTags] : userTags
+        const updated = { ...sib, front, back, tags: nextTags, updatedAt: now }
+        await this.db.cards.put(updated)
+        affected.push(updated)
+      }
+      for (const idx of extractClozeIndices(front)) {
+        if (existingIndices.has(idx)) continue
+        const created: Card = {
+          id: crypto.randomUUID(),
+          deckId: target.deckId,
+          front,
+          back,
+          createdAt: now,
+          updatedAt: now,
+          tags: userTags,
+          suspended: false,
+          lastAgainAt: null,
+          scheduling: getScheduler().initial(now),
+          siblingGroupId: target.siblingGroupId,
+          clozeIndex: idx,
+        }
+        await this.db.cards.add(created)
+        affected.push(created)
+      }
+    } else {
+      const updated = { ...target, front, back, tags, updatedAt: now }
+      await this.db.cards.put(updated)
+      affected.push(updated)
+    }
+    this.notify()
+    return affected
   }
 
   getCard(id: ID): Promise<Card | undefined> {
@@ -480,8 +566,17 @@ export class DexieStorage implements Storage {
           schedulerKind: d.schedulerKind,
           settings: d.settings,
         })
+        const siblingMap = new Map<string, string>()
         for (const c of d.cards) {
           const cardId = crypto.randomUUID()
+          let remappedSibling: string | undefined
+          if (c.siblingGroupId) {
+            remappedSibling = siblingMap.get(c.siblingGroupId)
+            if (!remappedSibling) {
+              remappedSibling = crypto.randomUUID()
+              siblingMap.set(c.siblingGroupId, remappedSibling)
+            }
+          }
           await this.db.cards.add({
             id: cardId,
             deckId,
@@ -496,6 +591,8 @@ export class DexieStorage implements Storage {
             rationale: c.rationale ?? null,
             sources: c.sources ?? [],
             proposedBy: c.proposedBy ?? null,
+            siblingGroupId: remappedSibling ?? null,
+            clozeIndex: c.clozeIndex ?? null,
           })
           for (const review of c.reviews) {
             await this.db.reviewLogs.add({

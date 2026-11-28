@@ -1,4 +1,6 @@
 import type {
+  ApkgImportPreview,
+  ApkgImportResult,
   Asset,
   Card,
   CardDraft,
@@ -75,6 +77,8 @@ export interface Storage {
   updateDeck(id: ID, patch: DeckPatch): Promise<void>
 
   createCard(deckId: ID, front: string, back: string, tags?: string[]): Promise<Card>
+  createCardOrCloze?(deckId: ID, front: string, back: string, tags?: string[]): Promise<Card[]>
+  updateClozeNote?(cardId: ID, front: string, back: string, tags?: string[]): Promise<Card[]>
   getCard(id: ID): Promise<Card | undefined>
   listCards(deckId: ID): Promise<Card[]>
   searchCards(
@@ -121,6 +125,8 @@ export interface Storage {
   /** Insert decks+cards; any existing deck whose name matches an incoming deck
    *  is removed first (replace-by-name). IDs are regenerated. */
   importDecks(decks: DeckBackup[]): Promise<ImportResult>
+  previewApkg?(bytes: Uint8Array): Promise<ApkgImportPreview>
+  importApkg?(bytes: Uint8Array): Promise<ApkgImportResult>
 
   // Assets (images/GIFs embedded in card markdown as asset:<hash>)
   putAsset(bytes: Uint8Array, mime: string): Promise<Asset>

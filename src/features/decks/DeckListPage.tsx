@@ -5,6 +5,12 @@ import { useStorageQuery } from '../../data/useStorageQuery'
 import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
 import { loadDueOverview } from '../review/dueOverview'
+import {
+  buildDeckTree,
+  flattenVisibleDeckTree,
+  loadCollapsedDeckPaths,
+  saveCollapsedDeckPaths,
+} from './deckTree'
 
 /** Time-of-day greeting for the Today header. */
 function greeting(hour: number): string {
@@ -32,6 +38,17 @@ export function DeckListPage() {
   const location = useLocation()
   const newDeckRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
+  const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => loadCollapsedDeckPaths())
+
+  function toggleDeckPath(path: string) {
+    setCollapsedPaths((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      saveCollapsedDeckPaths(next)
+      return next
+    })
+  }
 
   const overview = useStorageQuery(() => loadDueOverview(storage, Date.now()), [])
 
@@ -136,62 +153,104 @@ export function DeckListPage() {
                 </span>
               </div>
               <nav className="deck-list" aria-label="Decks">
-                {decks.map(({ deck, due, newCount, total, studied }) => {
+                {flattenVisibleDeckTree(buildDeckTree(decks), collapsedPaths).map((node) => {
+                  const hasChildren = node.children.length > 0
+                  const isCollapsed = collapsedPaths.has(node.path)
+                  const due = node.due
+                  const newCount = node.newCount
+                  const total = node.total
+                  const studied = node.studied
                   const pct = total > 0 ? Math.min(1, studied / total) : 0
                   const ringCircumference = 2 * Math.PI * 7
                   const ringOffset = ringCircumference * (1 - pct)
                   const complete = total > 0 && studied >= total
-                  return (
-                    <div key={deck.id} className="deck-list-row">
-                      <Link to={`/decks/${deck.id}`} className="deck-list-link">
-                        <span className="deck-list-name">{deck.name}</span>
-                        <span className="deck-list-meta">
-                          {due > 0 && <span className="deck-list-due has-due">{due} due</span>}
-                          {newCount > 0 && <span>{newCount} new</span>}
-                          {total > 0 && studied > 0 ? (
-                            <span
-                              className={`deck-progress-ring${complete ? ' is-complete' : ''}`}
-                              title={`${studied} of ${total} studied`}
-                            >
-                              <svg viewBox="0 0 18 18" aria-hidden="true">
-                                <circle className="deck-progress-track" cx="9" cy="9" r="7" />
-                                <circle
-                                  className="deck-progress-fill"
-                                  cx="9"
-                                  cy="9"
-                                  r="7"
-                                  strokeDasharray={ringCircumference}
-                                  strokeDashoffset={ringOffset}
-                                />
-                              </svg>
-                              <span>
-                                {studied} / {total} studied
-                              </span>
-                            </span>
-                          ) : (
-                            <span>
-                              {total} {total === 1 ? 'card' : 'cards'}
-                            </span>
-                          )}
-                        </span>
-                      </Link>
-                      {due > 0 ? (
-                        <Link
-                          to={`/decks/${deck.id}/study`}
-                          className="btn btn-ghost btn-sm deck-list-study"
-                          aria-label={`Study ${deck.name}`}
+                  const deck = node.item?.deck ?? null
+                  const rowStyle =
+                    node.depth > 0 ? { paddingLeft: `${node.depth * 22}px` } : undefined
+
+                  const meta = (
+                    <span className="deck-list-meta">
+                      {due > 0 && <span className="deck-list-due has-due">{due} due</span>}
+                      {newCount > 0 && <span>{newCount} new</span>}
+                      {total > 0 && studied > 0 ? (
+                        <span
+                          className={`deck-progress-ring${complete ? ' is-complete' : ''}`}
+                          title={`${studied} of ${total} studied`}
                         >
-                          Study
+                          <svg viewBox="0 0 18 18" aria-hidden="true">
+                            <circle className="deck-progress-track" cx="9" cy="9" r="7" />
+                            <circle
+                              className="deck-progress-fill"
+                              cx="9"
+                              cy="9"
+                              r="7"
+                              strokeDasharray={ringCircumference}
+                              strokeDashoffset={ringOffset}
+                            />
+                          </svg>
+                          <span>
+                            {studied} / {total} studied
+                          </span>
+                        </span>
+                      ) : (
+                        <span>
+                          {total} {total === 1 ? 'card' : 'cards'}
+                        </span>
+                      )}
+                    </span>
+                  )
+
+                  return (
+                    <div
+                      key={deck ? deck.id : `group:${node.path}`}
+                      className={`deck-list-row${node.depth > 0 ? ' deck-list-row--nested' : ''}${!deck ? ' deck-list-row--virtual' : ''}`}
+                      style={rowStyle}
+                    >
+                      {hasChildren && (
+                        <button
+                          type="button"
+                          className={`deck-tree-toggle${isCollapsed ? ' is-collapsed' : ''}`}
+                          aria-label={isCollapsed ? `Expand ${node.label}` : `Collapse ${node.label}`}
+                          aria-expanded={!isCollapsed}
+                          onClick={() => toggleDeckPath(node.path)}
+                        >
+                          ▾
+                        </button>
+                      )}
+                      {deck ? (
+                        <Link to={`/decks/${deck.id}`} className="deck-list-link">
+                          <span className="deck-list-name">{node.label}</span>
+                          {meta}
                         </Link>
                       ) : (
-                        <Link
-                          to={`/decks/${deck.id}`}
-                          className="deck-list-arrow"
-                          aria-label={`Open ${deck.name}`}
+                        <button
+                          type="button"
+                          className="deck-list-link deck-list-folder-btn"
+                          onClick={() => toggleDeckPath(node.path)}
                         >
-                          ›
-                        </Link>
+                          <span className="deck-list-name">{node.label}</span>
+                          {meta}
+                        </button>
                       )}
+                      {deck ? (
+                        due > 0 ? (
+                          <Link
+                            to={`/decks/${deck.id}/study`}
+                            className="btn btn-ghost btn-sm deck-list-study"
+                            aria-label={`Study ${deck.name}`}
+                          >
+                            Study
+                          </Link>
+                        ) : (
+                          <Link
+                            to={`/decks/${deck.id}`}
+                            className="deck-list-arrow"
+                            aria-label={`Open ${deck.name}`}
+                          >
+                            ›
+                          </Link>
+                        )
+                      ) : null}
                     </div>
                   )
                 })}

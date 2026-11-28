@@ -9,8 +9,8 @@ use ratatui::{
     Frame,
 };
 use rem_core::{
-    CardProvenance, Collection, CollectionError, Grade, LeechAction, StudyGradeOutcome,
-    StudyRequest, StudySession, StudyView,
+    render_cloze_answer, render_cloze_question, CardProvenance, Collection, CollectionError, Grade,
+    LeechAction, StudyGradeOutcome, StudyRequest, StudySession, StudyView,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -304,12 +304,29 @@ fn content_lines(app: &StudyApp) -> Vec<Line<'static>> {
     };
 
     let mut lines = vec![section_label("QUESTION")];
-    lines.extend(markdown_lines(&card.front));
-    if app.view.revealed {
-        lines.push(Line::default());
-        lines.push(section_label("ANSWER"));
-        lines.extend(markdown_lines(&card.back));
-        lines.extend(provenance_lines(&card.provenance));
+    if let Some(cloze_idx) = card.cloze_index {
+        let prompt = if app.view.revealed {
+            render_cloze_answer(&card.front, cloze_idx)
+        } else {
+            render_cloze_question(&card.front, cloze_idx)
+        };
+        lines.extend(markdown_lines(&prompt));
+        if app.view.revealed {
+            if !card.back.trim().is_empty() {
+                lines.push(Line::default());
+                lines.push(section_label("EXTRA"));
+                lines.extend(markdown_lines(&card.back));
+            }
+            lines.extend(provenance_lines(&card.provenance));
+        }
+    } else {
+        lines.extend(markdown_lines(&card.front));
+        if app.view.revealed {
+            lines.push(Line::default());
+            lines.push(section_label("ANSWER"));
+            lines.extend(markdown_lines(&card.back));
+            lines.extend(provenance_lines(&card.provenance));
+        }
     }
     lines
 }

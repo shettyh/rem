@@ -86,6 +86,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
             command: DraftCommand::Review(args),
         }) => terminal::review_drafts(&collection, args),
         Command::Study(args) => terminal::study(&collection, args),
+        Command::Import(args) => commands::import_apkg(&collection, args),
         Command::Sync(args) => match args.command {
             None => sync_cmd::run_sync(&collection, args.output),
             Some(SyncCommand::Run(inner)) => sync_cmd::run_sync(&collection, inner.output),

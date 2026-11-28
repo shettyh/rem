@@ -14,7 +14,9 @@
 		17EE05E8532AACA44DB6FC79 /* CustomStudySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = C04D30181B2381A4DF9FEA2B /* CustomStudySheet.swift */; };
 		1C57FC6B61E61725F7433B5E /* StatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */; };
 		2B9E2665163134C4960129C2 /* MarkdownBlockParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5ADA201F3DEEC39FFA0FB76 /* MarkdownBlockParser.swift */; };
+		31809EFA44DE1417451EB5D5 /* DeckTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45A7817A74416657B56AF9B8 /* DeckTree.swift */; };
 		371D90B56FFD3E4DD0071DEC /* PremiumPaywallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA8613AEACCC074B9C549649 /* PremiumPaywallSheet.swift */; };
+		37E048EB88E2A7CCECE85E69 /* ClozeAndMathRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6E951584C63B81DB41AF6FB /* ClozeAndMathRenderer.swift */; };
 		557D82CD4FB16A6A73814375 /* StoreKitTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 65C674A494879C0641B3B50C /* StoreKitTest.framework */; };
 		57A0A5EA2D55224B9DAB45ED /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 14ECB14C28F1B91F4165ECA0 /* PrivacyInfo.xcprivacy */; };
 		5D4E3D368F9CB8D48637E559 /* MarkdownTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 492A290EEEEE6A290D56073D /* MarkdownTextEditor.swift */; };
@@ -68,6 +70,7 @@
 		38E2DD644390DD61851BB031 /* RemStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemStore.swift; sourceTree = "<group>"; };
 		39DE67B932E46F12BFE3E215 /* FirstRunView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstRunView.swift; sourceTree = "<group>"; };
 		3AF2926313E4E32977B3C215 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
+		45A7817A74416657B56AF9B8 /* DeckTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckTree.swift; sourceTree = "<group>"; };
 		492A290EEEEE6A290D56073D /* MarkdownTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextEditor.swift; sourceTree = "<group>"; };
 		4ABC582F7419B4F3FEFD0AA8 /* RemTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemTokens.swift; sourceTree = "<group>"; };
 		523C20E8C6C0E5941D8ABA9D /* RemAppTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RemAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -103,6 +106,7 @@
 		E7C4717F9816E2B76DD12439 /* RemCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = RemCore.xcframework; path = Frameworks/RemCore.xcframework; sourceTree = "<group>"; };
 		ED6176CB006FFE48B03DA615 /* CardProvenanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardProvenanceView.swift; sourceTree = "<group>"; };
 		EEBC08F64B6C5FA0A11578B0 /* StatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsView.swift; sourceTree = "<group>"; };
+		F6E951584C63B81DB41AF6FB /* ClozeAndMathRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClozeAndMathRenderer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -280,6 +284,7 @@
 				DAC30A16A1E8B9680802B58F /* DeckDetailView.swift */,
 				36855D285827CEB531DABB0B /* DeckOptionsSheet.swift */,
 				DA01A89644F04D2536A7AC3D /* DecksView.swift */,
+				45A7817A74416657B56AF9B8 /* DeckTree.swift */,
 				872ED05E3BF79C8E15E1BFD3 /* NewDeckSheet.swift */,
 			);
 			path = Decks;
@@ -309,6 +314,7 @@
 			isa = PBXGroup;
 			children = (
 				B6F2429A3C21B7147D7B9238 /* AssetImageCache.swift */,
+				F6E951584C63B81DB41AF6FB /* ClozeAndMathRenderer.swift */,
 				E5ADA201F3DEEC39FFA0FB76 /* MarkdownBlockParser.swift */,
 				E670AF040422AD01B9994B2F /* RemMarkdownView.swift */,
 			);
@@ -433,9 +439,11 @@
 				D993148BD033563EA25808C0 /* AssetImageCache.swift in Sources */,
 				FBDCF55221BFF338F38F94DB /* AuthSessionManager.swift in Sources */,
 				BD2A8231712350E735F56878 /* CardProvenanceView.swift in Sources */,
+				37E048EB88E2A7CCECE85E69 /* ClozeAndMathRenderer.swift in Sources */,
 				17EE05E8532AACA44DB6FC79 /* CustomStudySheet.swift in Sources */,
 				F705E41584E290A7FC6DFF96 /* DeckDetailView.swift in Sources */,
 				BC5481300B1E21BB8D4BB204 /* DeckOptionsSheet.swift in Sources */,
+				31809EFA44DE1417451EB5D5 /* DeckTree.swift in Sources */,
 				B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */,
 				81401AD06D3E3EC74CE48206 /* FirstRunView.swift in Sources */,
 				7556F594E668E98E3AD6A61C /* ImageLightboxView.swift in Sources */,

@@ -894,6 +894,8 @@ fn import_decks_in_cloud_mode_syncs_replacements_and_review_history() {
                         },
                     ],
                     provenance: Default::default(),
+                    sibling_group_id: None,
+                    cloze_index: None,
                 }],
             }],
             2_000,

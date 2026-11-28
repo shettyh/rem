@@ -48,6 +48,8 @@ impl Collection {
                     last_again_at: card.last_again_at,
                     scheduling: card.scheduling,
                     provenance: card.provenance,
+                    sibling_group_id: card.sibling_group_id,
+                    cloze_index: card.cloze_index,
                 })
                 .collect();
             backups.push(DeckBackup {
@@ -330,6 +332,18 @@ fn parse_card(raw: &Value, now_ms: i64) -> Result<CardBackup, CollectionError> {
     }
     .normalize();
 
+    let sibling_group_id = obj
+        .get("siblingGroupId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
+    let cloze_index = obj
+        .get("clozeIndex")
+        .and_then(Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok())
+        .filter(|&v| v >= 1);
+
     Ok(CardBackup {
         front,
         back,
@@ -341,6 +355,8 @@ fn parse_card(raw: &Value, now_ms: i64) -> Result<CardBackup, CollectionError> {
         scheduling,
         reviews,
         provenance,
+        sibling_group_id,
+        cloze_index,
     })
 }
 

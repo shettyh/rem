@@ -7,11 +7,13 @@ import { MS_PER_DAY } from '../../domain/scheduler'
 import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
 import { isNew } from '../review/dueOverview'
+import { deckIsDescendantOrSelf, deckLeafName } from '../decks/deckTree'
 import { userTags } from './cardTags'
+import { stripClozeMarkup } from './cloze'
 
 /** Clean a single line of markdown into plain preview text. */
 function cleanMarkdownLine(line: string): string {
-  return line
+  return stripClozeMarkup(line)
     .replace(/^#{1,6}\s+/, '') // heading
     .replace(/^>\s?/, '') // blockquote
     .replace(/^[-*+]\s+/, '') // bullet list
@@ -75,10 +77,31 @@ export function DeckDetailPage() {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [tagFilter, setTagFilter] = useState('')
+  const [addingSubdeck, setAddingSubdeck] = useState(false)
+  const [subdeckName, setSubdeckName] = useState('')
 
   const deck = useStorageQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const cards = useStorageQuery(() => (deckId ? storage.listCards(deckId) : []), [deckId])
-  const due = useStorageQuery(() => (deckId ? storage.countDue(deckId, Date.now()) : 0), [deckId])
+  const subdecksInfo = useStorageQuery(async () => {
+    if (!deckId) return { directDue: 0, totalDue: 0, subdecks: [] as { deck: Awaited<ReturnType<typeof storage.listDecks>>[number]; due: number }[] }
+    const [allDecks, directDue] = await Promise.all([
+      storage.listDecks(),
+      storage.countDue(deckId, Date.now()),
+    ])
+    const current = allDecks.find((d) => d.id === deckId)
+    if (!current) return { directDue, totalDue: directDue, subdecks: [] }
+    const children = allDecks.filter(
+      (d) => d.id !== current.id && deckIsDescendantOrSelf(d.name, current.name),
+    )
+    const nowMs = Date.now()
+    const subdecks = await Promise.all(
+      children.map(async (child) => ({ deck: child, due: await storage.countDue(child.id, nowMs) })),
+    )
+    const totalDue = directDue + subdecks.reduce((acc, s) => acc + s.due, 0)
+    return { directDue, totalDue, subdecks }
+  }, [deckId])
+  const due = subdecksInfo?.totalDue ?? 0
+  const subdecks = subdecksInfo?.subdecks ?? []
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -124,11 +147,20 @@ export function DeckDetailPage() {
     await storage.updateCard(card.id, { suspended: !card.suspended })
   }
 
+  async function createSubdeck(e: React.FormEvent) {
+    e.preventDefault()
+    const childLeaf = subdeckName.trim()
+    if (!childLeaf || !deck) return
+    await storage.createDeck(`${deck.name}::${childLeaf}`)
+    setSubdeckName('')
+    setAddingSubdeck(false)
+  }
+
   const title = (
     <>
       <span className="header-title-text">{deck.name}</span>
-      {cards.length > 0 && (
-        due && due > 0 ? (
+      {(cards.length > 0 || subdecks.length > 0) && (
+        due > 0 ? (
           <span className="header-status-pill is-due">
             <span className="status-dot" aria-hidden="true" />
             {due} due
@@ -159,8 +191,8 @@ export function DeckDetailPage() {
           <circle cx="11" cy="11.5" r="1.4" />
         </svg>
       </button>
-      {cards.length > 0 && (
-        due && due > 0 ? (
+      {(cards.length > 0 || subdecks.length > 0) && (
+        due > 0 ? (
           <>
             <button
               type="button"
@@ -206,14 +238,71 @@ export function DeckDetailPage() {
     <>
       <PageHeader title={title} actions={actions} />
       <div className="page-body">
+        {(subdecks.length > 0 || addingSubdeck) && (
+          <section className="subdecks-section" aria-label="Subdecks">
+            <div className="subdecks-head">
+              <span className="subdecks-title">Subdecks</span>
+              {!addingSubdeck && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setAddingSubdeck(true)}
+                >
+                  + Subdeck
+                </button>
+              )}
+            </div>
+            {addingSubdeck && (
+              <form className="subdeck-add-form" onSubmit={(e) => void createSubdeck(e)}>
+                <input
+                  className="text-input"
+                  placeholder={`Subdeck inside ${deck.name}…`}
+                  value={subdeckName}
+                  onChange={(e) => setSubdeckName(e.target.value)}
+                  autoFocus
+                />
+                <button type="submit" className="btn btn-primary btn-sm" disabled={!subdeckName.trim()}>
+                  Create
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setAddingSubdeck(false)
+                    setSubdeckName('')
+                  }}
+                >
+                  Cancel
+                </button>
+              </form>
+            )}
+            {subdecks.length > 0 && (
+              <div className="subdecks-list">
+                {subdecks.map(({ deck: child, due: childDue }) => (
+                  <Link key={child.id} to={`/decks/${child.id}`} className="subdeck-chip">
+                    <span>{deckLeafName(child.name)}</span>
+                    {childDue > 0 && <span className="subdeck-chip-due">{childDue} due</span>}
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
         {cards.length === 0 ? (
           <div className="empty-state">
             <EmptyIcon kind="cards" />
             <h3>No cards yet</h3>
             <p>Add your first card — front, back, done.</p>
-            <button className="btn btn-primary cta" onClick={() => navigate(`/decks/${deckId}/cards/new`)}>
-              + Add your first card
-            </button>
+            <div className="empty-state-actions">
+              <button className="btn btn-primary cta" onClick={() => navigate(`/decks/${deckId}/cards/new`)}>
+                + Add your first card
+              </button>
+              {!addingSubdeck && (
+                <button className="btn btn-ghost cta" onClick={() => setAddingSubdeck(true)}>
+                  + Add subdeck
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <>
@@ -318,6 +407,9 @@ export function DeckDetailPage() {
                         onClick={() => navigate(`/decks/${deckId}/cards/${card.id}/edit`)}
                       >
                         <span className="card-front">
+                          {card.clozeIndex && (
+                            <span className="card-cloze-badge">c{card.clozeIndex}</span>
+                          )}
                           {frontText || <span className="muted">Untitled card</span>}
                         </span>
                         {(backSnippet.text || backSnippet.lang) && (

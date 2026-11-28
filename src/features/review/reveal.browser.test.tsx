@@ -276,6 +276,7 @@ test('a stale native grade conflict is explained and not counted as a review', a
       remaining: 0,
       preview: false,
       canUndo: false,
+      showTimer: false,
       notice: null,
     },
   })

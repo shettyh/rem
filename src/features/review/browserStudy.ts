@@ -12,6 +12,7 @@ import {
   type StudyView,
 } from '../../domain/models'
 import { nextStates } from '../../domain/scheduler/reviewScheduler'
+import { deckIsDescendantOrSelf } from '../decks/deckTree'
 import {
   selectCustomStudyCards,
 } from './customStudy'
@@ -33,6 +34,7 @@ interface LastGradeSnapshot {
   previousNotice: LeechAction | null
   reviewLogId?: string
   daily?: { day: string; field: 'newIntroduced' | 'reviewsDone' }
+  buriedSiblings: SessionCard[]
 }
 
 /** Browser-test adapter for the native StudySession interface. */
@@ -42,6 +44,7 @@ export class BrowserStudySession {
     private readonly session: ReviewSession,
     private current: SessionCard | null,
     private readonly preview: boolean,
+    private readonly customStudy: boolean,
     private readonly rollbackReview?: (rollback: ReviewRollback) => Promise<void>,
   ) {}
 
@@ -63,6 +66,7 @@ export class BrowserStudySession {
       session,
       session.next(now),
       request.custom?.mode === 'preview-new',
+      request.custom !== null,
       rollbackReview,
     )
   }
@@ -76,6 +80,7 @@ export class BrowserStudySession {
       remaining: this.session.remaining,
       preview: this.preview,
       canUndo: this.lastGrade !== null,
+      showTimer: this.current?.settings.showTimer ?? false,
       notice: this.notice,
     }
   }
@@ -119,6 +124,11 @@ export class BrowserStudySession {
       daily,
     })
     const previousNotice = this.notice
+    this.session.grade(now, next, { requeue: effect?.suspended !== true })
+    const buriedSiblings =
+      !this.customStudy && current.settings.buryRelated && current.card.siblingGroupId
+        ? this.session.burySiblings(current.card.id, current.card.siblingGroupId)
+        : []
     this.lastGrade = {
       previousItem: {
         ...current,
@@ -131,8 +141,8 @@ export class BrowserStudySession {
       previousNotice,
       reviewLogId: log?.id,
       daily,
+      buriedSiblings,
     }
-    this.session.grade(now, next, { requeue: effect?.suspended !== true })
     this.current = this.session.next(now)
     this.revealed = false
     this.choices = null
@@ -177,7 +187,7 @@ export class BrowserStudySession {
       card: reloaded,
       forceDue: true,
     }
-    this.session.restoreGraded(restoredItem)
+    this.session.restoreGraded(restoredItem, undo.buriedSiblings)
     this.current = restoredItem
     this.revealed = false
     this.choices = null
@@ -206,26 +216,39 @@ async function buildInitialCards(
   now: number,
 ): Promise<SessionCard[]> {
   if (request.deckId) {
-    const deck = await storage.getDeck(request.deckId)
-    if (!deck) return []
-    const stat = await storage.getDailyStat(request.deckId, localDay(now))
-    const newSlots = deck.settings.newPerDay - stat.newIntroduced
-    if (request.custom) {
-      const cards = await storage.listCards(request.deckId)
-      return selectCustomStudyCards(cards, request.custom, now, {
-        insertionOrder: deck.settings.insertionOrder,
-        normalNewSlots: newSlots,
-      }).map((card) => ({ card, settings: deck.settings, forceDue: true }))
-    }
-    const due = await storage.dueCards(request.deckId, now)
-    return buildSessionCards(
-      due.map((card) => ({ card, settings: deck.settings })),
-      deck.settings.insertionOrder,
-      {
-        newSlots,
-        reviewSlots: deck.settings.maxReviews - stat.reviewsDone,
-      },
+    const allDecks = await storage.listDecks()
+    const rootDeck = allDecks.find((d) => d.id === request.deckId)
+    if (!rootDeck) return []
+    const targetDecks = allDecks.filter(
+      (d) => d.id === rootDeck.id || deckIsDescendantOrSelf(d.name, rootDeck.name),
     )
+    const out: SessionCard[] = []
+    for (const deck of targetDecks) {
+      const stat = await storage.getDailyStat(deck.id, localDay(now))
+      const newSlots = deck.settings.newPerDay - stat.newIntroduced
+      if (request.custom) {
+        const cards = await storage.listCards(deck.id)
+        out.push(
+          ...selectCustomStudyCards(cards, request.custom, now, {
+            insertionOrder: deck.settings.insertionOrder,
+            normalNewSlots: newSlots,
+          }).map((card) => ({ card, settings: deck.settings, forceDue: true })),
+        )
+      } else {
+        const due = await storage.dueCards(deck.id, now)
+        out.push(
+          ...buildSessionCards(
+            due.map((card) => ({ card, settings: deck.settings })),
+            deck.settings.insertionOrder,
+            {
+              newSlots,
+              reviewSlots: deck.settings.maxReviews - stat.reviewsDone,
+            },
+          ),
+        )
+      }
+    }
+    return out
   }
 
   if (request.custom) throw new Error('invalid input: custom study requires one deck')

@@ -1,6 +1,6 @@
 # rem — Current State & Future Vision
 
-_Last reviewed: 2026-11-27 · based on `v0.26.0` plus Phase 2 daily-driver parity & developer/agent wedge_
+_Last reviewed: 2026-11-27 · based on `v0.28.0` plus Wave 1 Anki compatibility & migration_
 
 This document is the canonical product snapshot for future planning. Dated files under
 `docs/superpowers/` record the decisions and implementation history behind individual slices;
@@ -88,25 +88,35 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 
 - Desktop full-screen add/edit experience using a TipTap WYSIWYG-Markdown editor; Markdown remains
   the stored source of truth.
-- Formatting toolbar for headings, emphasis, lists, links, inline code, and fenced code blocks.
-- Syntax-highlighted code when editing and reviewing (desktop and iOS).
-- Image and GIF ingestion through file picker, paste, drag-and-drop (desktop), and iOS Photos picker.
-- Content-addressed binary assets render in cards and travel through backup and cloud sync (via R2).
+- Formatting toolbar for headings, emphasis, lists, links, inline code, fenced code blocks, and
+  cloze deletions (`{{cN::answer::hint}}`, `⌘⇧C` on desktop, `[…]` button on iOS).
+- Syntax-highlighted code and LaTeX math (`$...$`, `$$...$$`, and Anki `\(...\)` / `\[...\]`
+  delimiters rendered via local KaTeX on desktop and native SwiftUI math formatting on iOS).
+- Image, GIF, and audio clip ingestion (`[Audio: label](asset:<hash>)`) through file picker, paste,
+  drag-and-drop (desktop), and iOS Photos picker, with inline audio playback on desktop and iOS.
+- Content-addressed binary assets (images, GIFs, audio) render in cards and travel through backup
+  and cloud sync (via R2).
 - User-defined tags, tag chips, and per-deck tag filtering.
-- Create, edit, delete, suspend, and restore cards.
+- Create, edit (including sibling-propagating cloze edits), delete, suspend, and restore cards.
 
 ### Decks and study
 
-- Flat deck organization with colors, live due counts, deck progress rings, and cross-deck study.
+- Nested deck organization via Anki-style `::` namespaces (`Parent::Child`), with collapsible deck
+  trees, virtual parent folders, rolled-up due/card counts, and parent-deck study and stats
+  automatically including all descendant decks.
+- Cloze deletions (`{{c1::...}}`, optional `::hint`) with lightweight sibling groups
+  (`sibling_group_id`, `cloze_index`) and persisted `DeckSettings.bury_related` enforcement across
+  sessions and day boundaries (automatically restored on undo).
 - FSRS-7 calculation and optimization live in `rem-core`; SM-2 has been removed.
 - A shared Rust `StudySession` owns due selection, daily caps, learning/relearning steps, FSRS
-  choices, custom study, leeches, review persistence, atomic undo (restoring card state, removing
-  the undone review log and daily-cap increment, and retracting unsent sync outbox ops), counters,
+  choices, custom study, leeches, sibling burying, per-deck answer timer visibility (`show_timer`),
+  review persistence, atomic undo (restoring card state, removing the undone review log and
+  daily-cap increment, unburying siblings, and retracting unsent sync outbox ops), counters,
   requeueing, and stale-card conflicts.
 - The desktop review page, `rem study` TUI, and iOS `ReviewScreen` are all thin adapters over the
   same `StudySession` implementation, with full parity for atomic Undo (`⌘Z`/`u` on Desktop,
-  `u`/`Ctrl+Z` in TUI, toolbar Undo on iOS) and in-review Suspend (`s` on Desktop and TUI, menu on
-  iOS).
+  `u`/`Ctrl+Z` in TUI, toolbar Undo on iOS), in-review Suspend (`s` on Desktop and TUI, menu on
+  iOS), cloze display, and optional answer timer on Desktop and iOS.
 - `rem study` reviews all decks; `rem study --deck <id-or-exact-name>` reviews one deck. The
   interactive TUI supports Space/Enter reveal, 1–4 grading, `u`/`Ctrl+Z` undo, `s` suspend,
   arrow/j/k scrolling, resize, clean `q` exit, interval previews, progress, completion counts,
@@ -131,19 +141,22 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 - **First-run & local-first:** No startup login wall — users can start locally on device SQLite,
   connect to `rem Cloud`, or configure a self-hosted sync server URL.
 - **Focused review:** Tap-to-reveal + 4-button FSRS-7 grade dock with live intervals, optional
-  haptics, adjustable card text size (`S / M / L`), in-review card editing, undo last grade, card
-  suspension, card info sheet, dark syntax-highlighted code blocks, and offline `asset:<hash>`
-  image/GIF rendering with a pinch-to-zoom lightbox.
+  haptics, adjustable card text size (`S / M / L`), cloze deletion cards with sibling burying,
+  optional per-deck answer timer, in-review card editing, undo last grade, card suspension, card
+  info sheet, dark syntax-highlighted code blocks, native SwiftUI LaTeX math formatting, inline
+  audio clip playback, and offline `asset:<hash>` image/GIF rendering with a pinch-to-zoom lightbox.
 - **Quick capture, deck browsing, search & custom study:** Fast card creation/editing with
-  Write/Preview toggle, Markdown keyboard toolbar, tag editor, iOS Photos image attachment
-  (SHA-256 stored in SQLite), cross-deck card search in Decks, per-deck filtering, Custom Study
-  modes (`study-ahead`, `increase-new`, `review-forgotten`, `preview-new`), provenance inspection
-  in review and Card Info, and full deck editing + FSRS deck options & weight optimization.
-- **Stats, habits, backups & billing:** 7D/30D/90D Swift Charts Stats dashboard with per-deck
-  breakdown, native Sign in with Apple (`ASAuthorizationController` + token revocation on account
-  delete), Google OAuth + iOS Keychain, StoreKit 2 IAP (`com.shettyh.rem.premium.yearly`), Settings
-  Account drill-down, Privacy Manifest (`PrivacyInfo.xcprivacy`), local daily reminders via
-  `UNUserNotificationCenter`, and JSON backup export & import (with replace confirmation).
+  Write/Preview toggle, Markdown + cloze keyboard toolbar, tag editor, iOS Photos image attachment
+  (SHA-256 stored in SQLite), collapsible nested `::` deck trees with rolled-up counts, cross-deck
+  card search in Decks, per-deck filtering, Custom Study modes (`study-ahead`, `increase-new`,
+  `review-forgotten`, `preview-new`), provenance inspection in review and Card Info, and full deck
+  editing + FSRS deck options (`bury_related`, `show_timer`, weight optimization).
+- **Stats, habits, backups, `.apkg` import & billing:** 7D/30D/90D Swift Charts Stats dashboard
+  with per-deck breakdown, native Sign in with Apple (`ASAuthorizationController` + token
+  revocation on account delete), Google OAuth + iOS Keychain, StoreKit 2 IAP
+  (`com.shettyh.rem.premium.yearly`), Settings Account drill-down, Privacy Manifest
+  (`PrivacyInfo.xcprivacy`), local daily reminders via `UNUserNotificationCenter`, JSON backup
+  export & import, and Anki `.apkg` deck import (with preview and replace confirmation).
 
 ### Insight and history
 
@@ -158,12 +171,17 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 
 - Native desktop, CLI, and iOS operations use SQLite through `rem-core`; the TypeScript `Storage`
   interface keeps React independent of native commands, and Dexie remains a browser-test adapter.
-- SQLite schema v5 contains FSRS-7 scheduling state, retained card provenance (`rationale`,
-  `sources_json`, `proposed_by`), a trigger-maintained FTS5 `cards_fts` search index, local-only
-  drafts, per-card optimistic `local_revision` values, per-domain Hybrid Logical Clocks (HLCs), and
-  local `sync_meta` / `sync_outbox` / `synced_assets` bookkeeping tables.
-- Deck-scoped JSON export/import preserves scheduling, review history, and provenance, with
-  confirmation before a same-named deck is replaced on both Desktop and iOS.
+- SQLite schema v6 contains FSRS-7 scheduling state, retained card provenance (`rationale`,
+  `sources_json`, `proposed_by`), optional cloze/sibling metadata (`sibling_group_id`,
+  `cloze_index`), a trigger-maintained FTS5 `cards_fts` search index, local-only drafts, per-card
+  optimistic `local_revision` values, per-domain Hybrid Logical Clocks (HLCs), and local
+  `sync_meta` / `sync_outbox` / `synced_assets` bookkeeping tables.
+- Deck-scoped JSON export/import preserves scheduling, review history, cloze/sibling links, and
+  provenance, with confirmation before a same-named deck is replaced on both Desktop and iOS.
+- Pure-Rust Anki `.apkg` importer (`anki2`, `anki21`, and zstd-compressed `anki21b` with JSON and
+  protobuf media manifests) converts HTML to Markdown, preserves nested `::` decks, cloze/reversed
+  siblings, LaTeX math, image/audio media assets, and replays `revlog` into FSRS-7 state across
+  Desktop, CLI (`rem import`), and iOS.
 - Legacy Git sync has been removed in favor of optional Cloud sync (`Local only` vs. `Cloud sync`).
   The shared `rem-sync` crate talks to the open-source Cloudflare Workers + SQLite Durable Objects +
   D1 + R2 backend in `sync-server/` (either hosted `rem Cloud` or a self-hosted deployment).
@@ -255,6 +273,28 @@ are implemented:
    iOS Custom Study modes (`CustomStudySheet` + preview-new flow), and iOS JSON backup import with
    replace confirmation.
 
+### 5. Core Anki Compatibility & Migration (Wave 1)
+
+All five pillars in
+[`2026-11-27-anki-compatibility-wave-1-design.md`](superpowers/specs/2026-11-27-anki-compatibility-wave-1-design.md)
+are implemented:
+
+1. **Nested decks (`::` namespace convention)** — normalized `Parent::Child` paths, collapsible
+   deck trees with virtual parent folders and rolled-up counts on Desktop and iOS, and parent-deck
+   study/stats automatically including all descendant decks.
+2. **LaTeX / Math rendering** — `$...$` and `$$...$$` plus Anki `\(...\)` / `\[...\]`
+   normalization outside code blocks, rendered locally via KaTeX on Desktop and native SwiftUI
+   formatting/views on iOS.
+3. **Cloze deletions & lightweight siblings** — schema v6 `sibling_group_id` / `cloze_index`
+   columns, multi-card cloze creation & sibling-propagating edits, backup/sync preservation, and
+   `DeckSettings.bury_related` enforcement across sessions/days with automatic undo restoration.
+4. **Audio assets & pure-Rust `.apkg` importer** — content-addressed audio clips with inline
+   players on Desktop and iOS (synced via existing R2 pipeline), plus `.apkg` preview & import
+   (`anki2` / `anki21` / zstd `anki21b`, HTML→Markdown, math, media, `revlog`→FSRS-7 replay) on
+   Desktop, CLI (`rem import`), and iOS.
+5. **Show answer timer** — persisted `DeckSettings.show_timer` wired through `StudyView` and
+   rendered during review on Desktop and iOS.
+
 ## Known gaps and incomplete behavior
 
 These are real gaps in the resulting product, not features already delivered.
@@ -267,21 +307,19 @@ These are real gaps in the resulting product, not features already delivered.
 | Duplicate help | Draft/card duplicate checks are exact normalized matches, not semantic suggestions. |
 | Draft portability | Pending drafts are local-only and cannot be triaged from another machine. |
 | Habit support | No daily reminders or native notifications on desktop (iOS supports local daily reminders via `UNUserNotificationCenter`). |
-| Review options | **Show answer timer** is stored in `DeckSettings` but not rendered. |
-| Related-card burying | `bury_related` is stored in `DeckSettings` but cannot be enforced without a note/template/sibling model. |
-| Organization & migration | Decks are flat (no namespaces/nested decks), there is no Anki `.apkg` import, and cards do not support cloze deletions or LaTeX/MathJax. |
+| Image occlusion & Anki templates | Image Occlusion (masking regions on diagrams) is planned for Wave 2; arbitrary Anki HTML/CSS/JS card templates are intentionally out of scope (converted to clean Markdown on `.apkg` import). |
 | CI & Distribution | Windows installers and CLI binaries do not yet have an Authenticode signature; public App Store 1.0 release (beyond TestFlight) is not yet submitted. |
 
 ## Strategic positioning & engineering realities
 
 Honest constraints that should govern prioritization going forward:
 
-### 1. Audience & positioning (wedge vs. Anki parity)
+### 1. Audience & positioning (wedge + practical Anki migration)
 
-Anki's moat is not UI—it is card types (cloze, image occlusion, LaTeX), shared decks, free AnkiWeb sync, and years of add-ons. `rem` should not try to out-Anki Anki on breadth.
+`rem` combines a sharp primary wedge with frictionless migration for existing spaced-repetition learners:
 
-- **Primary wedge:** software engineers and technical learners who want calm, local-first plain-Markdown conceptual cards captured directly from real engineering work and AI agent sessions (`rem-card-capture` + `rem` CLI → human-approved Drafts → FSRS-7 across desktop, terminal, and iPhone).
-- **Deliberate decision gate:** keep the niche sharp (plain Markdown, zero clutter, strong agent/terminal workflow) unless real user demand justifies taking on the complexity of Anki `.apkg` import, cloze deletions, or LaTeX/math rendering.
+- **Primary wedge:** software engineers and technical learners who want calm, local-first Markdown cards captured directly from real engineering work and AI agent sessions (`rem-card-capture` + `rem` CLI → human-approved Drafts → FSRS-7 across desktop, terminal, and iPhone).
+- **Practical Anki parity without template bloat:** Wave 1 delivers the high-value primitives learners actually migrate for — `.apkg` import with FSRS-7 history replay, cloze deletions with sibling burying, LaTeX math, audio clips, and nested `::` decks — while deliberately rejecting arbitrary Anki HTML/CSS/JS card templates so cards stay portable, calm, and fast on every surface.
 
 ### 2. Surface-area & infrastructure discipline
 
@@ -315,9 +353,9 @@ managed Cloud sync, repeatable production operations, and feedback from real dai
 
 ### Phase 2 — Remaining Desktop & iOS Polish (Optional Follow-Ups)
 
-Core Phase 2 parity (Undo/Suspend, provenance + `rem draft review`, FTS5 global search, unified `rem-core` stats, and iOS Custom Study + JSON backup import) is complete. Remaining optional polish items as usage justifies:
+Core Phase 2 parity (Undo/Suspend, provenance + `rem draft review`, FTS5 global search, unified `rem-core` stats, and iOS Custom Study + JSON backup import) and Wave 1 Anki compatibility (nested decks, LaTeX math, cloze deletions + sibling burying, audio + `.apkg` import, answer timer) are complete. Remaining optional polish items as usage justifies:
 
-1. **Desktop habit polish:** optional desktop native daily reminders and rendering the stored answer-timer setting.
+1. **Desktop habit polish:** optional desktop native daily reminders.
 2. **iOS 7-day forecast visualization:** expose `upcoming_7d` from `rem-core` through `rem-ffi`'s `StatsDto` and render it in `StatsView.swift`.
 
 *(Maintainability rule: decompose the gravity-well files noted above incrementally when touching
@@ -347,19 +385,19 @@ those areas, and add boundary tests in `rem-ffi` / `src-tauri` / `ios` alongside
 
 **Outcome:** iOS becomes a zero-friction capture inbox and daily habit anchor, not just a review client.
 
-### Phase 5 — Knowledge Model & Broader SRS Expansion (Demand-Gated)
+### Phase 5 — Knowledge Model & Anki Wave 2 (Demand-Gated)
 
-Only pursue these when real user feedback justifies the added complexity and migration cost:
+Only pursue these when real user feedback justifies the added complexity:
 
 1. **Draft quality feedback loop:** optional rejection reasons and acceptance/edit-rate summaries so
    agents and users can calibrate proposal quality over time.
-2. **Broader SRS migration & card-type decisions:**
-   - Anki `.apkg` import if onboarding existing SRS users becomes a priority.
-   - A note/template/sibling model (enabling `bury_related` and cloze deletions) if plain Q&A
-     Markdown cards prove too limiting.
-   - Nested decks or namespaces if flat decks + tags limit real collections.
+2. **Anki Compatibility Wave 2:**
+   - **Image Occlusion:** rectangle/shape masking overlays over diagram assets using the same
+     `sibling_group_id` model (one occluded region per card, bury-related compatible).
+   - **Optional `.apkg` export** if users request round-trip export back to Anki.
+   - **Type-in-the-answer mode** (opt-in per card or deck) for spelling/language drills.
 
-**Outcome:** collections scale cleanly without prematurely inheriting Anki's data-model complexity.
+**Outcome:** collections cover visual/diagram recall without inheriting Anki's HTML/JS template complexity.
 
 ### Phase 6 — Local Intelligence & Assisted Source-to-Draft Authoring
 
@@ -384,7 +422,7 @@ prompts faster without weakening human control.
 - Bundling an agent runtime/model provider before the public CLI proves insufficient.
 - Supporting the browser as a reduced product while core behavior depends on Rust and local SQLite.
 - Building multiple storage/sync abstractions before a second real implementation exists.
-- Chasing feature-for-feature Anki parity (cloze, image occlusion, LaTeX, `.apkg`) before real usage justifies expanding beyond plain-Markdown technical cards.
+- Supporting arbitrary Anki HTML/CSS/JS card templates or add-on scripting (import converts to clean Markdown instead).
 - Adding new billing, platform, or cloud infrastructure surface area before public iOS 1.0 launch and sustained daily-driver validation.
 
 ## Planning rule

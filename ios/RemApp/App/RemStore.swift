@@ -97,6 +97,26 @@ actor RemStore {
         try client.createCard(deckId: deckId, front: front, back: back, tags: tags, nowMs: nowMs)
     }
 
+    func createCardOrCloze(
+        deckId: String,
+        front: String,
+        back: String,
+        tags: [String],
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> [CardDto] {
+        try client.createCardOrCloze(deckId: deckId, front: front, back: back, tags: tags, nowMs: nowMs)
+    }
+
+    func updateClozeNote(
+        cardId: String,
+        front: String,
+        back: String,
+        tags: [String],
+        nowMs: Int64 = RemStore.nowMs()
+    ) throws -> [CardDto] {
+        try client.updateClozeNote(cardId: cardId, front: front, back: back, tags: tags, nowMs: nowMs)
+    }
+
     func updateCard(
         id: String,
         front: String?,
@@ -208,6 +228,14 @@ actor RemStore {
 
     func importBackupJson(json: String, nowMs: Int64 = RemStore.nowMs()) throws -> ImportResultDto {
         try client.importBackupJson(json: json, nowMs: nowMs)
+    }
+
+    func previewApkg(data: Data, nowMs: Int64 = RemStore.nowMs()) throws -> ApkgImportPreviewDto {
+        try client.previewApkg(bytes: data, nowMs: nowMs)
+    }
+
+    func importApkg(data: Data, nowMs: Int64 = RemStore.nowMs()) throws -> ApkgImportResultDto {
+        try client.importApkg(bytes: data, nowMs: nowMs)
     }
 
     func fetchAuthProviders(serverUrl: String) throws -> AuthProvidersDto {

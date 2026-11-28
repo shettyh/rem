@@ -10,7 +10,7 @@ use rem_core::{
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::cli::{AddCardArgs, AddDraftArgs, OutputFormat, SearchCardsArgs};
+use crate::cli::{AddCardArgs, AddDraftArgs, ImportArgs, OutputFormat, SearchCardsArgs};
 use crate::output::{
     input_error, now_millis, resolve_deck, write_json, CliError, DeckSummary, Success, EXIT_INPUT,
     OUTPUT_VERSION,
@@ -294,6 +294,103 @@ pub fn list_drafts(collection: &Collection, output: OutputFormat) -> Result<(), 
             version: OUTPUT_VERSION,
             command: "draft.list",
             data: DraftListData { drafts },
+        }),
+    }
+    Ok(())
+}
+
+const MAX_APKG_FILE_BYTES: u64 = 512 * 1024 * 1024;
+
+pub fn import_apkg(collection: &Collection, args: ImportArgs) -> Result<(), CliError> {
+    let meta = fs::metadata(&args.file).map_err(|error| {
+        input_error(
+            "input_read_failed",
+            format!("could not read {}: {error}", args.file.display()),
+        )
+    })?;
+    if meta.len() > MAX_APKG_FILE_BYTES {
+        return Err(input_error(
+            "file_too_large",
+            format!(
+                "{} exceeds the maximum supported .apkg size (512 MB)",
+                args.file.display()
+            ),
+        ));
+    }
+    let bytes = fs::read(&args.file).map_err(|error| {
+        input_error(
+            "input_read_failed",
+            format!("could not read {}: {error}", args.file.display()),
+        )
+    })?;
+    let now = now_millis();
+    if args.dry_run {
+        let preview = collection.preview_apkg_bytes(&bytes, now)?;
+        match args.output {
+            OutputFormat::Text => {
+                println!(
+                    "Dry run: {} card(s), {} media file(s), {} review log(s)",
+                    preview.total_cards, preview.media_count, preview.review_logs
+                );
+                if !preview.added.is_empty() {
+                    println!("Would add decks: {}", preview.added.join(", "));
+                }
+                if !preview.replaced.is_empty() {
+                    println!("Would replace decks: {}", preview.replaced.join(", "));
+                }
+                for warning in &preview.warnings {
+                    println!("Warning: {warning}");
+                }
+            }
+            OutputFormat::Json => write_json(&Success {
+                version: OUTPUT_VERSION,
+                command: "import",
+                data: serde_json::json!({
+                    "dryRun": true,
+                    "added": preview.added,
+                    "replaced": preview.replaced,
+                    "totalCards": preview.total_cards,
+                    "mediaCount": preview.media_count,
+                    "reviewLogs": preview.review_logs,
+                    "warnings": preview.warnings,
+                }),
+            }),
+        }
+        return Ok(());
+    }
+
+    let result = collection.import_apkg_bytes(&bytes, now)?;
+    match args.output {
+        OutputFormat::Text => {
+            println!(
+                "Imported {} card(s), {} review log(s), {} media file(s) across {} deck(s).",
+                result.imported_cards,
+                result.imported_reviews,
+                result.imported_media,
+                result.added.len() + result.replaced.len()
+            );
+            if !result.added.is_empty() {
+                println!("Added decks: {}", result.added.join(", "));
+            }
+            if !result.replaced.is_empty() {
+                println!("Replaced decks: {}", result.replaced.join(", "));
+            }
+            for warning in &result.warnings {
+                println!("Warning: {warning}");
+            }
+        }
+        OutputFormat::Json => write_json(&Success {
+            version: OUTPUT_VERSION,
+            command: "import",
+            data: serde_json::json!({
+                "dryRun": false,
+                "added": result.added,
+                "replaced": result.replaced,
+                "importedCards": result.imported_cards,
+                "importedReviews": result.imported_reviews,
+                "importedMedia": result.imported_media,
+                "warnings": result.warnings,
+            }),
         }),
     }
     Ok(())

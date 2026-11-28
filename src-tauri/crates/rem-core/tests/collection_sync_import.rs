@@ -94,6 +94,8 @@ fn import_decks_replaces_exact_names_and_preserves_card_history_atomically() {
                         grade: Grade::Good,
                     }],
                     provenance: Default::default(),
+                    sibling_group_id: None,
+                    cloze_index: None,
                 }],
             }],
             100,

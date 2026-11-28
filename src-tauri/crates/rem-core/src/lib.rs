@@ -1,8 +1,11 @@
 //! Shared domain and persistence for rem's desktop and terminal interfaces.
 
+mod apkg;
 mod asset_store;
 mod backup;
+pub mod cloze;
 mod collection;
+pub mod deck_tree;
 mod draft_store;
 mod hlc;
 mod import_store;
@@ -17,8 +20,17 @@ mod sync_ops;
 mod sync_store;
 mod tags;
 
+pub use apkg::{ApkgImportPreview, ApkgImportResult};
 pub use backup::{parse_backup_json, BackupPreview};
+pub use cloze::{
+    extract_cloze_indices, has_cloze_deletions, render_cloze_answer, render_cloze_question,
+    strip_cloze_markup, ClozeSpan,
+};
 pub use collection::{default_database_path, Collection, CollectionError, CURRENT_SCHEMA_VERSION};
+pub use deck_tree::{
+    deck_and_descendants, deck_is_descendant_or_self, deck_segments, normalize_deck_name,
+    DECK_SEPARATOR,
+};
 pub use hlc::Hlc;
 pub use models::{
     Asset, Card, CardBackup, CardDraft, CardPatch, CardProvenance, CreateCardsResult, DailyField,

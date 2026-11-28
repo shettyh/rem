@@ -3,6 +3,7 @@ import SwiftUI
 struct TodayView: View {
     @Bindable var appState: AppState
     @State private var deckPendingDelete: DeckSummaryDto?
+    @State private var collapsedDeckPaths: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -182,7 +183,11 @@ struct TodayView: View {
     @ViewBuilder
     private var decksSection: some View {
         let deckSummaries = appState.todaySummary?.decks ?? []
-        if !deckSummaries.isEmpty {
+        let treeNodes = DeckTreeBuilder.flatten(
+            DeckTreeBuilder.build(from: deckSummaries),
+            collapsed: collapsedDeckPaths
+        )
+        if !treeNodes.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("YOUR DECKS")
@@ -198,37 +203,56 @@ struct TodayView: View {
                 .padding(.top, 4)
 
                 VStack(spacing: 0) {
-                    ForEach(Array(deckSummaries.enumerated()), id: \.element.id) { idx, deck in
-                        NavigationLink(value: deck.id) {
-                            DeckSummaryRow(
-                                deck: deck,
-                                onStudy: deck.dueCount > 0 ? {
-                                    appState.startStudy(deckId: deck.id)
-                                } : nil
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            if deck.dueCount > 0 {
+                    ForEach(Array(treeNodes.enumerated()), id: \.element.id) { idx, node in
+                        if let deck = node.deck {
+                            NavigationLink(value: deck.id) {
+                                DeckSummaryRow(
+                                    deck: deck,
+                                    displayName: node.label,
+                                    depth: node.depth,
+                                    hasChildren: !node.children.isEmpty,
+                                    isCollapsed: collapsedDeckPaths.contains(node.path),
+                                    dueOverride: node.dueCount,
+                                    newDueOverride: node.newDueCount,
+                                    totalOverride: node.totalCards,
+                                    onToggleCollapse: {
+                                        toggleCollapse(node.path)
+                                    },
+                                    onStudy: node.dueCount > 0 ? {
+                                        appState.startStudy(deckId: deck.id)
+                                    } : nil
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                if node.dueCount > 0 {
+                                    Button {
+                                        appState.startStudy(deckId: deck.id)
+                                    } label: {
+                                        Label("Study due cards (\(node.dueCount))", systemImage: "play.fill")
+                                    }
+                                }
                                 Button {
-                                    appState.startStudy(deckId: deck.id)
+                                    appState.openEditDeck(deckId: deck.id)
                                 } label: {
-                                    Label("Study due cards (\(deck.dueCount))", systemImage: "play.fill")
+                                    Label("Edit deck", systemImage: "slider.horizontal.3")
+                                }
+                                Button(role: .destructive) {
+                                    deckPendingDelete = deck
+                                } label: {
+                                    Label("Delete deck", systemImage: "trash")
                                 }
                             }
-                            Button {
-                                appState.openEditDeck(deckId: deck.id)
-                            } label: {
-                                Label("Edit deck", systemImage: "slider.horizontal.3")
-                            }
-                            Button(role: .destructive) {
-                                deckPendingDelete = deck
-                            } label: {
-                                Label("Delete deck", systemImage: "trash")
+                        } else {
+                            VirtualDeckFolderRow(
+                                node: node,
+                                isCollapsed: collapsedDeckPaths.contains(node.path)
+                            ) {
+                                toggleCollapse(node.path)
                             }
                         }
 
-                        if idx < deckSummaries.count - 1 {
+                        if idx < treeNodes.count - 1 {
                             Divider().overlay(RemColor.border)
                         }
                     }
@@ -239,6 +263,16 @@ struct TodayView: View {
                     RoundedRectangle(cornerRadius: RemRadius.lg, style: .continuous)
                         .strokeBorder(RemColor.border, lineWidth: 1)
                 )
+            }
+        }
+    }
+
+    private func toggleCollapse(_ path: String) {
+        withAnimation(.easeOut(duration: 0.16)) {
+            if collapsedDeckPaths.contains(path) {
+                collapsedDeckPaths.remove(path)
+            } else {
+                collapsedDeckPaths.insert(path)
             }
         }
     }
@@ -272,16 +306,46 @@ struct TodayView: View {
 struct DeckSummaryRow: View {
     let deck: DeckSummaryDto
     var showChevron: Bool = true
+    var displayName: String? = nil
+    var depth: Int = 0
+    var hasChildren: Bool = false
+    var isCollapsed: Bool = false
+    var dueOverride: UInt32? = nil
+    var newDueOverride: UInt32? = nil
+    var totalOverride: UInt32? = nil
+    var onToggleCollapse: (() -> Void)? = nil
     var onStudy: (() -> Void)? = nil
 
+    private var effectiveName: String { displayName ?? deck.name }
+    private var effectiveDue: UInt32 { dueOverride ?? deck.dueCount }
+    private var effectiveNewDue: UInt32 { newDueOverride ?? deck.newDueCount }
+    private var effectiveTotal: UInt32 { totalOverride ?? deck.totalCards }
+
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
+            if depth > 0 {
+                Color.clear
+                    .frame(width: CGFloat(min(depth, 4)) * 14, height: 1)
+            }
+
+            if hasChildren, let onToggleCollapse {
+                Button(action: onToggleCollapse) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 10.5, weight: .bold))
+                        .foregroundStyle(RemColor.muted)
+                        .frame(width: 20, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isCollapsed ? "Expand \(effectiveName)" : "Collapse \(effectiveName)")
+            }
+
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
                     Circle()
                         .fill(Color(hexString: deck.color))
                         .frame(width: 8, height: 8)
-                    Text(deck.name)
+                    Text(effectiveName)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(RemColor.text)
                         .lineLimit(1)
@@ -295,12 +359,12 @@ struct DeckSummaryRow: View {
             Spacer()
 
             HStack(spacing: 8) {
-                if let onStudy, deck.dueCount > 0 {
+                if let onStudy, effectiveDue > 0 {
                     Button(action: onStudy) {
                         statusPill
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Study \(deck.dueCount) due in \(deck.name)")
+                    .accessibilityLabel("Study \(effectiveDue) due in \(effectiveName)")
                 } else {
                     statusPill
                 }
@@ -317,21 +381,73 @@ struct DeckSummaryRow: View {
     }
 
     private var subtitleText: String {
-        let countLabel = "\(deck.totalCards) \(deck.totalCards == 1 ? "card" : "cards")"
-        if deck.newDueCount > 0 {
-            return "\(countLabel) · \(deck.newDueCount) new"
+        let countLabel = "\(effectiveTotal) \(effectiveTotal == 1 ? "card" : "cards")"
+        if effectiveNewDue > 0 {
+            return "\(countLabel) · \(effectiveNewDue) new"
         }
         return countLabel
     }
 
     private var statusPill: some View {
-        if deck.dueCount > 0 {
-            return RemPillBadge(text: "\(deck.dueCount) due", tone: .accent)
+        if effectiveDue > 0 {
+            return RemPillBadge(text: "\(effectiveDue) due", tone: .accent)
         }
-        if deck.totalCards > 0 {
+        if effectiveTotal > 0 {
             return RemPillBadge(text: "✓ Done", tone: .good)
         }
         return RemPillBadge(text: "Empty", tone: .neutral)
+    }
+}
+
+struct VirtualDeckFolderRow: View {
+    let node: DeckTreeNode
+    let isCollapsed: Bool
+    var insetPadding: Bool = true
+    let onToggle: () -> Void
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 8) {
+                if node.depth > 0 {
+                    Color.clear
+                        .frame(width: CGFloat(min(node.depth, 4)) * 14, height: 1)
+                }
+
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 10.5, weight: .bold))
+                    .foregroundStyle(RemColor.muted)
+                    .frame(width: 20, height: 24)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 7) {
+                        Image(systemName: "folder")
+                            .font(.caption)
+                            .foregroundStyle(RemColor.muted)
+                        Text(node.label)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(RemColor.text)
+                            .lineLimit(1)
+                    }
+                    let countLabel = "\(node.totalCards) \(node.totalCards == 1 ? "card" : "cards")"
+                    let newPart = node.newDueCount > 0 ? " · \(node.newDueCount) new" : ""
+                    Text("\(countLabel)\(newPart)")
+                        .font(.caption)
+                        .foregroundStyle(RemColor.muted)
+                }
+
+                Spacer()
+
+                if node.dueCount > 0 {
+                    RemPillBadge(text: "\(node.dueCount) due", tone: .accent)
+                } else if node.totalCards > 0 {
+                    RemPillBadge(text: "✓ Done", tone: .good)
+                }
+            }
+            .padding(.horizontal, insetPadding ? 14 : 0)
+            .padding(.vertical, insetPadding ? 13 : 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

@@ -21,6 +21,8 @@ export interface CardBackup {
   rationale?: string | null
   sources?: DraftSource[]
   proposedBy?: string | null
+  siblingGroupId?: ID | null
+  clozeIndex?: number | null
 }
 
 export interface DeckBackup {
@@ -76,6 +78,8 @@ export async function collectBackup(storage: Storage, deckIds: ID[]): Promise<De
         ...(c.rationale ? { rationale: c.rationale } : {}),
         ...(c.sources && c.sources.length > 0 ? { sources: c.sources } : {}),
         ...(c.proposedBy ? { proposedBy: c.proposedBy } : {}),
+        ...(c.siblingGroupId ? { siblingGroupId: c.siblingGroupId } : {}),
+        ...(c.clozeIndex ? { clozeIndex: c.clozeIndex } : {}),
       })),
     })
   }
@@ -161,6 +165,14 @@ function parseCard(raw: unknown, now: number): CardBackup {
   const rationale = typeof raw.rationale === 'string' && raw.rationale.trim() ? raw.rationale.trim() : undefined
   const sources = parseSources(raw.sources)
   const proposedBy = typeof raw.proposedBy === 'string' && raw.proposedBy.trim() ? raw.proposedBy.trim() : undefined
+  const siblingGroupId =
+    typeof raw.siblingGroupId === 'string' && raw.siblingGroupId.trim()
+      ? raw.siblingGroupId.trim()
+      : undefined
+  const clozeIndex =
+    typeof raw.clozeIndex === 'number' && Number.isInteger(raw.clozeIndex) && raw.clozeIndex >= 1
+      ? raw.clozeIndex
+      : undefined
   return {
     front: raw.front,
     back: raw.back,
@@ -174,6 +186,8 @@ function parseCard(raw: unknown, now: number): CardBackup {
     ...(rationale ? { rationale } : {}),
     ...(sources.length > 0 ? { sources } : {}),
     ...(proposedBy ? { proposedBy } : {}),
+    ...(siblingGroupId ? { siblingGroupId } : {}),
+    ...(clozeIndex ? { clozeIndex } : {}),
   }
 }
 
