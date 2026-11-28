@@ -90,7 +90,11 @@ export function UpdaterProvider({
   const stateRef = useRef<UpdateState>(state)
 
   autoUpdateEnabledRef.current = autoUpdateEnabled
-  stateRef.current = state
+
+  const updateState = useCallback((next: UpdateState) => {
+    stateRef.current = next
+    setState(next)
+  }, [])
 
   useEffect(() => {
     mountedRef.current = true
@@ -112,7 +116,7 @@ export function UpdaterProvider({
 
   const stagePending = useCallback(
     async (pending: PendingUpdateHandle, { silent }: { silent: boolean }) => {
-      setState({
+      updateState({
         status: 'downloading',
         info: pending.info,
         progress: { downloaded: 0, total: null },
@@ -120,21 +124,21 @@ export function UpdaterProvider({
       try {
         await pending.downloadAndInstall((progress) => {
           if (!mountedRef.current) return
-          setState({ status: 'downloading', info: pending.info, progress })
+          updateState({ status: 'downloading', info: pending.info, progress })
         })
         if (!mountedRef.current) return
-        setState({ status: 'ready', info: pending.info })
+        updateState({ status: 'ready', info: pending.info })
       } catch (err) {
         if (!mountedRef.current) return
         if (silent) {
           // Keep the update available for manual install instead of surfacing an unsolicited error.
-          setState({ status: 'available', info: pending.info })
+          updateState({ status: 'available', info: pending.info })
         } else {
-          setState({ status: 'error', message: formatUpdateError(err) })
+          updateState({ status: 'error', message: formatUpdateError(err) })
         }
       }
     },
-    [],
+    [updateState],
   )
 
   const refreshCliStatus = useCallback(async () => {
@@ -161,7 +165,7 @@ export function UpdaterProvider({
       }
       busyRef.current = true
       if (!silent) {
-        setState({ status: 'checking' })
+        updateState({ status: 'checking' })
       }
       try {
         const pending = await client.check()
@@ -174,20 +178,20 @@ export function UpdaterProvider({
           if (autoDownload && autoUpdateEnabledRef.current) {
             await stagePending(pending, { silent })
           } else {
-            setState({ status: 'available', info: pending.info })
+            updateState({ status: 'available', info: pending.info })
           }
         } else if (!silent) {
-          setState({ status: 'up-to-date', checkedAt: Date.now() })
+          updateState({ status: 'up-to-date', checkedAt: Date.now() })
         }
       } catch (err) {
         if (!silent && mountedRef.current) {
-          setState({ status: 'error', message: formatUpdateError(err) })
+          updateState({ status: 'error', message: formatUpdateError(err) })
         }
       } finally {
         busyRef.current = false
       }
     },
-    [client, replacePending, stagePending],
+    [client, replacePending, stagePending, updateState],
   )
 
   const downloadAndInstall = useCallback(async () => {
@@ -235,7 +239,7 @@ export function UpdaterProvider({
       }
     } catch (err) {
       if (mountedRef.current) {
-        setState({ status: 'error', message: formatUpdateError(err) })
+        updateState({ status: 'error', message: formatUpdateError(err) })
       }
     } finally {
       if (mountedRef.current) {
@@ -243,7 +247,7 @@ export function UpdaterProvider({
         setRelaunching(false)
       }
     }
-  }, [client])
+  }, [client, updateState])
 
   const installCli = useCallback(async () => {
     if (!client.supported) return

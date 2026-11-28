@@ -1,5 +1,5 @@
-import { act, render, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { act, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   TauriUpdaterClient,
   type CliStatus,
@@ -58,6 +58,7 @@ function mountUpdater(
 }
 
 afterEach(() => {
+  vi.useRealTimers()
   localStorage.removeItem(AUTO_UPDATE_KEY)
 })
 
@@ -74,6 +75,10 @@ describe('updaterPrefs', () => {
 })
 
 describe('UpdaterProvider auto-update lifecycle', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
   test('auto-checks, downloads in background, and becomes ready when enabled', async () => {
     const downloadAndInstall = vi.fn(async (onProgress) => {
       onProgress?.({ downloaded: 50, total: 100 })
@@ -85,17 +90,40 @@ describe('UpdaterProvider auto-update lifecycle', () => {
     }
     const client = makeClient({ check: vi.fn(async () => pending) })
 
-    const ctx = mountUpdater(client, { autoCheck: true, startupDelayMs: 5, pollIntervalMs: 25 })
+    const ctx = mountUpdater(client, { autoCheck: true, startupDelayMs: 50, pollIntervalMs: 250 })
 
-    await waitFor(() => {
-      expect(ctx.current.state.status).toBe('ready')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50)
     })
+    expect(ctx.current.state.status).toBe('ready')
     expect(client.check).toHaveBeenCalledTimes(1)
     expect(downloadAndInstall).toHaveBeenCalledTimes(1)
 
     // Subsequent periodic ticks do not re-check once already ready.
-    await new Promise((r) => setTimeout(r, 60))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
     expect(client.check).toHaveBeenCalledTimes(1)
+  })
+
+  test('does not re-check when a periodic poll fires before React commits ready state', async () => {
+    const downloadAndInstall = vi.fn(async () => {})
+    const pending: PendingUpdateHandle = {
+      info: { version: '0.27.0', body: 'Auto update' },
+      downloadAndInstall,
+    }
+    const client = makeClient({ check: vi.fn(async () => pending) })
+
+    // Align startup and interval timers so the periodic tick fires in the same flush
+    // immediately after the startup check completes and releases busyRef, before re-render.
+    const ctx = mountUpdater(client, { autoCheck: true, startupDelayMs: 50, pollIntervalMs: 50 })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50)
+    })
+    expect(ctx.current.state.status).toBe('ready')
+    expect(client.check).toHaveBeenCalledTimes(1)
+    expect(downloadAndInstall).toHaveBeenCalledTimes(1)
   })
 
   test('skips background checks when disabled and stages immediately when re-enabled on an available update', async () => {
@@ -107,10 +135,12 @@ describe('UpdaterProvider auto-update lifecycle', () => {
     }
     const client = makeClient({ check: vi.fn(async () => pending) })
 
-    const ctx = mountUpdater(client, { autoCheck: true, startupDelayMs: 5, pollIntervalMs: 0 })
+    const ctx = mountUpdater(client, { autoCheck: true, startupDelayMs: 50, pollIntervalMs: 250 })
     expect(ctx.current.autoUpdateEnabled).toBe(false)
 
-    await new Promise((r) => setTimeout(r, 40))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
     expect(client.check).not.toHaveBeenCalled()
 
     // Manual check finds the update without auto-downloading.
@@ -121,13 +151,17 @@ describe('UpdaterProvider auto-update lifecycle', () => {
     expect(downloadAndInstall).not.toHaveBeenCalled()
 
     // Turning auto-updates back on downloads the already-available update.
-    act(() => {
+    await act(async () => {
       ctx.current.setAutoUpdateEnabled(true)
     })
-    await waitFor(() => {
-      expect(ctx.current.state.status).toBe('ready')
-    })
+    expect(ctx.current.state.status).toBe('ready')
     expect(downloadAndInstall).toHaveBeenCalledTimes(1)
+
+    // Newly-armed background timers do not re-check once already ready.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+    expect(client.check).toHaveBeenCalledTimes(1)
   })
 
   test('falls back to available when a silent background download fails', async () => {
@@ -139,10 +173,10 @@ describe('UpdaterProvider auto-update lifecycle', () => {
     }
     const client = makeClient({ check: vi.fn(async () => pending) })
 
-    const ctx = mountUpdater(client, { autoCheck: true, startupDelayMs: 5, pollIntervalMs: 0 })
+    const ctx = mountUpdater(client, { autoCheck: true, startupDelayMs: 50, pollIntervalMs: 0 })
 
-    await waitFor(() => {
-      expect(ctx.current.state.status).toBe('available')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50)
     })
     expect(ctx.current.state).toEqual({ status: 'available', info: { version: '0.27.0' } })
   })
@@ -156,10 +190,11 @@ describe('UpdaterProvider auto-update lifecycle', () => {
     }
     const client = makeClient({ check: vi.fn(async () => pending) })
 
-    const ctx = mountUpdater(client, { autoCheck: true, startupDelayMs: 5, pollIntervalMs: 0 })
-    await waitFor(() => {
-      expect(ctx.current.state.status).toBe('ready')
+    const ctx = mountUpdater(client, { autoCheck: true, startupDelayMs: 50, pollIntervalMs: 0 })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50)
     })
+    expect(ctx.current.state.status).toBe('ready')
 
     await act(async () => {
       await ctx.current.relaunch()
