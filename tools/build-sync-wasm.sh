@@ -19,22 +19,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TAURI_DIR="$ROOT_DIR/src-tauri"
 OUT_DIR="$ROOT_DIR/sync-server/src/wasm"
 
-sha256_stdin() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum | awk '{print $1}'
-  else
-    shasum -a 256 | awk '{print $1}'
-  fi
-}
-
-sha256_file() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  else
-    shasum -a 256 "$1" | awk '{print $1}'
-  fi
-}
-
 if ! rustup target list --installed | grep -qx 'wasm32-unknown-unknown'; then
   echo "Installing rustup target wasm32-unknown-unknown..."
   rustup target add wasm32-unknown-unknown
@@ -65,41 +49,127 @@ if [[ "$CURRENT_WBG_VERSION" != "$EXPECTED_WBG_VERSION" ]]; then
   cargo install --locked wasm-bindgen-cli --version "$EXPECTED_WBG_VERSION"
 fi
 
-compute_source_hash() {
-  local dep_tree
-  dep_tree="$(
-    cargo tree \
-      --locked \
-      --manifest-path "$TAURI_DIR/Cargo.toml" \
-      -p rem-sync-reduce \
-      --features wasm \
-      --target wasm32-unknown-unknown \
-      --prefix none \
-      --edges normal,build \
-      --format '{p} [{f}]' \
-      | sed -E 's/ \([^)]*\)//g' \
-      | LC_ALL=C sort -u
-  )"
+# Generate a deterministic, OS- and toolchain-independent manifest of all inputs
+# that affect rem-sync-reduce's WASM output:
+#   - wasm-bindgen version from Cargo.lock
+#   - tools/build-sync-wasm.sh
+#   - all source files under src-tauri/crates/rem-sync-reduce/
+#   - transitive package closure of rem-sync-reduce from src-tauri/Cargo.lock
+generate_source_manifest() {
+  python3 - "$ROOT_DIR" "$EXPECTED_WBG_VERSION" <<'PY'
+import hashlib
+import os
+import re
+import sys
 
-  (
-    cd "$ROOT_DIR"
-    printf 'wasm-bindgen=%s\n' "$EXPECTED_WBG_VERSION"
-    printf 'script=%s\n' "$(sha256_file "tools/build-sync-wasm.sh")"
-    find src-tauri/crates/rem-sync-reduce -type f \
-      ! -path '*/target/*' \
-      ! -name '.DS_Store' \
-      | LC_ALL=C sort \
-      | while IFS= read -r rel_path; do
-          printf 'file=%s  %s\n' "$(sha256_file "$rel_path")" "$rel_path"
-        done
-    printf '%s\n' "$dep_tree" \
-      | while IFS= read -r dep_line; do
-          printf 'dep=%s\n' "$dep_line"
-        done
-  ) | sha256_stdin
+root_dir = sys.argv[1]
+wbg_version = sys.argv[2]
+
+def sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+# Parse [[package]] blocks from src-tauri/Cargo.lock (pure stdlib, Python 3.8+)
+lock_path = os.path.join(root_dir, "src-tauri", "Cargo.lock")
+packages = []
+current = None
+in_deps = False
+
+with open(lock_path, "r", encoding="utf-8") as f:
+    for raw_line in f:
+        line = raw_line.strip()
+        if line == "[[package]]":
+            if current is not None:
+                packages.append(current)
+            current = {"name": "", "version": "", "checksum": "local", "dependencies": []}
+            in_deps = False
+            continue
+        if current is None:
+            continue
+        if in_deps:
+            if line == "]":
+                in_deps = False
+                continue
+            m = re.match(r'^"([^"]+)",?$', line)
+            if m:
+                current["dependencies"].append(m.group(1))
+            continue
+        if line == "dependencies = [":
+            in_deps = True
+            continue
+        for key in ("name", "version", "checksum"):
+            m = re.match(rf'^{key} = "([^"]+)"$', line)
+            if m:
+                current[key] = m.group(1)
+
+if current is not None:
+    packages.append(current)
+
+by_name = {}
+by_name_ver = {}
+for pkg in packages:
+    by_name.setdefault(pkg["name"], []).append(pkg)
+    by_name_ver[(pkg["name"], pkg["version"])] = pkg
+
+roots = by_name.get("rem-sync-reduce", [])
+if len(roots) != 1:
+    sys.stderr.write(f"Expected 1 rem-sync-reduce package in Cargo.lock, found {len(roots)}\n")
+    sys.exit(1)
+
+visited = {}
+queue = [roots[0]]
+while queue:
+    pkg = queue.pop(0)
+    key = (pkg["name"], pkg["version"])
+    if key in visited:
+        continue
+    visited[key] = pkg
+    for dep_spec in pkg["dependencies"]:
+        parts = dep_spec.split()
+        dep_name = parts[0]
+        dep_ver = parts[1] if len(parts) >= 2 else None
+        if dep_ver is not None:
+            target = by_name_ver.get((dep_name, dep_ver))
+            if target is not None:
+                queue.append(target)
+        else:
+            for target in by_name.get(dep_name, []):
+                queue.append(target)
+
+lines = [f"wasm-bindgen={wbg_version}"]
+script_rel = "tools/build-sync-wasm.sh"
+lines.append(f"script={sha256_file(os.path.join(root_dir, script_rel))}  {script_rel}")
+
+crate_root = os.path.join(root_dir, "src-tauri", "crates", "rem-sync-reduce")
+source_files = []
+for dirpath, dirnames, filenames in os.walk(crate_root):
+    dirnames[:] = sorted(d for d in dirnames if d != "target")
+    for fname in sorted(filenames):
+        if fname == ".DS_Store":
+            continue
+        abs_path = os.path.join(dirpath, fname)
+        rel_path = os.path.relpath(abs_path, root_dir).replace(os.sep, "/")
+        source_files.append((rel_path, abs_path))
+
+for rel_path, abs_path in sorted(source_files):
+    lines.append(f"file={sha256_file(abs_path)}  {rel_path}")
+
+for (name, version) in sorted(visited.keys()):
+    checksum = visited[(name, version)]["checksum"]
+    lines.append(f"pkg={name} {version} {checksum}")
+
+sys.stdout.write("\n".join(lines) + "\n")
+PY
 }
 
-SOURCE_HASH="$(compute_source_hash)"
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+CURRENT_MANIFEST="$TMP_DIR/source-manifest.txt"
+generate_source_manifest > "$CURRENT_MANIFEST"
 
 if [[ "$CHECK_ONLY" == "true" ]]; then
   if [[ ! -s "$OUT_DIR/rem_sync_reduce_bg.wasm" ]]; then
@@ -113,15 +183,13 @@ if [[ "$CHECK_ONLY" == "true" ]]; then
     exit 1
   fi
 
-  COMMITTED_HASH=""
-  if [[ -f "$OUT_DIR/source.sha256" ]]; then
-    COMMITTED_HASH="$(tr -d '[:space:]' < "$OUT_DIR/source.sha256")"
+  if [[ ! -f "$OUT_DIR/source-manifest.txt" ]]; then
+    echo "Missing $OUT_DIR/source-manifest.txt. Run 'bash tools/build-sync-wasm.sh' and commit sync-server/src/wasm." >&2
+    exit 1
   fi
 
-  if [[ "$COMMITTED_HASH" != "$SOURCE_HASH" ]]; then
+  if ! diff -u "$OUT_DIR/source-manifest.txt" "$CURRENT_MANIFEST"; then
     echo "sync-server/src/wasm is out of date with rem-sync-reduce sources/dependencies." >&2
-    echo "  committed source hash: ${COMMITTED_HASH:-<missing>}" >&2
-    echo "  current   source hash: $SOURCE_HASH" >&2
     echo "Run 'bash tools/build-sync-wasm.sh' and commit sync-server/src/wasm." >&2
     exit 1
   fi
@@ -142,8 +210,8 @@ RUSTFLAGS="$WASM_RUSTFLAGS" cargo build \
 WASM_INPUT="$TAURI_DIR/target/wasm32-unknown-unknown/release/rem_sync_reduce.wasm"
 
 if [[ "$CHECK_ONLY" == "true" ]]; then
-  TMP_OUT_DIR="$(mktemp -d)"
-  trap 'rm -rf "$TMP_OUT_DIR"' EXIT
+  TMP_OUT_DIR="$TMP_DIR/out"
+  mkdir -p "$TMP_OUT_DIR"
 
   echo "Running wasm-bindgen -> temp dir for binding verification..."
   wasm-bindgen \
@@ -155,7 +223,7 @@ if [[ "$CHECK_ONLY" == "true" ]]; then
 
   # Compare generated JS/TS bindings byte-for-byte. Raw .wasm binary bytes vary
   # across rustc/LLVM versions and host platforms, so binary freshness is gated
-  # by source.sha256 above plus sync-server's vitest-pool-workers test suite.
+  # by source-manifest.txt above plus sync-server's vitest-pool-workers suite.
   for binding_file in rem_sync_reduce.js rem_sync_reduce.d.ts rem_sync_reduce_bg.wasm.d.ts; do
     if [[ ! -f "$OUT_DIR/$binding_file" ]]; then
       echo "Missing committed binding file: $OUT_DIR/$binding_file. Run: bash tools/build-sync-wasm.sh" >&2
@@ -172,7 +240,7 @@ if [[ "$CHECK_ONLY" == "true" ]]; then
     rem_sync_reduce.js \
     rem_sync_reduce_bg.wasm \
     rem_sync_reduce_bg.wasm.d.ts \
-    source.sha256 | LC_ALL=C sort)"
+    source-manifest.txt | LC_ALL=C sort)"
   ACTUAL_FILES="$(cd "$OUT_DIR" && ls -1A | grep -vx '\.DS_Store' | LC_ALL=C sort)"
   if [[ "$ACTUAL_FILES" != "$EXPECTED_FILES" ]]; then
     echo "Unexpected file list in $OUT_DIR:" >&2
@@ -180,7 +248,7 @@ if [[ "$CHECK_ONLY" == "true" ]]; then
     exit 1
   fi
 
-  echo "Sync WASM bundle is fresh (source hash: $SOURCE_HASH)."
+  echo "Sync WASM bundle is fresh."
   exit 0
 fi
 
@@ -195,8 +263,8 @@ wasm-bindgen \
 
 # Remove files generated by wasm-bindgen that are not needed for Workers bundling
 # (especially .gitignore containing '*' which would hide the generated bundle from git).
-rm -f "$OUT_DIR/.gitignore" "$OUT_DIR/package.json"
-printf '%s\n' "$SOURCE_HASH" > "$OUT_DIR/source.sha256"
+rm -f "$OUT_DIR/.gitignore" "$OUT_DIR/package.json" "$OUT_DIR/source.sha256"
+cp "$CURRENT_MANIFEST" "$OUT_DIR/source-manifest.txt"
 
-echo "Generated WASM bundle in $OUT_DIR (source hash: $SOURCE_HASH):"
+echo "Generated WASM bundle in $OUT_DIR:"
 ls -lh "$OUT_DIR"

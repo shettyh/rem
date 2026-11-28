@@ -92,7 +92,7 @@ Extract pure, zero-SQLite, zero-FSRS sync domain primitives and state reduction 
 - **WASM build & freshness gate:**
   - Optional `wasm` Cargo feature using `wasm-bindgen` exposing streaming `ReducerHandle` (`from_snapshot_json`, `push_ops_chunk_json`, `finish_json`, `referenced_assets_json`).
   - `tools/build-sync-wasm.sh` builds `wasm32-unknown-unknown` with `wasm-bindgen --target web` into `sync-server/src/wasm/` so Workers statically `import wasmModule from './wasm/rem_sync_reduce_bg.wasm'` and call `initSync({ module: wasmModule })`.
-  - Checked-in WASM artifacts keep `sync-server` CI and Cloudflare deploy workflows free of any Rust toolchain dependency; the `rust` CI job runs `tools/build-sync-wasm.sh --check` (verifying `source.sha256` against `rem-sync-reduce` sources/dependencies, compiling the WASM target, and diffing the generated JS/TS bindings byte-for-byte).
+  - Checked-in WASM artifacts keep `sync-server` CI and Cloudflare deploy workflows free of any Rust toolchain dependency; the `rust` CI job runs `tools/build-sync-wasm.sh --check` (verifying `source-manifest.txt` against `rem-sync-reduce` sources and `Cargo.lock` dependencies, compiling the WASM target, and diffing the generated JS/TS bindings byte-for-byte).
 
 ---
 
