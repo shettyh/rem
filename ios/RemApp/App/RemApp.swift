@@ -108,7 +108,9 @@ struct RootContainerView: View {
                 onSaved: request.onSaved
             )
         }
-        .sheet(isPresented: $appState.showNewDeckSheet) {
+        .sheet(isPresented: $appState.showNewDeckSheet, onDismiss: {
+            appState.presentDeferredImportIfNeeded()
+        }) {
             NewDeckSheet(appState: appState)
         }
         .sheet(item: $appState.editingDeckRequest) { request in
@@ -118,5 +120,6 @@ struct RootContainerView: View {
                 onDeleted: request.onDeleted
             )
         }
+        .deckImportPresenter(appState: appState)
     }
 }

@@ -19,6 +19,7 @@ struct DecksView: View {
     @State private var isSearching: Bool = false
     @State private var searchToken: Int = 0
     @State private var pendingDelete: PendingDeckDelete?
+    @State private var showImportDialog: Bool = false
 
     private var trimmedSearch: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -77,13 +78,22 @@ struct DecksView: View {
                     ContentUnavailableView {
                         Label("No decks yet", systemImage: "rectangle.stack")
                     } description: {
-                        Text("Create a deck to start organizing your cards.")
+                        Text("Create a deck or import from Anki (.apkg) or a rem backup (.json).")
                     } actions: {
                         Button("Create new deck") {
                             appState.showNewDeckSheet = true
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(RemColor.accent)
+
+                        Button {
+                            showImportDialog = true
+                        } label: {
+                            Text(appState.isImporting ? "Importing…" : "Import deck")
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(RemColor.accent)
+                        .disabled(!appState.canRequestDeckImport)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(RemColor.groupedBg)
@@ -306,8 +316,27 @@ struct DecksView: View {
                                         .font(.body.weight(.medium))
                                         .foregroundStyle(RemColor.accent)
                                 }
+
+                                Button {
+                                    showImportDialog = true
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "square.and.arrow.down")
+                                            .foregroundStyle(appState.isImporting ? RemColor.muted : RemColor.accent)
+                                        Text(appState.isImporting ? "Importing deck…" : "Import from Anki or JSON")
+                                            .font(.body.weight(.medium))
+                                            .foregroundStyle(appState.isImporting ? RemColor.muted : RemColor.text)
+                                        Spacer()
+                                        if appState.isImporting {
+                                            ProgressView().controlSize(.small)
+                                        }
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .disabled(!appState.canRequestDeckImport)
                             }
                             .listRowBackground(RemColor.surface)
+                            .listRowSeparatorTint(RemColor.border)
                         }
                     }
                     .listStyle(.insetGrouped)
@@ -361,6 +390,19 @@ struct DecksView: View {
                 }
             } message: {
                 Text(pendingDelete?.copy.message ?? "This deletes the deck and all its cards locally and on synced devices.")
+            }
+            .confirmationDialog(
+                "Import deck",
+                isPresented: $showImportDialog,
+                titleVisibility: .visible
+            ) {
+                Button("Anki deck (.apkg)") {
+                    appState.requestDeckImport(.apkg, afterDelayMs: 150)
+                }
+                Button("rem backup (.json)") {
+                    appState.requestDeckImport(.backup, afterDelayMs: 150)
+                }
+                Button("Cancel", role: .cancel) {}
             }
         }
     }

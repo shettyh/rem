@@ -1,7 +1,6 @@
 import AuthenticationServices
 import SwiftUI
 import UIKit
-import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @Bindable var appState: AppState
@@ -12,21 +11,7 @@ struct SettingsView: View {
     @State private var pendingAppleNonce: String = ""
     @State private var showPremiumPaywall: Bool = false
     @State private var shareBackupURL: URL?
-    @State private var showBackupImporter: Bool = false
-    @State private var showApkgImporter: Bool = false
-    @State private var pendingBackupImport: PendingBackupImport?
-    @State private var pendingApkgImport: PendingApkgImport?
-
-    private var apkgImportContentTypes: [UTType] {
-        var types: [UTType] = [.zip, .data]
-        if let colpkg = UTType(filenameExtension: "colpkg") {
-            types.insert(colpkg, at: 0)
-        }
-        if let apkg = UTType(filenameExtension: "apkg") {
-            types.insert(apkg, at: 0)
-        }
-        return types
-    }
+    @State private var isExportingBackup: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -92,77 +77,6 @@ struct SettingsView: View {
             )) {
                 if let url = shareBackupURL {
                     ActivityShareSheet(items: [url])
-                }
-            }
-            .fileImporter(
-                isPresented: $showBackupImporter,
-                allowedContentTypes: [.json],
-                allowsMultipleSelection: false
-            ) { result in
-                handleBackupFileImportResult(result)
-            }
-            .fileImporter(
-                isPresented: $showApkgImporter,
-                allowedContentTypes: apkgImportContentTypes,
-                allowsMultipleSelection: false
-            ) { result in
-                handleApkgFileImportResult(result)
-            }
-            .alert(
-                "Import Anki deck?",
-                isPresented: Binding(
-                    get: { pendingApkgImport != nil },
-                    set: {
-                        if !$0 {
-                            appState.discardPendingApkgImport(pendingApkgImport)
-                            pendingApkgImport = nil
-                        }
-                    }
-                )
-            ) {
-                if let pending = pendingApkgImport {
-                    Button(
-                        pending.preview.replaced.isEmpty ? "Import" : "Import & replace",
-                        role: pending.preview.replaced.isEmpty ? nil : .destructive
-                    ) {
-                        let url = pending.tempFileURL
-                        pendingApkgImport = nil
-                        Task { await appState.commitApkgImport(tempFileURL: url) }
-                    }
-                }
-                Button("Cancel", role: .cancel) {
-                    appState.discardPendingApkgImport(pendingApkgImport)
-                    pendingApkgImport = nil
-                }
-            } message: {
-                if let preview = pendingApkgImport?.preview {
-                    Text(apkgImportAlertMessage(preview))
-                }
-            }
-            .alert(
-                "Replace existing decks?",
-                isPresented: Binding(
-                    get: { pendingBackupImport != nil },
-                    set: { if !$0 { pendingBackupImport = nil } }
-                )
-            ) {
-                if let pending = pendingBackupImport {
-                    Button("Import & replace", role: .destructive) {
-                        pendingBackupImport = nil
-                        Task { await appState.commitBackupImport(json: pending.json) }
-                    }
-                }
-                Button("Cancel", role: .cancel) {
-                    pendingBackupImport = nil
-                }
-            } message: {
-                if let preview = pendingBackupImport?.preview {
-                    let names = preview.replaced.joined(separator: ", ")
-                    if preview.added.isEmpty {
-                        Text("Importing will replace existing deck(s): \(names).")
-                    } else {
-                        Text("Importing will replace existing deck(s): \(names). New decks (\(preview.added.count)) will be added alongside them.")
-                    }
                 }
             }
         }
@@ -573,21 +487,32 @@ struct SettingsView: View {
             }
 
             Button {
+                guard !isExportingBackup, appState.canRequestDeckImport else { return }
+                isExportingBackup = true
                 Task {
-                    shareBackupURL = await appState.exportBackupFile()
+                    defer { isExportingBackup = false }
+                    let exportedURL = await appState.exportBackupFile()
+                    if appState.activeImportPicker == nil {
+                        shareBackupURL = exportedURL
+                    }
                 }
             } label: {
                 HStack {
-                    Text("Export backup")
-                        .foregroundStyle(RemColor.text)
+                    Text(isExportingBackup ? "Exporting backup…" : "Export backup")
+                        .foregroundStyle(isExportingBackup ? RemColor.muted : RemColor.text)
                     Spacer()
-                    Image(systemName: "square.and.arrow.up")
-                        .foregroundStyle(RemColor.muted)
+                    if isExportingBackup {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(RemColor.muted)
+                    }
                 }
             }
+            .disabled(isExportingBackup || !appState.canRequestDeckImport)
 
             Button {
-                showBackupImporter = true
+                appState.requestDeckImport(.backup)
             } label: {
                 HStack {
                     Text(appState.isImportingBackup ? "Importing backup…" : "Import backup (JSON)")
@@ -601,10 +526,10 @@ struct SettingsView: View {
                     }
                 }
             }
-            .disabled(appState.isImportingBackup || appState.isImportingApkg)
+            .disabled(isExportingBackup || !appState.canRequestDeckImport)
 
             Button {
-                showApkgImporter = true
+                appState.requestDeckImport(.apkg)
             } label: {
                 HStack {
                     Text(appState.isImportingApkg ? "Importing Anki deck…" : "Import Anki deck (.apkg)")
@@ -618,7 +543,7 @@ struct SettingsView: View {
                     }
                 }
             }
-            .disabled(appState.isImportingBackup || appState.isImportingApkg)
+            .disabled(isExportingBackup || !appState.canRequestDeckImport)
         }
         .listRowBackground(RemColor.surface)
         .listRowSeparatorTint(RemColor.border)
@@ -653,58 +578,6 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
-
-    private func handleBackupFileImportResult(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            Task {
-                if let pending = await appState.prepareBackupImport(from: url) {
-                    if pending.preview.replaced.isEmpty {
-                        await appState.commitBackupImport(json: pending.json)
-                    } else {
-                        pendingBackupImport = pending
-                    }
-                }
-            }
-        case .failure(let error):
-            appState.showToast("Could not open file: \(error.remDisplayMessage)")
-        }
-    }
-
-    private func handleApkgFileImportResult(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            Task {
-                if let pending = await appState.prepareApkgImport(from: url) {
-                    pendingApkgImport = pending
-                }
-            }
-        case .failure(let error):
-            appState.showToast("Could not open file: \(error.remDisplayMessage)")
-        }
-    }
-
-    private func apkgImportAlertMessage(_ preview: ApkgImportPreviewDto) -> String {
-        let deckCount = preview.added.count + preview.replaced.count
-        let deckWord = deckCount == 1 ? "deck" : "decks"
-        let cardWord = preview.totalCards == 1 ? "card" : "cards"
-        let mediaPart = preview.mediaCount > 0 ? ", \(preview.mediaCount) media" : ""
-        let revPart = preview.reviewLogs > 0 ? ", \(preview.reviewLogs) review logs" : ""
-        var msg: String
-        if preview.replaced.isEmpty {
-            msg = "Found \(deckCount) \(deckWord), \(preview.totalCards) \(cardWord)\(mediaPart)\(revPart)."
-        } else {
-            let names = preview.replaced.joined(separator: ", ")
-            msg = "Found \(deckCount) \(deckWord), \(preview.totalCards) \(cardWord)\(mediaPart)\(revPart). Existing deck(s) will be replaced: \(names)."
-        }
-        if !preview.warnings.isEmpty {
-            let shown = preview.warnings.prefix(2).joined(separator: " ")
-            msg += "\n\nNote: \(shown)"
-        }
-        return msg
-    }
 
     private var appVersionLabel: String? {
         let info = Bundle.main.infoDictionary

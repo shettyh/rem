@@ -35,6 +35,11 @@ struct PendingApkgImport {
     let preview: ApkgImportPreviewDto
 }
 
+enum DeckImportKind: Equatable {
+    case backup
+    case apkg
+}
+
 struct CaptureSheetRequest: Identifiable {
     let id = UUID()
     let deckId: String?
@@ -104,6 +109,25 @@ final class AppState {
     var captureRequest: CaptureSheetRequest?
     var editingDeckRequest: DeckEditRequest?
     var showNewDeckSheet: Bool = false
+    var activeImportPicker: DeckImportKind?
+    var deferredImportPicker: DeckImportKind?
+    var pendingBackupImport: PendingBackupImport?
+    var pendingApkgImport: PendingApkgImport?
+
+    var isImporting: Bool {
+        isImportingBackup || isImportingApkg
+    }
+
+    var canRequestDeckImport: Bool {
+        !isImporting
+            && activeImportPicker == nil
+            && deferredImportPicker == nil
+            && pendingBackupImport == nil
+            && pendingApkgImport == nil
+            && studyLaunch == nil
+            && captureRequest == nil
+            && editingDeckRequest == nil
+    }
 
     var hasDismissedOnboarding: Bool {
         didSet { UserDefaults.standard.set(hasDismissedOnboarding, forKey: Keys.dismissedOnboarding) }
@@ -149,6 +173,7 @@ final class AppState {
     }
 
     private var toastTask: Task<Void, Never>?
+    private var deferredImportTask: Task<Void, Never>?
 
     init(store: RemStore) {
         self.store = store
@@ -773,8 +798,132 @@ final class AppState {
         }
     }
 
+    func requestDeckImport(_ kind: DeckImportKind, afterDelayMs: UInt64 = 0) {
+        guard canRequestDeckImport else { return }
+        if showNewDeckSheet {
+            deferredImportPicker = kind
+            showNewDeckSheet = false
+        } else if afterDelayMs > 0 {
+            deferredImportPicker = kind
+            presentDeferredImportIfNeeded(delayMs: afterDelayMs)
+        } else {
+            activeImportPicker = kind
+        }
+    }
+
+    func presentDeferredImportIfNeeded(delayMs: UInt64 = 150) {
+        guard let kind = deferredImportPicker else { return }
+        deferredImportTask?.cancel()
+        if delayMs == 0 {
+            deferredImportPicker = nil
+            guard !isImporting,
+                  activeImportPicker == nil,
+                  pendingBackupImport == nil,
+                  pendingApkgImport == nil,
+                  !showNewDeckSheet,
+                  studyLaunch == nil,
+                  captureRequest == nil,
+                  editingDeckRequest == nil else {
+                return
+            }
+            activeImportPicker = kind
+            return
+        }
+        deferredImportTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(delayMs))
+            guard let self, !Task.isCancelled else { return }
+            self.deferredImportPicker = nil
+            guard !self.isImporting,
+                  self.activeImportPicker == nil,
+                  self.pendingBackupImport == nil,
+                  self.pendingApkgImport == nil,
+                  !self.showNewDeckSheet,
+                  self.studyLaunch == nil,
+                  self.captureRequest == nil,
+                  self.editingDeckRequest == nil else {
+                return
+            }
+            self.activeImportPicker = kind
+        }
+    }
+
+    func handleBackupFileImportResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            Task {
+                if let pending = await prepareBackupImport(from: url) {
+                    if pending.preview.replaced.isEmpty {
+                        await commitBackupImport(json: pending.json)
+                    } else {
+                        pendingBackupImport = pending
+                    }
+                }
+            }
+        case .failure(let error):
+            showToast("Could not open file: \(error.remDisplayMessage)")
+        }
+    }
+
+    func handleApkgFileImportResult(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            Task {
+                if let pending = await prepareApkgImport(from: url) {
+                    discardPendingApkgImport(pendingApkgImport)
+                    pendingApkgImport = pending
+                }
+            }
+        case .failure(let error):
+            showToast("Could not open file: \(error.remDisplayMessage)")
+        }
+    }
+
+    func cancelPendingBackupImport() {
+        pendingBackupImport = nil
+    }
+
+    func confirmPendingBackupImport(_ pending: PendingBackupImport) {
+        pendingBackupImport = nil
+        Task { await commitBackupImport(json: pending.json) }
+    }
+
+    func cancelPendingApkgImport(_ pending: PendingApkgImport? = nil) {
+        let target = pending ?? pendingApkgImport
+        pendingApkgImport = nil
+        discardPendingApkgImport(target)
+    }
+
+    func confirmPendingApkgImport(_ pending: PendingApkgImport) {
+        if pendingApkgImport?.tempFileURL == pending.tempFileURL {
+            pendingApkgImport = nil
+        }
+        Task { await commitApkgImport(tempFileURL: pending.tempFileURL) }
+    }
+
+    static func apkgImportAlertMessage(_ preview: ApkgImportPreviewDto) -> String {
+        let deckCount = preview.added.count + preview.replaced.count
+        let deckWord = deckCount == 1 ? "deck" : "decks"
+        let cardWord = preview.totalCards == 1 ? "card" : "cards"
+        let mediaPart = preview.mediaCount > 0 ? ", \(preview.mediaCount) media" : ""
+        let revPart = preview.reviewLogs > 0 ? ", \(preview.reviewLogs) review logs" : ""
+        var msg: String
+        if preview.replaced.isEmpty {
+            msg = "Found \(deckCount) \(deckWord), \(preview.totalCards) \(cardWord)\(mediaPart)\(revPart)."
+        } else {
+            let names = preview.replaced.joined(separator: ", ")
+            msg = "Found \(deckCount) \(deckWord), \(preview.totalCards) \(cardWord)\(mediaPart)\(revPart). Existing deck(s) will be replaced: \(names)."
+        }
+        if !preview.warnings.isEmpty {
+            let shown = preview.warnings.prefix(2).joined(separator: " ")
+            msg += "\n\nNote: \(shown)"
+        }
+        return msg
+    }
+
     func prepareBackupImport(from url: URL) async -> PendingBackupImport? {
-        guard !isImportingBackup else { return nil }
+        guard !isImporting else { return nil }
         isImportingBackup = true
         defer { isImportingBackup = false }
         do {
@@ -796,7 +945,7 @@ final class AppState {
     }
 
     func commitBackupImport(json: String) async {
-        guard !isImportingBackup else { return }
+        guard !isImporting else { return }
         isImportingBackup = true
         defer { isImportingBackup = false }
         do {
@@ -818,7 +967,7 @@ final class AppState {
     }
 
     func prepareApkgImport(from url: URL) async -> PendingApkgImport? {
-        guard !isImportingApkg else { return nil }
+        guard !isImporting else { return nil }
         isImportingApkg = true
         defer { isImportingApkg = false }
         var stagedURL: URL?
@@ -891,7 +1040,10 @@ final class AppState {
     }
 
     func commitApkgImport(tempFileURL: URL) async {
-        guard !isImportingApkg else { return }
+        guard !isImporting else {
+            try? FileManager.default.removeItem(at: tempFileURL)
+            return
+        }
         isImportingApkg = true
         defer {
             isImportingApkg = false
