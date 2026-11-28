@@ -1,5 +1,8 @@
-import { SELF } from 'cloudflare:test'
+import { env, runInDurableObject, SELF } from 'cloudflare:test'
 import { describe, expect, it } from 'vitest'
+import type { Env } from '../src/types'
+
+const TEST_ENV = env as unknown as Env
 
 const DEV_SECRET = 'test-dev-secret'
 const JWT_SECRET = 'test-jwt-secret-key'
@@ -313,5 +316,201 @@ describe('rem-sync-server', () => {
     })
     expect(put3.status).toBe(413)
     expect(await put3.json()).toEqual({ error: 'quota_exceeded' })
+  })
+
+  it('tracks asset quota in O(1) SQLite row reads, backfills legacy DOs, and resets on deleteAllData', async () => {
+    // 1. Legacy DO migration: pre-existing `assets` table with no `asset_usage` table yet.
+    const legacyStub = TEST_ENV.USER_SYNC.get(TEST_ENV.USER_SYNC.idFromName('legacy-quota-user'))
+    await runInDurableObject(legacyStub, async (_instance, state) => {
+      state.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS assets (
+          hash TEXT PRIMARY KEY,
+          size_bytes INTEGER NOT NULL,
+          mime TEXT NOT NULL,
+          uploaded_at INTEGER NOT NULL
+        );
+      `)
+      for (let i = 0; i < 20; i++) {
+        const hash = i.toString(16).padStart(64, '0')
+        state.storage.sql.exec(
+          'INSERT INTO assets(hash, size_bytes, mime, uploaded_at) VALUES (?, ?, ?, ?)',
+          hash,
+          90,
+          'audio/mpeg',
+          1_700_000_000_000 + i,
+        )
+      }
+    })
+
+    // Pre-existing total is 20 * 90 = 1800 bytes. Quota 2048 -> 249B exceeds, 248B fits.
+    const overHash = 'f'.repeat(64)
+    const fitHash = 'e'.repeat(64)
+    expect(await legacyStub.checkAssetQuota(overHash, 249, 2048)).toEqual({
+      status: 'quota_exceeded',
+    })
+    expect(await legacyStub.checkAssetQuota(fitHash, 248, 2048)).toEqual({
+      status: 'allowed',
+    })
+    expect(await legacyStub.recordAsset(fitHash, 248, 'audio/mpeg', 2048)).toEqual({
+      status: 'allowed',
+    })
+
+    // Duplicate recordAsset for existing hash is idempotent and does not double-count total_bytes.
+    expect(await legacyStub.recordAsset(fitHash, 248, 'audio/mpeg', 2048)).toEqual({
+      status: 'already_present',
+    })
+    await runInDurableObject(legacyStub, async (_instance, state) => {
+      const row = state.storage.sql
+        .exec<{ total_bytes: number }>('SELECT total_bytes FROM asset_usage WHERE id = 1')
+        .one()
+      expect(row.total_bytes).toBe(2048)
+    })
+
+    // 2. O(1) SQLite rowsRead check: after 50 assets exist, 10 more quota+record calls must not
+    // scan the `assets` table (O(N^2) would read >1000 rows; O(1) reads ~40-60 rows).
+    // Capture EVERY cursor returned by sql.exec (including INSERT/UPDATE/DDL) so no query is unmeasured.
+    const perfStub = TEST_ENV.USER_SYNC.get(TEST_ENV.USER_SYNC.idFromName('perf-quota-user'))
+    for (let i = 0; i < 50; i++) {
+      const hash = i.toString(16).padStart(64, 'a')
+      expect(await perfStub.recordAsset(hash, 10, 'audio/mpeg', 1_000_000)).toEqual({
+        status: 'allowed',
+      })
+    }
+
+    const { totalStatements, totalRowsReadForNextTen, coldStartRowsRead } = await runInDurableObject(
+      perfStub,
+      async (instance, state) => {
+        const sql = state.storage.sql
+        const origExec = sql.exec.bind(sql)
+        const cursors: SqlStorageCursor<Record<string, SqlStorageValue>>[] = []
+        sql.exec = ((query: string, ...bindings: unknown[]) => {
+          const cursor = origExec(query, ...bindings)
+          cursors.push(cursor)
+          return cursor
+        }) as typeof sql.exec
+
+        try {
+          for (let i = 50; i < 60; i++) {
+            const hash = i.toString(16).padStart(64, 'a')
+            const pre = await instance.checkAssetQuota(hash, 10, 1_000_000)
+            expect(pre).toEqual({ status: 'allowed' })
+            const rec = await instance.recordAsset(hash, 10, 'audio/mpeg', 1_000_000)
+            expect(rec).toEqual({ status: 'allowed' })
+          }
+          const warmCount = cursors.length
+          const warmRowsRead = cursors.reduce((sum, c) => sum + c.rowsRead, 0)
+
+          // Simulate a cold start on the 60-asset DO: ensureSchema + checkAssetQuota must stay O(1)
+          // and must NOT rescan `assets`.
+          cursors.length = 0
+          ;(instance as unknown as { schemaReady: boolean }).schemaReady = false
+          const coldPre = await instance.checkAssetQuota('c'.repeat(64), 10, 1_000_000)
+          expect(coldPre).toEqual({ status: 'allowed' })
+          const coldRows = cursors.reduce((sum, c) => sum + c.rowsRead, 0)
+
+          return {
+            totalStatements: warmCount,
+            totalRowsReadForNextTen: warmRowsRead,
+            coldStartRowsRead: coldRows,
+          }
+        } finally {
+          sql.exec = origExec
+        }
+      },
+    )
+
+    // Each (checkAssetQuota + recordAsset) executes 6 statements (2 PK lookups, 2 usage reads,
+    // 1 INSERT, 1 UPDATE). Assert both lower bound (spy actually measured rows) and upper bound (O(1)).
+    expect(totalStatements).toBeGreaterThanOrEqual(60)
+    expect(totalRowsReadForNextTen).toBeGreaterThanOrEqual(20)
+    expect(totalRowsReadForNextTen).toBeLessThan(100)
+    // Cold start on 60-asset DO must not scan all 60 rows.
+    expect(coldStartRowsRead).toBeGreaterThan(0)
+    expect(coldStartRowsRead).toBeLessThan(20)
+
+    // 3. Lazy backfill fallback when asset_usage row is missing even while schemaReady is true.
+    await runInDurableObject(perfStub, async (_instance, state) => {
+      state.storage.sql.exec('DELETE FROM asset_usage')
+    })
+    // 60 assets * 10B = 600B -> 400B fits in 1000B quota, 401B exceeds.
+    expect(await perfStub.checkAssetQuota('d'.repeat(64), 401, 1000)).toEqual({
+      status: 'quota_exceeded',
+    })
+    expect(await perfStub.checkAssetQuota('d'.repeat(64), 400, 1000)).toEqual({
+      status: 'allowed',
+    })
+
+    // 4. Invalid quota parameters are rejected cleanly (run inside DO to avoid vitest-pool-workers RPC error hook).
+    await runInDurableObject(perfStub, async (instance) => {
+      await expect(instance.checkAssetQuota('d'.repeat(64), -1, 1000)).rejects.toThrow(
+        'invalid asset quota parameters',
+      )
+      await expect(
+        instance.recordAsset('d'.repeat(64), Number.NaN, 'audio/mpeg', 1000),
+      ).rejects.toThrow('invalid asset quota parameters')
+      await expect(instance.recordAsset('d'.repeat(64), 1.5, 'audio/mpeg', 1000)).rejects.toThrow(
+        'invalid asset quota parameters',
+      )
+    })
+
+    // 5. deleteAllData resets asset_usage cleanly so quota starts back at 0.
+    await legacyStub.deleteAllData()
+    expect(await legacyStub.checkAssetQuota(overHash, 2048, 2048)).toEqual({ status: 'allowed' })
+    expect(await legacyStub.recordAsset(overHash, 2048, 'audio/mpeg', 2048)).toEqual({
+      status: 'allowed',
+    })
+
+    // 6. Concurrent PUT /v1/assets/:hash uploads (same hash & competing for last quota bytes).
+    const raceUser = 'concurrent-quota-user'
+    const aBytes = new Uint8Array(900).fill(0x11)
+    const aHash = await sha256Hex(aBytes)
+    const bBytes = new Uint8Array(900).fill(0x22)
+    const bHash = await sha256Hex(bBytes)
+    const cBytes = new Uint8Array(900).fill(0x33)
+    const cHash = await sha256Hex(cBytes)
+
+    // Duplicate concurrent uploads of the exact same hash both succeed and count once (900B).
+    const [dup1, dup2] = await Promise.all([
+      SELF.fetch(`https://sync.example.com/v1/assets/${aHash}`, {
+        method: 'PUT',
+        headers: { ...authHeader(raceUser), 'Content-Type': 'audio/mpeg' },
+        body: aBytes,
+      }),
+      SELF.fetch(`https://sync.example.com/v1/assets/${aHash}`, {
+        method: 'PUT',
+        headers: { ...authHeader(raceUser), 'Content-Type': 'audio/mpeg' },
+        body: aBytes,
+      }),
+    ])
+    expect(dup1.status).toBe(200)
+    expect(dup2.status).toBe(200)
+
+    // Two distinct 900B assets racing for remaining 1148B of 2048B quota: exactly one wins (200) and one gets 413.
+    const [comp1, comp2] = await Promise.all([
+      SELF.fetch(`https://sync.example.com/v1/assets/${bHash}`, {
+        method: 'PUT',
+        headers: { ...authHeader(raceUser), 'Content-Type': 'audio/mpeg' },
+        body: bBytes,
+      }),
+      SELF.fetch(`https://sync.example.com/v1/assets/${cHash}`, {
+        method: 'PUT',
+        headers: { ...authHeader(raceUser), 'Content-Type': 'audio/mpeg' },
+        body: cBytes,
+      }),
+    ])
+    expect([comp1.status, comp2.status].sort((x, y) => x - y)).toEqual([200, 413])
+
+    // Verify asset_usage.total_bytes matches exact SUM(size_bytes) = 1800B.
+    const raceStub = TEST_ENV.USER_SYNC.get(TEST_ENV.USER_SYNC.idFromName(raceUser))
+    await runInDurableObject(raceStub, async (_instance, state) => {
+      const usage = state.storage.sql
+        .exec<{ total_bytes: number }>('SELECT total_bytes FROM asset_usage WHERE id = 1')
+        .one()
+      const actual = state.storage.sql
+        .exec<{ total: number }>('SELECT COALESCE(SUM(size_bytes), 0) AS total FROM assets')
+        .one()
+      expect(usage.total_bytes).toBe(1800)
+      expect(actual.total).toBe(1800)
+    })
   })
 })

@@ -398,4 +398,223 @@ describe('Seeded malformed-payload & ASN.1 DER fuzz tests', () => {
       message: 'sync storage error',
     })
   })
+
+  it('returns structured 503/500 JSON (never uncaught 1101) when DO or R2 throws on sync and asset routes', async () => {
+    const quotaError = new Error('Exceeded allowed rows read in Durable Objects free tier.')
+    const quotaBrokenEnv: Env = {
+      ...TEST_ENV,
+      USER_SYNC: {
+        idFromName: TEST_ENV.USER_SYNC.idFromName.bind(TEST_ENV.USER_SYNC),
+        get: () =>
+          ({
+            sync: async () => {
+              throw quotaError
+            },
+            missingAssets: async () => {
+              throw quotaError
+            },
+            checkAssetQuota: async () => {
+              throw quotaError
+            },
+          }) as unknown as ReturnType<Env['USER_SYNC']['get']>,
+      } as unknown as Env['USER_SYNC'],
+    }
+
+    const bytes = new Uint8Array([1, 2, 3, 4])
+    const digest = await crypto.subtle.digest('SHA-256', bytes)
+    const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+
+    const quotaBody = {
+      error: 'storage_limit_exceeded',
+      message: 'sync storage temporarily unavailable (server storage limit exceeded)',
+    }
+    const internalBody = {
+      error: 'internal_error',
+      message: 'sync storage error',
+    }
+
+    // POST /v1/sync -> 503 storage_limit_exceeded with Cache-Control & Retry-After
+    const syncQuotaResp = await callWorker(
+      'https://sync.example.com/v1/sync',
+      {
+        method: 'POST',
+        headers: { ...authHeader('quota-err-user'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId: 'dev1', sinceSeq: 0, ops: [] }),
+      },
+      quotaBrokenEnv,
+    )
+    expect(syncQuotaResp.status).toBe(503)
+    expect(syncQuotaResp.headers.get('Cache-Control')).toBe('no-store')
+    expect(syncQuotaResp.headers.get('Retry-After')).toBe('60')
+    expect(await syncQuotaResp.json()).toEqual(quotaBody)
+
+    // POST /v1/assets/missing -> 503 storage_limit_exceeded
+    const missingQuotaResp = await callWorker(
+      'https://sync.example.com/v1/assets/missing',
+      {
+        method: 'POST',
+        headers: { ...authHeader('quota-err-user'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hashes: [hash] }),
+      },
+      quotaBrokenEnv,
+    )
+    expect(missingQuotaResp.status).toBe(503)
+    expect(missingQuotaResp.headers.get('Cache-Control')).toBe('no-store')
+    expect(await missingQuotaResp.json()).toEqual(quotaBody)
+
+    // PUT /v1/assets/:hash failing at checkAssetQuota -> 503 storage_limit_exceeded
+    const putPrecheckResp = await callWorker(
+      `https://sync.example.com/v1/assets/${hash}`,
+      {
+        method: 'PUT',
+        headers: { ...authHeader('quota-err-user'), 'Content-Type': 'application/octet-stream' },
+        body: bytes,
+      },
+      quotaBrokenEnv,
+    )
+    expect(putPrecheckResp.status).toBe(503)
+    expect(putPrecheckResp.headers.get('Cache-Control')).toBe('no-store')
+    expect(await putPrecheckResp.json()).toEqual(quotaBody)
+
+    // PUT /v1/assets/:hash failing at recordAsset -> 503 and does NOT delete R2 object
+    let r2DeleteCalled = false
+    const recordFailEnv: Env = {
+      ...TEST_ENV,
+      USER_SYNC: {
+        idFromName: TEST_ENV.USER_SYNC.idFromName.bind(TEST_ENV.USER_SYNC),
+        get: () =>
+          ({
+            checkAssetQuota: async () => ({ status: 'allowed' }),
+            recordAsset: async () => {
+              throw quotaError
+            },
+            deleteAllData: async () => {
+              throw quotaError
+            },
+          }) as unknown as ReturnType<Env['USER_SYNC']['get']>,
+      } as unknown as Env['USER_SYNC'],
+      ASSETS: {
+        put: async () => null,
+        delete: async () => {
+          r2DeleteCalled = true
+        },
+        list: async () => ({ objects: [{ key: 'users/quota-err-user/assets/x' }], truncated: false }),
+        get: async () => {
+          throw new Error('R2 transient read error')
+        },
+      } as unknown as R2Bucket,
+    }
+
+    const putRecordFailResp = await callWorker(
+      `https://sync.example.com/v1/assets/${hash}`,
+      {
+        method: 'PUT',
+        headers: { ...authHeader('quota-err-user'), 'Content-Type': 'application/octet-stream' },
+        body: bytes,
+      },
+      recordFailEnv,
+    )
+    expect(putRecordFailResp.status).toBe(503)
+    expect(await putRecordFailResp.json()).toEqual(quotaBody)
+    expect(r2DeleteCalled).toBe(false)
+
+    // DELETE /v1/account when DO deleteAllData throws -> 503 JSON and R2 objects are NOT deleted first
+    const deleteAccountFailResp = await callWorker(
+      'https://sync.example.com/v1/account',
+      {
+        method: 'DELETE',
+        headers: authHeader('quota-err-user'),
+      },
+      recordFailEnv,
+    )
+    expect(deleteAccountFailResp.status).toBe(503)
+    expect(await deleteAccountFailResp.json()).toEqual(quotaBody)
+    expect(r2DeleteCalled).toBe(false)
+
+    // GET /v1/assets/:hash when R2 throws -> 500 internal_error
+    const getR2FailResp = await callWorker(
+      `https://sync.example.com/v1/assets/${hash}`,
+      {
+        method: 'GET',
+        headers: authHeader('quota-err-user'),
+      },
+      recordFailEnv,
+    )
+    expect(getR2FailResp.status).toBe(500)
+    expect(await getR2FailResp.json()).toEqual(internalBody)
+
+    // PUT /v1/assets/:hash when R2 put throws -> 500 internal_error;
+    // POST /v1/assets/missing when DO throws non-quota error -> 500 internal_error
+    const genericStorageFailEnv: Env = {
+      ...TEST_ENV,
+      USER_SYNC: {
+        idFromName: TEST_ENV.USER_SYNC.idFromName.bind(TEST_ENV.USER_SYNC),
+        get: () =>
+          ({
+            missingAssets: async () => {
+              throw new Error('SQLITE_BUSY')
+            },
+            checkAssetQuota: async () => ({ status: 'allowed' }),
+          }) as unknown as ReturnType<Env['USER_SYNC']['get']>,
+      } as unknown as Env['USER_SYNC'],
+      ASSETS: {
+        put: async () => {
+          throw new Error('R2 put transient failure')
+        },
+      } as unknown as R2Bucket,
+    }
+    const missingGenericFailResp = await callWorker(
+      'https://sync.example.com/v1/assets/missing',
+      {
+        method: 'POST',
+        headers: { ...authHeader('quota-err-user'), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hashes: [hash] }),
+      },
+      genericStorageFailEnv,
+    )
+    expect(missingGenericFailResp.status).toBe(500)
+    expect(await missingGenericFailResp.json()).toEqual(internalBody)
+
+    const putR2FailResp = await callWorker(
+      `https://sync.example.com/v1/assets/${hash}`,
+      {
+        method: 'PUT',
+        headers: { ...authHeader('quota-err-user'), 'Content-Type': 'application/octet-stream' },
+        body: bytes,
+      },
+      genericStorageFailEnv,
+    )
+    expect(putR2FailResp.status).toBe(500)
+    expect(await putR2FailResp.json()).toEqual(internalBody)
+
+    // PUT /v1/assets/:hash when recordAsset returns quota_exceeded and R2 delete throws -> still 413
+    const rollbackFailEnv: Env = {
+      ...TEST_ENV,
+      USER_SYNC: {
+        idFromName: TEST_ENV.USER_SYNC.idFromName.bind(TEST_ENV.USER_SYNC),
+        get: () =>
+          ({
+            checkAssetQuota: async () => ({ status: 'allowed' }),
+            recordAsset: async () => ({ status: 'quota_exceeded' }),
+          }) as unknown as ReturnType<Env['USER_SYNC']['get']>,
+      } as unknown as Env['USER_SYNC'],
+      ASSETS: {
+        put: async () => null,
+        delete: async () => {
+          throw new Error('R2 delete failed')
+        },
+      } as unknown as R2Bucket,
+    }
+    const rollbackFailResp = await callWorker(
+      `https://sync.example.com/v1/assets/${hash}`,
+      {
+        method: 'PUT',
+        headers: { ...authHeader('quota-err-user'), 'Content-Type': 'application/octet-stream' },
+        body: bytes,
+      },
+      rollbackFailEnv,
+    )
+    expect(rollbackFailResp.status).toBe(413)
+    expect(await rollbackFailResp.json()).toEqual({ error: 'quota_exceeded' })
+  })
 })

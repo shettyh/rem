@@ -18,32 +18,55 @@ export class UserSyncDO extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    this.ensureSchema()
   }
 
   private ensureSchema(): void {
     if (this.schemaReady) return
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS ops (
-        seq INTEGER PRIMARY KEY AUTOINCREMENT,
-        op_id TEXT UNIQUE NOT NULL,
-        device_id TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      );
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS ops (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT,
+          op_id TEXT UNIQUE NOT NULL,
+          device_id TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          created_at INTEGER NOT NULL
+        );
 
-      CREATE TABLE IF NOT EXISTS assets (
-        hash TEXT PRIMARY KEY,
-        size_bytes INTEGER NOT NULL,
-        mime TEXT NOT NULL,
-        uploaded_at INTEGER NOT NULL
-      );
-    `)
+        CREATE TABLE IF NOT EXISTS assets (
+          hash TEXT PRIMARY KEY,
+          size_bytes INTEGER NOT NULL,
+          mime TEXT NOT NULL,
+          uploaded_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS asset_usage (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          total_bytes INTEGER NOT NULL
+        );
+      `)
+    })
     this.schemaReady = true
   }
 
+  private readTotalAssetBytes(): number {
+    const usageRow = this.ctx.storage.sql
+      .exec<{ total_bytes: number }>('SELECT total_bytes FROM asset_usage WHERE id = 1')
+      .toArray()
+    if (usageRow.length > 0) {
+      return usageRow[0].total_bytes
+    }
+    // Lazy one-time backfill for new or legacy DOs created before asset_usage existed.
+    const sumRow = this.ctx.storage.sql
+      .exec<{ total: number }>('SELECT COALESCE(SUM(size_bytes), 0) AS total FROM assets')
+      .one()
+    this.ctx.storage.sql.exec(
+      'INSERT OR REPLACE INTO asset_usage (id, total_bytes) VALUES (1, ?)',
+      sumRow.total,
+    )
+    return sumRow.total
+  }
+
   async sync(req: SyncRequest): Promise<SyncRpcResult> {
-    this.ensureSchema()
     if (!req || typeof req !== 'object' || Array.isArray(req)) {
       return validationFailure('invalid sync request body')
     }
@@ -104,6 +127,7 @@ export class UserSyncDO extends DurableObject<Env> {
       preparedOps.push({ opId: op.opId, payloadJson })
     }
 
+    this.ensureSchema()
     const now = Date.now()
     const response = this.ctx.storage.transactionSync(() => {
       const ackedOpIds: string[] = []
@@ -177,6 +201,14 @@ export class UserSyncDO extends DurableObject<Env> {
     sizeBytes: number,
     maxQuotaBytes: number,
   ): Promise<QuotaCheckResult> {
+    if (
+      !Number.isSafeInteger(sizeBytes) ||
+      sizeBytes < 0 ||
+      !Number.isSafeInteger(maxQuotaBytes) ||
+      maxQuotaBytes < 0
+    ) {
+      throw new Error('invalid asset quota parameters')
+    }
     this.ensureSchema()
     return this.ctx.storage.transactionSync(() => {
       const existing = this.ctx.storage.sql
@@ -185,10 +217,8 @@ export class UserSyncDO extends DurableObject<Env> {
       if (existing.length > 0) {
         return { status: 'already_present' }
       }
-      const totalRow = this.ctx.storage.sql
-        .exec<{ total: number }>('SELECT COALESCE(SUM(size_bytes), 0) AS total FROM assets')
-        .one()
-      if (totalRow.total + sizeBytes > maxQuotaBytes) {
+      const totalBytes = this.readTotalAssetBytes()
+      if (sizeBytes > maxQuotaBytes - totalBytes) {
         return { status: 'quota_exceeded' }
       }
       return { status: 'allowed' }
@@ -201,6 +231,14 @@ export class UserSyncDO extends DurableObject<Env> {
     mime: string,
     maxQuotaBytes: number,
   ): Promise<QuotaCheckResult> {
+    if (
+      !Number.isSafeInteger(sizeBytes) ||
+      sizeBytes < 0 ||
+      !Number.isSafeInteger(maxQuotaBytes) ||
+      maxQuotaBytes < 0
+    ) {
+      throw new Error('invalid asset quota parameters')
+    }
     this.ensureSchema()
     const now = Date.now()
     return this.ctx.storage.transactionSync(() => {
@@ -210,25 +248,32 @@ export class UserSyncDO extends DurableObject<Env> {
       if (existing.length > 0) {
         return { status: 'already_present' }
       }
-      const totalRow = this.ctx.storage.sql
-        .exec<{ total: number }>('SELECT COALESCE(SUM(size_bytes), 0) AS total FROM assets')
-        .one()
-      if (totalRow.total + sizeBytes > maxQuotaBytes) {
+      const totalBytes = this.readTotalAssetBytes()
+      if (sizeBytes > maxQuotaBytes - totalBytes) {
         return { status: 'quota_exceeded' }
       }
       this.ctx.storage.sql.exec(
-        'INSERT OR IGNORE INTO assets(hash, size_bytes, mime, uploaded_at) VALUES (?, ?, ?, ?)',
+        'INSERT INTO assets(hash, size_bytes, mime, uploaded_at) VALUES (?, ?, ?, ?)',
         hash,
         sizeBytes,
         mime,
         now,
+      )
+      this.ctx.storage.sql.exec(
+        'UPDATE asset_usage SET total_bytes = total_bytes + ? WHERE id = 1',
+        sizeBytes,
       )
       return { status: 'allowed' }
     })
   }
 
   async deleteAllData(): Promise<void> {
-    await this.ctx.storage.deleteAll()
-    this.schemaReady = false
+    await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        await this.ctx.storage.deleteAll()
+      } finally {
+        this.schemaReady = false
+      }
+    })
   }
 }
