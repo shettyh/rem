@@ -249,6 +249,61 @@ test('offers Anki and JSON import from the add-deck row and empty state', async 
   await expect.poll(async () => (await storage.listDecks()).map((d) => d.name)).toEqual(['Japanese'])
 })
 
+test('clicking Anki or JSON options in the Import dropdown opens the corresponding file picker even under WebKit button-blur behavior', async () => {
+  const storage: Storage = freshStorage()
+  storage.previewApkg = vi.fn()
+  storage.importApkg = vi.fn()
+
+  await renderRoute({ storage, entry: '/', path: '/', element: <DeckListPage /> })
+
+  const apkgInput = document.querySelector<HTMLInputElement>('input[aria-label="Import Anki deck file"]')!
+  const backupInput = document.querySelector<HTMLInputElement>('input[aria-label="Import backup file"]')!
+  const apkgClickSpy = vi.spyOn(apkgInput, 'click').mockImplementation(() => {})
+  const backupClickSpy = vi.spyOn(backupInput, 'click').mockImplementation(() => {})
+
+  const importBtn = page.getByRole('button', { name: 'Import', exact: true })
+
+  // Clicking "Anki deck (.apkg)" in the dropdown opens the .apkg file picker and closes the menu.
+  await importBtn.click()
+  const ankiItem = page.getByRole('menuitem', { name: /Anki deck \(\.apkg\)/ })
+  await expect.element(ankiItem).toBeVisible()
+
+  // Simulate macOS WKWebView/WebKit mousedown on a <button>, which blurs the active element
+  // with relatedTarget === null before mouseup/click.
+  const ankiEl = ankiItem.element() as HTMLButtonElement
+  const mouseDownEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+  ankiEl.dispatchEvent(mouseDownEvent)
+  expect(mouseDownEvent.defaultPrevented).toBe(true)
+  ankiEl.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }))
+  await expect.element(page.getByRole('menu', { name: 'Import deck' })).toBeVisible()
+
+  await ankiItem.click()
+  expect(apkgClickSpy).toHaveBeenCalledTimes(1)
+  await expect.element(page.getByRole('menu', { name: 'Import deck' })).not.toBeInTheDocument()
+
+  // Clicking "rem backup (.json)" opens the backup file picker and closes the menu.
+  await importBtn.click()
+  const backupItem = page.getByRole('menuitem', { name: /rem backup \(\.json\)/ })
+  await expect.element(backupItem).toBeVisible()
+  await backupItem.click()
+  expect(backupClickSpy).toHaveBeenCalledTimes(1)
+  await expect.element(page.getByRole('menu', { name: 'Import deck' })).not.toBeInTheDocument()
+
+  // Clicking the Import trigger while open closes the menu instead of blurring and reopening it.
+  await importBtn.click()
+  await expect.element(page.getByRole('menu', { name: 'Import deck' })).toBeVisible()
+  const triggerEl = importBtn.element() as HTMLButtonElement
+  triggerEl.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null }))
+  await importBtn.click()
+  await expect.element(page.getByRole('menu', { name: 'Import deck' })).not.toBeInTheDocument()
+
+  // Moving focus to another control outside the menu (e.g. Tab) still dismisses the menu.
+  await importBtn.click()
+  await expect.element(page.getByRole('menu', { name: 'Import deck' })).toBeVisible()
+  ;(document.querySelector<HTMLInputElement>('input[aria-label="New deck name"]')!).focus()
+  await expect.element(page.getByRole('menu', { name: 'Import deck' })).not.toBeInTheDocument()
+})
+
 test('imports JSON backup from Today and confirms before replacing same-named decks', async () => {
   const storage = freshStorage()
   await storage.createDeck('Spanish')
