@@ -169,7 +169,11 @@ fn jlpt_indented_template_strips_tags_chrome_empty_lists_and_converts_furigana_c
     assert_eq!(res.imported_cards, 1);
 
     let decks = col.list_decks().unwrap();
-    let cards = col.list_cards(&decks[0].id).unwrap();
+    let leaf = decks
+        .iter()
+        .find(|d| d.name == "NEW-JLPT::eggrolls-JLPT10k-v3.5::4-N2::2-中频")
+        .unwrap();
+    let cards = col.list_cards(&leaf.id).unwrap();
     let card = &cards[0];
 
     // Tags remain preserved as first-class card tags, NOT dumped into card text.
@@ -256,7 +260,11 @@ fn type_in_answer_does_not_spoil_front_and_hint_and_ruby_html_convert_cleanly() 
     let (_dir, col) = open_temp_collection();
     col.import_apkg_bytes(&apkg, NOW).unwrap();
     let decks = col.list_decks().unwrap();
-    let card = &col.list_cards(&decks[0].id).unwrap()[0];
+    let jp = decks
+        .iter()
+        .find(|d| d.name == "Languages::Japanese")
+        .unwrap();
+    let card = &col.list_cards(&jp.id).unwrap()[0];
 
     assert!(
         card.front.contains("{漢|かん}{字|じ}"),
@@ -321,7 +329,8 @@ fn html_lists_blockquotes_tables_strikethrough_pre_and_nested_conditionals_conve
     let (_dir, col) = open_temp_collection();
     col.import_apkg_bytes(&apkg, NOW).unwrap();
     let decks = col.list_decks().unwrap();
-    let card = &col.list_cards(&decks[0].id).unwrap()[0];
+    let fmt_deck = decks.iter().find(|d| d.name == "Formatting").unwrap();
+    let card = &col.list_cards(&fmt_deck.id).unwrap()[0];
 
     assert!(
         card.front.contains("Outer Inner"),
@@ -416,7 +425,8 @@ fn cloze_furigana_template_and_back_skip_hidden_metadata_fields() {
     assert_eq!(res.imported_cards, 2);
 
     let decks = col.list_decks().unwrap();
-    let cards = col.list_cards(&decks[0].id).unwrap();
+    let leaf = decks.iter().find(|d| d.name == "Japanese::Cloze").unwrap();
+    let cards = col.list_cards(&leaf.id).unwrap();
     assert_eq!(cards[0].cloze_index, Some(1));
     assert_eq!(cards[1].cloze_index, Some(2));
     assert!(
@@ -456,7 +466,11 @@ fn conservative_cjk_fallback_handles_pinyin_and_ignores_links_and_footnotes() {
     let (_dir, col) = open_temp_collection();
     col.import_apkg_bytes(&apkg, NOW).unwrap();
     let decks = col.list_decks().unwrap();
-    let card = &col.list_cards(&decks[0].id).unwrap()[0];
+    let zh = decks
+        .iter()
+        .find(|d| d.name == "Languages::Chinese")
+        .unwrap();
+    let card = &col.list_cards(&zh.id).unwrap()[0];
 
     assert!(
         card.front.contains("{你好|nǐ hǎo}"),
@@ -548,7 +562,8 @@ fn adjacent_emphasis_whitespace_leading_hr_and_empty_cloze_placeholders_import_c
     );
 
     let decks = col.list_decks().unwrap();
-    let cards = col.list_cards(&decks[0].id).unwrap();
+    let tissues = decks.iter().find(|d| d.name == "Anatomy::Tissues").unwrap();
+    let cards = col.list_cards(&tissues.id).unwrap();
     assert_eq!(cards.len(), 5);
 
     let resp = cards
@@ -855,7 +870,11 @@ fn apkg_converts_legacy_image_occlusion_enhanced_svg_masks_and_skips_native_io_m
     assert_eq!(res.imported_media, 1);
 
     let decks = col.list_decks().unwrap();
-    let cards = col.list_cards(&decks[0].id).unwrap();
+    let directions = decks
+        .iter()
+        .find(|d| d.name == "Anatomy::Directions")
+        .unwrap();
+    let cards = col.list_cards(&directions.id).unwrap();
     assert_eq!(cards.len(), 4);
 
     // 1. Standard IO Enhanced card
@@ -960,7 +979,11 @@ fn adversarial_review_regressions_svg_arcs_hidden_defs_emphasis_hr_and_randomize
     let (_dir, col) = open_temp_collection();
     col.import_apkg_bytes(&apkg, NOW).unwrap();
     let decks = col.list_decks().unwrap();
-    let cards = col.list_cards(&decks[0].id).unwrap();
+    let md_deck = decks
+        .iter()
+        .find(|d| d.name == "Adversarial::Markdown")
+        .unwrap();
+    let cards = col.list_cards(&md_deck.id).unwrap();
     assert_eq!(cards.len(), 2);
 
     let prose = cards.iter().find(|c| c.front.contains("Power:")).unwrap();
@@ -1129,7 +1152,8 @@ fn adversarial_review_regressions_svg_arcs_hidden_defs_emphasis_hr_and_randomize
     let (_dir2, col2) = open_temp_collection();
     col2.import_apkg_bytes(&apkg_io, NOW).unwrap();
     let d2 = col2.list_decks().unwrap();
-    let c2 = &col2.list_cards(&d2[0].id).unwrap()[0];
+    let io_deck = d2.iter().find(|d| d.name == "Adversarial::IO").unwrap();
+    let c2 = &col2.list_cards(&io_deck.id).unwrap()[0];
     assert_eq!(c2.back, "Visible remark");
     assert!(!c2.back.contains("secret-id-ao-1"));
     assert!(!c2.back.contains("2099309714"));

@@ -277,7 +277,10 @@ fn imports_anki_apkg_with_nested_decks_cloze_siblings_math_media_and_revlog() {
     assert_eq!(result.imported_reviews, 2);
 
     let decks = col.list_decks().unwrap();
-    assert_eq!(decks.len(), 2);
+    // Includes materialized parent container decks ("Languages", "STEM") alongside leaf subdecks.
+    assert_eq!(decks.len(), 4);
+    assert!(decks.iter().any(|d| d.name == "Languages"));
+    assert!(decks.iter().any(|d| d.name == "STEM"));
 
     let spanish = decks
         .iter()
@@ -348,9 +351,13 @@ fn imports_modern_anki21b_zstd_protobuf_and_rejects_corrupt_archives() {
     assert_eq!(result.imported_media, 1);
 
     let decks = col.list_decks().unwrap();
-    assert_eq!(decks.len(), 1);
-    assert_eq!(decks[0].name, "Medicine::Cardiology");
-    let cards = col.list_cards(&decks[0].id).unwrap();
+    assert_eq!(decks.len(), 2);
+    assert!(decks.iter().any(|d| d.name == "Medicine"));
+    let cardio = decks
+        .iter()
+        .find(|d| d.name == "Medicine::Cardiology")
+        .unwrap();
+    let cards = col.list_cards(&cardio.id).unwrap();
     assert_eq!(cards.len(), 2);
     assert_eq!(cards[0].cloze_index, Some(1));
     assert_eq!(cards[1].cloze_index, Some(2));

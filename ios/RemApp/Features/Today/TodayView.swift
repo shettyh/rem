@@ -14,11 +14,12 @@ struct TodayView: View {
     }
 
     @Bindable var appState: AppState
+    @State private var navPath: [String] = []
     @State private var pendingDelete: PendingDeckDelete?
     @State private var showImportDialog: Bool = false
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navPath) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -67,7 +68,13 @@ struct TodayView: View {
                 }
             }
             .navigationDestination(for: String.self) { deckId in
-                DeckDetailView(appState: appState, deckId: deckId)
+                DeckDetailView(appState: appState, deckId: deckId) { targetId in
+                    if let existingIndex = navPath.firstIndex(of: targetId) {
+                        navPath.removeSubrange((existingIndex + 1)..<navPath.count)
+                    } else {
+                        navPath.append(targetId)
+                    }
+                }
             }
             .alert(
                 pendingDelete?.copy.title ?? "Delete deck?",
@@ -278,6 +285,8 @@ struct TodayView: View {
                                         deck: deck,
                                         displayName: node.label,
                                         depth: 0,
+                                        hasSubdecks: !node.children.isEmpty,
+                                        subdeckCount: node.subdeckCount,
                                         dueOverride: node.dueCount,
                                         newDueOverride: node.newDueCount,
                                         totalOverride: node.totalCards,
@@ -382,6 +391,8 @@ struct DeckSummaryRow: View {
     var showChevron: Bool = true
     var displayName: String? = nil
     var depth: Int = 0
+    var hasSubdecks: Bool = false
+    var subdeckCount: Int = 0
     var dueOverride: UInt32? = nil
     var newDueOverride: UInt32? = nil
     var totalOverride: UInt32? = nil
@@ -403,10 +414,17 @@ struct DeckSummaryRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Circle()
-                        .fill(Color(hexString: deck.color))
-                        .frame(width: 8, height: 8)
-                        .frame(width: iconSlotWidth, alignment: .center)
+                    if hasSubdecks {
+                        Image(systemName: "folder")
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(RemColor.muted)
+                            .frame(width: iconSlotWidth ?? 16, alignment: .center)
+                    } else {
+                        Circle()
+                            .fill(Color(hexString: deck.color))
+                            .frame(width: 8, height: 8)
+                            .frame(width: iconSlotWidth, alignment: .center)
+                    }
                     Text(effectiveName)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(RemColor.text)
@@ -416,7 +434,7 @@ struct DeckSummaryRow: View {
                 Text(subtitleText)
                     .font(.caption)
                     .foregroundStyle(RemColor.muted)
-                    .padding(.leading, iconSlotWidth.map { $0 + 8 } ?? 0)
+                    .padding(.leading, (iconSlotWidth ?? (hasSubdecks ? 16 : 8)) + 8)
             }
 
             Spacer()
@@ -446,10 +464,15 @@ struct DeckSummaryRow: View {
 
     private var subtitleText: String {
         let countLabel = "\(effectiveTotal) \(effectiveTotal == 1 ? "card" : "cards")"
-        if effectiveNewDue > 0 {
-            return "\(countLabel) · \(effectiveNewDue) new"
+        var parts: [String] = []
+        if subdeckCount > 0 {
+            parts.append("\(subdeckCount) \(subdeckCount == 1 ? "subdeck" : "subdecks")")
         }
-        return countLabel
+        parts.append(countLabel)
+        if effectiveNewDue > 0 {
+            parts.append("\(effectiveNewDue) new")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var statusPill: some View {

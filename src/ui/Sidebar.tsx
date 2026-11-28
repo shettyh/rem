@@ -274,10 +274,16 @@ export function Sidebar({
                         className="side-deck-main"
                         title={deck.name}
                       >
-                        <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
-                          <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />
-                          <path d="M4.5 1.5h7a2 2 0 0 1 2 2v6" />
-                        </svg>
+                        {hasChildren ? (
+                          <svg className="deck-icon deck-folder-icon" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6a1.5 1.5 0 0 1 1.15.54l.65.78a1 1 0 0 0 .77.36h3.83A1.5 1.5 0 0 1 14 6.18v5.32A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
+                          </svg>
+                        ) : (
+                          <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
+                            <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />
+                            <path d="M4.5 1.5h7a2 2 0 0 1 2 2v6" />
+                          </svg>
+                        )}
                         <span className="nav-grow">{node.label}</span>
                       </NavLink>
                     ) : (
