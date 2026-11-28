@@ -284,9 +284,30 @@ enum MarkdownBlockParser {
         guard line.contains("|") else { return nil }
         var trimmed = line.trimmingCharacters(in: .whitespaces)
         if trimmed.hasPrefix("|") { trimmed.removeFirst() }
-        if trimmed.hasSuffix("|") { trimmed.removeLast() }
-        let cells = trimmed.split(separator: "|", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+        if trimmed.hasSuffix("|"), !trimmed.hasSuffix("\\|") { trimmed.removeLast() }
+        var cells: [String] = []
+        var current = ""
+        var escaped = false
+        for ch in trimmed {
+            if escaped {
+                if ch == "|" {
+                    current.append("|")
+                } else {
+                    current.append("\\")
+                    current.append(ch)
+                }
+                escaped = false
+            } else if ch == "\\" {
+                escaped = true
+            } else if ch == "|" {
+                cells.append(current.trimmingCharacters(in: .whitespaces))
+                current = ""
+            } else {
+                current.append(ch)
+            }
+        }
+        if escaped { current.append("\\") }
+        cells.append(current.trimmingCharacters(in: .whitespaces))
         return cells.count >= 2 ? cells : nil
     }
 
@@ -304,7 +325,8 @@ enum MarkdownBlockParser {
     /// headings, bold/italic/code delimiters, image links, and code fence markers).
     static func plainTextPreview(_ markdown: String) -> String {
         let strippedOcclusion = ImageOcclusionParser.stripMarkup(markdown)
-        let normalized = LatexMathFormatter.normalizeDelimiters(ClozeRenderer.stripMarkup(strippedOcclusion))
+        let strippedClozeAndRuby = RubyFormatter.stripMarkup(ClozeRenderer.stripMarkup(strippedOcclusion))
+        let normalized = LatexMathFormatter.normalizeDelimiters(strippedClozeAndRuby)
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
         var cleanedLines: [String] = []

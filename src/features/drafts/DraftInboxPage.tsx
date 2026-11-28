@@ -6,6 +6,7 @@ import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
 import { EditorToolbar } from '../cards/EditorToolbar'
 import { MarkdownView } from '../cards/MarkdownView'
+import { loadAssetUrl } from '../cards/assetUrl'
 import { parseUserTags } from '../cards/cardTags'
 import { composeOcclusionDocument, extractOcclusionDocument } from '../cards/occlusion'
 import { OcclusionEditor } from '../cards/OcclusionEditor'
@@ -64,6 +65,16 @@ export function DraftInboxPage() {
     setError(undefined)
     setActive(null)
   }, [current, loadedId])
+
+  const resolveAsset = useCallback((hash: string) => loadAssetUrl(storage, hash), [storage])
+  const ingestAsset = useCallback(
+    async (file: File, mimeOverride?: string) => {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const asset = await storage.putAsset(bytes, mimeOverride || file.type || 'application/octet-stream')
+      return { hash: asset.hash, mime: asset.mime }
+    },
+    [storage],
+  )
 
   const onFrontReady = useCallback((handle: EditorHandle) => {
     frontHandle.current = handle
@@ -227,6 +238,8 @@ export function DraftInboxPage() {
                           onChange={(front) => setEdit((value) => ({ ...value, front }))}
                           placeholder="Type the prompt…"
                           ariaLabel="Draft front"
+                          resolveAsset={resolveAsset}
+                          ingestAsset={ingestAsset}
                           onReady={onFrontReady}
                           onFocus={() => frontHandle.current && setActive(frontHandle.current)}
                         />
@@ -285,6 +298,8 @@ export function DraftInboxPage() {
                     onChange={(back) => setEdit((value) => ({ ...value, back }))}
                     placeholder="Type the answer…"
                     ariaLabel="Draft back"
+                    resolveAsset={resolveAsset}
+                    ingestAsset={ingestAsset}
                     onReady={onBackReady}
                     onFocus={() => backHandle.current && setActive(backHandle.current)}
                   />

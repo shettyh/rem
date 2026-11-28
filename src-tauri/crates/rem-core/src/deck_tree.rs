@@ -35,24 +35,35 @@ pub fn deck_segments(name: &str) -> Vec<&str> {
         .collect()
 }
 
-/// Returns true if `candidate_name` is equal to `root_name` or is a nested subdeck of `root_name`.
-pub fn deck_is_descendant_or_self(candidate_name: &str, root_name: &str) -> bool {
-    if candidate_name == root_name {
-        return true;
-    }
+/// Returns true if `candidate_name` is a strict nested subdeck of `root_name` (`root::...`).
+pub fn deck_is_strict_descendant(candidate_name: &str, root_name: &str) -> bool {
     candidate_name
         .strip_prefix(root_name)
         .is_some_and(|rest| rest.starts_with(DECK_SEPARATOR))
 }
 
-/// Return all decks matching `root_id` and its `::` descendants in existing order.
+/// Returns true if `candidate_name` is equal to `root_name` or is a nested subdeck of `root_name`.
+pub fn deck_is_descendant_or_self(candidate_name: &str, root_name: &str) -> bool {
+    candidate_name == root_name || deck_is_strict_descendant(candidate_name, root_name)
+}
+
+/// Return all decks matching `root_id` and its strict `::` descendants in existing order.
+/// Duplicate-named sibling decks (same name, different ID) are intentionally excluded.
 pub fn deck_and_descendants<'a>(decks: &'a [Deck], root_id: &str) -> Vec<&'a Deck> {
     let Some(root) = decks.iter().find(|deck| deck.id == root_id) else {
         return Vec::new();
     };
     decks
         .iter()
-        .filter(|deck| deck.id == root.id || deck_is_descendant_or_self(&deck.name, &root.name))
+        .filter(|deck| deck.id == root.id || deck_is_strict_descendant(&deck.name, &root.name))
+        .collect()
+}
+
+/// Return all decks equal to `prefix` or nested under `prefix::...` in existing order.
+pub fn decks_by_prefix<'a>(decks: &'a [Deck], prefix: &str) -> Vec<&'a Deck> {
+    decks
+        .iter()
+        .filter(|deck| deck_is_descendant_or_self(&deck.name, prefix))
         .collect()
 }
 
@@ -114,11 +125,26 @@ mod tests {
             fake_deck("3", "CS::Rust::Async"),
             fake_deck("4", "CSS"),
             fake_deck("5", "Math"),
+            fake_deck("6", "CS"),
         ];
         let matched: Vec<&str> = deck_and_descendants(&decks, "1")
             .into_iter()
             .map(|d| d.id.as_str())
             .collect();
         assert_eq!(matched, vec!["1", "2", "3"]);
+
+        let by_prefix: Vec<&str> = decks_by_prefix(&decks, "CS")
+            .into_iter()
+            .map(|d| d.id.as_str())
+            .collect();
+        assert_eq!(by_prefix, vec!["1", "2", "3", "6"]);
+    }
+
+    #[test]
+    fn strict_descendant_excludes_self() {
+        assert!(!deck_is_strict_descendant("CS", "CS"));
+        assert!(deck_is_strict_descendant("CS::Rust", "CS"));
+        assert!(deck_is_strict_descendant("CS::Rust::Async", "CS"));
+        assert!(!deck_is_strict_descendant("CSS", "CS"));
     }
 }

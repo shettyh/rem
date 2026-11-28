@@ -27,6 +27,7 @@ pub fn run() {
             storage::storage_list_decks,
             storage::storage_get_deck,
             storage::storage_delete_deck,
+            storage::storage_delete_deck_tree,
             storage::storage_update_deck,
             storage::storage_create_card,
             storage::storage_create_card_or_cloze,

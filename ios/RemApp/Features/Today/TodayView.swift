@@ -1,8 +1,20 @@
 import SwiftUI
 
 struct TodayView: View {
+    private enum PendingDeckDelete {
+        case deck(id: String, copy: DeckDeleteCopy)
+        case tree(path: String, copy: DeckDeleteCopy)
+
+        var copy: DeckDeleteCopy {
+            switch self {
+            case .deck(_, let copy), .tree(_, let copy):
+                return copy
+            }
+        }
+    }
+
     @Bindable var appState: AppState
-    @State private var deckPendingDelete: DeckSummaryDto?
+    @State private var pendingDelete: PendingDeckDelete?
 
     var body: some View {
         NavigationStack {
@@ -57,23 +69,30 @@ struct TodayView: View {
                 DeckDetailView(appState: appState, deckId: deckId)
             }
             .alert(
-                "Delete deck?",
+                pendingDelete?.copy.title ?? "Delete deck?",
                 isPresented: Binding(
-                    get: { deckPendingDelete != nil },
-                    set: { if !$0 { deckPendingDelete = nil } }
+                    get: { pendingDelete != nil },
+                    set: { if !$0 { pendingDelete = nil } }
                 )
             ) {
-                if let deck = deckPendingDelete {
-                    Button("Delete", role: .destructive) {
-                        deckPendingDelete = nil
-                        Task { await appState.deleteDeck(id: deck.id) }
+                if let target = pendingDelete {
+                    Button(target.copy.confirmLabel, role: .destructive) {
+                        pendingDelete = nil
+                        Task {
+                            switch target {
+                            case .deck(let id, _):
+                                await appState.deleteDeck(id: id)
+                            case .tree(let path, _):
+                                await appState.deleteDeckTree(path: path)
+                            }
+                        }
                     }
                 }
                 Button("Cancel", role: .cancel) {
-                    deckPendingDelete = nil
+                    pendingDelete = nil
                 }
             } message: {
-                Text("This deletes the deck and all its cards locally and on synced devices.")
+                Text(pendingDelete?.copy.message ?? "This deletes the deck and all its cards locally and on synced devices.")
             }
         }
     }
@@ -182,8 +201,10 @@ struct TodayView: View {
     @ViewBuilder
     private var decksSection: some View {
         let deckSummaries = appState.todaySummary?.decks ?? []
+        let roots = DeckTreeBuilder.build(from: deckSummaries)
+        let showTreeGutter = roots.contains { !$0.children.isEmpty }
         let treeNodes = DeckTreeBuilder.flatten(
-            DeckTreeBuilder.build(from: deckSummaries),
+            roots,
             collapsed: appState.collapsedDeckPaths
         )
         if !treeNodes.isEmpty {
@@ -205,31 +226,37 @@ struct TodayView: View {
                     ForEach(Array(treeNodes.enumerated()), id: \.element.id) { idx, node in
                         if let deck = node.deck {
                             let isCollapsed = appState.collapsedDeckPaths.contains(node.path)
-                            HStack(spacing: 0) {
-                                if !node.children.isEmpty {
-                                    Button {
-                                        toggleCollapse(node.path)
-                                    } label: {
-                                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                                            .font(.system(size: 11, weight: .bold))
-                                            .foregroundStyle(RemColor.muted)
-                                            .frame(width: 34, height: 40)
-                                            .contentShape(Rectangle())
+                            let deleteCopy = DeckTreeBuilder.describeDelete(node: node)
+                            HStack(spacing: 4) {
+                                if showTreeGutter {
+                                    if !node.children.isEmpty {
+                                        Button {
+                                            toggleCollapse(node.path)
+                                        } label: {
+                                            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundStyle(RemColor.faint)
+                                                .frame(width: 24, height: 36)
+                                                .contentShape(Rectangle())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel(isCollapsed ? "Expand \(node.label)" : "Collapse \(node.label)")
+                                    } else {
+                                        Color.clear
+                                            .frame(width: 24, height: 1)
                                     }
-                                    .buttonStyle(.plain)
-                                    .padding(.leading, CGFloat(min(node.depth, 4)) * 14 + 4)
-                                    .accessibilityLabel(isCollapsed ? "Expand \(node.label)" : "Collapse \(node.label)")
                                 }
 
                                 NavigationLink(value: deck.id) {
                                     DeckSummaryRow(
                                         deck: deck,
                                         displayName: node.label,
-                                        depth: node.children.isEmpty ? node.depth : 0,
+                                        depth: 0,
                                         dueOverride: node.dueCount,
                                         newDueOverride: node.newDueCount,
                                         totalOverride: node.totalCards,
-                                        leadingInset: node.children.isEmpty ? 14 : 2,
+                                        leadingInset: showTreeGutter ? 0 : 14,
+                                        iconSlotWidth: showTreeGutter ? 16 : nil,
                                         onStudy: node.dueCount > 0 ? {
                                             appState.startStudy(deckId: deck.id)
                                         } : nil
@@ -237,6 +264,7 @@ struct TodayView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
+                            .padding(.leading, showTreeGutter ? CGFloat(min(node.depth, 4)) * 16 + 10 : 0)
                             .contextMenu {
                                 if node.dueCount > 0 {
                                     Button {
@@ -251,17 +279,28 @@ struct TodayView: View {
                                     Label("Edit deck", systemImage: "slider.horizontal.3")
                                 }
                                 Button(role: .destructive) {
-                                    deckPendingDelete = deck
+                                    pendingDelete = .deck(id: deck.id, copy: deleteCopy)
                                 } label: {
-                                    Label("Delete deck", systemImage: "trash")
+                                    Label(
+                                        node.children.isEmpty ? "Delete deck" : "Delete deck & subdecks",
+                                        systemImage: "trash"
+                                    )
                                 }
                             }
                         } else {
+                            let deleteCopy = DeckTreeBuilder.describeDelete(node: node)
                             VirtualDeckFolderRow(
                                 node: node,
                                 isCollapsed: appState.collapsedDeckPaths.contains(node.path)
                             ) {
                                 toggleCollapse(node.path)
+                            }
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    pendingDelete = .tree(path: node.path, copy: deleteCopy)
+                                } label: {
+                                    Label("Delete folder", systemImage: "trash")
+                                }
                             }
                         }
 
@@ -321,6 +360,7 @@ struct DeckSummaryRow: View {
     var newDueOverride: UInt32? = nil
     var totalOverride: UInt32? = nil
     var leadingInset: CGFloat? = nil
+    var iconSlotWidth: CGFloat? = nil
     var onStudy: (() -> Void)? = nil
 
     private var effectiveName: String { displayName ?? deck.name }
@@ -332,7 +372,7 @@ struct DeckSummaryRow: View {
         HStack(spacing: 8) {
             if depth > 0 {
                 Color.clear
-                    .frame(width: CGFloat(min(depth, 4)) * 14, height: 1)
+                    .frame(width: CGFloat(min(depth, 4)) * 16, height: 1)
             }
 
             VStack(alignment: .leading, spacing: 3) {
@@ -340,6 +380,7 @@ struct DeckSummaryRow: View {
                     Circle()
                         .fill(Color(hexString: deck.color))
                         .frame(width: 8, height: 8)
+                        .frame(width: iconSlotWidth, alignment: .center)
                     Text(effectiveName)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(RemColor.text)
@@ -349,6 +390,7 @@ struct DeckSummaryRow: View {
                 Text(subtitleText)
                     .font(.caption)
                     .foregroundStyle(RemColor.muted)
+                    .padding(.leading, iconSlotWidth.map { $0 + 8 } ?? 0)
             }
 
             Spacer()
@@ -403,22 +445,18 @@ struct VirtualDeckFolderRow: View {
 
     var body: some View {
         Button(action: onToggle) {
-            HStack(spacing: 8) {
-                if node.depth > 0 {
-                    Color.clear
-                        .frame(width: CGFloat(min(node.depth, 4)) * 14, height: 1)
-                }
-
+            HStack(spacing: 4) {
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 10.5, weight: .bold))
-                    .foregroundStyle(RemColor.muted)
-                    .frame(width: 20, height: 24)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(RemColor.faint)
+                    .frame(width: 24, height: 32)
 
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 7) {
+                    HStack(spacing: 8) {
                         Image(systemName: "folder")
-                            .font(.caption)
+                            .font(.system(size: 12.5, weight: .medium))
                             .foregroundStyle(RemColor.muted)
+                            .frame(width: 16, alignment: .center)
                         Text(node.label)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(RemColor.text)
@@ -429,6 +467,7 @@ struct VirtualDeckFolderRow: View {
                     Text("\(countLabel)\(newPart)")
                         .font(.caption)
                         .foregroundStyle(RemColor.muted)
+                        .padding(.leading, 24)
                 }
 
                 Spacer()
@@ -439,11 +478,13 @@ struct VirtualDeckFolderRow: View {
                     RemPillBadge(text: "✓ Done", tone: .good)
                 }
             }
-            .padding(.horizontal, insetPadding ? 14 : 0)
+            .padding(.leading, CGFloat(min(node.depth, 4)) * 16 + (insetPadding ? 10 : 0))
+            .padding(.trailing, insetPadding ? 14 : 0)
             .padding(.vertical, insetPadding ? 13 : 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(isCollapsed ? "Expand \(node.label)" : "Collapse \(node.label)")
     }
 }
 

@@ -49,6 +49,32 @@ enum ClozeRenderer {
         var i = text.startIndex
 
         while i < lastCloseRange.lowerBound {
+            if text[i] == "`" {
+                var endTicks = i
+                while endTicks < text.endIndex && text[endTicks] == "`" {
+                    endTicks = text.index(after: endTicks)
+                }
+                let tickCount = text.distance(from: i, to: endTicks)
+                let tickStr = String(repeating: "`", count: tickCount)
+                var search = endTicks
+                var matchedEnd: String.Index? = nil
+                while let r = text[search...].range(of: tickStr) {
+                    let beforeOk = r.lowerBound == endTicks || text[text.index(before: r.lowerBound)] != "`"
+                    let afterOk = r.upperBound == text.endIndex || text[r.upperBound] != "`"
+                    if beforeOk && afterOk {
+                        matchedEnd = r.upperBound
+                        break
+                    }
+                    search = r.upperBound
+                }
+                if let matchedEnd {
+                    i = matchedEnd
+                    continue
+                }
+                i = endTicks
+                continue
+            }
+
             let next1 = text.index(after: i)
             guard next1 < text.endIndex else { break }
             let next2 = text.index(after: next1)
@@ -184,6 +210,106 @@ enum ClozeRenderer {
             cursor = span.range.upperBound
         }
         out += text[cursor...]
+        return out
+    }
+}
+
+// MARK: - Ruby / Furigana Formatter
+
+enum RubyFormatter {
+    struct Token: Equatable {
+        let base: String
+        let reading: String?
+    }
+
+    static func splitTokens(_ text: String) -> [Token] {
+        guard text.contains("{"), text.contains("|") else {
+            return [Token(base: text, reading: nil)]
+        }
+        var tokens: [Token] = []
+        var plain = ""
+        var i = text.startIndex
+
+        func flushPlain() {
+            if !plain.isEmpty {
+                tokens.append(Token(base: plain, reading: nil))
+                plain = ""
+            }
+        }
+
+        while i < text.endIndex {
+            if text[i] == "{" {
+                let afterOpen = text.index(after: i)
+                if let closeIdx = text[afterOpen...].firstIndex(of: "}") {
+                    let inner = String(text[afterOpen..<closeIdx])
+                    if !inner.contains("{"), !inner.contains("\n"),
+                       let pipeIdx = inner.firstIndex(of: "|"),
+                       inner[inner.index(after: pipeIdx)...].firstIndex(of: "|") == nil
+                    {
+                        let base = String(inner[..<pipeIdx]).trimmingCharacters(in: .whitespaces)
+                        let reading = String(inner[inner.index(after: pipeIdx)...]).trimmingCharacters(in: .whitespaces)
+                        if !base.isEmpty, !reading.isEmpty {
+                            flushPlain()
+                            tokens.append(Token(base: base, reading: reading))
+                            i = text.index(after: closeIdx)
+                            continue
+                        }
+                    }
+                }
+            }
+            plain.append(text[i])
+            i = text.index(after: i)
+        }
+        flushPlain()
+        return tokens
+    }
+
+    /// Strip `{base|reading}` outside inline code spans into plain `base` for previews.
+    static func stripMarkup(_ text: String) -> String {
+        guard text.contains("{"), text.contains("|") else { return text }
+        var out = ""
+        var i = text.startIndex
+        var buf = ""
+
+        func flushBuf() {
+            guard !buf.isEmpty else { return }
+            out += splitTokens(buf).map(\.base).joined()
+            buf = ""
+        }
+
+        while i < text.endIndex {
+            if text[i] == "`" {
+                var endTicks = i
+                while endTicks < text.endIndex && text[endTicks] == "`" {
+                    endTicks = text.index(after: endTicks)
+                }
+                let tickCount = text.distance(from: i, to: endTicks)
+                let tickStr = String(repeating: "`", count: tickCount)
+                var search = endTicks
+                var matchedEnd: String.Index? = nil
+                while let r = text[search...].range(of: tickStr) {
+                    let beforeOk = r.lowerBound == endTicks || text[text.index(before: r.lowerBound)] != "`"
+                    let afterOk = r.upperBound == text.endIndex || text[r.upperBound] != "`"
+                    if beforeOk && afterOk {
+                        matchedEnd = r.upperBound
+                        break
+                    }
+                    search = r.upperBound
+                }
+                if let matchedEnd {
+                    flushBuf()
+                    out += text[i..<matchedEnd]
+                    i = matchedEnd
+                    continue
+                }
+                buf += text[i..<endTicks]
+                i = endTicks
+                continue
+            }
+            buf.append(text[i])
+            i = text.index(after: i)
+        }
+        flushBuf()
         return out
     }
 }

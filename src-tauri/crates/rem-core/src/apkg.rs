@@ -915,40 +915,85 @@ fn build_cloze_card_content<R: Read + Seek>(
     ord: i64,
     media: &mut MediaLoader<'_, R>,
 ) -> Result<(String, String, Option<u32>), CollectionError> {
-    // Locate cloze field: prefer template `{{cloze:Field}}`, else first field with cloze syntax, else field 0.
+    let template = model.and_then(|m| {
+        m.templates
+            .get(&ord)
+            .or_else(|| m.templates.get(&0))
+            .or_else(|| m.templates.values().next())
+    });
+
+    // Locate cloze field: prefer template `{{...cloze:Field}}`, else first field with cloze syntax, else field 0.
     let cloze_field_idx = model
         .and_then(|m| {
-            let tmpl = m
-                .templates
-                .get(&0)
-                .or_else(|| m.templates.values().next())?;
+            let tmpl = template?;
             let name = extract_cloze_field_name(&tmpl.qfmt)?;
             m.fields.iter().position(|f| f.eq_ignore_ascii_case(&name))
         })
         .or_else(|| note.fields.iter().position(|f| has_cloze_deletions(f)))
         .unwrap_or(0);
 
-    let raw_front = note
+    let cloze_field_name_lower = model
+        .and_then(|m| m.fields.get(cloze_field_idx))
+        .map(|s| s.to_ascii_lowercase());
+
+    let raw_front_field = note
         .fields
         .get(cloze_field_idx)
         .map(String::as_str)
         .unwrap_or("");
-    let front = html_to_markdown(raw_front, media)?;
+    let raw_front = if let (Some(tmpl), Some(field_name_lower)) =
+        (template, cloze_field_name_lower.as_deref())
+    {
+        if template_uses_furigana_for_field(&tmpl.qfmt, field_name_lower) {
+            apply_anki_furigana_filter(raw_front_field)
+        } else {
+            raw_front_field.to_owned()
+        }
+    } else {
+        raw_front_field.to_owned()
+    };
+
+    let front = html_to_markdown(&raw_front, media)?;
     if front.trim().is_empty() {
         return Ok((String::new(), String::new(), None));
     }
 
-    let mut extra_parts = Vec::new();
-    for (idx, value) in note.fields.iter().enumerate() {
-        if idx == cloze_field_idx {
-            continue;
+    let back = if let (Some(model), Some(tmpl)) = (model, template) {
+        if !tmpl.afmt.trim().is_empty() {
+            let field_map: HashMap<String, &str> = model
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(idx, name)| {
+                    (
+                        name.to_ascii_lowercase(),
+                        note.fields.get(idx).map(String::as_str).unwrap_or(""),
+                    )
+                })
+                .collect();
+            let raw_back = render_anki_back_template_skipping(
+                &tmpl.afmt,
+                &field_map,
+                &note.tags,
+                cloze_field_name_lower.as_deref(),
+            );
+            html_to_markdown(&raw_back, media)?
+        } else {
+            String::new()
         }
-        let converted = html_to_markdown(value, media)?;
-        if !converted.trim().is_empty() {
-            extra_parts.push(converted);
+    } else {
+        let mut extra_parts = Vec::new();
+        for (idx, value) in note.fields.iter().enumerate() {
+            if idx == cloze_field_idx {
+                continue;
+            }
+            let converted = html_to_markdown(value, media)?;
+            if !converted.trim().is_empty() {
+                extra_parts.push(converted);
+            }
         }
-    }
-    let back = extra_parts.join("\n\n");
+        extra_parts.join("\n\n")
+    };
 
     let target_index = u32::try_from(ord.saturating_add(1)).unwrap_or(1).max(1);
     let indices = extract_cloze_indices(&front);
@@ -1009,18 +1054,77 @@ fn build_standard_card_content<R: Read + Seek>(
 }
 
 fn extract_cloze_field_name(qfmt: &str) -> Option<String> {
-    let lower = qfmt.to_ascii_lowercase();
-    let idx = lower.find("{{cloze:")?;
-    let rest = &qfmt[idx + "{{cloze:".len()..];
-    let end = rest.find("}}")?;
-    let name = rest[..end].trim();
-    (!name.is_empty()).then(|| name.to_owned())
+    let mut rest = qfmt;
+    while let Some(open) = rest.find("{{") {
+        let after_open = &rest[open + 2..];
+        let Some(close) = after_open.find("}}") else {
+            break;
+        };
+        let token = after_open[..close].trim();
+        rest = &after_open[close + 2..];
+        if token.starts_with('#') || token.starts_with('^') || token.starts_with('/') {
+            continue;
+        }
+        let parts: Vec<&str> = token.split(':').map(str::trim).collect();
+        if parts.len() >= 2 {
+            let has_cloze_filter = parts[..parts.len() - 1]
+                .iter()
+                .any(|f| f.eq_ignore_ascii_case("cloze") || f.eq_ignore_ascii_case("cloze-only"));
+            if has_cloze_filter {
+                let name = parts[parts.len() - 1];
+                if !name.is_empty() {
+                    return Some(name.to_owned());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn template_uses_furigana_for_field(qfmt: &str, field_name_lower: &str) -> bool {
+    let mut rest = qfmt;
+    while let Some(open) = rest.find("{{") {
+        let after_open = &rest[open + 2..];
+        let Some(close) = after_open.find("}}") else {
+            break;
+        };
+        let token = after_open[..close].trim();
+        rest = &after_open[close + 2..];
+        let parts: Vec<&str> = token.split(':').map(str::trim).collect();
+        if parts.len() >= 2
+            && parts[parts.len() - 1].eq_ignore_ascii_case(field_name_lower)
+            && parts[..parts.len() - 1]
+                .iter()
+                .any(|f| f.eq_ignore_ascii_case("furigana"))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_anki_metadata_token(name: &str) -> bool {
+    name.eq_ignore_ascii_case("Tags")
+        || name.eq_ignore_ascii_case("Deck")
+        || name.eq_ignore_ascii_case("Subdeck")
+        || name.eq_ignore_ascii_case("Card")
+        || name.eq_ignore_ascii_case("Type")
+        || name.eq_ignore_ascii_case("CardFlag")
 }
 
 fn render_anki_back_template(
     afmt: &str,
     fields: &HashMap<String, &str>,
     tags: &[String],
+) -> String {
+    render_anki_back_template_skipping(afmt, fields, tags, None)
+}
+
+fn render_anki_back_template_skipping(
+    afmt: &str,
+    fields: &HashMap<String, &str>,
+    tags: &[String],
+    skip_field_lower: Option<&str>,
 ) -> String {
     // Resolve conditionals *before* slicing after `<hr id=answer>` so conditionals wrapping
     // `{{FrontSide}}<hr id=answer>...` don't get split mid-block.
@@ -1033,24 +1137,90 @@ fn render_anki_back_template(
         current = next;
     }
     let stripped = strip_front_side_from_afmt(&current);
-    substitute_template_fields(&stripped, fields, tags)
+    substitute_template_fields(&stripped, fields, false, skip_field_lower)
+}
+
+fn find_front_side_token(input: &str) -> Option<(usize, usize)> {
+    let mut search = 0;
+    while let Some(rel) = input[search..].find("{{") {
+        let start = search + rel;
+        let after = &input[start + 2..];
+        let Some(rel_close) = after.find("}}") else {
+            break;
+        };
+        let token = after[..rel_close].trim();
+        let end = start + 2 + rel_close + 2;
+        if token.eq_ignore_ascii_case("FrontSide") {
+            return Some((start, end));
+        }
+        search = end;
+    }
+    None
+}
+
+fn find_hr_answer_tag(input: &str) -> Option<(usize, usize)> {
+    let lower = input.to_ascii_lowercase();
+    let mut search = 0;
+    while let Some(rel) = lower[search..].find("<hr") {
+        let start = search + rel;
+        let after_name = start + 3;
+        let valid_boundary = lower
+            .as_bytes()
+            .get(after_name)
+            .is_none_or(|b| b.is_ascii_whitespace() || *b == b'>' || *b == b'/');
+        if !valid_boundary {
+            search = after_name;
+            continue;
+        }
+        let Some(gt_pos) = find_html_tag_end(input, start) else {
+            break;
+        };
+        let attrs = &input[after_name..gt_pos];
+        if extract_html_attr(attrs, "id").is_some_and(|id| id.trim().eq_ignore_ascii_case("answer"))
+        {
+            return Some((start, gt_pos + 1));
+        }
+        search = gt_pos + 1;
+    }
+    None
+}
+
+fn strip_front_side_tokens(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some((start, end)) = find_front_side_token(rest) {
+        out.push_str(&rest[..start]);
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn strip_front_side_from_afmt(afmt: &str) -> String {
-    // Most Anki back templates look like `{{FrontSide}}\n<hr id=answer>\n{{Back}}`.
-    let lower = afmt.to_ascii_lowercase();
-    for marker in ["<hr id=answer>", "<hr id=\"answer\">", "<hr id='answer'>"] {
-        if let Some(pos) = lower.find(marker) {
-            return afmt[pos + marker.len()..].to_owned();
+    let front_side = find_front_side_token(afmt);
+    let hr_answer = find_hr_answer_tag(afmt);
+    match (front_side, hr_answer) {
+        // Standard `{{FrontSide}} ... <hr id=answer> ... {{Back}}`: slice after `<hr id=answer>`.
+        (Some((fs_start, _)), Some((hr_start, hr_end))) if fs_start < hr_start => {
+            strip_front_side_tokens(&afmt[hr_end..])
         }
+        // Custom template WITHOUT `{{FrontSide}}` before `<hr id=answer>`: preserve content above
+        // `<hr id=answer>` (often reading/audio on language decks) and drop only the anchor `<hr>`.
+        (_, Some((hr_start, hr_end))) => {
+            let mut combined = String::with_capacity(afmt.len());
+            combined.push_str(&afmt[..hr_start]);
+            combined.push_str("<br>");
+            combined.push_str(&afmt[hr_end..]);
+            strip_front_side_tokens(&combined)
+        }
+        (Some(_), None) => strip_front_side_tokens(afmt),
+        (None, None) => afmt.to_owned(),
     }
-    // Otherwise remove `{{FrontSide}}` directly so we don't duplicate the question.
-    replace_case_insensitive(afmt, "{{FrontSide}}", "")
 }
 
 fn render_anki_template(template: &str, fields: &HashMap<String, &str>, tags: &[String]) -> String {
     let mut current = strip_style_and_script(template);
-    // Resolve simple conditional sections `{{#Field}}...{{/Field}}` and `{{^Field}}...{{/Field}}`
+    // Resolve conditional sections `{{#Field}}...{{/Field}}` and `{{^Field}}...{{/Field}}`
     for _ in 0..8 {
         let next = resolve_template_conditionals(&current, fields, tags);
         if next == current {
@@ -1058,13 +1228,14 @@ fn render_anki_template(template: &str, fields: &HashMap<String, &str>, tags: &[
         }
         current = next;
     }
-    substitute_template_fields(&current, fields, tags)
+    substitute_template_fields(&current, fields, true, None)
 }
 
 fn substitute_template_fields(
     current: &str,
     fields: &HashMap<String, &str>,
-    tags: &[String],
+    is_front: bool,
+    skip_field_lower: Option<&str>,
 ) -> String {
     let mut out = String::with_capacity(current.len());
     let mut rest = current;
@@ -1079,31 +1250,99 @@ fn substitute_template_fields(
         let token = after_open[..close].trim();
         rest = &after_open[close + 2..];
 
-        if token.eq_ignore_ascii_case("Tags") {
-            out.push_str(&tags.join(" "));
-            continue;
-        }
-        if token.eq_ignore_ascii_case("FrontSide")
+        if token.is_empty()
+            || token.eq_ignore_ascii_case("FrontSide")
+            || is_anki_metadata_token(token)
             || token.starts_with('#')
             || token.starts_with('^')
             || token.starts_with('/')
         {
             continue;
         }
-        // Strip Anki template filters like `type:`, `text:`, `hint:`, `furigana:`, `kana:`, `kanji:`, `cloze:`
-        let field_name = token.rsplit(':').next().unwrap_or(token).trim();
-        if let Some(val) = fields.get(&field_name.to_ascii_lowercase()) {
-            out.push_str(val);
+
+        let parts: Vec<&str> = token.split(':').map(str::trim).collect();
+        let field_name = parts.last().copied().unwrap_or(token);
+        let filters = &parts[..parts.len().saturating_sub(1)];
+
+        if is_anki_metadata_token(field_name) || field_name.eq_ignore_ascii_case("FrontSide") {
+            continue;
+        }
+        if skip_field_lower.is_some_and(|skip| field_name.eq_ignore_ascii_case(skip)) {
+            continue;
+        }
+        // `{{tts ...:Field}}` is runtime TTS synthesis; `{{type:Field}}` on the Front is an input
+        // box and MUST NOT spoil the answer on the card front.
+        if filters.iter().any(|f| {
+            f.to_ascii_lowercase().starts_with("tts")
+                || (is_front && f.eq_ignore_ascii_case("type"))
+        }) {
+            continue;
+        }
+
+        let Some(&raw_val) = fields.get(&field_name.to_ascii_lowercase()) else {
+            continue;
+        };
+
+        let mut rendered = raw_val.to_owned();
+        let mut is_hint = false;
+        for filter in filters.iter().rev() {
+            let f_lower = filter.to_ascii_lowercase();
+            match f_lower.as_str() {
+                "kanji" => rendered = apply_anki_kanji_filter(&rendered),
+                "kana" => rendered = apply_anki_kana_filter(&rendered),
+                "furigana" => rendered = apply_anki_furigana_filter(&rendered),
+                "text" => rendered = strip_html_tags_plain(&rendered),
+                "hint" => is_hint = true,
+                "type" | "cloze" | "cloze-only" => {}
+                _ => {}
+            }
+        }
+        if is_hint {
+            if !strip_html_tags_plain(&rendered).trim().is_empty() {
+                out.push_str("<blockquote><i>Hint:</i> ");
+                out.push_str(&rendered);
+                out.push_str("</blockquote>");
+            }
+        } else {
+            out.push_str(&rendered);
         }
     }
     out.push_str(rest);
     out
 }
 
+fn find_matching_conditional_end(body: &str, field_name_lower: &str) -> Option<(usize, usize)> {
+    let mut depth = 1usize;
+    let mut search = 0usize;
+    while let Some(rel) = body[search..].find("{{") {
+        let pos = search + rel;
+        let after = &body[pos + 2..];
+        let Some(rel_close) = after.find("}}") else {
+            break;
+        };
+        let token = after[..rel_close].trim();
+        let token_end = pos + 2 + rel_close + 2;
+        if let Some(name) = token.strip_prefix('#').or_else(|| token.strip_prefix('^')) {
+            if name.trim().eq_ignore_ascii_case(field_name_lower) {
+                depth += 1;
+            }
+        } else if let Some(name) = token.strip_prefix('/') {
+            if name.trim().eq_ignore_ascii_case(field_name_lower) {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((pos, token_end));
+                }
+            }
+        }
+        search = token_end;
+    }
+    None
+}
+
 fn resolve_template_conditionals(
     template: &str,
     fields: &HashMap<String, &str>,
-    tags: &[String],
+    _tags: &[String],
 ) -> String {
     let mut out = String::with_capacity(template.len());
     let mut rest = template;
@@ -1118,22 +1357,23 @@ fn resolve_template_conditionals(
         if let Some(field_name) = tag.strip_prefix('#').or_else(|| tag.strip_prefix('^')) {
             let inverted = tag.starts_with('^');
             let field_name = field_name.trim();
-            let end_tag_lower = format!("{{{{/{}}}}}", field_name.to_ascii_lowercase());
+            let field_lower = field_name.to_ascii_lowercase();
             let body_start = &after_open[close + 2..];
-            let body_lower = body_start.to_ascii_lowercase();
-            if let Some(end_pos) = body_lower.find(&end_tag_lower) {
+            if let Some((end_pos, end_after)) =
+                find_matching_conditional_end(body_start, &field_lower)
+            {
                 let body = &body_start[..end_pos];
-                let non_empty = if field_name.eq_ignore_ascii_case("Tags") {
-                    !tags.is_empty()
-                } else {
-                    fields
-                        .get(&field_name.to_ascii_lowercase())
-                        .is_some_and(|v| !v.trim().is_empty())
-                };
-                if non_empty ^ inverted {
-                    out.push_str(body);
+                // Drop metadata conditional wrappers (`{{#Tags}}...{{/Tags}}`, `{{^Tags}}...{{/Tags}}`,
+                // `{{#Deck}}...`, etc.) completely so template tag bars / chrome never leak into cards.
+                if !is_anki_metadata_token(field_name) {
+                    let non_empty = fields
+                        .get(&field_lower)
+                        .is_some_and(|v| !v.trim().is_empty());
+                    if non_empty ^ inverted {
+                        out.push_str(body);
+                    }
                 }
-                rest = &body_start[end_pos + end_tag_lower.len()..];
+                rest = &body_start[end_after..];
                 continue;
             }
         }
@@ -1142,6 +1382,386 @@ fn resolve_template_conditionals(
     }
     out.push_str(rest);
     out
+}
+
+// ---------------------------------------------------------------------------
+// Anki Furigana / Kanji / Kana filters & conservative CJK bracket fallback
+// ---------------------------------------------------------------------------
+
+fn is_cjk_ideograph(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{3400}'..='\u{4DBF}'
+            | '\u{4E00}'..='\u{9FFF}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{20000}'..='\u{2A6DF}'
+            | '々'
+            | 'ヶ'
+            | '〆'
+            | '〇'
+    )
+}
+
+fn is_cjk_or_kana(ch: char) -> bool {
+    is_cjk_ideograph(ch)
+        || matches!(
+            ch,
+            '\u{3000}'..='\u{30FF}' | '\u{FF00}'..='\u{FFEF}' | '\u{3100}'..='\u{312F}'
+        )
+}
+
+fn is_kana_char(ch: char) -> bool {
+    matches!(ch, '\u{3040}'..='\u{309F}' | '\u{30A0}'..='\u{30FF}')
+}
+
+fn is_bopomofo_char(ch: char) -> bool {
+    matches!(ch, '\u{3100}'..='\u{312F}' | 'ˊ' | 'ˇ' | 'ˋ' | '˙')
+}
+
+fn is_pinyin_tone_vowel(ch: char) -> bool {
+    matches!(
+        ch,
+        'ā' | 'á'
+            | 'ǎ'
+            | 'à'
+            | 'ē'
+            | 'é'
+            | 'ě'
+            | 'è'
+            | 'ī'
+            | 'í'
+            | 'ǐ'
+            | 'ì'
+            | 'ō'
+            | 'ó'
+            | 'ǒ'
+            | 'ò'
+            | 'ū'
+            | 'ú'
+            | 'ǔ'
+            | 'ù'
+            | 'ǖ'
+            | 'ǘ'
+            | 'ǚ'
+            | 'ǜ'
+            | 'Ā'
+            | 'Á'
+            | 'Ǎ'
+            | 'À'
+            | 'Ē'
+            | 'É'
+            | 'Ě'
+            | 'È'
+            | 'Ī'
+            | 'Í'
+            | 'Ǐ'
+            | 'Ì'
+            | 'Ō'
+            | 'Ó'
+            | 'Ǒ'
+            | 'Ò'
+            | 'Ū'
+            | 'Ú'
+            | 'Ǔ'
+            | 'Ù'
+            | 'Ǖ'
+            | 'Ǘ'
+            | 'Ǚ'
+            | 'Ǜ'
+    )
+}
+
+fn looks_like_cjk_reading(reading: &str) -> bool {
+    let trimmed = reading.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 40 {
+        return false;
+    }
+    if trimmed.contains(['[', ']', '{', '}', '|', '\n', '\r', '<', '>']) {
+        return false;
+    }
+    if trimmed.to_ascii_lowercase().starts_with("sound:") {
+        return false;
+    }
+    // 1. Japanese kana reading (e.g. こた, まる, ニホンゴ)
+    let has_kana = trimmed.chars().any(is_kana_char);
+    if has_kana
+        && trimmed
+            .chars()
+            .all(|c| is_kana_char(c) || c.is_whitespace() || matches!(c, '、' | ',' | '･' | '・'))
+    {
+        return true;
+    }
+    // 2. Bopomofo / Zhuyin reading
+    let has_bopomofo = trimmed.chars().any(is_bopomofo_char);
+    if has_bopomofo
+        && trimmed
+            .chars()
+            .all(|c| is_bopomofo_char(c) || c.is_whitespace())
+    {
+        return true;
+    }
+    // 3. Pinyin with tone diacritics (e.g. `nǐ hǎo`, `zhōngguó`)
+    let has_pinyin_tone = trimmed.chars().any(is_pinyin_tone_vowel);
+    if has_pinyin_tone
+        && trimmed.chars().all(|c| {
+            c.is_ascii_alphabetic()
+                || is_pinyin_tone_vowel(c)
+                || matches!(c, 'ü' | 'Ü' | '\'' | '-' | ' ')
+        })
+    {
+        return true;
+    }
+    // 4. Tone-numbered pinyin syllables (e.g. `ni3 hao3`, `zhong1`)
+    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+    !tokens.is_empty()
+        && tokens.iter().all(|tok| {
+            let mut chars = tok.chars();
+            let Some(last) = chars.next_back() else {
+                return false;
+            };
+            let rest = chars.as_str();
+            matches!(last, '1'..='5')
+                && !rest.is_empty()
+                && rest.len() <= 7
+                && rest
+                    .chars()
+                    .all(|c| c.is_ascii_alphabetic() || matches!(c, 'ü' | 'Ü' | 'v' | 'V'))
+        })
+}
+
+#[derive(Clone, Copy)]
+enum AnkiReadingMode {
+    KanjiOnly,
+    KanaOnly,
+    FuriganaHtml,
+}
+
+fn transform_anki_bracket_readings(input: &str, mode: AnkiReadingMode) -> String {
+    if !input.contains('[') {
+        return input.to_owned();
+    }
+    let mut out = String::with_capacity(input.len() + 16);
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        // Skip HTML tags verbatim so attributes like `<div data-x="a[b]">` are untouched.
+        if bytes[i] == b'<'
+            && bytes
+                .get(i + 1)
+                .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'/' || *b == b'!')
+        {
+            if let Some(gt) = find_html_tag_end(input, i) {
+                out.push_str(&input[i..=gt]);
+                i = gt + 1;
+                continue;
+            }
+        }
+        // Skip `[sound:...]` tags untouched.
+        if bytes[i..]
+            .get(..7)
+            .is_some_and(|b| b.eq_ignore_ascii_case(b"[sound:"))
+        {
+            if let Some(rel_close) = input[i..].find(']') {
+                out.push_str(&input[i..i + rel_close + 1]);
+                i += rel_close + 1;
+                continue;
+            }
+        }
+        // Skip Anki math delimiters `\[...\]`, `\(...\)`, `[latex]...[/latex]`, `[$]...[/$]`, `[$$]...[/$$]`.
+        if bytes[i] == b'\\' && i + 1 < len && (bytes[i + 1] == b'[' || bytes[i + 1] == b'(') {
+            let close = if bytes[i + 1] == b'[' { r"\]" } else { r"\)" };
+            if let Some(rel_close) = input[i + 2..].find(close) {
+                let end = i + 2 + rel_close + 2;
+                out.push_str(&input[i..end]);
+                i = end;
+                continue;
+            }
+        }
+
+        // Check for `<base>[<reading>]` where `[` is NOT followed by `(` after `]`.
+        if bytes[i] == b'[' {
+            if let Some(rel_close) = input[i + 1..].find(']') {
+                let close_idx = i + 1 + rel_close;
+                let followed_by_paren = bytes.get(close_idx + 1) == Some(&b'(');
+                let reading = &input[i + 1..close_idx];
+                if !followed_by_paren
+                    && !reading.is_empty()
+                    && !reading.contains(['[', '<', '>', '\n', '\r'])
+                    && !reading.to_ascii_lowercase().starts_with("sound:")
+                    && !reading.eq_ignore_ascii_case("latex")
+                    && !reading.eq_ignore_ascii_case("/latex")
+                    && reading != "$"
+                    && reading != "/$"
+                    && reading != "$$"
+                    && reading != "/$$"
+                {
+                    // Extract the base run from the tail of `out` back to the nearest whitespace,
+                    // HTML tag boundary `>`, or start of string.
+                    let base_start = find_anki_furigana_base_start(&out);
+                    if base_start < out.len() {
+                        let base = out[base_start..].to_owned();
+                        out.truncate(base_start);
+                        // Anki uses a single space before `漢字[かんじ]` as a delimiter; consume it
+                        // when adjacent to CJK or an opening HTML tag like `<b> 丸[まる]</b>`.
+                        if out.ends_with(' ') {
+                            let before_space = out[..out.len() - 1].chars().next_back();
+                            if before_space.is_none_or(|c| is_cjk_or_kana(c) || c == '>') {
+                                out.pop();
+                            }
+                        }
+                        match mode {
+                            AnkiReadingMode::KanjiOnly => out.push_str(&base),
+                            AnkiReadingMode::KanaOnly => out.push_str(reading.trim()),
+                            AnkiReadingMode::FuriganaHtml => {
+                                out.push_str("<ruby>");
+                                out.push_str(&base);
+                                out.push_str("<rt>");
+                                out.push_str(reading.trim());
+                                out.push_str("</rt></ruby>");
+                            }
+                        }
+                        i = close_idx + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        let ch = input[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn find_anki_furigana_base_start(out: &str) -> usize {
+    let mut idx = out.len();
+    for (pos, ch) in out.char_indices().rev() {
+        if ch.is_whitespace() || matches!(ch, '>' | '<' | '[' | ']' | '{' | '}' | '(' | ')') {
+            break;
+        }
+        idx = pos;
+    }
+    // If the token before `[reading]` has trailing CJK ideographs after kana (e.g. `を勉強`),
+    // prefer only the trailing CJK ideograph run as the base so okurigana isn't swept into ruby.
+    let token = &out[idx..];
+    if token.chars().next_back().is_some_and(is_cjk_ideograph) {
+        let mut kanji_start = token.len();
+        for (pos, ch) in token.char_indices().rev() {
+            if is_cjk_ideograph(ch) {
+                kanji_start = pos;
+            } else {
+                break;
+            }
+        }
+        if kanji_start < token.len() {
+            return idx + kanji_start;
+        }
+    }
+    idx
+}
+
+fn apply_anki_kanji_filter(input: &str) -> String {
+    transform_anki_bracket_readings(input, AnkiReadingMode::KanjiOnly)
+}
+
+fn apply_anki_kana_filter(input: &str) -> String {
+    transform_anki_bracket_readings(input, AnkiReadingMode::KanaOnly)
+}
+
+fn apply_anki_furigana_filter(input: &str) -> String {
+    transform_anki_bracket_readings(input, AnkiReadingMode::FuriganaHtml)
+}
+
+/// Conservative fallback for real-world Anki CJK/JLPT decks that store `答[こた]えに 丸[まる]をつける`
+/// in plain fields and rely on card `<script>` JS (which we strip) instead of `{{furigana:...}}`.
+/// Converts ONLY `<CJK ideograph run>[<kana/bopomofo/pinyin reading>]` (never Markdown links `[x](y)`,
+/// never `[sound:...]`, never footnotes like `丸[1]`) into `{base|reading}`.
+fn convert_cjk_furigana_fallback(text: &str) -> String {
+    if !text.contains('[') {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len() + 16);
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        if bytes[i] == b'[' {
+            if let Some(rel_close) = text[i + 1..].find(']') {
+                let close_idx = i + 1 + rel_close;
+                let followed_by_paren = bytes.get(close_idx + 1) == Some(&b'(');
+                let reading = &text[i + 1..close_idx];
+                if !followed_by_paren && looks_like_cjk_reading(reading) {
+                    let mut kanji_start = out.len();
+                    for (pos, ch) in out.char_indices().rev() {
+                        if is_cjk_ideograph(ch) {
+                            kanji_start = pos;
+                        } else {
+                            break;
+                        }
+                    }
+                    if kanji_start < out.len() {
+                        let base = out[kanji_start..].to_owned();
+                        out.truncate(kanji_start);
+                        // Strip Anki's delimiter space between preceding CJK text and annotated kanji.
+                        if out.ends_with(' ') {
+                            let before_space = out[..out.len() - 1].chars().next_back();
+                            if before_space.is_some_and(is_cjk_or_kana) {
+                                out.pop();
+                            }
+                        }
+                        out.push('{');
+                        out.push_str(&base);
+                        out.push('|');
+                        out.push_str(reading.trim());
+                        out.push('}');
+                        i = close_idx + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+        let ch = text[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn strip_html_tags_plain(input: &str) -> String {
+    let stripped = strip_style_and_script(input);
+    let mut out = String::with_capacity(stripped.len());
+    let bytes = stripped.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    while i < len {
+        if bytes[i] == b'<' {
+            if stripped[i..].starts_with("<!--") {
+                if let Some(rel_end) = stripped[i + 4..].find("-->") {
+                    i = i + 4 + rel_end + 3;
+                } else {
+                    break;
+                }
+                continue;
+            }
+            if bytes
+                .get(i + 1)
+                .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'/' || *b == b'!')
+            {
+                if let Some(gt) = find_html_tag_end(&stripped, i) {
+                    i = gt + 1;
+                    continue;
+                }
+            }
+        }
+        let ch = stripped[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    decode_html_entities(&out)
 }
 
 // ---------------------------------------------------------------------------
@@ -1290,6 +1910,7 @@ fn restore_math_placeholders(input: &str, blocks: &[String]) -> String {
 
 fn resolve_sound_tags<R: Read + Seek>(
     input: &str,
+    inline_only: bool,
     media: &mut MediaLoader<'_, R>,
 ) -> Result<String, CollectionError> {
     let mut out = String::with_capacity(input.len());
@@ -1312,7 +1933,11 @@ fn resolve_sound_tags<R: Read + Seek>(
             clean_label
         };
         if let Some(hash) = media.load_by_filename(filename)? {
-            out.push_str(&format!("\n[Audio: {label}](asset:{hash})\n"));
+            if inline_only {
+                out.push_str(&format!("[Audio: {label}](asset:{hash})"));
+            } else {
+                out.push_str(&format!("\n[Audio: {label}](asset:{hash})\n"));
+            }
         } else {
             out.push_str(&format!("[Audio: {label}]"));
         }
@@ -1340,51 +1965,1248 @@ fn find_html_tag_end(input: &str, lt_pos: usize) -> Option<usize> {
     None
 }
 
-fn flush_html_text<R: Read + Seek>(
-    text_buf: &mut String,
-    out: &mut String,
-    in_link: bool,
-    media: &mut MediaLoader<'_, R>,
-) -> Result<(), CollectionError> {
-    if text_buf.is_empty() {
-        return Ok(());
+const MAX_HTML_FRAME_DEPTH: usize = 64;
+
+fn is_html_void_tag(tag: &str) -> bool {
+    matches!(
+        tag,
+        "area"
+            | "base"
+            | "br"
+            | "col"
+            | "embed"
+            | "hr"
+            | "img"
+            | "input"
+            | "link"
+            | "meta"
+            | "param"
+            | "source"
+            | "track"
+            | "wbr"
+    )
+}
+
+fn is_non_content_block_tag(tag: &str) -> bool {
+    matches!(
+        tag,
+        "style"
+            | "script"
+            | "button"
+            | "select"
+            | "option"
+            | "optgroup"
+            | "textarea"
+            | "svg"
+            | "noscript"
+            | "template"
+            | "head"
+            | "title"
+            | "iframe"
+            | "object"
+            | "canvas"
+    )
+}
+
+fn has_html_boolean_attr(tag_inner: &str, attr_name: &str) -> bool {
+    let lower = tag_inner.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+    // Skip tag name first
+    let mut i = 0;
+    while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'/' {
+        i += 1;
     }
-    // Decode HTML entities ONCE on raw text nodes (never post-hoc over emitted Markdown URLs).
-    let decoded = decode_html_entities(text_buf);
-    text_buf.clear();
-    let with_audio = resolve_sound_tags(&decoded, media)?;
-    if in_link {
-        for ch in with_audio.chars() {
-            match ch {
-                '\\' => out.push_str(r"\\"),
-                '[' => out.push_str(r"\["),
-                ']' => out.push_str(r"\]"),
-                _ => out.push(ch),
+    let mut quote: Option<u8> = None;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match quote {
+            Some(q) if b == q => {
+                quote = None;
+                i += 1;
+            }
+            Some(_) => {
+                i += 1;
+            }
+            None if b == b'"' || b == b'\'' => {
+                quote = Some(b);
+                i += 1;
+            }
+            None if b.is_ascii_whitespace() || b == b'/' || b == b'=' => {
+                i += 1;
+            }
+            None => {
+                let start = i;
+                while i < bytes.len()
+                    && !bytes[i].is_ascii_whitespace()
+                    && bytes[i] != b'='
+                    && bytes[i] != b'/'
+                    && bytes[i] != b'"'
+                    && bytes[i] != b'\''
+                {
+                    i += 1;
+                }
+                if i == start {
+                    i += 1;
+                    continue;
+                }
+                let name = &lower[start..i];
+                let after_ws = {
+                    let mut j = i;
+                    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                        j += 1;
+                    }
+                    j
+                };
+                if after_ws < bytes.len() && bytes[after_ws] == b'=' {
+                    // Advance past `= value` so attribute values are never mistaken for attribute names.
+                    let mut j = after_ws + 1;
+                    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                        j += 1;
+                    }
+                    let val_start = j;
+                    let val_slice = if j < bytes.len() && (bytes[j] == b'"' || bytes[j] == b'\'') {
+                        let q = bytes[j];
+                        j += 1;
+                        let s = j;
+                        while j < bytes.len() && bytes[j] != q {
+                            j += 1;
+                        }
+                        let e = j;
+                        if j < bytes.len() {
+                            j += 1;
+                        }
+                        &lower[s..e]
+                    } else {
+                        while j < bytes.len() && !bytes[j].is_ascii_whitespace() && bytes[j] != b'/'
+                        {
+                            j += 1;
+                        }
+                        &lower[val_start..j]
+                    };
+                    i = j;
+                    if name == attr_name && val_slice.trim() != "false" {
+                        return true;
+                    }
+                } else if name == attr_name {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn style_hides_element(tag_inner: &str) -> bool {
+    let Some(style) = extract_html_attr(tag_inner, "style") else {
+        return false;
+    };
+    let compact: String = style
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    for decl in compact.split(';') {
+        let trimmed = decl.trim();
+        if trimmed == "display:none"
+            || trimmed == "display:none!important"
+            || trimmed == "visibility:hidden"
+            || trimmed == "visibility:hidden!important"
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_hidden_element(tag_inner: &str) -> bool {
+    has_html_boolean_attr(tag_inner, "hidden") || style_hides_element(tag_inner)
+}
+
+fn is_action_anchor(tag_inner: &str) -> bool {
+    if let Some(href) = extract_html_attr(tag_inner, "href") {
+        let trimmed = href.trim();
+        if sanitize_external_url(trimmed).is_some() {
+            return false;
+        }
+        let lower = trimmed.to_ascii_lowercase();
+        if trimmed.is_empty()
+            || trimmed.starts_with('#')
+            || lower.starts_with("javascript:")
+            || lower.starts_with("anki:")
+            || lower.starts_with("data:")
+            || lower.starts_with("vbscript:")
+            || lower.starts_with("file:")
+        {
+            return true;
+        }
+    }
+    has_html_boolean_attr(tag_inner, "onclick")
+}
+
+fn collapse_html_whitespace(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut prev_space = false;
+    for ch in text.chars() {
+        if matches!(ch, '\u{200B}' | '\u{FEFF}') {
+            continue;
+        }
+        if matches!(ch, ' ' | '\t' | '\n' | '\r' | '\x0C') {
+            if !prev_space {
+                out.push(' ');
+                prev_space = true;
+            }
+        } else {
+            out.push(ch);
+            prev_space = false;
+        }
+    }
+    out
+}
+
+fn is_ascii_punctuation_for_flanking(ch: char) -> bool {
+    ch.is_ascii_punctuation()
+}
+
+fn is_word_like_for_flanking(ch: char) -> bool {
+    !ch.is_whitespace() && !ch.is_ascii_punctuation() && !is_cjk_punctuation(ch)
+}
+
+fn is_cjk_punctuation(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{3000}'..='\u{303F}' | '\u{FF01}'..='\u{FF0F}' | '\u{FF1A}'..='\u{FF20}' | '\u{FF3B}'..='\u{FF40}' | '\u{FF5B}'..='\u{FF65}'
+    )
+}
+
+fn append_wrapped_emphasis(out: &mut String, marker: &str, raw_inner: &str) -> bool {
+    let has_leading_ws = raw_inner.chars().next().is_some_and(char::is_whitespace);
+    let has_trailing_ws = raw_inner
+        .chars()
+        .next_back()
+        .is_some_and(char::is_whitespace);
+    let trimmed = raw_inner.trim();
+    if trimmed.is_empty() {
+        if (has_leading_ws || has_trailing_ws) && !out.is_empty() && !out.ends_with([' ', '\n']) {
+            out.push(' ');
+        }
+        return false;
+    }
+
+    let first_ch = trimmed.chars().next().unwrap();
+    let last_ch = trimmed.chars().next_back().unwrap();
+
+    // CommonMark flanking safety: if `trimmed` starts with ASCII punctuation (like `{` in `{丸|まる}`)
+    // and `out` ends with a word/CJK letter (like `に`), insert a space before the delimiter so
+    // `**{丸|まる}**` is recognized as left-flanking bold!
+    let needs_lead_space = has_leading_ws
+        || (is_ascii_punctuation_for_flanking(first_ch)
+            && out
+                .chars()
+                .next_back()
+                .is_some_and(is_word_like_for_flanking));
+    if needs_lead_space && !out.is_empty() && !out.ends_with([' ', '\n']) {
+        out.push(' ');
+    }
+
+    // Emphasis markers cannot span across blank lines (`\n\n`); apply per non-empty paragraph line.
+    if trimmed.contains('\n') {
+        let mut first_line = true;
+        for line in trimmed.split('\n') {
+            if !first_line {
+                out.push('\n');
+            }
+            first_line = false;
+            let lt = line.trim();
+            if !lt.is_empty() {
+                out.push_str(marker);
+                out.push_str(lt);
+                out.push_str(marker);
             }
         }
     } else {
-        out.push_str(&with_audio);
+        out.push_str(marker);
+        out.push_str(trimmed);
+        out.push_str(marker);
     }
-    Ok(())
+
+    if has_trailing_ws {
+        out.push(' ');
+        false
+    } else {
+        is_ascii_punctuation_for_flanking(last_ch)
+    }
+}
+
+fn format_inline_code(inner: &str) -> String {
+    let trimmed = inner.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let mut max_run = 0usize;
+    let mut cur_run = 0usize;
+    for ch in trimmed.chars() {
+        if ch == '`' {
+            cur_run += 1;
+            max_run = max_run.max(cur_run);
+        } else {
+            cur_run = 0;
+        }
+    }
+    let ticks = "`".repeat(max_run + 1);
+    let needs_pad = trimmed.starts_with('`') || trimmed.ends_with('`');
+    if needs_pad {
+        format!("{ticks} {trimmed} {ticks}")
+    } else {
+        format!("{ticks}{trimmed}{ticks}")
+    }
+}
+
+fn format_fenced_code_block(raw: &str) -> String {
+    let normalized = raw.replace("\r\n", "\n").replace('\r', "\n");
+    let trimmed = normalized.trim_matches('\n');
+    if trimmed.trim().is_empty() {
+        return String::new();
+    }
+    let mut max_run = 2usize;
+    let mut cur_run = 0usize;
+    for ch in trimmed.chars() {
+        if ch == '`' {
+            cur_run += 1;
+            max_run = max_run.max(cur_run);
+        } else {
+            cur_run = 0;
+        }
+    }
+    let fence = "`".repeat(max_run + 1);
+    format!("\n\n{fence}\n{trimmed}\n{fence}\n\n")
+}
+
+fn format_ruby_pair(base: &str, rt: &str) -> String {
+    let b = base.trim().replace(['{', '}', '|'], "");
+    let r = rt.trim().replace(['{', '}', '|'], "");
+    if b.is_empty() {
+        return String::new();
+    }
+    if r.is_empty() {
+        return b;
+    }
+    format!("{{{b}|{r}}}")
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ListKind {
+    Unordered,
+    Ordered(usize),
+}
+
+enum HtmlFrame {
+    Bold {
+        buf: String,
+    },
+    Italic {
+        buf: String,
+    },
+    Strike {
+        buf: String,
+    },
+    InlineCode {
+        buf: String,
+    },
+    Pre {
+        buf: String,
+    },
+    Link {
+        href: String,
+        buf: String,
+    },
+    Heading {
+        level: u8,
+        buf: String,
+    },
+    Blockquote {
+        buf: String,
+    },
+    ListItem {
+        depth: usize,
+        ordered_num: Option<usize>,
+        buf: String,
+    },
+    Ruby {
+        base_buf: String,
+        rt_buf: String,
+        in_rt: bool,
+        in_rp: bool,
+        completed: String,
+    },
+    Table {
+        rows: Vec<Vec<(String, bool)>>,
+        cur_row: Option<Vec<(String, bool)>>,
+        cur_cell: Option<(String, bool)>,
+    },
+}
+
+struct HtmlConverter<'a, 'b, R: Read + Seek> {
+    media: &'a mut MediaLoader<'b, R>,
+    root_out: String,
+    frames: Vec<HtmlFrame>,
+    list_stack: Vec<ListKind>,
+    skip_stack: Vec<String>,
+    text_buf: String,
+    space_if_next_word: bool,
+}
+
+impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
+    fn new(media: &'a mut MediaLoader<'b, R>, cap: usize) -> Self {
+        Self {
+            media,
+            root_out: String::with_capacity(cap),
+            frames: Vec::new(),
+            list_stack: Vec::new(),
+            skip_stack: Vec::new(),
+            text_buf: String::new(),
+            space_if_next_word: false,
+        }
+    }
+
+    fn in_pre(&self) -> bool {
+        self.frames
+            .iter()
+            .any(|f| matches!(f, HtmlFrame::Pre { .. }))
+    }
+
+    fn in_code(&self) -> bool {
+        self.frames
+            .iter()
+            .any(|f| matches!(f, HtmlFrame::Pre { .. } | HtmlFrame::InlineCode { .. }))
+    }
+
+    fn in_link(&self) -> bool {
+        self.frames
+            .iter()
+            .any(|f| matches!(f, HtmlFrame::Link { .. }))
+    }
+
+    fn in_inline_only_context(&self) -> bool {
+        self.frames.iter().any(|f| {
+            matches!(
+                f,
+                HtmlFrame::Link { .. }
+                    | HtmlFrame::Heading { .. }
+                    | HtmlFrame::Table { .. }
+                    | HtmlFrame::Bold { .. }
+                    | HtmlFrame::Italic { .. }
+                    | HtmlFrame::Strike { .. }
+                    | HtmlFrame::Ruby { .. }
+            )
+        })
+    }
+
+    fn in_ruby_rp(&self) -> bool {
+        self.frames
+            .iter()
+            .rev()
+            .find_map(|f| match f {
+                HtmlFrame::Ruby { in_rp, .. } => Some(*in_rp),
+                _ => None,
+            })
+            .unwrap_or(false)
+    }
+
+    fn active_buf_mut(&mut self) -> &mut String {
+        for frame in self.frames.iter_mut().rev() {
+            match frame {
+                HtmlFrame::Bold { buf }
+                | HtmlFrame::Italic { buf }
+                | HtmlFrame::Strike { buf }
+                | HtmlFrame::InlineCode { buf }
+                | HtmlFrame::Pre { buf }
+                | HtmlFrame::Link { buf, .. }
+                | HtmlFrame::Heading { buf, .. }
+                | HtmlFrame::Blockquote { buf }
+                | HtmlFrame::ListItem { buf, .. } => return buf,
+                HtmlFrame::Ruby {
+                    base_buf,
+                    rt_buf,
+                    in_rt,
+                    ..
+                } => {
+                    return if *in_rt { rt_buf } else { base_buf };
+                }
+                HtmlFrame::Table { cur_cell, .. } => {
+                    if let Some((cell_buf, _)) = cur_cell.as_mut() {
+                        return cell_buf;
+                    }
+                    // Text directly inside <table>/<tr> outside <td>/<th> goes to root or outer frame.
+                }
+            }
+        }
+        &mut self.root_out
+    }
+
+    fn push_str_to_active(&mut self, s: &str) {
+        if s.is_empty() {
+            return;
+        }
+        if self.space_if_next_word {
+            self.space_if_next_word = false;
+            if s.chars().next().is_some_and(is_word_like_for_flanking) {
+                let target = self.active_buf_mut();
+                if !target.ends_with([' ', '\n']) {
+                    target.push(' ');
+                }
+            }
+        }
+        let target = self.active_buf_mut();
+        target.push_str(s);
+    }
+
+    fn push_newline_boundary(&mut self, double: bool) {
+        self.space_if_next_word = false;
+        let in_table_cell = matches!(
+            self.frames.last(),
+            Some(HtmlFrame::Table {
+                cur_cell: Some(_),
+                ..
+            })
+        );
+        if in_table_cell {
+            let target = self.active_buf_mut();
+            if !target.is_empty() && !target.ends_with(' ') {
+                target.push(' ');
+            }
+            return;
+        }
+        let target = self.active_buf_mut();
+        if target.is_empty() {
+            return;
+        }
+        if double {
+            if !target.ends_with("\n\n") {
+                if target.ends_with('\n') {
+                    target.push('\n');
+                } else {
+                    target.push_str("\n\n");
+                }
+            }
+        } else if !target.ends_with('\n') {
+            target.push('\n');
+        }
+    }
+
+    fn flush_text(&mut self) -> Result<(), CollectionError> {
+        if self.text_buf.is_empty() {
+            return Ok(());
+        }
+        let raw = std::mem::take(&mut self.text_buf);
+        if !self.skip_stack.is_empty() || self.in_ruby_rp() {
+            return Ok(());
+        }
+
+        let decoded = decode_html_entities(&raw);
+        if self.in_pre() {
+            self.active_buf_mut().push_str(&decoded);
+            return Ok(());
+        }
+
+        let collapsed = collapse_html_whitespace(&decoded);
+        let inline_only = self.in_inline_only_context();
+        let with_audio = resolve_sound_tags(&collapsed, inline_only, self.media)?;
+        let processed = if self.in_code() || self.in_link() {
+            with_audio
+        } else {
+            convert_cjk_furigana_fallback(&with_audio)
+        };
+
+        if self.in_link() {
+            let mut escaped = String::with_capacity(processed.len());
+            for ch in processed.chars() {
+                match ch {
+                    '\\' => escaped.push_str(r"\\"),
+                    '[' => escaped.push_str(r"\["),
+                    ']' => escaped.push_str(r"\]"),
+                    _ => escaped.push(ch),
+                }
+            }
+            self.push_cleaned_text(&escaped);
+        } else {
+            self.push_cleaned_text(&processed);
+        }
+        Ok(())
+    }
+
+    fn push_cleaned_text(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let mut slice = text;
+        if slice.starts_with(' ') {
+            let target = self.active_buf_mut();
+            if target.is_empty() || target.ends_with([' ', '\n']) {
+                slice = &slice[1..];
+            }
+        }
+        if slice.is_empty() {
+            return;
+        }
+        self.push_str_to_active(slice);
+    }
+
+    fn handle_open_tag(
+        &mut self,
+        tag_name: &str,
+        tag_raw: &str,
+        self_closing: bool,
+    ) -> Result<(), CollectionError> {
+        // Inside a skipped subtree: track nested open tags of the same name so we match the right closer.
+        if let Some(top_skip) = self.skip_stack.last() {
+            if !self_closing && !is_html_void_tag(tag_name) && top_skip == tag_name {
+                self.skip_stack.push(tag_name.to_owned());
+            }
+            return Ok(());
+        }
+
+        if is_non_content_block_tag(tag_name)
+            || is_hidden_element(tag_raw)
+            || (tag_name == "a" && is_action_anchor(tag_raw))
+        {
+            if !self_closing && !is_html_void_tag(tag_name) {
+                self.skip_stack.push(tag_name.to_owned());
+            }
+            return Ok(());
+        }
+
+        if self.frames.len() >= MAX_HTML_FRAME_DEPTH {
+            return Ok(());
+        }
+
+        match tag_name {
+            "br" => {
+                if self.in_pre() {
+                    self.active_buf_mut().push('\n');
+                } else {
+                    let in_table_cell = matches!(
+                        self.frames.last(),
+                        Some(HtmlFrame::Table {
+                            cur_cell: Some(_),
+                            ..
+                        })
+                    );
+                    if in_table_cell {
+                        let target = self.active_buf_mut();
+                        if !target.is_empty() && !target.ends_with(' ') {
+                            target.push(' ');
+                        }
+                    } else {
+                        self.space_if_next_word = false;
+                        self.active_buf_mut().push('\n');
+                    }
+                }
+            }
+            "hr" => {
+                self.space_if_next_word = false;
+                self.active_buf_mut().push_str("\n\n---\n\n");
+            }
+            "p" | "section" | "article" => self.push_newline_boundary(true),
+            "div" | "header" | "footer" | "main" | "aside" | "nav" | "figure" | "figcaption"
+            | "dl" | "dt" | "dd" => self.push_newline_boundary(false),
+            "h1" => self.frames.push(HtmlFrame::Heading {
+                level: 1,
+                buf: String::new(),
+            }),
+            "h2" => self.frames.push(HtmlFrame::Heading {
+                level: 2,
+                buf: String::new(),
+            }),
+            "h3" => self.frames.push(HtmlFrame::Heading {
+                level: 3,
+                buf: String::new(),
+            }),
+            "h4" => self.frames.push(HtmlFrame::Heading {
+                level: 4,
+                buf: String::new(),
+            }),
+            "h5" => self.frames.push(HtmlFrame::Heading {
+                level: 5,
+                buf: String::new(),
+            }),
+            "h6" => self.frames.push(HtmlFrame::Heading {
+                level: 6,
+                buf: String::new(),
+            }),
+            "b" | "strong" if !self.in_pre() => {
+                if !self
+                    .frames
+                    .iter()
+                    .any(|f| matches!(f, HtmlFrame::Bold { .. }))
+                {
+                    self.frames.push(HtmlFrame::Bold { buf: String::new() });
+                }
+            }
+            "i" | "em" if !self.in_pre() => {
+                if !self
+                    .frames
+                    .iter()
+                    .any(|f| matches!(f, HtmlFrame::Italic { .. }))
+                {
+                    self.frames.push(HtmlFrame::Italic { buf: String::new() });
+                }
+            }
+            "del" | "s" | "strike" if !self.in_pre() => {
+                if !self
+                    .frames
+                    .iter()
+                    .any(|f| matches!(f, HtmlFrame::Strike { .. }))
+                {
+                    self.frames.push(HtmlFrame::Strike { buf: String::new() });
+                }
+            }
+            "pre" => {
+                self.frames.push(HtmlFrame::Pre { buf: String::new() });
+            }
+            "code" if !self.in_pre() => {
+                self.frames
+                    .push(HtmlFrame::InlineCode { buf: String::new() });
+            }
+            "ul" => {
+                self.push_newline_boundary(false);
+                self.list_stack.push(ListKind::Unordered);
+            }
+            "ol" => {
+                self.push_newline_boundary(false);
+                let start = extract_html_attr(tag_raw, "start")
+                    .and_then(|s| s.trim().parse::<usize>().ok())
+                    .unwrap_or(1)
+                    .max(1);
+                self.list_stack.push(ListKind::Ordered(start));
+            }
+            "li" => {
+                // Close any unclosed sibling `<li>` cleanly.
+                if matches!(self.frames.last(), Some(HtmlFrame::ListItem { .. })) {
+                    self.close_frame_matching(|f| matches!(f, HtmlFrame::ListItem { .. }));
+                }
+                let depth = self.list_stack.len().max(1);
+                let ordered_num = match self.list_stack.last_mut() {
+                    Some(ListKind::Ordered(n)) => {
+                        let cur = *n;
+                        *n = n.saturating_add(1);
+                        Some(cur)
+                    }
+                    _ => None,
+                };
+                self.frames.push(HtmlFrame::ListItem {
+                    depth,
+                    ordered_num,
+                    buf: String::new(),
+                });
+            }
+            "blockquote" => {
+                self.frames
+                    .push(HtmlFrame::Blockquote { buf: String::new() });
+            }
+            "ruby" if !self.in_pre() => {
+                self.frames.push(HtmlFrame::Ruby {
+                    base_buf: String::new(),
+                    rt_buf: String::new(),
+                    in_rt: false,
+                    in_rp: false,
+                    completed: String::new(),
+                });
+            }
+            "rt" => {
+                if let Some(HtmlFrame::Ruby { in_rt, in_rp, .. }) = self
+                    .frames
+                    .iter_mut()
+                    .rev()
+                    .find(|f| matches!(f, HtmlFrame::Ruby { .. }))
+                {
+                    *in_rt = true;
+                    *in_rp = false;
+                }
+            }
+            "rp" => {
+                if let Some(HtmlFrame::Ruby { in_rp, .. }) = self
+                    .frames
+                    .iter_mut()
+                    .rev()
+                    .find(|f| matches!(f, HtmlFrame::Ruby { .. }))
+                {
+                    *in_rp = true;
+                }
+            }
+            "rb" => {
+                if let Some(HtmlFrame::Ruby {
+                    base_buf,
+                    rt_buf,
+                    in_rt,
+                    in_rp,
+                    completed,
+                }) = self
+                    .frames
+                    .iter_mut()
+                    .rev()
+                    .find(|f| matches!(f, HtmlFrame::Ruby { .. }))
+                {
+                    if !rt_buf.trim().is_empty() {
+                        completed.push_str(&format_ruby_pair(base_buf, rt_buf));
+                        base_buf.clear();
+                        rt_buf.clear();
+                    }
+                    *in_rt = false;
+                    *in_rp = false;
+                }
+            }
+            "table" if !self.in_pre() => {
+                self.frames.push(HtmlFrame::Table {
+                    rows: Vec::new(),
+                    cur_row: None,
+                    cur_cell: None,
+                });
+            }
+            "tr" => {
+                if let Some(HtmlFrame::Table {
+                    rows,
+                    cur_row,
+                    cur_cell,
+                }) = self
+                    .frames
+                    .iter_mut()
+                    .rev()
+                    .find(|f| matches!(f, HtmlFrame::Table { .. }))
+                {
+                    if let Some(cell) = cur_cell.take() {
+                        cur_row.get_or_insert_with(Vec::new).push(cell);
+                    }
+                    if let Some(row) = cur_row.take() {
+                        rows.push(row);
+                    }
+                    *cur_row = Some(Vec::new());
+                } else {
+                    self.push_newline_boundary(false);
+                }
+            }
+            "td" | "th" => {
+                let is_header = tag_name == "th";
+                if let Some(HtmlFrame::Table {
+                    cur_row, cur_cell, ..
+                }) = self
+                    .frames
+                    .iter_mut()
+                    .rev()
+                    .find(|f| matches!(f, HtmlFrame::Table { .. }))
+                {
+                    if let Some(prev) = cur_cell.take() {
+                        cur_row.get_or_insert_with(Vec::new).push(prev);
+                    }
+                    if cur_row.is_none() {
+                        *cur_row = Some(Vec::new());
+                    }
+                    *cur_cell = Some((String::new(), is_header));
+                } else {
+                    self.push_str_to_active(" ");
+                }
+            }
+            "img" => {
+                if let Some(src) = extract_html_attr(tag_raw, "src") {
+                    let alt = extract_html_attr(tag_raw, "alt")
+                        .unwrap_or_default()
+                        .replace(['[', ']', '(', ')'], "");
+                    let inline_only = self.in_inline_only_context();
+                    if let Some(safe_url) = sanitize_external_url(&src) {
+                        if inline_only {
+                            self.push_str_to_active(&format!("![{alt}]({safe_url})"));
+                        } else {
+                            self.push_str_to_active(&format!("\n![{alt}]({safe_url})\n"));
+                        }
+                    } else if !is_disallowed_url_scheme(&src) {
+                        if let Some(hash) = self.media.load_by_filename(&src)? {
+                            if inline_only {
+                                self.push_str_to_active(&format!("![{alt}](asset:{hash})"));
+                            } else {
+                                self.push_str_to_active(&format!("\n![{alt}](asset:{hash})\n"));
+                            }
+                        }
+                    }
+                }
+            }
+            "a" if !self_closing => {
+                if let Some(href) = extract_html_attr(tag_raw, "href") {
+                    if let Some(safe_url) = sanitize_external_url(&href) {
+                        self.frames.push(HtmlFrame::Link {
+                            href: safe_url,
+                            buf: String::new(),
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn handle_close_tag(&mut self, tag_name: &str) {
+        if let Some(top_skip) = self.skip_stack.last() {
+            if top_skip == tag_name {
+                self.skip_stack.pop();
+            }
+            return;
+        }
+
+        match tag_name {
+            "p" | "section" | "article" => self.push_newline_boundary(true),
+            "div" | "header" | "footer" | "main" | "aside" | "nav" | "figure" | "figcaption"
+            | "dl" | "dt" | "dd" => self.push_newline_boundary(false),
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                self.close_frame_matching(|f| matches!(f, HtmlFrame::Heading { .. }));
+            }
+            "b" | "strong" => {
+                self.close_frame_matching(|f| matches!(f, HtmlFrame::Bold { .. }));
+            }
+            "i" | "em" => {
+                self.close_frame_matching(|f| matches!(f, HtmlFrame::Italic { .. }));
+            }
+            "del" | "s" | "strike" => {
+                self.close_frame_matching(|f| matches!(f, HtmlFrame::Strike { .. }));
+            }
+            "pre" => {
+                self.close_frame_matching(|f| matches!(f, HtmlFrame::Pre { .. }));
+            }
+            "code" => {
+                self.close_frame_matching(|f| matches!(f, HtmlFrame::InlineCode { .. }));
+            }
+            "a" => {
+                self.close_frame_matching(|f| matches!(f, HtmlFrame::Link { .. }));
+            }
+            "blockquote" => {
+                self.close_frame_matching(|f| matches!(f, HtmlFrame::Blockquote { .. }));
+            }
+            "li" => {
+                self.close_frame_matching(|f| matches!(f, HtmlFrame::ListItem { .. }));
+            }
+            "ul" | "ol" => {
+                if matches!(self.frames.last(), Some(HtmlFrame::ListItem { .. })) {
+                    self.close_frame_matching(|f| matches!(f, HtmlFrame::ListItem { .. }));
+                }
+                self.list_stack.pop();
+                self.push_newline_boundary(false);
+            }
+            "rt" => {
+                if let Some(HtmlFrame::Ruby {
+                    base_buf,
+                    rt_buf,
+                    in_rt,
+                    completed,
+                    ..
+                }) = self
+                    .frames
+                    .iter_mut()
+                    .rev()
+                    .find(|f| matches!(f, HtmlFrame::Ruby { .. }))
+                {
+                    *in_rt = false;
+                    completed.push_str(&format_ruby_pair(base_buf, rt_buf));
+                    base_buf.clear();
+                    rt_buf.clear();
+                }
+            }
+            "rp" => {
+                if let Some(HtmlFrame::Ruby { in_rp, .. }) = self
+                    .frames
+                    .iter_mut()
+                    .rev()
+                    .find(|f| matches!(f, HtmlFrame::Ruby { .. }))
+                {
+                    *in_rp = false;
+                }
+            }
+            "ruby" => {
+                self.close_frame_matching(|f| matches!(f, HtmlFrame::Ruby { .. }));
+            }
+            "td" | "th" => {
+                if let Some(HtmlFrame::Table {
+                    cur_row, cur_cell, ..
+                }) = self
+                    .frames
+                    .iter_mut()
+                    .rev()
+                    .find(|f| matches!(f, HtmlFrame::Table { .. }))
+                {
+                    if let Some(cell) = cur_cell.take() {
+                        cur_row.get_or_insert_with(Vec::new).push(cell);
+                    }
+                }
+            }
+            "tr" => {
+                if let Some(HtmlFrame::Table {
+                    rows,
+                    cur_row,
+                    cur_cell,
+                }) = self
+                    .frames
+                    .iter_mut()
+                    .rev()
+                    .find(|f| matches!(f, HtmlFrame::Table { .. }))
+                {
+                    if let Some(cell) = cur_cell.take() {
+                        cur_row.get_or_insert_with(Vec::new).push(cell);
+                    }
+                    if let Some(row) = cur_row.take() {
+                        rows.push(row);
+                    }
+                } else {
+                    self.push_newline_boundary(false);
+                }
+            }
+            "table" => {
+                self.close_frame_matching(|f| matches!(f, HtmlFrame::Table { .. }));
+            }
+            _ => {}
+        }
+    }
+
+    fn close_frame_matching<F: Fn(&HtmlFrame) -> bool>(&mut self, predicate: F) {
+        let Some(idx) = self.frames.iter().rposition(predicate) else {
+            return;
+        };
+        while self.frames.len() > idx {
+            if let Some(frame) = self.frames.pop() {
+                self.emit_closed_frame(frame);
+            }
+        }
+    }
+
+    fn emit_closed_frame(&mut self, frame: HtmlFrame) {
+        match frame {
+            HtmlFrame::Bold { buf } => {
+                let target = self.active_buf_mut();
+                let need_after = append_wrapped_emphasis(target, "**", &buf);
+                if need_after {
+                    self.space_if_next_word = true;
+                }
+            }
+            HtmlFrame::Italic { buf } => {
+                let target = self.active_buf_mut();
+                let need_after = append_wrapped_emphasis(target, "*", &buf);
+                if need_after {
+                    self.space_if_next_word = true;
+                }
+            }
+            HtmlFrame::Strike { buf } => {
+                let target = self.active_buf_mut();
+                let need_after = append_wrapped_emphasis(target, "~~", &buf);
+                if need_after {
+                    self.space_if_next_word = true;
+                }
+            }
+            HtmlFrame::InlineCode { buf } => {
+                let formatted = format_inline_code(&buf);
+                if !formatted.is_empty() {
+                    self.push_str_to_active(&formatted);
+                }
+            }
+            HtmlFrame::Pre { buf } => {
+                let formatted = format_fenced_code_block(&buf);
+                if !formatted.is_empty() {
+                    self.space_if_next_word = false;
+                    self.active_buf_mut().push_str(&formatted);
+                }
+            }
+            HtmlFrame::Link { href, buf } => {
+                let trimmed = buf.trim();
+                if !trimmed.is_empty() {
+                    let link_md = format!("[{trimmed}]({href})");
+                    self.push_str_to_active(&link_md);
+                }
+            }
+            HtmlFrame::Heading { level, buf } => {
+                let collapsed: String = buf.split_whitespace().collect::<Vec<_>>().join(" ");
+                if !collapsed.is_empty() {
+                    let hashes = "#".repeat(level as usize);
+                    self.space_if_next_word = false;
+                    self.active_buf_mut()
+                        .push_str(&format!("\n\n{hashes} {collapsed}\n\n"));
+                }
+            }
+            HtmlFrame::Blockquote { buf } => {
+                let trimmed = buf.trim();
+                if !trimmed.is_empty() {
+                    let mut quoted = String::from("\n\n");
+                    for line in trimmed.lines() {
+                        let lt = line.trim();
+                        if lt.is_empty() {
+                            quoted.push_str(">\n");
+                        } else {
+                            quoted.push_str("> ");
+                            quoted.push_str(lt);
+                            quoted.push('\n');
+                        }
+                    }
+                    quoted.push('\n');
+                    self.space_if_next_word = false;
+                    self.active_buf_mut().push_str(&quoted);
+                }
+            }
+            HtmlFrame::ListItem {
+                depth,
+                ordered_num,
+                buf,
+            } => {
+                let trimmed = buf.trim();
+                if !trimmed.is_empty() {
+                    // Cap indent to 1 level (2 spaces) so list items never accidentally hit 4-space code blocks.
+                    let indent = "  ".repeat(depth.saturating_sub(1).min(1));
+                    let marker = match ordered_num {
+                        Some(n) => format!("{n}. "),
+                        None => "- ".to_owned(),
+                    };
+                    let mut lines = trimmed.lines();
+                    let first = lines.next().unwrap_or("").trim();
+                    if !first.is_empty() {
+                        let mut item_md = format!("\n{indent}{marker}{first}");
+                        for cont in lines {
+                            let ct = cont.trim();
+                            if !ct.is_empty() {
+                                // Preserve nested list items as-is; otherwise keep continuation lines clean.
+                                if ct.starts_with("- ")
+                                    || ct.split_once(". ").is_some_and(|(num, _)| {
+                                        !num.is_empty() && num.chars().all(|c| c.is_ascii_digit())
+                                    })
+                                {
+                                    item_md.push('\n');
+                                    item_md.push_str("  ");
+                                    item_md.push_str(ct);
+                                } else {
+                                    item_md.push('\n');
+                                    item_md.push_str(&indent);
+                                    item_md.push_str("  ");
+                                    item_md.push_str(ct);
+                                }
+                            }
+                        }
+                        self.space_if_next_word = false;
+                        self.active_buf_mut().push_str(&item_md);
+                    }
+                }
+            }
+            HtmlFrame::Ruby {
+                base_buf,
+                rt_buf,
+                mut completed,
+                ..
+            } => {
+                if !base_buf.trim().is_empty() || !rt_buf.trim().is_empty() {
+                    completed.push_str(&format_ruby_pair(&base_buf, &rt_buf));
+                }
+                if !completed.is_empty() {
+                    self.push_str_to_active(&completed);
+                }
+            }
+            HtmlFrame::Table {
+                mut rows,
+                mut cur_row,
+                cur_cell,
+            } => {
+                if let Some(cell) = cur_cell {
+                    cur_row.get_or_insert_with(Vec::new).push(cell);
+                }
+                if let Some(row) = cur_row {
+                    rows.push(row);
+                }
+                let clean_rows: Vec<Vec<(String, bool)>> = rows
+                    .into_iter()
+                    .map(|row| {
+                        row.into_iter()
+                            .map(|(text, is_h)| {
+                                let clean = text
+                                    .lines()
+                                    .map(str::trim)
+                                    .filter(|l| !l.is_empty())
+                                    .collect::<Vec<_>>()
+                                    .join(" ");
+                                (clean, is_h)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .filter(|row| row.iter().any(|(c, _)| !c.is_empty()))
+                    .collect();
+
+                if clean_rows.is_empty() {
+                    return;
+                }
+                let max_cols = clean_rows.iter().map(Vec::len).max().unwrap_or(0);
+                if max_cols <= 1 {
+                    // Single-column layout table: unwrap cleanly as paragraphs.
+                    let mut unwrapped = String::from("\n\n");
+                    for row in clean_rows {
+                        for (cell, _) in row {
+                            if !cell.is_empty() {
+                                unwrapped.push_str(&cell);
+                                unwrapped.push_str("\n\n");
+                            }
+                        }
+                    }
+                    self.space_if_next_word = false;
+                    self.active_buf_mut().push_str(&unwrapped);
+                    return;
+                }
+
+                // Multi-column data table -> GFM pipe table (escape `|` inside cells so `{base\|reading}` stays intact!).
+                let escape_cell = |s: &str| s.replace('|', r"\|");
+                let pad_row = |row: &[(String, bool)]| -> Vec<String> {
+                    let mut cells: Vec<String> = row.iter().map(|(c, _)| escape_cell(c)).collect();
+                    while cells.len() < max_cols {
+                        cells.push(String::new());
+                    }
+                    cells
+                };
+
+                let mut table_md = String::from("\n\n");
+                let first_is_header = clean_rows[0].iter().any(|(_, is_h)| *is_h);
+                let (header_cells, body_start) = if first_is_header || clean_rows.len() > 1 {
+                    (pad_row(&clean_rows[0]), 1)
+                } else {
+                    (vec![String::new(); max_cols], 0)
+                };
+                table_md.push_str("| ");
+                table_md.push_str(&header_cells.join(" | "));
+                table_md.push_str(" |\n| ");
+                table_md.push_str(&vec!["---"; max_cols].join(" | "));
+                table_md.push_str(" |\n");
+                for row in &clean_rows[body_start..] {
+                    let cells = pad_row(row);
+                    table_md.push_str("| ");
+                    table_md.push_str(&cells.join(" | "));
+                    table_md.push_str(" |\n");
+                }
+                table_md.push('\n');
+                self.space_if_next_word = false;
+                self.active_buf_mut().push_str(&table_md);
+            }
+        }
+    }
+
+    fn finish(mut self) -> Result<String, CollectionError> {
+        self.flush_text()?;
+        while let Some(frame) = self.frames.pop() {
+            self.emit_closed_frame(frame);
+        }
+        Ok(self.root_out)
+    }
 }
 
 fn convert_html_structure<R: Read + Seek>(
     input: &str,
     media: &mut MediaLoader<'_, R>,
 ) -> Result<String, CollectionError> {
-    let mut out = String::with_capacity(input.len());
-    let mut text_buf = String::new();
+    let mut conv = HtmlConverter::new(media, input.len());
     let bytes = input.as_bytes();
     let len = bytes.len();
     let mut i = 0;
-    let mut in_pre = false;
-    let mut link_href: Option<String> = None;
 
     while i < len {
         if bytes[i] == b'<' {
             // Skip HTML comments `<!-- ... -->`
             if input[i..].starts_with("<!--") {
-                flush_html_text(&mut text_buf, &mut out, link_href.is_some(), media)?;
+                conv.flush_text()?;
                 if let Some(rel_end) = input[i + 4..].find("-->") {
                     i = i + 4 + rel_end + 3;
                 } else {
@@ -1399,10 +3221,11 @@ fn convert_html_structure<R: Read + Seek>(
                 .is_some_and(|b| b.is_ascii_alphabetic() || *b == b'/' || *b == b'!');
             if looks_like_tag {
                 if let Some(gt_pos) = find_html_tag_end(input, i) {
-                    flush_html_text(&mut text_buf, &mut out, link_href.is_some(), media)?;
+                    conv.flush_text()?;
                     let tag_raw = &input[i + 1..gt_pos];
                     let tag_trimmed = tag_raw.trim();
                     let is_closing = tag_trimmed.starts_with('/');
+                    let self_closing = !is_closing && tag_trimmed.ends_with('/');
                     let name_raw = if is_closing {
                         tag_trimmed[1..].trim()
                     } else {
@@ -1414,72 +3237,11 @@ fn convert_html_structure<R: Read + Seek>(
                         .unwrap_or("")
                         .to_ascii_lowercase();
 
-                    match (tag_name.as_str(), is_closing) {
-                        ("br", _) => out.push('\n'),
-                        ("hr", _) => out.push_str("\n\n---\n\n"),
-                        ("p" | "div" | "tr", false) => {
-                            if !out.is_empty() && !out.ends_with('\n') {
-                                out.push('\n');
-                            }
-                        }
-                        ("p" | "div" | "tr", true) => {
-                            if !out.ends_with('\n') {
-                                out.push('\n');
-                            }
-                        }
-                        ("h1", false) => out.push_str("\n\n# "),
-                        ("h2", false) => out.push_str("\n\n## "),
-                        ("h3", false) => out.push_str("\n\n### "),
-                        ("h4", false) => out.push_str("\n\n#### "),
-                        ("h5", false) => out.push_str("\n\n##### "),
-                        ("h6", false) => out.push_str("\n\n###### "),
-                        ("h1" | "h2" | "h3" | "h4" | "h5" | "h6", true) => out.push_str("\n\n"),
-                        ("b" | "strong", _) => out.push_str("**"),
-                        ("i" | "em", _) => out.push('*'),
-                        ("pre", false) => {
-                            in_pre = true;
-                            out.push_str("\n\n```\n");
-                        }
-                        ("pre", true) => {
-                            in_pre = false;
-                            out.push_str("\n```\n\n");
-                        }
-                        ("code", _) if !in_pre => out.push('`'),
-                        ("ul" | "ol", _) => out.push('\n'),
-                        ("li", false) => out.push_str("\n- "),
-                        ("blockquote", false) => out.push_str("\n> "),
-                        ("blockquote", true) => out.push('\n'),
-                        ("td" | "th", false) => out.push(' '),
-                        ("img", false) => {
-                            if let Some(src) = extract_html_attr(tag_raw, "src") {
-                                let alt = extract_html_attr(tag_raw, "alt")
-                                    .unwrap_or_default()
-                                    .replace(['[', ']', '(', ')'], "");
-                                if let Some(safe_url) = sanitize_external_url(&src) {
-                                    out.push_str(&format!("\n![{alt}]({safe_url})\n"));
-                                } else if !is_disallowed_url_scheme(&src) {
-                                    if let Some(hash) = media.load_by_filename(&src)? {
-                                        out.push_str(&format!("\n![{alt}](asset:{hash})\n"));
-                                    }
-                                }
-                            }
-                        }
-                        ("a", false) => {
-                            if let Some(href) = extract_html_attr(tag_raw, "href") {
-                                if let Some(safe_url) = sanitize_external_url(&href) {
-                                    link_href = Some(safe_url);
-                                    out.push('[');
-                                }
-                            }
-                        }
-                        ("a", true) => {
-                            if let Some(href) = link_href.take() {
-                                out.push_str(&format!("]({href})"));
-                            }
-                        }
-                        _ => {}
+                    if is_closing {
+                        conv.handle_close_tag(&tag_name);
+                    } else {
+                        conv.handle_open_tag(&tag_name, tag_raw, self_closing)?;
                     }
-
                     i = gt_pos + 1;
                     continue;
                 }
@@ -1487,15 +3249,11 @@ fn convert_html_structure<R: Read + Seek>(
         }
 
         let ch = input[i..].chars().next().unwrap();
-        text_buf.push(ch);
+        conv.text_buf.push(ch);
         i += ch.len_utf8();
     }
 
-    flush_html_text(&mut text_buf, &mut out, link_href.is_some(), media)?;
-    if let Some(href) = link_href {
-        out.push_str(&format!("]({href})"));
-    }
-    Ok(out)
+    conv.finish()
 }
 
 fn sanitize_external_url(raw: &str) -> Option<String> {
@@ -1612,9 +3370,44 @@ fn decode_one_entity(entity: &str) -> Option<String> {
         "gt" => Some(">".into()),
         "quot" => Some("\"".into()),
         "apos" | "#39" | "#x27" => Some("'".into()),
-        "nbsp" => Some(" ".into()),
+        "nbsp" | "ensp" | "emsp" | "thinsp" => Some(" ".into()),
         "mdash" => Some("—".into()),
         "ndash" => Some("–".into()),
+        "hellip" => Some("…".into()),
+        "lsquo" => Some("‘".into()),
+        "rsquo" => Some("’".into()),
+        "ldquo" => Some("“".into()),
+        "rdquo" => Some("”".into()),
+        "laquo" => Some("«".into()),
+        "raquo" => Some("»".into()),
+        "bull" => Some("•".into()),
+        "middot" => Some("·".into()),
+        "times" => Some("×".into()),
+        "divide" => Some("÷".into()),
+        "plusmn" => Some("±".into()),
+        "minus" => Some("−".into()),
+        "deg" => Some("°".into()),
+        "rarr" => Some("→".into()),
+        "larr" => Some("←".into()),
+        "uarr" => Some("↑".into()),
+        "darr" => Some("↓".into()),
+        "harr" => Some("↔".into()),
+        "rArr" => Some("⇒".into()),
+        "lArr" => Some("⇐".into()),
+        "hArr" => Some("⇔".into()),
+        "le" => Some("≤".into()),
+        "ge" => Some("≥".into()),
+        "ne" => Some("≠".into()),
+        "asymp" | "approx" => Some("≈".into()),
+        "infin" => Some("∞".into()),
+        "copy" => Some("©".into()),
+        "reg" => Some("®".into()),
+        "trade" => Some("™".into()),
+        "euro" => Some("€".into()),
+        "pound" => Some("£".into()),
+        "yen" => Some("¥".into()),
+        "sect" => Some("§".into()),
+        "para" => Some("¶".into()),
         _ if entity.starts_with("#x") || entity.starts_with("#X") => {
             u32::from_str_radix(&entity[2..], 16)
                 .ok()
@@ -1630,37 +3423,98 @@ fn decode_one_entity(entity: &str) -> Option<String> {
     }
 }
 
+fn is_blank_line_ignoring_invisibles(line: &str) -> bool {
+    line.chars().all(|c| {
+        c.is_whitespace() || matches!(c, '\u{200B}' | '\u{FEFF}' | '\u{200C}' | '\u{200D}')
+    })
+}
+
+fn is_nested_list_line(line: &str) -> bool {
+    let Some(after_two) = line.strip_prefix("  ") else {
+        return false;
+    };
+    if after_two.starts_with(' ') {
+        return false;
+    }
+    after_two.starts_with("- ")
+        || after_two
+            .split_once(". ")
+            .is_some_and(|(num, _)| !num.is_empty() && num.chars().all(|c| c.is_ascii_digit()))
+}
+
 fn normalize_markdown_whitespace(input: &str) -> String {
     let normalized = input.replace("\r\n", "\n").replace('\r', "\n");
-    let mut lines = Vec::new();
+    let mut lines: Vec<String> = Vec::new();
     let mut consecutive_empty = 0_u32;
+    let mut in_fence: Option<(char, usize)> = None;
+    let mut prev_was_list = false;
+
     for line in normalized.lines() {
+        let trimmed_start = line.trim_start();
+        // Track fenced code blocks (` ``` ` / `~~~`) so code indentation is preserved verbatim.
+        if let Some(ch) = trimmed_start
+            .chars()
+            .next()
+            .filter(|&c| c == '`' || c == '~')
+        {
+            let count = trimmed_start.chars().take_while(|&c| c == ch).count();
+            if count >= 3 {
+                let rest = trimmed_start[count..].trim();
+                match in_fence {
+                    None if !(ch == '`' && rest.contains('`')) => {
+                        in_fence = Some((ch, count));
+                        consecutive_empty = 0;
+                        prev_was_list = false;
+                        lines.push(trimmed_start.trim_end().to_owned());
+                        continue;
+                    }
+                    Some((och, olen)) if ch == och && count >= olen && rest.is_empty() => {
+                        in_fence = None;
+                        consecutive_empty = 0;
+                        prev_was_list = false;
+                        lines.push(trimmed_start.trim_end().to_owned());
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if in_fence.is_some() {
+            lines.push(line.trim_end().to_owned());
+            continue;
+        }
+
         let trimmed_end = line.trim_end();
-        if trimmed_end.trim().is_empty() {
+        if is_blank_line_ignoring_invisibles(trimmed_end) {
             consecutive_empty += 1;
+            prev_was_list = false;
             if consecutive_empty <= 1 {
                 lines.push(String::new());
             }
         } else {
             consecutive_empty = 0;
-            lines.push(trimmed_end.to_owned());
+            // Preserve 2-space nested list indentation ONLY when preceded by a list line;
+            // strip leading spaces/tabs everywhere else so indented HTML can NEVER trigger
+            // CommonMark 4-space indented code blocks!
+            let cleaned = if prev_was_list && is_nested_list_line(trimmed_end) {
+                trimmed_end.to_owned()
+            } else {
+                trimmed_end
+                    .trim_start_matches(|c: char| {
+                        c.is_whitespace() || matches!(c, '\u{200B}' | '\u{FEFF}')
+                    })
+                    .to_owned()
+            };
+            let trimmed_clean = cleaned.trim_start();
+            prev_was_list = trimmed_clean.starts_with("- ")
+                || trimmed_clean.split_once(". ").is_some_and(|(num, _)| {
+                    !num.is_empty() && num.chars().all(|c| c.is_ascii_digit())
+                });
+            lines.push(cleaned);
         }
     }
     lines.join("\n").trim().to_owned()
-}
-
-fn replace_case_insensitive(haystack: &str, needle: &str, replacement: &str) -> String {
-    let lower_h = haystack.to_ascii_lowercase();
-    let lower_n = needle.to_ascii_lowercase();
-    let mut out = String::with_capacity(haystack.len());
-    let mut pos = 0;
-    while let Some(rel) = lower_h[pos..].find(&lower_n) {
-        out.push_str(&haystack[pos..pos + rel]);
-        out.push_str(replacement);
-        pos += rel + needle.len();
-    }
-    out.push_str(&haystack[pos..]);
-    out
 }
 
 // ---------------------------------------------------------------------------

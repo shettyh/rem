@@ -1,12 +1,24 @@
 import SwiftUI
 
 struct DecksView: View {
+    private enum PendingDeckDelete {
+        case deck(id: String, copy: DeckDeleteCopy)
+        case tree(path: String, copy: DeckDeleteCopy)
+
+        var copy: DeckDeleteCopy {
+            switch self {
+            case .deck(_, let copy), .tree(_, let copy):
+                return copy
+            }
+        }
+    }
+
     @Bindable var appState: AppState
     @State private var searchText: String = ""
     @State private var cardHits: [CardSearchHitDto] = []
     @State private var isSearching: Bool = false
     @State private var searchToken: Int = 0
-    @State private var deckPendingDelete: DeckSummaryDto?
+    @State private var pendingDelete: PendingDeckDelete?
 
     private var trimmedSearch: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -24,7 +36,7 @@ struct DecksView: View {
 
     private func rolledUpTotals(for deck: DeckSummaryDto) -> (due: UInt32, newDue: UInt32, total: UInt32) {
         let descendants = allDeckSummaries.filter {
-            $0.id == deck.id || DeckTreeBuilder.isDescendantOrSelf($0.name, of: deck.name)
+            $0.id == deck.id || DeckTreeBuilder.isStrictDescendant($0.name, of: deck.name)
         }
         return (
             due: descendants.reduce(0) { $0 + $1.dueCount },
@@ -33,9 +45,17 @@ struct DecksView: View {
         )
     }
 
+    private var deckTreeRoots: [DeckTreeNode] {
+        DeckTreeBuilder.build(from: allDeckSummaries)
+    }
+
+    private var hasAnyNestedDecks: Bool {
+        deckTreeRoots.contains { !$0.children.isEmpty }
+    }
+
     private var treeNodes: [DeckTreeNode] {
         DeckTreeBuilder.flatten(
-            DeckTreeBuilder.build(from: allDeckSummaries),
+            deckTreeRoots,
             collapsed: appState.collapsedDeckPaths
         )
     }
@@ -70,37 +90,45 @@ struct DecksView: View {
                 } else {
                     List {
                         if trimmedSearch.isEmpty && !treeNodes.isEmpty {
+                            let showTreeGutter = hasAnyNestedDecks
                             Section {
                                 ForEach(treeNodes) { node in
                                     if let deck = node.deck {
                                         let isCollapsed = appState.collapsedDeckPaths.contains(node.path)
+                                        let deleteCopy = DeckTreeBuilder.describeDelete(node: node)
                                         HStack(spacing: 4) {
-                                            if !node.children.isEmpty {
-                                                Button {
-                                                    toggleCollapse(node.path)
-                                                } label: {
-                                                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                                                        .font(.system(size: 11, weight: .bold))
-                                                        .foregroundStyle(RemColor.muted)
-                                                        .frame(width: 28, height: 34)
-                                                        .contentShape(Rectangle())
+                                            if showTreeGutter {
+                                                if !node.children.isEmpty {
+                                                    Button {
+                                                        toggleCollapse(node.path)
+                                                    } label: {
+                                                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                                                            .font(.system(size: 11, weight: .semibold))
+                                                            .foregroundStyle(RemColor.faint)
+                                                            .frame(width: 24, height: 32)
+                                                            .contentShape(Rectangle())
+                                                    }
+                                                    .buttonStyle(.plain)
+                                                    .accessibilityLabel(isCollapsed ? "Expand \(node.label)" : "Collapse \(node.label)")
+                                                } else {
+                                                    Color.clear
+                                                        .frame(width: 24, height: 1)
                                                 }
-                                                .buttonStyle(.plain)
-                                                .padding(.leading, CGFloat(min(node.depth, 4)) * 14)
-                                                .accessibilityLabel(isCollapsed ? "Expand \(node.label)" : "Collapse \(node.label)")
                                             }
                                             NavigationLink(value: deck.id) {
                                                 DeckSummaryRow(
                                                     deck: deck,
                                                     showChevron: false,
                                                     displayName: node.label,
-                                                    depth: node.children.isEmpty ? node.depth : 0,
+                                                    depth: 0,
                                                     dueOverride: node.dueCount,
                                                     newDueOverride: node.newDueCount,
-                                                    totalOverride: node.totalCards
+                                                    totalOverride: node.totalCards,
+                                                    iconSlotWidth: showTreeGutter ? 16 : nil
                                                 )
                                             }
                                         }
+                                        .padding(.leading, CGFloat(min(node.depth, 4)) * 16)
                                         .swipeActions(edge: .leading, allowsFullSwipe: true) {
                                             if node.dueCount > 0 {
                                                 Button {
@@ -113,7 +141,7 @@ struct DecksView: View {
                                         }
                                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                             Button(role: .destructive) {
-                                                deckPendingDelete = deck
+                                                pendingDelete = .deck(id: deck.id, copy: deleteCopy)
                                             } label: {
                                                 Label("Delete", systemImage: "trash")
                                             }
@@ -132,18 +160,36 @@ struct DecksView: View {
                                                 Label("Edit deck", systemImage: "slider.horizontal.3")
                                             }
                                             Button(role: .destructive) {
-                                                deckPendingDelete = deck
+                                                pendingDelete = .deck(id: deck.id, copy: deleteCopy)
                                             } label: {
-                                                Label("Delete deck", systemImage: "trash")
+                                                Label(
+                                                    node.children.isEmpty ? "Delete deck" : "Delete deck & subdecks",
+                                                    systemImage: "trash"
+                                                )
                                             }
                                         }
                                     } else {
+                                        let deleteCopy = DeckTreeBuilder.describeDelete(node: node)
                                         VirtualDeckFolderRow(
                                             node: node,
                                             isCollapsed: appState.collapsedDeckPaths.contains(node.path),
                                             insetPadding: false
                                         ) {
                                             toggleCollapse(node.path)
+                                        }
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                            Button(role: .destructive) {
+                                                pendingDelete = .tree(path: node.path, copy: deleteCopy)
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                        }
+                                        .contextMenu {
+                                            Button(role: .destructive) {
+                                                pendingDelete = .tree(path: node.path, copy: deleteCopy)
+                                            } label: {
+                                                Label("Delete folder", systemImage: "trash")
+                                            }
                                         }
                                     }
                                 }
@@ -154,6 +200,11 @@ struct DecksView: View {
                             Section("Decks") {
                                 ForEach(filteredDecks, id: \.id) { deck in
                                     let totals = rolledUpTotals(for: deck)
+                                    let deleteCopy = DeckTreeBuilder.describeDelete(
+                                        deckId: deck.id,
+                                        deckName: deck.name,
+                                        allSummaries: allDeckSummaries
+                                    )
                                     NavigationLink(value: deck.id) {
                                         DeckSummaryRow(
                                             deck: deck,
@@ -175,7 +226,7 @@ struct DecksView: View {
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         Button(role: .destructive) {
-                                            deckPendingDelete = deck
+                                            pendingDelete = .deck(id: deck.id, copy: deleteCopy)
                                         } label: {
                                             Label("Delete", systemImage: "trash")
                                         }
@@ -194,7 +245,7 @@ struct DecksView: View {
                                             Label("Edit deck", systemImage: "slider.horizontal.3")
                                         }
                                         Button(role: .destructive) {
-                                            deckPendingDelete = deck
+                                            pendingDelete = .deck(id: deck.id, copy: deleteCopy)
                                         } label: {
                                             Label("Delete deck", systemImage: "trash")
                                         }
@@ -283,17 +334,22 @@ struct DecksView: View {
                 DeckDetailView(appState: appState, deckId: deckId)
             }
             .alert(
-                "Delete deck?",
+                pendingDelete?.copy.title ?? "Delete deck?",
                 isPresented: Binding(
-                    get: { deckPendingDelete != nil },
-                    set: { if !$0 { deckPendingDelete = nil } }
+                    get: { pendingDelete != nil },
+                    set: { if !$0 { pendingDelete = nil } }
                 )
             ) {
-                if let deck = deckPendingDelete {
-                    Button("Delete", role: .destructive) {
-                        deckPendingDelete = nil
+                if let target = pendingDelete {
+                    Button(target.copy.confirmLabel, role: .destructive) {
+                        pendingDelete = nil
                         Task {
-                            await appState.deleteDeck(id: deck.id)
+                            switch target {
+                            case .deck(let id, _):
+                                await appState.deleteDeck(id: id)
+                            case .tree(let path, _):
+                                await appState.deleteDeckTree(path: path)
+                            }
                             if !trimmedSearch.isEmpty {
                                 await runCardSearch(trimmedSearch)
                             }
@@ -301,10 +357,10 @@ struct DecksView: View {
                     }
                 }
                 Button("Cancel", role: .cancel) {
-                    deckPendingDelete = nil
+                    pendingDelete = nil
                 }
             } message: {
-                Text("This deletes the deck and all its cards locally and on synced devices.")
+                Text(pendingDelete?.copy.message ?? "This deletes the deck and all its cards locally and on synced devices.")
             }
         }
     }

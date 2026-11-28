@@ -26,7 +26,11 @@ import { hashBytes } from '../assetHash'
 import { assetRefs } from '../assetRefs'
 import { getScheduler } from '../../domain/scheduler'
 import { extractSiblingCardIndices } from '../../features/cards/occlusion'
-import { normalizeDeckName } from '../../features/decks/deckTree'
+import {
+  deckIsDescendantOrSelf,
+  deckIsStrictDescendant,
+  normalizeDeckName,
+} from '../../features/decks/deckTree'
 import { BrowserStudySession, type ReviewRollback } from '../../features/review/browserStudy'
 import { buildStats, type StatsRange } from '../../features/stats/stats'
 import { localDay } from '../../features/review/day'
@@ -104,15 +108,50 @@ export class DexieStorage implements Storage {
       [this.db.decks, this.db.cards, this.db.cardDrafts, this.db.tombstones, this.db.dailyStats,
         this.db.reviewLogs],
       async () => {
-        await this.db.cards.where('deckId').equals(id).delete()
-        await this.db.cardDrafts.where('deckId').equals(id).delete()
-        await this.db.dailyStats.where('deckId').equals(id).delete()
-        await this.db.reviewLogs.where('deckId').equals(id).delete()
-        await this.db.decks.delete(id)
-        await this.db.tombstones.put({ id, kind: 'deck', deletedAt: Date.now() })
+        const existing = await this.db.decks.get(id)
+        const targetIds: ID[] = existing
+          ? (await this.db.decks.orderBy('createdAt').toArray())
+              .filter((deck) => deck.id === id || deckIsStrictDescendant(deck.name, existing.name))
+              .map((deck) => deck.id)
+          : [id]
+        await this.deleteDeckIdsInTx(targetIds)
       },
     )
     this.notify()
+  }
+
+  async deleteDeckTree(path: string): Promise<ID[]> {
+    const normalized = normalizeDeckName(path)
+    const deletedIds = await this.db.transaction(
+      'rw',
+      [this.db.decks, this.db.cards, this.db.cardDrafts, this.db.tombstones, this.db.dailyStats,
+        this.db.reviewLogs],
+      async () => {
+        const allDecks = await this.db.decks.orderBy('createdAt').toArray()
+        const targetIds = allDecks
+          .filter((deck) => deckIsDescendantOrSelf(deck.name, normalized))
+          .map((deck) => deck.id)
+        if (targetIds.length === 0) {
+          throw new Error(`deck not found: ${normalized}`)
+        }
+        await this.deleteDeckIdsInTx(targetIds)
+        return targetIds
+      },
+    )
+    this.notify()
+    return deletedIds
+  }
+
+  private async deleteDeckIdsInTx(ids: ID[]): Promise<void> {
+    const deletedAt = Date.now()
+    for (const deckId of ids) {
+      await this.db.cards.where('deckId').equals(deckId).delete()
+      await this.db.cardDrafts.where('deckId').equals(deckId).delete()
+      await this.db.dailyStats.where('deckId').equals(deckId).delete()
+      await this.db.reviewLogs.where('deckId').equals(deckId).delete()
+      await this.db.decks.delete(deckId)
+      await this.db.tombstones.put({ id: deckId, kind: 'deck', deletedAt })
+    }
   }
 
   async createCard(deckId: ID, front: string, back: string, tags: string[] = []): Promise<Card> {
@@ -556,13 +595,24 @@ export class DexieStorage implements Storage {
   }
 
   async getStats(deckId: ID | null, days: number, now = Date.now()): Promise<CollectionStats> {
-    const [decks, logs, cards] = await Promise.all([
+    const [decks, logs, allCards] = await Promise.all([
       this.listDecks(),
       this.db.reviewLogs.toArray(),
-      deckId
-        ? this.db.cards.where('deckId').equals(deckId).toArray()
-        : this.db.cards.toArray(),
+      this.db.cards.toArray(),
     ])
+    const rootDeck = deckId ? decks.find((d) => d.id === deckId) : undefined
+    const scopedDeckIds = deckId
+      ? new Set(
+          rootDeck
+            ? decks
+                .filter((d) => d.id === rootDeck.id || deckIsStrictDescendant(d.name, rootDeck.name))
+                .map((d) => d.id)
+            : [deckId],
+        )
+      : null
+    const cards = scopedDeckIds
+      ? allCards.filter((card) => scopedDeckIds.has(card.deckId))
+      : allCards
     const range = (days === 7 || days === 30 || days === 90 ? days : 30) as StatsRange
     const summary = buildStats(logs, decks, now, range, deckId)
 

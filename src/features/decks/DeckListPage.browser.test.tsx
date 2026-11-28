@@ -73,3 +73,88 @@ test('renders studied progress as an inline ring beside deck metadata instead of
   expect(document.querySelector('.deck-list-progress')).toBeNull()
   expect(document.querySelector('.deck-progress-ring.is-complete')).toBeTruthy()
 })
+
+test('formats nested decks with aligned chevrons, icons, typography, and progressive indentation', async () => {
+  localStorage.removeItem('rem:collapsed-deck-paths')
+  const storage = freshStorage()
+  const u1 = await storage.createDeck('Anatomy::Unit 01::Cells')
+  const u3 = await storage.createDeck('Anatomy::Unit 03')
+  const u3Child = await storage.createDeck('Anatomy::Unit 03::3.1 Intro')
+  const rust = await storage.createDeck('Rust')
+  await storage.createCard(u1.id, 'Q1', 'A1')
+  await storage.createCard(u3.id, 'Q2', 'A2')
+  await storage.createCard(u3Child.id, 'Q3', 'A3')
+  await storage.createCard(rust.id, 'Q4', 'A4')
+
+  await renderRoute({ storage, entry: '/', path: '/', element: <DeckListPage /> })
+  await expect.element(page.getByText('3.1 Intro').first()).toBeVisible()
+  await expect
+    .poll(() => document.querySelectorAll('.side-decks .side-deck-row').length)
+    .toBe(6)
+
+  const sidebar = document.querySelector<HTMLElement>('.side-decks')!
+  const rows = [...sidebar.querySelectorAll<HTMLElement>('.side-deck-row')]
+  const byLabel = (label: string) =>
+    rows.find((row) => row.querySelector('.nav-grow')?.textContent?.trim() === label)!
+
+  const anatomyRow = byLabel('Anatomy')
+  const rustRow = byLabel('Rust')
+  const unit01Row = byLabel('Unit 01')
+  const unit03Row = byLabel('Unit 03')
+  const introRow = byLabel('3.1 Intro')
+
+  // Depth 0 virtual folder and depth 0 leaf deck share identical typography and icon/label X alignment.
+  const anatomyMain = anatomyRow.querySelector<HTMLElement>('.side-deck-main')!
+  const rustMain = rustRow.querySelector<HTMLElement>('.side-deck-main')!
+  expect(getComputedStyle(anatomyMain).fontSize).toBe(getComputedStyle(rustMain).fontSize)
+  expect(getComputedStyle(anatomyMain).fontWeight).toBe(getComputedStyle(rustMain).fontWeight)
+  expect(getComputedStyle(anatomyMain).cursor).toBe('pointer')
+  expect(
+    Math.abs(
+      anatomyRow.querySelector('.nav-grow')!.getBoundingClientRect().left -
+        rustRow.querySelector('.nav-grow')!.getBoundingClientRect().left,
+    ),
+  ).toBeLessThan(1)
+
+  // Real parent deck (Unit 03, depth 1) aligns its chevron & label with virtual sibling (Unit 01, depth 1),
+  // indented strictly to the right of depth 0 (Anatomy).
+  const anatomyChevronLeft = anatomyRow.querySelector('.deck-tree-toggle')!.getBoundingClientRect().left
+  const unit01ChevronLeft = unit01Row.querySelector('.deck-tree-toggle')!.getBoundingClientRect().left
+  const unit03ChevronLeft = unit03Row.querySelector('.deck-tree-toggle')!.getBoundingClientRect().left
+  expect(unit03ChevronLeft).toBeGreaterThan(anatomyChevronLeft)
+  expect(Math.abs(unit03ChevronLeft - unit01ChevronLeft)).toBeLessThan(1)
+
+  // Depth 2 child (3.1 Intro) icon is strictly indented to the right of its depth 1 real parent (Unit 03).
+  const unit03IconLeft = unit03Row.querySelector('.deck-icon')!.getBoundingClientRect().left
+  const introIconLeft = introRow.querySelector('.deck-icon')!.getBoundingClientRect().left
+  expect(introIconLeft).toBeGreaterThan(unit03IconLeft)
+
+  // Uses crisp SVG chevron rather than raw Unicode triangle glyph.
+  expect(anatomyRow.querySelector('.deck-tree-toggle svg.deck-chevron')).toBeTruthy()
+  expect(anatomyRow.querySelector('.deck-tree-toggle')?.textContent?.trim()).toBe('')
+})
+
+test('deletes a whole virtual parent folder from Today with subtree count confirmation', async () => {
+  localStorage.removeItem('rem:collapsed-deck-paths')
+  const storage = freshStorage()
+  const d1 = await storage.createDeck('JLPT::N5::Vocab')
+  const d2 = await storage.createDeck('JLPT::N4::Kanji')
+  const keep = await storage.createDeck('Rust')
+  await storage.createCard(d1.id, 'Q1', 'A1')
+  await storage.createCard(d2.id, 'Q2', 'A2')
+  await storage.createCard(keep.id, 'Q3', 'A3')
+
+  await renderRoute({ storage, entry: '/', path: '/', element: <DeckListPage /> })
+  const deckList = page.getByLabelText('Decks')
+  await expect.element(deckList.getByText('JLPT')).toBeVisible()
+
+  const jlptRow = deckList.element().querySelector<HTMLElement>('.deck-list-row--virtual')!
+  const deleteBtn = jlptRow.querySelector<HTMLButtonElement>('.deck-list-delete')!
+  deleteBtn.click()
+
+  await expect.element(page.getByText('Delete "JLPT"?')).toBeVisible()
+  await expect.element(page.getByText(/2 subdecks and 2 cards inside "JLPT"/)).toBeVisible()
+  await page.getByRole('button', { name: 'Delete all' }).click()
+
+  await expect.poll(async () => (await storage.listDecks()).map((d) => d.name)).toEqual(['Rust'])
+})

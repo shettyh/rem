@@ -73,4 +73,38 @@ describe('MarkdownView assets', () => {
     )
     expect(multiline.container.querySelector('.katex-display')).not.toBeNull()
   })
+
+  it('renders {base|reading} furigana as semantic <ruby>/<rt> outside code and keeps untagged code unhighlighted', async () => {
+    const storage = new DexieStorage(new RemDB('rem-mdview'))
+    const source = [
+      '{答|こた}えに **{丸|まる}** をつける and `{残|のこ}` in code.',
+      '',
+      '| Kanji | Meaning |',
+      '| --- | --- |',
+      '| {日\\|にち} | day |',
+      '',
+      '```',
+      'plain [bracket] text',
+      '```',
+    ].join('\n')
+
+    const { container } = await render(
+      <StorageProvider storage={storage}>
+        <MarkdownView source={source} />
+      </StorageProvider>,
+    )
+
+    const rubies = [...container.querySelectorAll('ruby')]
+    expect(rubies.length).toBe(3)
+    expect(rubies[0].querySelector('rt')?.textContent).toBe('こた')
+    expect(rubies[1].querySelector('rt')?.textContent).toBe('まる')
+    expect(rubies[1].closest('strong')).not.toBeNull()
+    expect(rubies[2].querySelector('rt')?.textContent).toBe('にち')
+    expect(rubies[2].closest('td')).not.toBeNull()
+
+    // Inline code keeps `{残|のこ}` verbatim
+    expect(container.querySelector(':not(pre) > code')?.textContent).toBe('{残|のこ}')
+    // Untagged fenced code block has no auto-detected hljs spans
+    expect(container.querySelector('pre code span.hljs-attr, pre code span.hljs-keyword, pre code span.hljs-section')).toBeNull()
+  })
 })

@@ -145,3 +145,40 @@ test('sidebar collapses to an icon rail and persists state', async () => {
   expect(localStorage.getItem('rem-sidebar-collapsed')).toBe('true')
   await expect.element(page.getByRole('button', { name: 'Expand sidebar' })).toBeVisible()
 })
+
+test('deleting a parent folder from the sidebar redirects away from a deleted child route', async () => {
+  localStorage.removeItem('rem:collapsed-deck-paths')
+  const storage = freshStorage()
+  const child = await storage.createDeck('Anatomy::Unit 01::Cells')
+  await storage.createDeck('Anatomy::Unit 02::Bones')
+  const keep = await storage.createDeck('Rust')
+  await storage.createCard(child.id, 'Cell?', 'Yes')
+
+  await renderRoute({
+    storage,
+    entry: `/decks/${child.id}/options`,
+    path: '/decks/:deckId/options',
+    element: <DeckSettingsPage />,
+    extraRoutes: [{ path: '/', element: <div>Home after delete</div> }],
+  })
+
+  await expect.element(page.getByText('Deck options')).toBeVisible()
+  await expect
+    .poll(() =>
+      [...document.querySelectorAll<HTMLElement>('.side-decks .side-deck-row')].some(
+        (row) => row.querySelector('.nav-grow')?.textContent?.trim() === 'Anatomy',
+      ),
+    )
+    .toBe(true)
+  const sidebar = document.querySelector<HTMLElement>('.side-decks')!
+  const anatomyRow = [...sidebar.querySelectorAll<HTMLElement>('.side-deck-row')].find(
+    (row) => row.querySelector('.nav-grow')?.textContent?.trim() === 'Anatomy',
+  )!
+  anatomyRow.querySelector<HTMLButtonElement>('.side-deck-delete')!.click()
+
+  await expect.element(page.getByText('Delete "Anatomy"?')).toBeVisible()
+  await page.getByRole('button', { name: 'Delete all' }).click()
+
+  await expect.poll(async () => (await storage.listDecks()).map((d) => d.id)).toEqual([keep.id])
+  await expect.element(page.getByText('Home after delete')).toBeVisible()
+})

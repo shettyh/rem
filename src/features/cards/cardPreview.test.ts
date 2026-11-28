@@ -40,4 +40,11 @@ describe('cardPreview', () => {
   it('returns an empty string for blank input', () => {
     expect(cardPreview('   \n  ')).toBe('')
   })
+
+  it('cleans image, audio asset links, and ruby furigana syntax', () => {
+    expect(cardPreview('![diagram](asset:0123456789abcdef)')).toBe('diagram')
+    expect(cardPreview('![](asset:0123456789abcdef)')).toBe('[image]')
+    expect(cardPreview('[Audio: hola.mp3](asset:0123456789abcdef)')).toBe('Audio: hola.mp3')
+    expect(cardPreview('{答|こた}えに **{丸|まる}** をつける')).toBe('答えに 丸 をつける')
+  })
 })

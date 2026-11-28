@@ -71,6 +71,15 @@ actor RemStore {
         try client.deleteDeck(id: id, nowMs: nowMs)
     }
 
+    func deleteDeckTree(path: String, nowMs: Int64 = RemStore.nowMs()) throws -> [String] {
+        try client.deleteDeckTree(path: path, nowMs: nowMs)
+    }
+
+    @discardableResult
+    func sweepOrphanAssets() throws -> UInt64 {
+        try client.sweepOrphanAssets()
+    }
+
     func listCards(deckId: String) throws -> [CardDto] {
         try client.listCards(deckId: deckId)
     }

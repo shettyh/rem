@@ -177,7 +177,11 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
 .sidebar.is-collapsed:not(.is-peeking) .side-add,
 .sidebar.is-collapsed:not(.is-peeking) .side-settings-label,
 .sidebar.is-collapsed:not(.is-peeking) .side-update-copy,
-.sidebar.is-collapsed:not(.is-peeking) .theme-toggle-label {
+.sidebar.is-collapsed:not(.is-peeking) .theme-toggle-label,
+.sidebar.is-collapsed:not(.is-peeking) .deck-tree-toggle,
+.sidebar.is-collapsed:not(.is-peeking) .deck-tree-spacer,
+.sidebar.is-collapsed:not(.is-peeking) .side-deck-trail,
+.sidebar.is-collapsed:not(.is-peeking) .side-deck-row[data-depth]:not([data-depth='0']) {
   display: none;
 }
 .sidebar.is-collapsed:not(.is-peeking) .side-brand {
@@ -193,9 +197,15 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
 .sidebar.is-collapsed:not(.is-peeking) .side-decks {
   padding: 0 8px;
 }
-.sidebar.is-collapsed:not(.is-peeking) .nav-item {
+.sidebar.is-collapsed:not(.is-peeking) .nav-item,
+.sidebar.is-collapsed:not(.is-peeking) .side-deck-main {
   justify-content: center;
   padding: 9px 0;
+  gap: 0;
+}
+.sidebar.is-collapsed:not(.is-peeking) .side-deck-row {
+  justify-content: center;
+  padding: 0;
   gap: 0;
 }
 .sidebar.is-collapsed:not(.is-peeking) .side-section {
@@ -338,6 +348,119 @@ html[data-tauri='yes'][data-platform='mac'] .app.is-reviewing .page-header .btn 
   flex: 1;
   overflow-y: auto;
   padding: 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.side-deck-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  padding: 0 8px 0 10px;
+  border-radius: 7px;
+  color: var(--muted);
+  transition: background 0.12s, color 0.12s;
+}
+.side-decks.has-nested .side-deck-row {
+  padding-left: calc(6px + var(--deck-depth, 0) * 14px);
+}
+.side-deck-row:hover {
+  background: var(--bg-inset);
+  color: var(--text);
+}
+.side-deck-row.is-active {
+  background: var(--selection);
+  color: var(--text);
+}
+.side-deck-row.is-active .deck-icon {
+  opacity: 1;
+}
+
+.side-deck-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-decoration: none;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+.side-deck-main .nav-grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.side-deck-main:focus-visible {
+  outline-offset: 1px;
+  border-radius: 5px;
+}
+
+.side-deck-trail {
+  flex: none;
+  display: inline-grid;
+  align-items: center;
+  justify-items: end;
+  margin-left: 2px;
+}
+.side-deck-trail > .side-badge,
+.side-deck-trail > .side-deck-delete {
+  grid-area: 1 / 1;
+}
+.side-deck-trail > .side-badge {
+  transition: opacity 0.12s ease;
+}
+
+.side-deck-delete {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.side-deck-delete svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.side-deck-row:hover .side-deck-delete,
+.side-deck-row:focus-within .side-deck-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+.side-deck-row:hover .side-deck-trail > .side-badge,
+.side-deck-row:focus-within .side-deck-trail > .side-badge {
+  opacity: 0;
+  pointer-events: none;
+}
+.side-deck-delete:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
 }
 
 .side-badge {
@@ -823,6 +946,21 @@ select.text-input,
 .markdown li > p {
   margin: 0;
 }
+.markdown ruby {
+  ruby-align: center;
+  ruby-position: over;
+  line-height: 2.1;
+}
+.markdown rt {
+  font-size: 0.55em;
+  font-weight: 500;
+  line-height: 1.1;
+  color: var(--muted);
+  user-select: none;
+}
+.markdown rp {
+  color: var(--faint);
+}
 .rich-editor-content a,
 .markdown a {
   color: var(--accent);
@@ -882,6 +1020,32 @@ select.text-input,
   font-family: var(--font-sans);
   font-size: 20px;
   line-height: 1.5;
+}
+.rich-editor-content p {
+  margin: 0 0 var(--space-3);
+}
+.rich-editor-content h1,
+.rich-editor-content h2,
+.rich-editor-content h3,
+.rich-editor-content h4 {
+  margin: var(--space-4) 0 var(--space-2);
+  line-height: 1.3;
+}
+.rich-editor-content ul,
+.rich-editor-content ol {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+}
+.rich-editor-content li {
+  margin: var(--space-1) 0;
+}
+.rich-editor-content li > p {
+  margin: 0;
+}
+.rich-editor-content hr {
+  margin: var(--space-3) 0;
+  border: none;
+  border-top: 1px solid var(--border);
 }
 .rich-editor-content > :first-child {
   margin-top: 0;
@@ -1056,11 +1220,14 @@ select.text-input,
 .deck-list-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-height: 58px;
   padding: 0 14px 0 16px;
   border-bottom: 1px solid var(--border);
   transition: background 0.12s;
+}
+.deck-list-row.has-tree {
+  padding-left: calc(12px + var(--deck-depth, 0) * 20px);
 }
 .deck-list-row:last-child {
   border-bottom: none;
@@ -1073,10 +1240,55 @@ select.text-input,
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   padding: 12px 0;
   color: inherit;
   text-decoration: none;
+}
+.deck-list-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+}
+.deck-list-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.deck-list-delete {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.deck-list-delete svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.deck-list-row:hover .deck-list-delete,
+.deck-list-row:focus-within .deck-list-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+.deck-list-delete:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
 }
 .deck-list-name {
   flex: 1;
@@ -1668,7 +1880,7 @@ select.text-input,
   width: 100%;
   background: none;
   border: none;
-  font: inherit;
+  font-family: inherit;
   text-align: left;
   cursor: pointer;
 }
@@ -3321,18 +3533,16 @@ select:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  margin-right: 4px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: none;
-  border-radius: 5px;
+  border-radius: 4px;
   background: transparent;
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--faint);
   cursor: pointer;
-  flex-shrink: 0;
-  transition: transform 0.14s ease, color 0.14s ease, background 0.14s ease;
+  flex: none;
+  transition: color 0.12s ease, background 0.12s ease;
 }
 
 .deck-tree-toggle:hover {
@@ -3340,21 +3550,38 @@ select:focus-visible {
   color: var(--text);
 }
 
-.deck-tree-toggle.is-collapsed {
-  transform: rotate(-90deg);
+.deck-chevron {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.65;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.14s ease;
+}
+
+.deck-tree-toggle.is-expanded .deck-chevron {
+  transform: rotate(90deg);
+}
+
+.deck-tree-spacer {
+  width: 18px;
+  height: 18px;
+  flex: none;
 }
 
 .deck-list-folder-btn {
   border: none;
   background: transparent;
-  font: inherit;
+  font-family: inherit;
   text-align: left;
   cursor: pointer;
 }
 
 .nav-item-folder {
   color: var(--muted);
-  cursor: default;
+  cursor: pointer;
 }
 
 .subdecks-section {

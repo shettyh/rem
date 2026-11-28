@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useStorage } from '../data/StorageContext'
 import { useSyncOptional } from '../data/SyncContext'
 import { useUpdaterOptional } from '../data/UpdaterContext'
@@ -7,11 +7,16 @@ import { useStorageQuery } from '../data/useStorageQuery'
 import {
   buildDeckTree,
   COLLAPSED_DECKS_EVENT,
+  describeDeckDelete,
   flattenVisibleDeckTree,
   loadCollapsedDeckPaths,
+  pruneCollapsedDeckPaths,
   saveCollapsedDeckPaths,
+  summarizeDeckSubtree,
+  type DeckTreeNode,
 } from '../features/decks/deckTree'
-import { loadDueOverview } from '../features/review/dueOverview'
+import { loadDueOverview, type DeckOverview } from '../features/review/dueOverview'
+import { ConfirmDialog } from './ConfirmDialog'
 import { ThemeToggle } from './ThemeToggle'
 
 const HOVER_INTENT_MS = 160
@@ -37,10 +42,12 @@ export function Sidebar({
   const sync = useSyncOptional()
   const updater = useUpdaterOptional()
   const navigate = useNavigate()
+  const location = useLocation()
   const [peeking, setPeeking] = useState(false)
   const [collapsedDeckPaths, setCollapsedDeckPaths] = useState<Set<string>>(() =>
     loadCollapsedDeckPaths(),
   )
+  const [pendingDelete, setPendingDelete] = useState<DeckTreeNode<DeckOverview> | null>(null)
   const hoverTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -50,13 +57,36 @@ export function Sidebar({
   }, [])
 
   function toggleDeckPath(path: string) {
-    setCollapsedDeckPaths((prev) => {
-      const next = new Set(prev)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      saveCollapsedDeckPaths(next)
-      return next
-    })
+    const next = new Set(collapsedDeckPaths)
+    if (next.has(path)) next.delete(path)
+    else next.add(path)
+    setCollapsedDeckPaths(next)
+    saveCollapsedDeckPaths(next)
+  }
+
+  async function confirmDeleteDeckNode(node: DeckTreeNode<DeckOverview>) {
+    const summary = summarizeDeckSubtree(node)
+    setPendingDelete(null)
+    try {
+      const deck = node.item?.deck ?? null
+      const deletedIds = deck
+        ? (await storage.deleteDeck(deck.id), summary.deckIds)
+        : await storage.deleteDeckTree(node.path)
+      await storage.sweepOrphanAssets()
+      const nextCollapsed = pruneCollapsedDeckPaths(loadCollapsedDeckPaths(), [
+        node.path,
+        ...summary.paths,
+      ])
+      setCollapsedDeckPaths(nextCollapsed)
+      saveCollapsedDeckPaths(nextCollapsed)
+      const deletedSet = new Set([...summary.deckIds, ...deletedIds])
+      const match = location.pathname.match(/^\/decks\/([^/]+)/)
+      if (match && deletedSet.has(decodeURIComponent(match[1]))) {
+        navigate('/')
+      }
+    } catch (err) {
+      console.error('sidebar deck delete failed', err)
+    }
   }
 
   const navigation = useStorageQuery(async () => {
@@ -64,8 +94,7 @@ export function Sidebar({
       loadDueOverview(storage, Date.now()),
       storage.listDrafts(),
     ])
-    const decks = overview.decks.map((entry) => ({ deck: entry.deck, due: entry.due }))
-    return { decks, draftCount: drafts.length }
+    return { decks: overview.decks, draftCount: drafts.length }
   }, [])
 
   function clearHoverTimer() {
@@ -200,68 +229,94 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="side-decks">
-          {flattenVisibleDeckTree(buildDeckTree(navigation?.decks ?? []), collapsedDeckPaths).map((node) => {
-            const deck = node.item?.deck
-            const hasChildren = node.children.length > 0
-            const isCollapsed = collapsedDeckPaths.has(node.path)
-            if (!deck) {
-              return (
-                <button
-                  key={`group:${node.path}`}
-                  type="button"
-                  className="nav-item nav-item-btn nav-item-folder"
-                  style={node.depth > 0 ? { paddingLeft: `${10 + node.depth * 14}px` } : undefined}
-                  aria-expanded={!isCollapsed}
-                  title={node.path}
-                  onClick={() => toggleDeckPath(node.path)}
-                >
-                  <span className={`deck-tree-toggle${isCollapsed ? ' is-collapsed' : ''}`} aria-hidden="true">
-                    ▾
-                  </span>
-                  <span className="nav-grow">{node.label}</span>
-                  {node.due > 0 && <span className="side-badge">{node.due}</span>}
-                </button>
-              )
-            }
-            return (
-              <div
-                key={deck.id}
-                className="side-deck-row"
-                style={{ display: 'flex', alignItems: 'center' }}
-              >
-                {hasChildren && (
-                  <button
-                    type="button"
-                    className={`deck-tree-toggle${isCollapsed ? ' is-collapsed' : ''}`}
-                    aria-label={isCollapsed ? `Expand ${node.label}` : `Collapse ${node.label}`}
-                    aria-expanded={!isCollapsed}
-                    onClick={() => toggleDeckPath(node.path)}
+        {(() => {
+          const deckTree = buildDeckTree(navigation?.decks ?? [])
+          const hasAnyNested = deckTree.some((root) => root.children.length > 0)
+          const visibleNodes = flattenVisibleDeckTree(deckTree, collapsedDeckPaths)
+          return (
+            <div className={`side-decks${hasAnyNested ? ' has-nested' : ''}`}>
+              {visibleNodes.map((node) => {
+                const deck = node.item?.deck ?? null
+                const hasChildren = node.children.length > 0
+                const isCollapsed = collapsedDeckPaths.has(node.path)
+                const visualDepth = Math.min(node.depth, 5)
+                const isActiveDeck = Boolean(
+                  deck &&
+                    (location.pathname === `/decks/${deck.id}` ||
+                      location.pathname.startsWith(`/decks/${deck.id}/`)),
+                )
+                return (
+                  <div
+                    key={deck ? deck.id : `group:${node.path}`}
+                    className={`side-deck-row${isActiveDeck ? ' is-active' : ''}${!deck ? ' is-folder' : ''}${hasChildren ? ' has-children' : ''}`}
+                    data-depth={node.depth}
+                    style={{ '--deck-depth': visualDepth } as CSSProperties}
                   >
-                    ▾
-                  </button>
-                )}
-                <NavLink
-                  to={`/decks/${deck.id}`}
-                  className={navClass}
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    ...(node.depth > 0 ? { paddingLeft: `${10 + node.depth * 14}px` } : {}),
-                  }}
-                  title={deck.name}
-                >
-                  <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
-                    <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />
-                    <path d="M4.5 1.5h7a2 2 0 0 1 2 2v6" />
-                  </svg>
-                  <span className="nav-grow">{node.label}</span>
-                  {node.due > 0 && <span className="side-badge">{node.due}</span>}
-                </NavLink>
-              </div>
-            )
-          })}
-        </div>
+                    {hasAnyNested &&
+                      (hasChildren ? (
+                        <button
+                          type="button"
+                          className={`deck-tree-toggle${isCollapsed ? '' : ' is-expanded'}`}
+                          aria-label={isCollapsed ? `Expand ${node.label}` : `Collapse ${node.label}`}
+                          aria-expanded={!isCollapsed}
+                          onClick={() => toggleDeckPath(node.path)}
+                        >
+                          <svg className="deck-chevron" viewBox="0 0 12 12" aria-hidden="true">
+                            <path d="M4.25 2.75 7.75 6l-3.5 3.25" />
+                          </svg>
+                        </button>
+                      ) : (
+                        <span className="deck-tree-spacer" aria-hidden="true" />
+                      ))}
+                    {deck ? (
+                      <NavLink
+                        to={`/decks/${deck.id}`}
+                        className="side-deck-main"
+                        title={deck.name}
+                      >
+                        <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
+                          <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />
+                          <path d="M4.5 1.5h7a2 2 0 0 1 2 2v6" />
+                        </svg>
+                        <span className="nav-grow">{node.label}</span>
+                      </NavLink>
+                    ) : (
+                      <button
+                        type="button"
+                        className="side-deck-main side-deck-folder"
+                        aria-expanded={!isCollapsed}
+                        title={node.path}
+                        onClick={() => toggleDeckPath(node.path)}
+                      >
+                        <svg className="deck-icon deck-folder-icon" viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6a1.5 1.5 0 0 1 1.15.54l.65.78a1 1 0 0 0 .77.36h3.83A1.5 1.5 0 0 1 14 6.18v5.32A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
+                        </svg>
+                        <span className="nav-grow">{node.label}</span>
+                      </button>
+                    )}
+                    <span className="side-deck-trail">
+                      {node.due > 0 && <span className="side-badge">{node.due}</span>}
+                      <button
+                        type="button"
+                        className="side-deck-delete"
+                        aria-label={`Delete ${node.label}`}
+                        title={hasChildren ? `Delete ${node.label} and subdecks` : `Delete ${node.label}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setPendingDelete(node)
+                        }}
+                      >
+                        <svg viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M3 4.5h10M6 4.5V3.25A.75.75 0 0 1 6.75 2.5h2.5a.75.75 0 0 1 .75.75V4.5M5 4.5l.6 8.2a1 1 0 0 0 1 .93h2.8a1 1 0 0 0 1-.93l.6-8.2" />
+                        </svg>
+                      </button>
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })()}
 
         {updater?.state.status === 'ready' && (
           <div className="side-update-wrap">
@@ -385,6 +440,19 @@ export function Sidebar({
           <ThemeToggle />
         </div>
       </aside>
+      {pendingDelete && (() => {
+        const copy = describeDeckDelete(pendingDelete)
+        return (
+          <ConfirmDialog
+            danger
+            title={copy.title}
+            description={copy.description}
+            confirmLabel={copy.confirmLabel}
+            onConfirm={() => void confirmDeleteDeckNode(pendingDelete)}
+            onCancel={() => setPendingDelete(null)}
+          />
+        )
+      })()}
     </div>
   )
 }

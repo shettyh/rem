@@ -544,6 +544,8 @@ struct MarkdownRenderer {
     link: Option<String>,
     image_depth: u32,
     code_block: bool,
+    in_table_cell: bool,
+    table_cell_index: usize,
 }
 
 impl MarkdownRenderer {
@@ -557,8 +559,11 @@ impl MarkdownRenderer {
             link: None,
             image_depth: 0,
             code_block: false,
+            in_table_cell: false,
+            table_cell_index: 0,
         };
-        let options = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+        let options =
+            Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_TABLES;
         for event in Parser::new_ext(markdown, options) {
             renderer.event(event);
         }
@@ -577,18 +582,25 @@ impl MarkdownRenderer {
         match event {
             Event::Start(tag) => self.start(tag),
             Event::End(tag) => self.end(tag),
-            Event::Text(text) | Event::Html(text) | Event::InlineHtml(text) => {
+            Event::Text(text) => {
                 if self.image_depth == 0 {
                     self.text(&text);
                 }
             }
+            Event::Html(_) | Event::InlineHtml(_) => {}
             Event::Code(code) if self.image_depth == 0 => {
                 self.spans.push(Span::styled(
                     code.into_string(),
                     self.style.fg(Color::Yellow).add_modifier(Modifier::BOLD),
                 ));
             }
-            Event::SoftBreak | Event::HardBreak => self.finish_line(),
+            Event::SoftBreak | Event::HardBreak => {
+                if self.in_table_cell {
+                    self.spans.push(Span::raw(" "));
+                } else {
+                    self.finish_line();
+                }
+            }
             Event::Rule => {
                 self.finish_line();
                 self.lines.push(Line::from(Span::styled(
@@ -669,6 +681,24 @@ impl MarkdownRenderer {
                 self.spans
                     .push(Span::styled("│ ", Style::default().fg(Color::DarkGray)));
             }
+            Tag::Table(_) => {
+                self.finish_line();
+            }
+            Tag::TableHead => {
+                self.table_cell_index = 0;
+                self.push_style(self.style.add_modifier(Modifier::BOLD));
+            }
+            Tag::TableRow => {
+                self.table_cell_index = 0;
+            }
+            Tag::TableCell => {
+                if self.table_cell_index > 0 {
+                    self.spans
+                        .push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+                }
+                self.table_cell_index += 1;
+                self.in_table_cell = true;
+            }
             _ => {}
         }
     }
@@ -716,6 +746,23 @@ impl MarkdownRenderer {
                 self.blank_line();
             }
             TagEnd::BlockQuote(_) => self.finish_line(),
+            TagEnd::TableCell => {
+                self.in_table_cell = false;
+            }
+            TagEnd::TableHead => {
+                self.pop_style();
+                self.finish_line();
+                self.lines.push(Line::from(Span::styled(
+                    "────────────────────",
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+            TagEnd::TableRow => {
+                self.finish_line();
+            }
+            TagEnd::Table => {
+                self.blank_line();
+            }
             _ => {}
         }
     }
@@ -734,7 +781,47 @@ impl MarkdownRenderer {
                 }
             }
         } else {
+            self.push_text_with_ruby(text);
+        }
+    }
+
+    fn push_text_with_ruby(&mut self, text: &str) {
+        if !text.contains('{') {
             self.spans.push(Span::styled(text.to_owned(), self.style));
+            return;
+        }
+        let mut rest = text;
+        while let Some(open) = rest.find('{') {
+            if open > 0 {
+                self.spans
+                    .push(Span::styled(rest[..open].to_owned(), self.style));
+            }
+            let after_open = &rest[open + 1..];
+            if let Some(close) = after_open.find('}') {
+                let inner = &after_open[..close];
+                if let Some((base, reading)) = inner.split_once('|') {
+                    let b = base.trim();
+                    let r = reading.trim();
+                    if !b.is_empty()
+                        && !r.is_empty()
+                        && !b.contains(['{', '}'])
+                        && !r.contains(['{', '}', '|'])
+                    {
+                        self.spans.push(Span::styled(b.to_owned(), self.style));
+                        self.spans.push(Span::styled(
+                            format!("({r})"),
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                        rest = &after_open[close + 1..];
+                        continue;
+                    }
+                }
+            }
+            self.spans.push(Span::styled("{".to_owned(), self.style));
+            rest = after_open;
+        }
+        if !rest.is_empty() {
+            self.spans.push(Span::styled(rest.to_owned(), self.style));
         }
     }
 

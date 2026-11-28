@@ -70,6 +70,15 @@ final class AppState {
         UserDefaults.standard.set(Array(collapsedDeckPaths), forKey: "rem.collapsedDeckPaths")
     }
 
+    func pruneCollapsedDeckPaths(removing removedPaths: [String]) {
+        guard !removedPaths.isEmpty else { return }
+        let next = DeckTreeBuilder.pruneCollapsedPaths(collapsedDeckPaths, removing: removedPaths)
+        if next != collapsedDeckPaths {
+            collapsedDeckPaths = next
+            UserDefaults.standard.set(Array(next), forKey: "rem.collapsedDeckPaths")
+        }
+    }
+
     var todaySummary: TodaySummaryDto?
     var decks: [DeckDto] = []
     var syncStatus: SyncStatusDto?
@@ -970,10 +979,35 @@ final class AppState {
     }
 
     func deleteDeck(id: String) async {
+        let deckName = decks.first(where: { $0.id == id })?.name
+            ?? todaySummary?.decks.first(where: { $0.id == id })?.name
         do {
             try await store.deleteDeck(id: id)
+            _ = try? await store.sweepOrphanAssets()
+            if let deckName {
+                pruneCollapsedDeckPaths(removing: [deckName])
+            }
+            if activeDeckId == id {
+                activeDeckId = nil
+            }
             await refreshAll()
             showToast("Deck deleted")
+            Task { await syncNow(silent: true) }
+        } catch {
+            showToast(error.remDisplayMessage)
+        }
+    }
+
+    func deleteDeckTree(path: String) async {
+        do {
+            let deletedIds = try await store.deleteDeckTree(path: path)
+            _ = try? await store.sweepOrphanAssets()
+            pruneCollapsedDeckPaths(removing: [path])
+            if let activeDeckId, deletedIds.contains(activeDeckId) {
+                self.activeDeckId = nil
+            }
+            await refreshAll()
+            showToast(deletedIds.count == 1 ? "Deck deleted" : "Deleted \(deletedIds.count) decks")
             Task { await syncNow(silent: true) }
         } catch {
             showToast(error.remDisplayMessage)

@@ -29,8 +29,8 @@ pub use cloze::{
 };
 pub use collection::{default_database_path, Collection, CollectionError, CURRENT_SCHEMA_VERSION};
 pub use deck_tree::{
-    deck_and_descendants, deck_is_descendant_or_self, deck_segments, normalize_deck_name,
-    DECK_SEPARATOR,
+    deck_and_descendants, deck_is_descendant_or_self, deck_is_strict_descendant, deck_segments,
+    decks_by_prefix, normalize_deck_name, DECK_SEPARATOR,
 };
 pub use hlc::Hlc;
 pub use models::{

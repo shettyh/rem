@@ -19,6 +19,9 @@ struct SettingsView: View {
 
     private var apkgImportContentTypes: [UTType] {
         var types: [UTType] = [.zip, .data]
+        if let colpkg = UTType(filenameExtension: "colpkg") {
+            types.insert(colpkg, at: 0)
+        }
         if let apkg = UTType(filenameExtension: "apkg") {
             types.insert(apkg, at: 0)
         }

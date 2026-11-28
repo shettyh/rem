@@ -227,6 +227,14 @@ impl RemClient {
         Ok(())
     }
 
+    pub fn delete_deck_tree(&self, path: String, now_ms: i64) -> Result<Vec<String>, RemFfiError> {
+        Ok(self.collection.delete_deck_tree(&path, now_ms)?)
+    }
+
+    pub fn sweep_orphan_assets(&self) -> Result<u64, RemFfiError> {
+        Ok(self.collection.sweep_orphan_assets()? as u64)
+    }
+
     pub fn list_cards(&self, deck_id: String) -> Result<Vec<CardDto>, RemFfiError> {
         let cards = self.collection.list_cards(&deck_id)?;
         Ok(cards.into_iter().map(card_to_dto).collect())

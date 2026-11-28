@@ -12,6 +12,7 @@ import { CLOZE_ANSWER_HREF, CLOZE_BLANK_HREF, renderClozeMarkdown } from './cloz
 import { normalizeMathDelimiters } from './mathPreprocess'
 import { splitMarkdownOcclusion } from './occlusion'
 import { OcclusionView } from './OcclusionView'
+import { remarkRuby } from './ruby'
 
 function AudioAssetPlayer({ url, label }: { url: string; label?: ReactNode }) {
   return (
@@ -109,10 +110,10 @@ export function MarkdownView({
         return (
           <ReactMarkdown
             key={`md-${idx}`}
-            remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
+            remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }], remarkRuby]}
             rehypePlugins={[
               [rehypeKatex, { strict: false, throwOnError: false, trust: false, maxExpand: 1000, maxSize: 100 }],
-              rehypeHighlight,
+              [rehypeHighlight, { detect: false }],
             ]}
             components={{ img: MarkdownImg, a: MarkdownLink }}
             urlTransform={urlTransform}

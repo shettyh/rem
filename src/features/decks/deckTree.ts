@@ -32,9 +32,13 @@ export function deckSegments(name: string): string[] {
     .filter(Boolean)
 }
 
+export function deckIsStrictDescendant(candidateName: string, rootName: string): boolean {
+  return candidateName.startsWith(`${rootName}${DECK_SEPARATOR}`)
+}
+
 export function deckIsDescendantOrSelf(candidateName: string, rootName: string): boolean {
   if (candidateName === rootName) return true
-  return candidateName.startsWith(`${rootName}${DECK_SEPARATOR}`)
+  return deckIsStrictDescendant(candidateName, rootName)
 }
 
 export function deckLeafName(name: string): string {
@@ -166,6 +170,94 @@ export function flattenVisibleDeckTree<T extends DeckMetricsItem>(
   }
   visit(roots)
   return out
+}
+
+export interface DeckSubtreeSummary {
+  /** Total real decks in this subtree (including self when backed by a real deck). */
+  deckCount: number
+  /** Strict descendant real decks (excluding self). */
+  subdeckCount: number
+  /** Rolled-up total cards across this subtree. */
+  cardCount: number
+  /** IDs of every real deck in this subtree. */
+  deckIds: string[]
+  /** Tree node paths in this subtree (used to prune collapsed state). */
+  paths: string[]
+}
+
+export function summarizeDeckSubtree<T extends DeckMetricsItem>(
+  node: DeckTreeNode<T>,
+): DeckSubtreeSummary {
+  const deckIds: string[] = []
+  const paths: string[] = []
+  const visit = (current: DeckTreeNode<T>) => {
+    paths.push(current.path)
+    if (current.item) deckIds.push(current.item.deck.id)
+    for (const child of current.children) visit(child)
+  }
+  visit(node)
+  const deckCount = deckIds.length
+  const subdeckCount = Math.max(0, deckCount - (node.item ? 1 : 0))
+  return {
+    deckCount,
+    subdeckCount,
+    cardCount: node.total,
+    deckIds,
+    paths,
+  }
+}
+
+export interface DeckDeleteCopy {
+  title: string
+  description: string
+  confirmLabel: string
+}
+
+export function describeDeckDelete<T extends DeckMetricsItem>(
+  node: DeckTreeNode<T>,
+): DeckDeleteCopy {
+  const summary = summarizeDeckSubtree(node)
+  const cardsText = `${summary.cardCount} ${summary.cardCount === 1 ? 'card' : 'cards'}`
+  if (!node.item) {
+    const decksText = `${summary.deckCount} ${summary.deckCount === 1 ? 'subdeck' : 'subdecks'}`
+    return {
+      title: `Delete "${node.label}"?`,
+      description: `Permanently deletes ${decksText} and ${cardsText} inside "${node.path}". This can't be undone.`,
+      confirmLabel: 'Delete all',
+    }
+  }
+  if (summary.subdeckCount > 0) {
+    const subText = `${summary.subdeckCount} ${summary.subdeckCount === 1 ? 'subdeck' : 'subdecks'}`
+    return {
+      title: `Delete "${node.label}" and subdecks?`,
+      description: `Permanently deletes "${node.item.deck.name}", ${subText}, and ${cardsText} total. This can't be undone.`,
+      confirmLabel: 'Delete all',
+    }
+  }
+  return {
+    title: `Delete "${node.label}"?`,
+    description:
+      summary.cardCount > 0
+        ? `Permanently deletes "${node.item.deck.name}" and its ${cardsText}. This can't be undone.`
+        : `Permanently deletes the empty deck "${node.item.deck.name}". This can't be undone.`,
+    confirmLabel: 'Delete deck',
+  }
+}
+
+export function pruneCollapsedDeckPaths(
+  collapsedPaths: Set<string>,
+  removedPaths: Iterable<string>,
+): Set<string> {
+  const removed = [...removedPaths]
+  if (removed.length === 0) return new Set(collapsedPaths)
+  const next = new Set<string>()
+  for (const existing of collapsedPaths) {
+    const matchesRemoved = removed.some(
+      (target) => existing === target || deckIsStrictDescendant(existing, target),
+    )
+    if (!matchesRemoved) next.add(existing)
+  }
+  return next
 }
 
 const COLLAPSED_DECKS_STORAGE_KEY = 'rem:collapsed-deck-paths'
