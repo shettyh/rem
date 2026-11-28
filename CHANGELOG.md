@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.32.2 (2026-11-28)
+
+## What's Changed
+* fix(ui): prevent macOS WebKit blur from closing deck Import dropdown before click by @shettyh in https://github.com/shettyh/rem/pull/294
+* chore(core,sync,docs): modularize apkg importer, upgrade vitest plugin, and polish v0.32.1 by @shettyh in https://github.com/shettyh/rem/pull/296
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.32.1...v0.32.2
+
 ## 0.32.1 (2026-11-28)
 
 ## What's Changed
