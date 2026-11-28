@@ -44,13 +44,13 @@ struct RemApp: App {
             self.appState = state
             if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
                 state.startStoreKitListener()
-            }
-            Task {
-                await state.refreshAll()
-                if state.syncStatus?.signedIn == true {
-                    await state.refreshAccount(triggerSyncIfUnlocked: false)
-                    if !state.isSyncPaused {
-                        await state.syncNow(silent: true)
+                Task {
+                    await state.refreshAll()
+                    if state.syncStatus?.signedIn == true {
+                        await state.refreshAccount(triggerSyncIfUnlocked: false)
+                        if !state.isSyncPaused {
+                            await state.syncNow(silent: true)
+                        }
                     }
                 }
             }
