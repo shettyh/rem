@@ -1,6 +1,6 @@
 [package]
 name = "rem-ffi"
-version = "0.28.0"
+version = "0.29.0"
 description = "UniFFI Swift bindings for rem-core and rem-sync"
 license = "Apache-2.0"
 edition = "2021"
