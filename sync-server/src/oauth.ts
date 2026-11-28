@@ -655,7 +655,12 @@ export async function deleteAccountData(env: Env, userId: string): Promise<void>
   // 0b. Best-effort cancel any active Polar subscription before removing entitlement records.
   await revokePolarSubscriptionForAccountDeletion(env, userId)
 
-  // 1. Delete all user assets in R2.
+  // 1. Delete all SQLite data in the user's Durable Object first so a DO failure never leaves
+  //    poisoned metadata pointing at already-deleted R2 objects.
+  const stub = env.USER_SYNC.get(env.USER_SYNC.idFromName(userId))
+  await stub.deleteAllData()
+
+  // 2. Delete all user assets in R2.
   const prefix = `users/${userId}/assets/`
   let cursor: string | undefined
   do {
@@ -665,10 +670,6 @@ export async function deleteAccountData(env: Env, userId: string): Promise<void>
     }
     cursor = listed.truncated ? listed.cursor : undefined
   } while (cursor)
-
-  // 2. Delete all SQLite data in the user's Durable Object.
-  const stub = env.USER_SYNC.get(env.USER_SYNC.idFromName(userId))
-  await stub.deleteAllData()
 
   // 3. Delete all auth/account rows in D1.
   if (env.DB) {

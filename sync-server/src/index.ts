@@ -30,10 +30,14 @@ const DEFAULT_MAX_USER_QUOTA_BYTES = 500 * 1024 * 1024
 const MAX_MISSING_HASHES = 500
 const MAX_SYNC_BODY_BYTES = 4 * 1024 * 1024
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  extraHeaders?: Record<string, string>,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
   })
 }
 
@@ -45,6 +49,31 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
 
 function assetR2Key(userId: string, hash: string): string {
   return `users/${userId}/assets/${hash}`
+}
+
+function isDurableObjectQuotaError(err: unknown): boolean {
+  if (typeof err === 'object' && err !== null && (err as { overloaded?: unknown }).overloaded === true) {
+    return true
+  }
+  const message = err instanceof Error ? err.message : String(err ?? '')
+  return /exceeded allowed rows|free tier|daily free limit|storage (limit|quota) exceeded|SQLITE_FULL|overloaded/i.test(
+    message,
+  )
+}
+
+function storageErrorResponse(context: string, err: unknown): Response {
+  console.error(`[sync-server] ${context} failed:`, err)
+  if (isDurableObjectQuotaError(err)) {
+    return jsonResponse(
+      {
+        error: 'storage_limit_exceeded',
+        message: 'sync storage temporarily unavailable (server storage limit exceeded)',
+      },
+      503,
+      { 'Cache-Control': 'no-store', 'Retry-After': '60' },
+    )
+  }
+  return jsonResponse({ error: 'internal_error', message: 'sync storage error' }, 500)
 }
 
 export default {
@@ -147,8 +176,12 @@ export default {
         return jsonResponse(info)
       }
       if (request.method === 'DELETE') {
-        await deleteAccountData(env, auth.userId)
-        return jsonResponse({ deleted: true })
+        try {
+          await deleteAccountData(env, auth.userId)
+          return jsonResponse({ deleted: true })
+        } catch (err) {
+          return storageErrorResponse('DELETE /v1/account', err)
+        }
       }
     }
 
@@ -181,7 +214,7 @@ export default {
       )
     }
 
-    const stub = env.USER_SYNC.get(env.USER_SYNC.idFromName(auth.userId))
+    const getUserSyncStub = () => env.USER_SYNC.get(env.USER_SYNC.idFromName(auth.userId))
 
     if (request.method === 'POST' && url.pathname === '/v1/sync') {
       const contentLengthHeader = request.headers.get('Content-Length')
@@ -202,13 +235,13 @@ export default {
         return jsonResponse({ error: 'invalid_json' }, 400)
       }
       try {
-        const result = (await stub.sync(body)) as SyncRpcResult
+        const result = (await getUserSyncStub().sync(body)) as SyncRpcResult
         if (result.status === 'invalid') {
           return jsonResponse({ error: 'invalid_request', message: result.error }, 400)
         }
         return jsonResponse(result.response)
-      } catch {
-        return jsonResponse({ error: 'internal_error', message: 'sync storage error' }, 500)
+      } catch (err) {
+        return storageErrorResponse('POST /v1/sync', err)
       }
     }
 
@@ -227,8 +260,12 @@ export default {
       ) {
         return jsonResponse({ error: 'invalid_hashes' }, 400)
       }
-      const missing = await stub.missingAssets(body.hashes)
-      return jsonResponse({ missing })
+      try {
+        const missing = await getUserSyncStub().missingAssets(body.hashes)
+        return jsonResponse({ missing })
+      } catch (err) {
+        return storageErrorResponse('POST /v1/assets/missing', err)
+      }
     }
 
     const assetMatch = /^\/v1\/assets\/([0-9a-f]{64})$/.exec(url.pathname)
@@ -267,7 +304,14 @@ export default {
           .split(';')[0]
           .trim() || 'application/octet-stream'
 
-        const precheck = await stub.checkAssetQuota(hash, bytes.byteLength, maxUserQuotaBytes)
+        let stub
+        let precheck
+        try {
+          stub = getUserSyncStub()
+          precheck = await stub.checkAssetQuota(hash, bytes.byteLength, maxUserQuotaBytes)
+        } catch (err) {
+          return storageErrorResponse('PUT /v1/assets checkAssetQuota', err)
+        }
         if (precheck.status === 'quota_exceeded') {
           return jsonResponse({ error: 'quota_exceeded' }, 413)
         }
@@ -275,12 +319,29 @@ export default {
           return jsonResponse({ hash, sizeBytes: bytes.byteLength, mime })
         }
 
-        await env.ASSETS.put(assetR2Key(auth.userId, hash), bytes, {
-          httpMetadata: { contentType: mime },
-        })
-        const recorded = await stub.recordAsset(hash, bytes.byteLength, mime, maxUserQuotaBytes)
+        const r2Key = assetR2Key(auth.userId, hash)
+        try {
+          await env.ASSETS.put(r2Key, bytes, {
+            httpMetadata: { contentType: mime },
+          })
+        } catch (err) {
+          return storageErrorResponse('PUT /v1/assets R2 put', err)
+        }
+
+        let recorded
+        try {
+          recorded = await stub.recordAsset(hash, bytes.byteLength, mime, maxUserQuotaBytes)
+        } catch (err) {
+          // Do not blindly delete the R2 object on an unknown exception: a concurrent upload
+          // may have already recorded this content-addressed hash in UserSyncDO.
+          return storageErrorResponse('PUT /v1/assets recordAsset', err)
+        }
         if (recorded.status === 'quota_exceeded') {
-          await env.ASSETS.delete(assetR2Key(auth.userId, hash))
+          try {
+            await env.ASSETS.delete(r2Key)
+          } catch (deleteErr) {
+            console.error('[sync-server] PUT /v1/assets quota rollback R2 delete failed:', deleteErr)
+          }
           return jsonResponse({ error: 'quota_exceeded' }, 413)
         }
 
@@ -288,7 +349,12 @@ export default {
       }
 
       if (request.method === 'GET') {
-        const object = await env.ASSETS.get(assetR2Key(auth.userId, hash))
+        let object
+        try {
+          object = await env.ASSETS.get(assetR2Key(auth.userId, hash))
+        } catch (err) {
+          return storageErrorResponse('GET /v1/assets R2 get', err)
+        }
         if (!object) {
           return jsonResponse({ error: 'not_found' }, 404)
         }
