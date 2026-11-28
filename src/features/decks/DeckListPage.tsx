@@ -109,7 +109,11 @@ export function DeckListPage() {
   function handleImportWrapBlur(e: FocusEvent<HTMLDivElement>) {
     if (!importMenuOpen) return
     const nextTarget = e.relatedTarget as Node | null
-    if (!nextTarget || !importMenuRef.current?.contains(nextTarget)) {
+    // Only close on focus moving to another element outside the menu (e.g. Tab).
+    // On macOS WKWebView/WebKit, mouse-clicking a <button> blurs the active element
+    // with relatedTarget === null before click fires; outside clicks are handled by
+    // the document mousedown listener.
+    if (nextTarget && !importMenuRef.current?.contains(nextTarget)) {
       setImportMenuOpen(false)
     }
   }
@@ -446,7 +450,16 @@ export function DeckListPage() {
             >
               Add deck
             </button>
-            <div className="add-import-wrap" ref={importMenuRef} onBlur={handleImportWrapBlur}>
+            <div
+              className="add-import-wrap"
+              ref={importMenuRef}
+              onMouseDown={(e) => {
+                // Keep focus on the menuitem during pointer clicks so macOS WKWebView
+                // does not fire a null-relatedTarget blur before the button click runs.
+                if (importMenuOpen) e.preventDefault()
+              }}
+              onBlur={handleImportWrapBlur}
+            >
               <button
                 ref={importTriggerRef}
                 type="button"
