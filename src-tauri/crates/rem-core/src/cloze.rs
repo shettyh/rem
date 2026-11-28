@@ -162,7 +162,7 @@ pub fn parse_cloze_spans(text: &str) -> Vec<ClozeSpan> {
 
 /// Locate all Markdown fenced code blocks (`` ``` `` / `~~~`) and inline backtick code spans
 /// in linear O(N) time, returning sorted non-overlapping byte ranges `[start, end)`.
-fn find_code_ranges(text: &str) -> Vec<(usize, usize)> {
+pub(crate) fn find_code_ranges(text: &str) -> Vec<(usize, usize)> {
     let bytes = text.as_bytes();
     let len = bytes.len();
     let mut fenced: Vec<(usize, usize)> = Vec::new();
@@ -376,9 +376,7 @@ fn render_cloze(text: &str, active_index: u32, revealed: bool) -> String {
         if span.index == active_index {
             if revealed {
                 let trimmed = span.answer.trim();
-                if trimmed.is_empty() {
-                    out.push_str("[...]");
-                } else {
+                if !trimmed.is_empty() {
                     out.push_str("**");
                     out.push_str(trimmed);
                     out.push_str("**");

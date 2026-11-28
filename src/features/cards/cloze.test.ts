@@ -60,6 +60,10 @@ describe('cloze', () => {
     const trailingBs = renderClozeMarkdown('Path {{c1::C:\\}}', 1, true)
     expect(trailingBs).not.toContain('](#rem-cloze-answer)')
 
+    // Empty cloze reveals to empty string rather than staying stuck as an unexpanded blank
+    expect(renderClozeMarkdown('Item {{c1::}}', 1, false)).toContain(`[…](${CLOZE_BLANK_HREF})`)
+    expect(renderClozeMarkdown('Item {{c1::}}', 1, true)).toBe('Item ')
+
     // Currency dollars are escaped while real math and multiline \[...\] stay intact
     expect(normalizeMathDelimiters('Costs $5 and $10 today')).toBe('Costs \\$5 and \\$10 today')
     expect(normalizeMathDelimiters('Range $5-$10')).toBe('Range \\$5-\\$10')

@@ -12,7 +12,9 @@ use tempfile::NamedTempFile;
 use uuid::Uuid;
 use zip::ZipArchive;
 
-use crate::cloze::{extract_cloze_indices, has_cloze_deletions, parse_cloze_spans};
+use crate::cloze::{
+    extract_cloze_indices, find_code_ranges, has_cloze_deletions, parse_cloze_spans,
+};
 use crate::deck_tree::normalize_deck_name;
 use crate::occlusion::{
     serialize_occlusion_block, OcclusionBlock, OcclusionMask, OcclusionMode, OcclusionShapeType,
@@ -30,6 +32,7 @@ const MAX_ZIP_ENTRIES: usize = 100_000;
 const MAX_DB_BYTES: usize = 256 * 1024 * 1024;
 const MAX_SINGLE_MEDIA_BYTES: usize = 25 * 1024 * 1024;
 const MAX_TOTAL_MEDIA_BYTES: usize = 512 * 1024 * 1024;
+const MAX_IO_SVG_BYTES: usize = 2 * 1024 * 1024;
 const MAX_MEDIA_MANIFEST_BYTES: usize = 32 * 1024 * 1024;
 const MAX_IMPORT_NOTES: usize = 250_000;
 const MAX_IMPORT_CARDS: usize = 500_000;
@@ -313,6 +316,7 @@ fn parse_apkg_reader<R: Read + Seek>(
     let mut deck_cards: HashMap<String, Vec<CardBackup>> = HashMap::new();
     let mut warnings = Vec::new();
     let mut skipped_empty = 0_u32;
+    let mut skipped_empty_cloze = 0_u32;
     let mut skipped_missing_note = 0_u32;
     let mut total_cards = 0_u32;
     let mut total_reviews = 0_u32;
@@ -330,14 +334,27 @@ fn parse_apkg_reader<R: Read + Seek>(
         let deck_name = sanitize_anki_deck_name(raw_deck_name);
 
         let is_image_occlusion = is_anki_image_occlusion_note(note);
+        let is_io_enhanced = !is_image_occlusion && is_anki_io_enhanced_note(note, model);
         let is_cloze = !is_image_occlusion
+            && !is_io_enhanced
             && (model.is_some_and(|m| m.is_cloze)
                 || note.fields.first().is_some_and(|f| has_cloze_deletions(f)));
 
         let (front, back, cloze_index) = if is_image_occlusion {
             build_image_occlusion_card_content(note, model, card.ord, &mut media_loader)?
+        } else if is_io_enhanced {
+            match build_io_enhanced_card_content(note, model, card.ord, &mut media_loader)? {
+                Some(converted) => converted,
+                None => build_standard_card_content(note, model, card.ord, &mut media_loader)?,
+            }
         } else if is_cloze {
-            build_cloze_card_content(note, model, card.ord, &mut media_loader)?
+            match build_cloze_card_content(note, model, card.ord, &mut media_loader)? {
+                ClozeBuildOutcome::Card(front, back, cloze_index) => (front, back, cloze_index),
+                ClozeBuildOutcome::SkippedEmptyCloze => {
+                    skipped_empty_cloze += 1;
+                    continue;
+                }
+            }
         } else {
             build_standard_card_content(note, model, card.ord, &mut media_loader)?
         };
@@ -392,6 +409,11 @@ fn parse_apkg_reader<R: Read + Seek>(
     if skipped_empty > 0 {
         warnings.push(format!(
             "Skipped {skipped_empty} card(s) with empty front content after conversion."
+        ));
+    }
+    if skipped_empty_cloze > 0 {
+        warnings.push(format!(
+            "Skipped {skipped_empty_cloze} empty cloze placeholder card(s) with no answer text."
         ));
     }
     if skipped_missing_note > 0 {
@@ -784,7 +806,10 @@ fn build_image_occlusion_card_content<R: Read + Seek>(
         }
     }
     if masks.is_empty() {
-        return build_cloze_card_content(note, model, ord, media);
+        return match build_cloze_card_content(note, model, ord, media)? {
+            ClozeBuildOutcome::Card(front, back, cloze_index) => Ok((front, back, cloze_index)),
+            ClozeBuildOutcome::SkippedEmptyCloze => Ok((String::new(), String::new(), None)),
+        };
     }
 
     // Find the Image field: prefer a field named "Image" that actually contains an `<img>`,
@@ -855,17 +880,66 @@ fn build_image_occlusion_card_content<R: Read + Seek>(
         format!("{}\n\n{fenced}", header_md.trim())
     };
 
-    let mut extra_parts = Vec::new();
-    for (idx, value) in note.fields.iter().enumerate() {
-        if idx == occ_field_idx || idx == image_idx || Some(idx) == header_field_idx {
-            continue;
+    let template = model.and_then(|m| {
+        m.templates
+            .get(&ord)
+            .or_else(|| m.templates.get(&0))
+            .or_else(|| m.templates.values().next())
+    });
+
+    let back = if let (Some(model), Some(tmpl)) = (model, template) {
+        if !tmpl.afmt.trim().is_empty() {
+            let field_map: HashMap<String, &str> = model
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(idx, name)| {
+                    (
+                        name.to_ascii_lowercase(),
+                        note.fields.get(idx).map(String::as_str).unwrap_or(""),
+                    )
+                })
+                .collect();
+            let mut skip_owned: Vec<String> = Vec::new();
+            for skip_idx in [Some(occ_field_idx), Some(image_idx), header_field_idx]
+                .into_iter()
+                .flatten()
+            {
+                if let Some(name) = model.fields.get(skip_idx) {
+                    skip_owned.push(name.to_ascii_lowercase());
+                }
+            }
+            for name in &model.fields {
+                if is_hidden_anki_metadata_field_name(name) {
+                    skip_owned.push(name.to_ascii_lowercase());
+                }
+            }
+            let skip_refs: Vec<&str> = skip_owned.iter().map(String::as_str).collect();
+            let raw_back =
+                render_anki_back_template_skipping(&tmpl.afmt, &field_map, &note.tags, &skip_refs);
+            html_to_markdown(&raw_back, media)?
+        } else {
+            String::new()
         }
-        let converted = html_to_markdown(value, media)?;
-        if !converted.trim().is_empty() {
-            extra_parts.push(converted);
+    } else {
+        let mut extra_parts = Vec::new();
+        for (idx, value) in note.fields.iter().enumerate() {
+            if idx == occ_field_idx || idx == image_idx || Some(idx) == header_field_idx {
+                continue;
+            }
+            if model
+                .and_then(|m| m.fields.get(idx))
+                .is_some_and(|name| is_hidden_anki_metadata_field_name(name))
+            {
+                continue;
+            }
+            let converted = html_to_markdown(value, media)?;
+            if !converted.trim().is_empty() {
+                extra_parts.push(converted);
+            }
         }
-    }
-    let back = extra_parts.join("\n\n");
+        extra_parts.join("\n\n")
+    };
 
     let target_index = u32::try_from(ord.saturating_add(1)).unwrap_or(1).max(1);
     let has_target = block.masks.iter().any(|m| m.id == target_index);
@@ -876,6 +950,1141 @@ fn build_image_occlusion_card_content<R: Read + Seek>(
     };
 
     Ok((front, back, cloze_index))
+}
+
+fn is_hidden_anki_metadata_field_name(name: &str) -> bool {
+    let lower = name.trim().to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "id (hidden)"
+            | "deck id"
+            | "image size"
+            | "original mask"
+            | "question mask"
+            | "answer mask"
+    )
+}
+
+fn find_model_field_idx(model: &AnkiModel, target: &str) -> Option<usize> {
+    model
+        .fields
+        .iter()
+        .position(|name| name.trim().eq_ignore_ascii_case(target))
+}
+
+fn is_anki_io_enhanced_note(note: &AnkiNote, model: Option<&AnkiModel>) -> bool {
+    let Some(model) = model else {
+        return false;
+    };
+    let Some(image_idx) = find_model_field_idx(model, "image") else {
+        return false;
+    };
+    let Some(qmask_idx) = find_model_field_idx(model, "question mask") else {
+        return false;
+    };
+    let Some(image_html) = note.fields.get(image_idx) else {
+        return false;
+    };
+    let Some(qmask_html) = note.fields.get(qmask_idx) else {
+        return false;
+    };
+    let Some((qmask_src, _)) = extract_first_img_src(qmask_html) else {
+        return false;
+    };
+    extract_first_img_src(image_html).is_some()
+        && qmask_src.trim().to_ascii_lowercase().ends_with(".svg")
+}
+
+fn build_io_enhanced_card_content<R: Read + Seek>(
+    note: &AnkiNote,
+    model: Option<&AnkiModel>,
+    ord: i64,
+    media: &mut MediaLoader<'_, R>,
+) -> Result<Option<(String, String, Option<u32>)>, CollectionError> {
+    let Some(model) = model else {
+        return Ok(None);
+    };
+    let Some(image_idx) = find_model_field_idx(model, "image") else {
+        return Ok(None);
+    };
+    let Some(qmask_idx) = find_model_field_idx(model, "question mask") else {
+        return Ok(None);
+    };
+    let amask_idx = find_model_field_idx(model, "answer mask");
+    let omask_idx = find_model_field_idx(model, "original mask");
+    let header_idx = find_model_field_idx(model, "header");
+    let footer_idx = find_model_field_idx(model, "footer");
+
+    let Some((img_filename, img_alt)) = note
+        .fields
+        .get(image_idx)
+        .and_then(|html| extract_first_img_src(html))
+    else {
+        return Ok(None);
+    };
+    let Some((qmask_filename, _)) = note
+        .fields
+        .get(qmask_idx)
+        .and_then(|html| extract_first_img_src(html))
+    else {
+        return Ok(None);
+    };
+    let Some(q_shapes) = media.load_svg_shapes_by_filename(&qmask_filename)? else {
+        return Ok(None);
+    };
+    let a_shapes = if let Some((amask_filename, _)) = amask_idx
+        .and_then(|idx| note.fields.get(idx))
+        .and_then(|html| extract_first_img_src(html))
+    {
+        media.load_svg_shapes_by_filename(&amask_filename)?
+    } else {
+        None
+    };
+
+    let Some((masks, mode)) = resolve_io_enhanced_masks(&q_shapes, a_shapes.as_deref()) else {
+        return Ok(None);
+    };
+    let Some(hash) = media.load_by_filename(&img_filename)? else {
+        return Ok(None);
+    };
+
+    let header_md = match header_idx.and_then(|idx| note.fields.get(idx)) {
+        Some(raw) => sanitize_header_before_occlusion(&html_to_markdown(raw, media)?),
+        None => String::new(),
+    };
+    let footer_md = match footer_idx.and_then(|idx| note.fields.get(idx)) {
+        Some(raw) => html_to_markdown(raw, media)?,
+        None => String::new(),
+    };
+
+    let alt = if !header_md.trim().is_empty() {
+        Some(header_md.lines().next().unwrap_or("").trim().to_owned()).filter(|s| !s.is_empty())
+    } else {
+        img_alt
+    };
+
+    let block = OcclusionBlock {
+        v: 1,
+        image: format!("asset:{hash}"),
+        mode,
+        alt,
+        masks,
+    };
+    let fenced = serialize_occlusion_block(&block).map_err(|err| {
+        CollectionError::InvalidInput(format!("Failed to serialize image occlusion block: {err}"))
+    })?;
+
+    let mut front_parts = Vec::new();
+    if !header_md.trim().is_empty() {
+        front_parts.push(header_md.trim().to_owned());
+    }
+    front_parts.push(fenced);
+    if !footer_md.trim().is_empty() {
+        front_parts.push(footer_md.trim().to_owned());
+    }
+    let front = front_parts.join("\n\n");
+
+    let template = model
+        .templates
+        .get(&ord)
+        .or_else(|| model.templates.get(&0))
+        .or_else(|| model.templates.values().next());
+    let back = if let Some(tmpl) = template.filter(|t| !t.afmt.trim().is_empty()) {
+        let field_map: HashMap<String, &str> = model
+            .fields
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| {
+                (
+                    name.to_ascii_lowercase(),
+                    note.fields.get(idx).map(String::as_str).unwrap_or(""),
+                )
+            })
+            .collect();
+        let mut skip_owned: Vec<String> = Vec::new();
+        for skip_idx in [
+            Some(image_idx),
+            Some(qmask_idx),
+            amask_idx,
+            omask_idx,
+            header_idx,
+            footer_idx,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(name) = model.fields.get(skip_idx) {
+                skip_owned.push(name.to_ascii_lowercase());
+            }
+        }
+        for name in &model.fields {
+            if is_hidden_anki_metadata_field_name(name) {
+                skip_owned.push(name.to_ascii_lowercase());
+            }
+        }
+        let skip_refs: Vec<&str> = skip_owned.iter().map(String::as_str).collect();
+        let raw_back =
+            render_anki_back_template_skipping(&tmpl.afmt, &field_map, &note.tags, &skip_refs);
+        html_to_markdown(&raw_back, media)?
+    } else {
+        let mut extra_parts = Vec::new();
+        for (idx, value) in note.fields.iter().enumerate() {
+            if idx == image_idx
+                || idx == qmask_idx
+                || Some(idx) == amask_idx
+                || Some(idx) == omask_idx
+                || Some(idx) == header_idx
+                || Some(idx) == footer_idx
+            {
+                continue;
+            }
+            if model
+                .fields
+                .get(idx)
+                .is_some_and(|name| is_hidden_anki_metadata_field_name(name))
+            {
+                continue;
+            }
+            let converted = html_to_markdown(value, media)?;
+            if !converted.trim().is_empty() {
+                extra_parts.push(converted);
+            }
+        }
+        extra_parts.join("\n\n")
+    };
+
+    Ok(Some((front, back, Some(1))))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SvgFill {
+    None,
+    Active,
+    Inactive,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct RawSvgShape {
+    shape_type: OcclusionShapeType,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    has_qshape_class: bool,
+    has_active_fill: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SvgGroupState {
+    is_qshape: bool,
+    fill: Option<SvgFill>,
+    transform: [f64; 6],
+    skip: bool,
+}
+
+const MAX_SVG_GROUP_DEPTH: usize = 64;
+const IDENTITY_TRANSFORM: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+
+fn multiply_svg_transform(lhs: [f64; 6], rhs: [f64; 6]) -> [f64; 6] {
+    [
+        lhs[0] * rhs[0] + lhs[2] * rhs[1],
+        lhs[1] * rhs[0] + lhs[3] * rhs[1],
+        lhs[0] * rhs[2] + lhs[2] * rhs[3],
+        lhs[1] * rhs[2] + lhs[3] * rhs[3],
+        lhs[0] * rhs[4] + lhs[2] * rhs[5] + lhs[4],
+        lhs[1] * rhs[4] + lhs[3] * rhs[5] + lhs[5],
+    ]
+}
+
+fn apply_svg_transform(m: [f64; 6], x: f64, y: f64) -> (f64, f64) {
+    (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5])
+}
+
+fn transform_bbox(m: [f64; 6], x: f64, y: f64, w: f64, h: f64) -> (f64, f64, f64, f64) {
+    let corners = [
+        apply_svg_transform(m, x, y),
+        apply_svg_transform(m, x + w, y),
+        apply_svg_transform(m, x, y + h),
+        apply_svg_transform(m, x + w, y + h),
+    ];
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for (px, py) in corners {
+        min_x = min_x.min(px);
+        max_x = max_x.max(px);
+        min_y = min_y.min(py);
+        max_y = max_y.max(py);
+    }
+    (min_x, min_y, max_x - min_x, max_y - min_y)
+}
+
+fn parse_svg_transform(raw: &str) -> [f64; 6] {
+    let mut acc = IDENTITY_TRANSFORM;
+    let mut rest = raw.trim();
+    while let Some(open) = rest.find('(') {
+        let name = rest[..open]
+            .trim()
+            .trim_start_matches(',')
+            .trim()
+            .to_ascii_lowercase();
+        let after = &rest[open + 1..];
+        let Some(close) = after.find(')') else {
+            break;
+        };
+        let arg_bytes = &after.as_bytes()[..close];
+        let mut arg_pos = 0usize;
+        let mut args = Vec::new();
+        while args.len() < 8 {
+            let Some(val) = parse_svg_number_token(arg_bytes, &mut arg_pos) else {
+                break;
+            };
+            args.push(val);
+        }
+        let next = match name.as_str() {
+            "translate" if !args.is_empty() => {
+                let tx = args[0];
+                let ty = args.get(1).copied().unwrap_or(0.0);
+                [1.0, 0.0, 0.0, 1.0, tx, ty]
+            }
+            "scale" if !args.is_empty() => {
+                let sx = args[0];
+                let sy = args.get(1).copied().unwrap_or(sx);
+                [sx, 0.0, 0.0, sy, 0.0, 0.0]
+            }
+            "matrix" if args.len() >= 6 => [args[0], args[1], args[2], args[3], args[4], args[5]],
+            "rotate" if !args.is_empty() => {
+                let rad = args[0].to_radians();
+                let (sin, cos) = rad.sin_cos();
+                let rot = [cos, sin, -sin, cos, 0.0, 0.0];
+                if args.len() >= 3 {
+                    let cx = args[1];
+                    let cy = args[2];
+                    let t1 = [1.0, 0.0, 0.0, 1.0, cx, cy];
+                    let t2 = [1.0, 0.0, 0.0, 1.0, -cx, -cy];
+                    multiply_svg_transform(multiply_svg_transform(t1, rot), t2)
+                } else {
+                    rot
+                }
+            }
+            _ => IDENTITY_TRANSFORM,
+        };
+        acc = multiply_svg_transform(acc, next);
+        rest = &after[close + 1..];
+    }
+    acc
+}
+
+fn parse_svg_length(raw: &str) -> Option<f64> {
+    let trimmed = raw.trim();
+    let numeric = trimmed
+        .strip_suffix("px")
+        .or_else(|| trimmed.strip_suffix("PX"))
+        .or_else(|| trimmed.strip_suffix("pt"))
+        .unwrap_or(trimmed)
+        .trim();
+    numeric.parse::<f64>().ok().filter(|v| v.is_finite())
+}
+
+fn classify_svg_fill(raw: &str) -> Option<SvgFill> {
+    let compact: String = raw
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    if compact.is_empty() {
+        return None;
+    }
+    if compact == "none" || compact == "transparent" {
+        Some(SvgFill::None)
+    } else if matches!(
+        compact.as_str(),
+        "#ff7e7e" | "#ff7e7eff" | "rgb(255,126,126)"
+    ) {
+        Some(SvgFill::Active)
+    } else {
+        Some(SvgFill::Inactive)
+    }
+}
+
+/// Extract effective SVG fill classification; per CSS precedence inline `style="fill:..."`
+/// overrides presentation attribute `fill="..."`.
+fn extract_svg_fill(tag_raw: &str) -> Option<SvgFill> {
+    if let Some(style) = extract_html_attr(tag_raw, "style") {
+        let mut style_fill = None;
+        for decl in style.split(';') {
+            if let Some((k, v)) = decl.split_once(':') {
+                if k.trim().eq_ignore_ascii_case("fill") {
+                    let val = v.trim();
+                    let val = val.strip_suffix("!important").unwrap_or(val).trim();
+                    if let Some(classified) = classify_svg_fill(val) {
+                        style_fill = Some(classified);
+                    }
+                }
+            }
+        }
+        if style_fill.is_some() {
+            return style_fill;
+        }
+    }
+    extract_html_attr(tag_raw, "fill").and_then(|fill| classify_svg_fill(&fill))
+}
+
+fn is_svg_element_hidden(tag_raw: &str) -> bool {
+    if style_hides_element(tag_raw) {
+        return true;
+    }
+    if extract_html_attr(tag_raw, "display").is_some_and(|v| v.trim().eq_ignore_ascii_case("none"))
+    {
+        return true;
+    }
+    if extract_html_attr(tag_raw, "visibility")
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("hidden"))
+    {
+        return true;
+    }
+    if extract_html_attr(tag_raw, "opacity")
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .is_some_and(|o| o.is_finite() && o <= 0.0)
+    {
+        return true;
+    }
+    if let Some(style) = extract_html_attr(tag_raw, "style") {
+        for decl in style.split(';') {
+            if let Some((k, v)) = decl.split_once(':') {
+                if k.trim().eq_ignore_ascii_case("opacity") {
+                    let val = v.trim();
+                    let val = val.strip_suffix("!important").unwrap_or(val).trim();
+                    if val
+                        .parse::<f64>()
+                        .ok()
+                        .is_some_and(|o| o.is_finite() && o <= 0.0)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+fn is_svg_non_rendering_container(tag_name: &str) -> bool {
+    matches!(
+        tag_name,
+        "defs" | "clippath" | "mask" | "symbol" | "pattern" | "marker" | "style" | "metadata"
+    )
+}
+
+fn has_qshape_class(tag_raw: &str) -> bool {
+    extract_html_attr(tag_raw, "class").is_some_and(|cls| {
+        cls.split_whitespace()
+            .any(|tok| tok.eq_ignore_ascii_case("qshape"))
+    })
+}
+
+fn parse_svg_canvas(tag_raw: &str) -> Option<(f64, f64, f64, f64)> {
+    if let Some(vb) = extract_html_attr(tag_raw, "viewbox") {
+        let nums: Vec<f64> = vb
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| s.parse::<f64>().ok())
+            .filter(|n| n.is_finite())
+            .collect();
+        if nums.len() >= 4 && nums[2] > 0.0 && nums[3] > 0.0 {
+            return Some((nums[0], nums[1], nums[2], nums[3]));
+        }
+    }
+    let w = extract_html_attr(tag_raw, "width").and_then(|s| parse_svg_length(&s))?;
+    let h = extract_html_attr(tag_raw, "height").and_then(|s| parse_svg_length(&s))?;
+    if w > 0.0 && h > 0.0 {
+        Some((0.0, 0.0, w, h))
+    } else {
+        None
+    }
+}
+
+fn parse_svg_number_token(bytes: &[u8], pos: &mut usize) -> Option<f64> {
+    let len = bytes.len();
+    while *pos < len && (bytes[*pos].is_ascii_whitespace() || bytes[*pos] == b',') {
+        *pos += 1;
+    }
+    if *pos >= len {
+        return None;
+    }
+    let start = *pos;
+    if bytes[*pos] == b'+' || bytes[*pos] == b'-' {
+        *pos += 1;
+    }
+    let mut has_digits = false;
+    while *pos < len && bytes[*pos].is_ascii_digit() {
+        has_digits = true;
+        *pos += 1;
+    }
+    if *pos < len && bytes[*pos] == b'.' {
+        *pos += 1;
+        while *pos < len && bytes[*pos].is_ascii_digit() {
+            has_digits = true;
+            *pos += 1;
+        }
+    }
+    if !has_digits {
+        *pos = start;
+        return None;
+    }
+    if *pos < len && (bytes[*pos] == b'e' || bytes[*pos] == b'E') {
+        let exp_start = *pos;
+        *pos += 1;
+        if *pos < len && (bytes[*pos] == b'+' || bytes[*pos] == b'-') {
+            *pos += 1;
+        }
+        let mut exp_digits = false;
+        while *pos < len && bytes[*pos].is_ascii_digit() {
+            exp_digits = true;
+            *pos += 1;
+        }
+        if !exp_digits {
+            *pos = exp_start;
+        }
+    }
+    std::str::from_utf8(&bytes[start..*pos])
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|v| v.is_finite())
+}
+
+fn parse_svg_flag_token(bytes: &[u8], pos: &mut usize) -> Option<bool> {
+    let len = bytes.len();
+    while *pos < len && (bytes[*pos].is_ascii_whitespace() || bytes[*pos] == b',') {
+        *pos += 1;
+    }
+    if *pos >= len {
+        return None;
+    }
+    match bytes[*pos] {
+        b'0' => {
+            *pos += 1;
+            Some(false)
+        }
+        b'1' => {
+            *pos += 1;
+            Some(true)
+        }
+        _ => None,
+    }
+}
+
+/// Sample points along an SVG elliptical arc (W3C SVG 1.1 Appendix F.6.5) so semicircular arcs
+/// and rounded corners contribute their true bounding box extrema, not just endpoints.
+#[allow(clippy::too_many_arguments)]
+fn record_svg_arc_points<F: FnMut(f64, f64)>(
+    x1: f64,
+    y1: f64,
+    rx_raw: f64,
+    ry_raw: f64,
+    x_rot_deg: f64,
+    large_arc: bool,
+    sweep: bool,
+    x2: f64,
+    y2: f64,
+    record: &mut F,
+) {
+    record(x2, y2);
+    let mut rx = rx_raw.abs();
+    let mut ry = ry_raw.abs();
+    if rx <= 1e-9 || ry <= 1e-9 || ((x1 - x2).abs() <= 1e-9 && (y1 - y2).abs() <= 1e-9) {
+        return;
+    }
+    let phi = x_rot_deg.to_radians();
+    let (sin_phi, cos_phi) = phi.sin_cos();
+    let dx2 = (x1 - x2) * 0.5;
+    let dy2 = (y1 - y2) * 0.5;
+    let x1p = cos_phi * dx2 + sin_phi * dy2;
+    let y1p = -sin_phi * dx2 + cos_phi * dy2;
+
+    let mut rx_sq = rx * rx;
+    let mut ry_sq = ry * ry;
+    let x1p_sq = x1p * x1p;
+    let y1p_sq = y1p * y1p;
+
+    let lambda = x1p_sq / rx_sq + y1p_sq / ry_sq;
+    if lambda > 1.0 {
+        let scale = lambda.sqrt();
+        rx *= scale;
+        ry *= scale;
+        rx_sq = rx * rx;
+        ry_sq = ry * ry;
+    }
+
+    let denom = rx_sq * y1p_sq + ry_sq * x1p_sq;
+    if denom <= 1e-18 {
+        return;
+    }
+    let num = (rx_sq * ry_sq - rx_sq * y1p_sq - ry_sq * x1p_sq).max(0.0);
+    let coef = (num / denom).sqrt() * if large_arc == sweep { -1.0 } else { 1.0 };
+    let cxp = coef * (rx * y1p / ry);
+    let cyp = coef * (-ry * x1p / rx);
+
+    let cx = cos_phi * cxp - sin_phi * cyp + (x1 + x2) * 0.5;
+    let cy = sin_phi * cxp + cos_phi * cyp + (y1 + y2) * 0.5;
+
+    let vec_angle = |ux: f64, uy: f64, vx: f64, vy: f64| -> f64 {
+        let dot = ux * vx + uy * vy;
+        let det = ux * vy - uy * vx;
+        det.atan2(dot)
+    };
+    let ux = (x1p - cxp) / rx;
+    let uy = (y1p - cyp) / ry;
+    let vx = (-x1p - cxp) / rx;
+    let vy = (-y1p - cyp) / ry;
+
+    let theta1 = vec_angle(1.0, 0.0, ux, uy);
+    let mut dtheta = vec_angle(ux, uy, vx, vy);
+    if !sweep && dtheta > 0.0 {
+        dtheta -= std::f64::consts::TAU;
+    } else if sweep && dtheta < 0.0 {
+        dtheta += std::f64::consts::TAU;
+    }
+
+    const SAMPLES: usize = 32;
+    for step in 1..SAMPLES {
+        let t = theta1 + dtheta * (step as f64 / SAMPLES as f64);
+        let (sin_t, cos_t) = t.sin_cos();
+        let px = cos_phi * rx * cos_t - sin_phi * ry * sin_t + cx;
+        let py = sin_phi * rx * cos_t + cos_phi * ry * sin_t + cy;
+        record(px, py);
+    }
+}
+
+fn parse_svg_path_bbox(d: &str) -> Option<(f64, f64, f64, f64)> {
+    let bytes = d.as_bytes();
+    let len = bytes.len();
+    let mut pos = 0usize;
+    let mut cmd: Option<u8> = None;
+    let mut cx = 0.0_f64;
+    let mut cy = 0.0_f64;
+    let mut sx = 0.0_f64;
+    let mut sy = 0.0_f64;
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    let mut steps = 0usize;
+
+    let mut record = |x: f64, y: f64| {
+        if x.is_finite() && y.is_finite() {
+            min_x = min_x.min(x);
+            max_x = max_x.max(x);
+            min_y = min_y.min(y);
+            max_y = max_y.max(y);
+        }
+    };
+
+    while pos < len && steps < 4096 {
+        steps += 1;
+        while pos < len && (bytes[pos].is_ascii_whitespace() || bytes[pos] == b',') {
+            pos += 1;
+        }
+        if pos >= len {
+            break;
+        }
+        if bytes[pos].is_ascii_alphabetic() {
+            cmd = Some(bytes[pos]);
+            pos += 1;
+        }
+        let Some(c) = cmd else {
+            break;
+        };
+        match c {
+            b'M' | b'm' => {
+                let Some(x) = parse_svg_number_token(bytes, &mut pos) else {
+                    break;
+                };
+                let Some(y) = parse_svg_number_token(bytes, &mut pos) else {
+                    break;
+                };
+                if c == b'm' {
+                    cx += x;
+                    cy += y;
+                } else {
+                    cx = x;
+                    cy = y;
+                }
+                sx = cx;
+                sy = cy;
+                record(cx, cy);
+                // Subsequent coordinate pairs after M/m are implicit L/l.
+                cmd = Some(if c == b'm' { b'l' } else { b'L' });
+            }
+            b'L' | b'l' | b'T' | b't' => {
+                let Some(x) = parse_svg_number_token(bytes, &mut pos) else {
+                    break;
+                };
+                let Some(y) = parse_svg_number_token(bytes, &mut pos) else {
+                    break;
+                };
+                if c.is_ascii_lowercase() {
+                    cx += x;
+                    cy += y;
+                } else {
+                    cx = x;
+                    cy = y;
+                }
+                record(cx, cy);
+            }
+            b'H' | b'h' => {
+                let Some(x) = parse_svg_number_token(bytes, &mut pos) else {
+                    break;
+                };
+                if c == b'h' {
+                    cx += x;
+                } else {
+                    cx = x;
+                }
+                record(cx, cy);
+            }
+            b'V' | b'v' => {
+                let Some(y) = parse_svg_number_token(bytes, &mut pos) else {
+                    break;
+                };
+                if c == b'v' {
+                    cy += y;
+                } else {
+                    cy = y;
+                }
+                record(cx, cy);
+            }
+            b'C' | b'c' => {
+                let (Some(x1), Some(y1), Some(x2), Some(y2), Some(x), Some(y)) = (
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                ) else {
+                    break;
+                };
+                if c == b'c' {
+                    record(cx + x1, cy + y1);
+                    record(cx + x2, cy + y2);
+                    cx += x;
+                    cy += y;
+                } else {
+                    record(x1, y1);
+                    record(x2, y2);
+                    cx = x;
+                    cy = y;
+                }
+                record(cx, cy);
+            }
+            b'S' | b's' | b'Q' | b'q' => {
+                let (Some(x1), Some(y1), Some(x), Some(y)) = (
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                ) else {
+                    break;
+                };
+                if c.is_ascii_lowercase() {
+                    record(cx + x1, cy + y1);
+                    cx += x;
+                    cy += y;
+                } else {
+                    record(x1, y1);
+                    cx = x;
+                    cy = y;
+                }
+                record(cx, cy);
+            }
+            b'A' | b'a' => {
+                let (Some(rx), Some(ry), Some(rot), Some(large), Some(sweep), Some(x), Some(y)) = (
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_flag_token(bytes, &mut pos),
+                    parse_svg_flag_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                    parse_svg_number_token(bytes, &mut pos),
+                ) else {
+                    break;
+                };
+                let (ex, ey) = if c == b'a' { (cx + x, cy + y) } else { (x, y) };
+                record_svg_arc_points(cx, cy, rx, ry, rot, large, sweep, ex, ey, &mut record);
+                cx = ex;
+                cy = ey;
+            }
+            b'Z' | b'z' => {
+                cx = sx;
+                cy = sy;
+                cmd = None;
+            }
+            _ => break,
+        }
+    }
+
+    if min_x.is_finite() && max_x > min_x && min_y.is_finite() && max_y > min_y {
+        Some((min_x, min_y, max_x - min_x, max_y - min_y))
+    } else {
+        None
+    }
+}
+
+fn parse_svg_polygon_bbox(points: &str) -> Option<(f64, f64, f64, f64)> {
+    let bytes = points.as_bytes();
+    let mut pos = 0;
+    let mut min_x = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    let mut count = 0usize;
+    while let (Some(x), Some(y)) = (
+        parse_svg_number_token(bytes, &mut pos),
+        parse_svg_number_token(bytes, &mut pos),
+    ) {
+        min_x = min_x.min(x);
+        max_x = max_x.max(x);
+        min_y = min_y.min(y);
+        max_y = max_y.max(y);
+        count += 1;
+        if count >= 1024 {
+            break;
+        }
+    }
+    if count >= 3 && max_x > min_x && max_y > min_y {
+        Some((min_x, min_y, max_x - min_x, max_y - min_y))
+    } else {
+        None
+    }
+}
+
+fn parse_svg_shapes(svg: &str) -> Option<Vec<RawSvgShape>> {
+    let bytes = svg.as_bytes();
+    let len = bytes.len();
+    let mut i = 0usize;
+    let mut canvas: Option<(f64, f64, f64, f64)> = None;
+    let mut g_stack: Vec<SvgGroupState> = Vec::new();
+    let mut overflow_g_depth = 0usize;
+    let mut non_render_stack: Vec<String> = Vec::new();
+    let mut shapes: Vec<RawSvgShape> = Vec::new();
+    let mut in_title = false;
+    let mut title_buf = String::new();
+
+    while i < len {
+        if bytes[i] == b'<' {
+            if svg[i..].starts_with("<!--") {
+                if let Some(rel) = svg[i + 4..].find("-->") {
+                    i = i + 4 + rel + 3;
+                } else {
+                    break;
+                }
+                continue;
+            }
+            // Any unclosed `<` to EOF terminates SVG tag parsing cleanly in O(N).
+            let Some(gt) = find_html_tag_end(svg, i) else {
+                break;
+            };
+            let tag_raw = &svg[i + 1..gt];
+            let trimmed = tag_raw.trim();
+            let is_closing = trimmed.starts_with('/');
+            let self_closing = !is_closing && trimmed.ends_with('/');
+            let name_raw = if is_closing {
+                trimmed[1..].trim()
+            } else {
+                trimmed
+            };
+            let tag_name = name_raw
+                .split(|c: char| c.is_whitespace() || c == '/')
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase();
+
+            if is_closing {
+                if non_render_stack.last().is_some_and(|top| top == &tag_name) {
+                    non_render_stack.pop();
+                } else if non_render_stack.is_empty() {
+                    if tag_name == "g" {
+                        if overflow_g_depth > 0 {
+                            overflow_g_depth -= 1;
+                        } else {
+                            g_stack.pop();
+                        }
+                    } else if tag_name == "title" {
+                        in_title = false;
+                        if overflow_g_depth == 0 && title_buf.trim().eq_ignore_ascii_case("labels")
+                        {
+                            if let Some(top) = g_stack.last_mut() {
+                                top.skip = true;
+                            }
+                        }
+                        title_buf.clear();
+                    }
+                }
+            } else if !non_render_stack.is_empty() {
+                if !self_closing && non_render_stack.last().is_some_and(|top| top == &tag_name) {
+                    non_render_stack.push(tag_name);
+                }
+            } else if is_svg_non_rendering_container(&tag_name) {
+                if !self_closing {
+                    non_render_stack.push(tag_name);
+                }
+            } else {
+                match tag_name.as_str() {
+                    "svg" => {
+                        if canvas.is_none() {
+                            canvas = parse_svg_canvas(tag_raw);
+                        }
+                    }
+                    "title" if !self_closing => {
+                        in_title = true;
+                        title_buf.clear();
+                    }
+                    "g" if !self_closing => {
+                        if g_stack.len() >= MAX_SVG_GROUP_DEPTH {
+                            overflow_g_depth += 1;
+                        } else {
+                            let parent = g_stack.last().copied();
+                            let own_fill = extract_svg_fill(tag_raw);
+                            let fill = own_fill.or_else(|| parent.and_then(|p| p.fill));
+                            let is_qshape =
+                                parent.is_some_and(|p| p.is_qshape) || has_qshape_class(tag_raw);
+                            let parent_tf = parent.map_or(IDENTITY_TRANSFORM, |p| p.transform);
+                            let own_tf = extract_html_attr(tag_raw, "transform")
+                                .map_or(IDENTITY_TRANSFORM, |t| parse_svg_transform(&t));
+                            let transform = multiply_svg_transform(parent_tf, own_tf);
+                            let skip =
+                                parent.is_some_and(|p| p.skip) || is_svg_element_hidden(tag_raw);
+                            g_stack.push(SvgGroupState {
+                                is_qshape,
+                                fill,
+                                transform,
+                                skip,
+                            });
+                        }
+                    }
+                    "rect" | "ellipse" | "circle" | "polygon" | "path" => {
+                        let skipped = overflow_g_depth > 0
+                            || g_stack.last().is_some_and(|g| g.skip)
+                            || is_svg_element_hidden(tag_raw);
+                        if !skipped && shapes.len() < MAX_OCCLUSION_MASKS {
+                            let parent = g_stack.last().copied();
+                            let effective_fill =
+                                extract_svg_fill(tag_raw).or_else(|| parent.and_then(|g| g.fill));
+                            if effective_fill == Some(SvgFill::None) {
+                                i = gt + 1;
+                                continue;
+                            }
+                            let geom = match tag_name.as_str() {
+                                "rect" => {
+                                    let x = extract_html_attr(tag_raw, "x")
+                                        .and_then(|s| parse_svg_length(&s))
+                                        .unwrap_or(0.0);
+                                    let y = extract_html_attr(tag_raw, "y")
+                                        .and_then(|s| parse_svg_length(&s))
+                                        .unwrap_or(0.0);
+                                    let w = extract_html_attr(tag_raw, "width")
+                                        .and_then(|s| parse_svg_length(&s));
+                                    let h = extract_html_attr(tag_raw, "height")
+                                        .and_then(|s| parse_svg_length(&s));
+                                    match (w, h) {
+                                        (Some(w), Some(h)) if w > 0.0 && h > 0.0 => {
+                                            Some((OcclusionShapeType::Rect, x, y, w, h))
+                                        }
+                                        _ => None,
+                                    }
+                                }
+                                "ellipse" => {
+                                    let cx = extract_html_attr(tag_raw, "cx")
+                                        .and_then(|s| parse_svg_length(&s))
+                                        .unwrap_or(0.0);
+                                    let cy = extract_html_attr(tag_raw, "cy")
+                                        .and_then(|s| parse_svg_length(&s))
+                                        .unwrap_or(0.0);
+                                    let rx = extract_html_attr(tag_raw, "rx")
+                                        .and_then(|s| parse_svg_length(&s));
+                                    let ry = extract_html_attr(tag_raw, "ry")
+                                        .and_then(|s| parse_svg_length(&s));
+                                    match (rx, ry) {
+                                        (Some(rx), Some(ry)) if rx > 0.0 && ry > 0.0 => Some((
+                                            OcclusionShapeType::Ellipse,
+                                            cx - rx,
+                                            cy - ry,
+                                            rx * 2.0,
+                                            ry * 2.0,
+                                        )),
+                                        _ => None,
+                                    }
+                                }
+                                "circle" => {
+                                    let cx = extract_html_attr(tag_raw, "cx")
+                                        .and_then(|s| parse_svg_length(&s))
+                                        .unwrap_or(0.0);
+                                    let cy = extract_html_attr(tag_raw, "cy")
+                                        .and_then(|s| parse_svg_length(&s))
+                                        .unwrap_or(0.0);
+                                    let r = extract_html_attr(tag_raw, "r")
+                                        .and_then(|s| parse_svg_length(&s));
+                                    match r {
+                                        Some(r) if r > 0.0 => Some((
+                                            OcclusionShapeType::Ellipse,
+                                            cx - r,
+                                            cy - r,
+                                            r * 2.0,
+                                            r * 2.0,
+                                        )),
+                                        _ => None,
+                                    }
+                                }
+                                "polygon" => extract_html_attr(tag_raw, "points")
+                                    .and_then(|p| parse_svg_polygon_bbox(&p))
+                                    .map(|(x, y, w, h)| (OcclusionShapeType::Rect, x, y, w, h)),
+                                "path" => extract_html_attr(tag_raw, "d")
+                                    .and_then(|d| parse_svg_path_bbox(&d))
+                                    .map(|(x, y, w, h)| (OcclusionShapeType::Rect, x, y, w, h)),
+                                _ => None,
+                            };
+
+                            if let (Some((ox, oy, vw, vh)), Some((shape_type, rx, ry, rw, rh))) =
+                                (canvas, geom)
+                            {
+                                let parent_tf = parent.map_or(IDENTITY_TRANSFORM, |g| g.transform);
+                                let own_tf = extract_html_attr(tag_raw, "transform")
+                                    .map_or(IDENTITY_TRANSFORM, |t| parse_svg_transform(&t));
+                                let tf = multiply_svg_transform(parent_tf, own_tf);
+                                let (tx, ty, tw, th) = transform_bbox(tf, rx, ry, rw, rh);
+                                let nx = (tx - ox) / vw;
+                                let ny = (ty - oy) / vh;
+                                let nw = tw / vw;
+                                let nh = th / vh;
+                                if nx.is_finite()
+                                    && ny.is_finite()
+                                    && nw.is_finite()
+                                    && nh.is_finite()
+                                {
+                                    // Clip to [0, 1] so off-canvas shapes are dropped instead of
+                                    // teleported/shifted onto the image edge by `sanitize_mask`.
+                                    let x1 = nx.clamp(0.0, 1.0);
+                                    let y1 = ny.clamp(0.0, 1.0);
+                                    let x2 = (nx + nw).clamp(0.0, 1.0);
+                                    let y2 = (ny + nh).clamp(0.0, 1.0);
+                                    let cw = x2 - x1;
+                                    let ch = y2 - y1;
+                                    if cw >= 0.002 && ch >= 0.002 {
+                                        let has_qshape_class = parent.is_some_and(|g| g.is_qshape)
+                                            || has_qshape_class(tag_raw);
+                                        let has_active_fill =
+                                            effective_fill == Some(SvgFill::Active);
+                                        shapes.push(RawSvgShape {
+                                            shape_type,
+                                            x: x1,
+                                            y: y1,
+                                            w: cw,
+                                            h: ch,
+                                            has_qshape_class,
+                                            has_active_fill,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            i = gt + 1;
+            continue;
+        }
+        if in_title && non_render_stack.is_empty() {
+            let ch = svg[i..].chars().next().unwrap();
+            if title_buf.len() < 64 {
+                title_buf.push(ch);
+            }
+            i += ch.len_utf8();
+        } else {
+            i += 1;
+        }
+    }
+
+    canvas.map(|_| shapes)
+}
+
+fn shapes_roughly_match(a: &RawSvgShape, b: &RawSvgShape) -> bool {
+    const EPS: f64 = 0.005;
+    (a.x - b.x).abs() <= EPS
+        && (a.y - b.y).abs() <= EPS
+        && (a.w - b.w).abs() <= EPS
+        && (a.h - b.h).abs() <= EPS
+}
+
+fn resolve_io_enhanced_masks(
+    q_shapes: &[RawSvgShape],
+    a_shapes: Option<&[RawSvgShape]>,
+) -> Option<(Vec<OcclusionMask>, OcclusionMode)> {
+    if q_shapes.is_empty() {
+        return None;
+    }
+
+    let any_qshape = q_shapes.iter().any(|s| s.has_qshape_class);
+    let any_active_fill = q_shapes.iter().any(|s| s.has_active_fill);
+    let answer_shapes = if !any_qshape && !any_active_fill {
+        a_shapes.unwrap_or(&[])
+    } else {
+        &[]
+    };
+
+    let mut active_flags: Vec<bool> = q_shapes
+        .iter()
+        .map(|s| {
+            if any_qshape {
+                s.has_qshape_class
+            } else if any_active_fill {
+                s.has_active_fill
+            } else if !answer_shapes.is_empty() {
+                !answer_shapes.iter().any(|a| shapes_roughly_match(s, a))
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    if !active_flags.iter().any(|&a| a) {
+        active_flags.fill(true);
+    }
+
+    let has_inactive = active_flags.iter().any(|&a| !a);
+    let mode = if has_inactive {
+        OcclusionMode::HideAll
+    } else {
+        OcclusionMode::HideOne
+    };
+
+    let masks = q_shapes
+        .iter()
+        .zip(active_flags)
+        .map(|(s, is_active)| OcclusionMask {
+            id: if is_active { 1 } else { 2 },
+            shape_type: s.shape_type,
+            x: s.x,
+            y: s.y,
+            w: s.w,
+            h: s.h,
+            label: None,
+        })
+        .collect();
+
+    Some((masks, mode))
+}
+
+#[cfg(test)]
+fn parse_io_enhanced_svg(
+    q_svg: &str,
+    a_svg: Option<&str>,
+) -> Option<(Vec<OcclusionMask>, OcclusionMode)> {
+    let q_shapes = parse_svg_shapes(q_svg)?;
+    let a_shapes = a_svg.and_then(parse_svg_shapes);
+    resolve_io_enhanced_masks(&q_shapes, a_shapes.as_deref())
 }
 
 /// Ensure imported header text placed above ```` ```rem-occlusion ```` cannot leave an unclosed
@@ -909,12 +2118,123 @@ fn sanitize_header_before_occlusion(header: &str) -> String {
     }
 }
 
+enum ClozeBuildOutcome {
+    Card(String, String, Option<u32>),
+    SkippedEmptyCloze,
+}
+
+/// Unwrap Anki "Cloze Overlapping" randomizer markers `[[r::content]]` / `[[r1::content]]`
+/// in O(N) time while skipping Markdown code spans/fences and preserving balanced `[...]` pairs.
+fn unwrap_cloze_overlapping_randomizers(input: &str) -> String {
+    if !input.contains("[[r") || !input.contains("]]") {
+        return input.to_owned();
+    }
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let code_ranges = find_code_ranges(input);
+    let mut code_idx = 0usize;
+
+    struct RandFrame {
+        open_start: usize,
+        open_end: usize,
+        inner_brackets: usize,
+    }
+
+    let mut stack: Vec<RandFrame> = Vec::new();
+    let mut removals: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0usize;
+
+    while i < len {
+        while code_idx < code_ranges.len() && code_ranges[code_idx].1 <= i {
+            code_idx += 1;
+        }
+        if let Some(&(cs, ce)) = code_ranges.get(code_idx) {
+            if i >= cs && i < ce {
+                i = ce;
+                continue;
+            }
+        }
+
+        if i + 5 <= len && bytes[i] == b'[' && bytes[i + 1] == b'[' && bytes[i + 2] == b'r' {
+            let mut j = i + 3;
+            while j < len && bytes[j].is_ascii_digit() {
+                j += 1;
+            }
+            if j + 1 < len && bytes[j] == b':' && bytes[j + 1] == b':' {
+                stack.push(RandFrame {
+                    open_start: i,
+                    open_end: j + 2,
+                    inner_brackets: 0,
+                });
+                i = j + 2;
+                continue;
+            }
+        }
+
+        if let Some(top) = stack.last_mut() {
+            if bytes[i] == b'[' {
+                top.inner_brackets += 1;
+                i += 1;
+                continue;
+            }
+            if bytes[i] == b']' {
+                if top.inner_brackets > 0 {
+                    top.inner_brackets -= 1;
+                    i += 1;
+                    continue;
+                }
+                if i + 1 < len && bytes[i + 1] == b']' {
+                    let frame = stack.pop().unwrap();
+                    removals.push((frame.open_start, frame.open_end));
+                    removals.push((i, i + 2));
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+
+        i += 1;
+    }
+
+    if removals.is_empty() {
+        return input.to_owned();
+    }
+    removals.sort_unstable_by_key(|&(start, _)| start);
+    let mut out = String::with_capacity(len);
+    let mut cursor = 0usize;
+    for (start, end) in removals {
+        if start >= cursor {
+            out.push_str(&input[cursor..start]);
+            cursor = end;
+        }
+    }
+    out.push_str(&input[cursor..]);
+    out
+}
+
+fn strip_empty_cloze_spans(text: &str) -> String {
+    let spans = parse_cloze_spans(text);
+    if !spans.iter().any(|s| s.answer.trim().is_empty()) {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+    for span in spans {
+        if span.answer.trim().is_empty() {
+            out.push_str(&text[cursor..span.start]);
+            cursor = span.end;
+        }
+    }
+    out.push_str(&text[cursor..]);
+    normalize_markdown_whitespace(&out)
+}
+
 fn build_cloze_card_content<R: Read + Seek>(
     note: &AnkiNote,
     model: Option<&AnkiModel>,
     ord: i64,
     media: &mut MediaLoader<'_, R>,
-) -> Result<(String, String, Option<u32>), CollectionError> {
+) -> Result<ClozeBuildOutcome, CollectionError> {
     let template = model.and_then(|m| {
         m.templates
             .get(&ord)
@@ -953,9 +2273,27 @@ fn build_cloze_card_content<R: Read + Seek>(
         raw_front_field.to_owned()
     };
 
-    let front = html_to_markdown(&raw_front, media)?;
+    let front_raw_md = unwrap_cloze_overlapping_randomizers(&html_to_markdown(&raw_front, media)?);
+    if front_raw_md.trim().is_empty() {
+        return Ok(ClozeBuildOutcome::Card(String::new(), String::new(), None));
+    }
+
+    let target_index = u32::try_from(ord.saturating_add(1)).unwrap_or(1).max(1);
+    let raw_spans = parse_cloze_spans(&front_raw_md);
+    if !raw_spans.is_empty() {
+        let target_spans_exist = raw_spans.iter().any(|s| s.index == target_index);
+        let target_has_non_empty = raw_spans
+            .iter()
+            .any(|s| s.index == target_index && !s.answer.trim().is_empty());
+        let any_non_empty = raw_spans.iter().any(|s| !s.answer.trim().is_empty());
+        if (target_spans_exist && !target_has_non_empty) || !any_non_empty {
+            return Ok(ClozeBuildOutcome::SkippedEmptyCloze);
+        }
+    }
+
+    let front = strip_empty_cloze_spans(&front_raw_md);
     if front.trim().is_empty() {
-        return Ok((String::new(), String::new(), None));
+        return Ok(ClozeBuildOutcome::Card(String::new(), String::new(), None));
     }
 
     let back = if let (Some(model), Some(tmpl)) = (model, template) {
@@ -971,12 +2309,9 @@ fn build_cloze_card_content<R: Read + Seek>(
                     )
                 })
                 .collect();
-            let raw_back = render_anki_back_template_skipping(
-                &tmpl.afmt,
-                &field_map,
-                &note.tags,
-                cloze_field_name_lower.as_deref(),
-            );
+            let skip_refs: Vec<&str> = cloze_field_name_lower.as_deref().into_iter().collect();
+            let raw_back =
+                render_anki_back_template_skipping(&tmpl.afmt, &field_map, &note.tags, &skip_refs);
             html_to_markdown(&raw_back, media)?
         } else {
             String::new()
@@ -995,7 +2330,6 @@ fn build_cloze_card_content<R: Read + Seek>(
         extra_parts.join("\n\n")
     };
 
-    let target_index = u32::try_from(ord.saturating_add(1)).unwrap_or(1).max(1);
     let indices = extract_cloze_indices(&front);
     let cloze_index = if indices.contains(&target_index) {
         Some(target_index)
@@ -1003,7 +2337,7 @@ fn build_cloze_card_content<R: Read + Seek>(
         indices.first().copied()
     };
 
-    Ok((front, back, cloze_index))
+    Ok(ClozeBuildOutcome::Card(front, back, cloze_index))
 }
 
 fn build_standard_card_content<R: Read + Seek>(
@@ -1117,14 +2451,14 @@ fn render_anki_back_template(
     fields: &HashMap<String, &str>,
     tags: &[String],
 ) -> String {
-    render_anki_back_template_skipping(afmt, fields, tags, None)
+    render_anki_back_template_skipping(afmt, fields, tags, &[])
 }
 
 fn render_anki_back_template_skipping(
     afmt: &str,
     fields: &HashMap<String, &str>,
     tags: &[String],
-    skip_field_lower: Option<&str>,
+    skip_fields_lower: &[&str],
 ) -> String {
     // Resolve conditionals *before* slicing after `<hr id=answer>` so conditionals wrapping
     // `{{FrontSide}}<hr id=answer>...` don't get split mid-block.
@@ -1137,7 +2471,7 @@ fn render_anki_back_template_skipping(
         current = next;
     }
     let stripped = strip_front_side_from_afmt(&current);
-    substitute_template_fields(&stripped, fields, false, skip_field_lower)
+    substitute_template_fields(&stripped, fields, false, skip_fields_lower)
 }
 
 fn find_front_side_token(input: &str) -> Option<(usize, usize)> {
@@ -1228,14 +2562,14 @@ fn render_anki_template(template: &str, fields: &HashMap<String, &str>, tags: &[
         }
         current = next;
     }
-    substitute_template_fields(&current, fields, true, None)
+    substitute_template_fields(&current, fields, true, &[])
 }
 
 fn substitute_template_fields(
     current: &str,
     fields: &HashMap<String, &str>,
     is_front: bool,
-    skip_field_lower: Option<&str>,
+    skip_fields_lower: &[&str],
 ) -> String {
     let mut out = String::with_capacity(current.len());
     let mut rest = current;
@@ -1267,7 +2601,10 @@ fn substitute_template_fields(
         if is_anki_metadata_token(field_name) || field_name.eq_ignore_ascii_case("FrontSide") {
             continue;
         }
-        if skip_field_lower.is_some_and(|skip| field_name.eq_ignore_ascii_case(skip)) {
+        if skip_fields_lower
+            .iter()
+            .any(|skip| field_name.eq_ignore_ascii_case(skip))
+        {
             continue;
         }
         // `{{tts ...:Field}}` is runtime TTS synthesis; `{{type:Field}}` on the Front is an input
@@ -2178,7 +3515,18 @@ fn is_cjk_punctuation(ch: char) -> bool {
     )
 }
 
-fn append_wrapped_emphasis(out: &mut String, marker: &str, raw_inner: &str) -> bool {
+struct EmphasisAppendResult {
+    space_if_next_word: bool,
+    ended_with_coalesceable_marker: bool,
+}
+
+fn append_wrapped_emphasis(
+    out: &mut String,
+    marker: &str,
+    raw_inner: &str,
+    preserve_leading_if_empty: bool,
+    can_coalesce_with_prev: bool,
+) -> EmphasisAppendResult {
     let has_leading_ws = raw_inner.chars().next().is_some_and(char::is_whitespace);
     let has_trailing_ws = raw_inner
         .chars()
@@ -2186,10 +3534,16 @@ fn append_wrapped_emphasis(out: &mut String, marker: &str, raw_inner: &str) -> b
         .is_some_and(char::is_whitespace);
     let trimmed = raw_inner.trim();
     if trimmed.is_empty() {
-        if (has_leading_ws || has_trailing_ws) && !out.is_empty() && !out.ends_with([' ', '\n']) {
+        if (has_leading_ws || has_trailing_ws)
+            && !out.ends_with([' ', '\n'])
+            && (preserve_leading_if_empty || !out.is_empty())
+        {
             out.push(' ');
         }
-        return false;
+        return EmphasisAppendResult {
+            space_if_next_word: false,
+            ended_with_coalesceable_marker: false,
+        };
     }
 
     let first_ch = trimmed.chars().next().unwrap();
@@ -2204,12 +3558,16 @@ fn append_wrapped_emphasis(out: &mut String, marker: &str, raw_inner: &str) -> b
                 .chars()
                 .next_back()
                 .is_some_and(is_word_like_for_flanking));
-    if needs_lead_space && !out.is_empty() && !out.ends_with([' ', '\n']) {
+    if needs_lead_space
+        && !out.ends_with([' ', '\n'])
+        && (preserve_leading_if_empty || !out.is_empty())
+    {
         out.push(' ');
     }
 
     // Emphasis markers cannot span across blank lines (`\n\n`); apply per non-empty paragraph line.
-    if trimmed.contains('\n') {
+    let single_line = !trimmed.contains('\n');
+    if !single_line {
         let mut first_line = true;
         for line in trimmed.split('\n') {
             if !first_line {
@@ -2223,6 +3581,12 @@ fn append_wrapped_emphasis(out: &mut String, marker: &str, raw_inner: &str) -> b
                 out.push_str(marker);
             }
         }
+    } else if !needs_lead_space && can_coalesce_with_prev && out.ends_with(marker) {
+        // Coalesce adjacent identical emphasis spans (`<b>foo</b><b>bar</b>` -> `**foobar**`) in O(1)
+        // using exact converter state (never guessing from literal `*`/`~` characters in prose).
+        out.truncate(out.len() - marker.len());
+        out.push_str(trimmed);
+        out.push_str(marker);
     } else {
         out.push_str(marker);
         out.push_str(trimmed);
@@ -2231,9 +3595,15 @@ fn append_wrapped_emphasis(out: &mut String, marker: &str, raw_inner: &str) -> b
 
     if has_trailing_ws {
         out.push(' ');
-        false
+        EmphasisAppendResult {
+            space_if_next_word: false,
+            ended_with_coalesceable_marker: false,
+        }
     } else {
-        is_ascii_punctuation_for_flanking(last_ch)
+        EmphasisAppendResult {
+            space_if_next_word: is_ascii_punctuation_for_flanking(last_ch),
+            ended_with_coalesceable_marker: single_line,
+        }
     }
 }
 
@@ -2349,6 +3719,13 @@ struct HtmlConverter<'a, 'b, R: Read + Seek> {
     media: &'a mut MediaLoader<'b, R>,
     root_out: String,
     frames: Vec<HtmlFrame>,
+    /// Tracks the last closed single-line emphasis marker (`"**"`, `"*"`, `"~~"`) at each nesting
+    /// level (`[root, frames...]`) so adjacent identical emphasis tags coalesce in O(1) without
+    /// misidentifying literal `*`/`~` characters in prose.
+    emphasis_stack: Vec<Option<&'static str>>,
+    /// Defers root-level `<hr>` until non-empty content follows, preventing redundant leading or
+    /// trailing `<hr>` dividers while preserving literal `---` text, Setext headings, and YAML.
+    pending_hr: bool,
     list_stack: Vec<ListKind>,
     skip_stack: Vec<String>,
     text_buf: String,
@@ -2361,10 +3738,44 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
             media,
             root_out: String::with_capacity(cap),
             frames: Vec::new(),
+            emphasis_stack: vec![None],
+            pending_hr: false,
             list_stack: Vec::new(),
             skip_stack: Vec::new(),
             text_buf: String::new(),
             space_if_next_word: false,
+        }
+    }
+
+    fn push_frame(&mut self, frame: HtmlFrame) {
+        self.frames.push(frame);
+        self.emphasis_stack.push(None);
+    }
+
+    fn pop_frame(&mut self) -> Option<HtmlFrame> {
+        let frame = self.frames.pop()?;
+        if self.emphasis_stack.len() > 1 {
+            self.emphasis_stack.pop();
+        }
+        Some(frame)
+    }
+
+    fn active_last_emphasis(&self) -> Option<&'static str> {
+        self.emphasis_stack.last().copied().flatten()
+    }
+
+    fn set_active_last_emphasis(&mut self, marker: Option<&'static str>) {
+        if let Some(slot) = self.emphasis_stack.last_mut() {
+            *slot = marker;
+        }
+    }
+
+    fn flush_pending_hr_if_root(&mut self) {
+        if self.pending_hr && self.frames.is_empty() {
+            self.pending_hr = false;
+            self.space_if_next_word = false;
+            self.set_active_last_emphasis(None);
+            self.root_out.push_str("\n\n---\n\n");
         }
     }
 
@@ -2447,6 +3858,10 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
         if s.is_empty() {
             return;
         }
+        if !s.trim().is_empty() {
+            self.flush_pending_hr_if_root();
+        }
+        self.set_active_last_emphasis(None);
         if self.space_if_next_word {
             self.space_if_next_word = false;
             if s.chars().next().is_some_and(is_word_like_for_flanking) {
@@ -2462,6 +3877,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
 
     fn push_newline_boundary(&mut self, double: bool) {
         self.space_if_next_word = false;
+        self.set_active_last_emphasis(None);
         let in_table_cell = matches!(
             self.frames.last(),
             Some(HtmlFrame::Table {
@@ -2534,14 +3950,38 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
         Ok(())
     }
 
+    fn active_frame_is_inline(&self) -> bool {
+        for frame in self.frames.iter().rev() {
+            match frame {
+                HtmlFrame::Bold { .. }
+                | HtmlFrame::Italic { .. }
+                | HtmlFrame::Strike { .. }
+                | HtmlFrame::InlineCode { .. }
+                | HtmlFrame::Link { .. }
+                | HtmlFrame::Ruby { .. } => return true,
+                HtmlFrame::Pre { .. }
+                | HtmlFrame::Heading { .. }
+                | HtmlFrame::Blockquote { .. }
+                | HtmlFrame::ListItem { .. } => return false,
+                HtmlFrame::Table { cur_cell, .. } => {
+                    if cur_cell.is_some() {
+                        return false;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     fn push_cleaned_text(&mut self, text: &str) {
         if text.is_empty() {
             return;
         }
         let mut slice = text;
         if slice.starts_with(' ') {
+            let preserve_leading = self.active_frame_is_inline();
             let target = self.active_buf_mut();
-            if target.is_empty() || target.ends_with([' ', '\n']) {
+            if target.ends_with([' ', '\n']) || (!preserve_leading && target.is_empty()) {
                 slice = &slice[1..];
             }
         }
@@ -2598,38 +4038,46 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                         }
                     } else {
                         self.space_if_next_word = false;
+                        self.set_active_last_emphasis(None);
                         self.active_buf_mut().push('\n');
                     }
                 }
             }
             "hr" => {
                 self.space_if_next_word = false;
-                self.active_buf_mut().push_str("\n\n---\n\n");
+                self.set_active_last_emphasis(None);
+                if self.frames.is_empty() {
+                    if !self.root_out.trim().is_empty() {
+                        self.pending_hr = true;
+                    }
+                } else {
+                    self.active_buf_mut().push_str("\n\n---\n\n");
+                }
             }
             "p" | "section" | "article" => self.push_newline_boundary(true),
             "div" | "header" | "footer" | "main" | "aside" | "nav" | "figure" | "figcaption"
             | "dl" | "dt" | "dd" => self.push_newline_boundary(false),
-            "h1" => self.frames.push(HtmlFrame::Heading {
+            "h1" => self.push_frame(HtmlFrame::Heading {
                 level: 1,
                 buf: String::new(),
             }),
-            "h2" => self.frames.push(HtmlFrame::Heading {
+            "h2" => self.push_frame(HtmlFrame::Heading {
                 level: 2,
                 buf: String::new(),
             }),
-            "h3" => self.frames.push(HtmlFrame::Heading {
+            "h3" => self.push_frame(HtmlFrame::Heading {
                 level: 3,
                 buf: String::new(),
             }),
-            "h4" => self.frames.push(HtmlFrame::Heading {
+            "h4" => self.push_frame(HtmlFrame::Heading {
                 level: 4,
                 buf: String::new(),
             }),
-            "h5" => self.frames.push(HtmlFrame::Heading {
+            "h5" => self.push_frame(HtmlFrame::Heading {
                 level: 5,
                 buf: String::new(),
             }),
-            "h6" => self.frames.push(HtmlFrame::Heading {
+            "h6" => self.push_frame(HtmlFrame::Heading {
                 level: 6,
                 buf: String::new(),
             }),
@@ -2639,7 +4087,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                     .iter()
                     .any(|f| matches!(f, HtmlFrame::Bold { .. }))
                 {
-                    self.frames.push(HtmlFrame::Bold { buf: String::new() });
+                    self.push_frame(HtmlFrame::Bold { buf: String::new() });
                 }
             }
             "i" | "em" if !self.in_pre() => {
@@ -2648,7 +4096,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                     .iter()
                     .any(|f| matches!(f, HtmlFrame::Italic { .. }))
                 {
-                    self.frames.push(HtmlFrame::Italic { buf: String::new() });
+                    self.push_frame(HtmlFrame::Italic { buf: String::new() });
                 }
             }
             "del" | "s" | "strike" if !self.in_pre() => {
@@ -2657,15 +4105,14 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                     .iter()
                     .any(|f| matches!(f, HtmlFrame::Strike { .. }))
                 {
-                    self.frames.push(HtmlFrame::Strike { buf: String::new() });
+                    self.push_frame(HtmlFrame::Strike { buf: String::new() });
                 }
             }
             "pre" => {
-                self.frames.push(HtmlFrame::Pre { buf: String::new() });
+                self.push_frame(HtmlFrame::Pre { buf: String::new() });
             }
             "code" if !self.in_pre() => {
-                self.frames
-                    .push(HtmlFrame::InlineCode { buf: String::new() });
+                self.push_frame(HtmlFrame::InlineCode { buf: String::new() });
             }
             "ul" => {
                 self.push_newline_boundary(false);
@@ -2693,18 +4140,17 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                     }
                     _ => None,
                 };
-                self.frames.push(HtmlFrame::ListItem {
+                self.push_frame(HtmlFrame::ListItem {
                     depth,
                     ordered_num,
                     buf: String::new(),
                 });
             }
             "blockquote" => {
-                self.frames
-                    .push(HtmlFrame::Blockquote { buf: String::new() });
+                self.push_frame(HtmlFrame::Blockquote { buf: String::new() });
             }
             "ruby" if !self.in_pre() => {
-                self.frames.push(HtmlFrame::Ruby {
+                self.push_frame(HtmlFrame::Ruby {
                     base_buf: String::new(),
                     rt_buf: String::new(),
                     in_rt: false,
@@ -2756,7 +4202,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                 }
             }
             "table" if !self.in_pre() => {
-                self.frames.push(HtmlFrame::Table {
+                self.push_frame(HtmlFrame::Table {
                     rows: Vec::new(),
                     cur_row: None,
                     cur_cell: None,
@@ -2831,7 +4277,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
             "a" if !self_closing => {
                 if let Some(href) = extract_html_attr(tag_raw, "href") {
                     if let Some(safe_url) = sanitize_external_url(&href) {
-                        self.frames.push(HtmlFrame::Link {
+                        self.push_frame(HtmlFrame::Link {
                             href: safe_url,
                             buf: String::new(),
                         });
@@ -2968,7 +4414,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
             return;
         };
         while self.frames.len() > idx {
-            if let Some(frame) = self.frames.pop() {
+            if let Some(frame) = self.pop_frame() {
                 self.emit_closed_frame(frame);
             }
         }
@@ -2977,51 +4423,123 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
     fn emit_closed_frame(&mut self, frame: HtmlFrame) {
         match frame {
             HtmlFrame::Bold { buf } => {
+                if !buf.trim().is_empty() {
+                    self.flush_pending_hr_if_root();
+                }
+                let preserve_lead = self.active_frame_is_inline();
+                let can_coalesce = self.active_last_emphasis() == Some("**");
                 let target = self.active_buf_mut();
-                let need_after = append_wrapped_emphasis(target, "**", &buf);
-                if need_after {
+                let res = append_wrapped_emphasis(target, "**", &buf, preserve_lead, can_coalesce);
+                self.set_active_last_emphasis(if res.ended_with_coalesceable_marker {
+                    Some("**")
+                } else {
+                    None
+                });
+                if res.space_if_next_word {
                     self.space_if_next_word = true;
                 }
             }
             HtmlFrame::Italic { buf } => {
+                if !buf.trim().is_empty() {
+                    self.flush_pending_hr_if_root();
+                }
+                let preserve_lead = self.active_frame_is_inline();
+                let can_coalesce = self.active_last_emphasis() == Some("*");
                 let target = self.active_buf_mut();
-                let need_after = append_wrapped_emphasis(target, "*", &buf);
-                if need_after {
+                let res = append_wrapped_emphasis(target, "*", &buf, preserve_lead, can_coalesce);
+                self.set_active_last_emphasis(if res.ended_with_coalesceable_marker {
+                    Some("*")
+                } else {
+                    None
+                });
+                if res.space_if_next_word {
                     self.space_if_next_word = true;
                 }
             }
             HtmlFrame::Strike { buf } => {
+                if !buf.trim().is_empty() {
+                    self.flush_pending_hr_if_root();
+                }
+                let preserve_lead = self.active_frame_is_inline();
+                let can_coalesce = self.active_last_emphasis() == Some("~~");
                 let target = self.active_buf_mut();
-                let need_after = append_wrapped_emphasis(target, "~~", &buf);
-                if need_after {
+                let res = append_wrapped_emphasis(target, "~~", &buf, preserve_lead, can_coalesce);
+                self.set_active_last_emphasis(if res.ended_with_coalesceable_marker {
+                    Some("~~")
+                } else {
+                    None
+                });
+                if res.space_if_next_word {
                     self.space_if_next_word = true;
                 }
             }
             HtmlFrame::InlineCode { buf } => {
+                let has_lead_ws = buf.chars().next().is_some_and(char::is_whitespace);
+                let has_trail_ws = buf.chars().next_back().is_some_and(char::is_whitespace);
+                let preserve_lead = self.active_frame_is_inline();
                 let formatted = format_inline_code(&buf);
                 if !formatted.is_empty() {
+                    self.flush_pending_hr_if_root();
+                    if has_lead_ws {
+                        let target = self.active_buf_mut();
+                        if !target.ends_with([' ', '\n']) && (preserve_lead || !target.is_empty()) {
+                            target.push(' ');
+                        }
+                    }
                     self.push_str_to_active(&formatted);
+                    if has_trail_ws {
+                        self.active_buf_mut().push(' ');
+                    }
+                } else if has_lead_ws || has_trail_ws {
+                    let target = self.active_buf_mut();
+                    if !target.ends_with([' ', '\n']) && (preserve_lead || !target.is_empty()) {
+                        target.push(' ');
+                        self.set_active_last_emphasis(None);
+                    }
                 }
             }
             HtmlFrame::Pre { buf } => {
                 let formatted = format_fenced_code_block(&buf);
                 if !formatted.is_empty() {
+                    self.flush_pending_hr_if_root();
                     self.space_if_next_word = false;
+                    self.set_active_last_emphasis(None);
                     self.active_buf_mut().push_str(&formatted);
                 }
             }
             HtmlFrame::Link { href, buf } => {
+                let has_lead_ws = buf.chars().next().is_some_and(char::is_whitespace);
+                let has_trail_ws = buf.chars().next_back().is_some_and(char::is_whitespace);
+                let preserve_lead = self.active_frame_is_inline();
                 let trimmed = buf.trim();
                 if !trimmed.is_empty() {
+                    self.flush_pending_hr_if_root();
+                    if has_lead_ws {
+                        let target = self.active_buf_mut();
+                        if !target.ends_with([' ', '\n']) && (preserve_lead || !target.is_empty()) {
+                            target.push(' ');
+                        }
+                    }
                     let link_md = format!("[{trimmed}]({href})");
                     self.push_str_to_active(&link_md);
+                    if has_trail_ws {
+                        self.active_buf_mut().push(' ');
+                    }
+                } else if has_lead_ws || has_trail_ws {
+                    let target = self.active_buf_mut();
+                    if !target.ends_with([' ', '\n']) && (preserve_lead || !target.is_empty()) {
+                        target.push(' ');
+                        self.set_active_last_emphasis(None);
+                    }
                 }
             }
             HtmlFrame::Heading { level, buf } => {
                 let collapsed: String = buf.split_whitespace().collect::<Vec<_>>().join(" ");
                 if !collapsed.is_empty() {
+                    self.flush_pending_hr_if_root();
                     let hashes = "#".repeat(level as usize);
                     self.space_if_next_word = false;
+                    self.set_active_last_emphasis(None);
                     self.active_buf_mut()
                         .push_str(&format!("\n\n{hashes} {collapsed}\n\n"));
                 }
@@ -3029,6 +4547,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
             HtmlFrame::Blockquote { buf } => {
                 let trimmed = buf.trim();
                 if !trimmed.is_empty() {
+                    self.flush_pending_hr_if_root();
                     let mut quoted = String::from("\n\n");
                     for line in trimmed.lines() {
                         let lt = line.trim();
@@ -3042,6 +4561,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                     }
                     quoted.push('\n');
                     self.space_if_next_word = false;
+                    self.set_active_last_emphasis(None);
                     self.active_buf_mut().push_str(&quoted);
                 }
             }
@@ -3061,6 +4581,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                     let mut lines = trimmed.lines();
                     let first = lines.next().unwrap_or("").trim();
                     if !first.is_empty() {
+                        self.flush_pending_hr_if_root();
                         let mut item_md = format!("\n{indent}{marker}{first}");
                         for cont in lines {
                             let ct = cont.trim();
@@ -3083,6 +4604,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                             }
                         }
                         self.space_if_next_word = false;
+                        self.set_active_last_emphasis(None);
                         self.active_buf_mut().push_str(&item_md);
                     }
                 }
@@ -3132,6 +4654,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                 if clean_rows.is_empty() {
                     return;
                 }
+                self.flush_pending_hr_if_root();
                 let max_cols = clean_rows.iter().map(Vec::len).max().unwrap_or(0);
                 if max_cols <= 1 {
                     // Single-column layout table: unwrap cleanly as paragraphs.
@@ -3145,6 +4668,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                         }
                     }
                     self.space_if_next_word = false;
+                    self.set_active_last_emphasis(None);
                     self.active_buf_mut().push_str(&unwrapped);
                     return;
                 }
@@ -3179,6 +4703,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
                 }
                 table_md.push('\n');
                 self.space_if_next_word = false;
+                self.set_active_last_emphasis(None);
                 self.active_buf_mut().push_str(&table_md);
             }
         }
@@ -3186,7 +4711,7 @@ impl<'a, 'b, R: Read + Seek> HtmlConverter<'a, 'b, R> {
 
     fn finish(mut self) -> Result<String, CollectionError> {
         self.flush_text()?;
-        while let Some(frame) = self.frames.pop() {
+        while let Some(frame) = self.pop_frame() {
             self.emit_closed_frame(frame);
         }
         Ok(self.root_out)
@@ -3312,32 +4837,81 @@ fn decode_percent_encoded(input: &str) -> String {
 }
 
 fn extract_html_attr(tag_inner: &str, attr_name: &str) -> Option<String> {
-    let lower = tag_inner.to_ascii_lowercase();
-    let needle = format!("{attr_name}=");
-    let mut search_from = 0;
-    while let Some(rel) = lower[search_from..].find(&needle) {
-        let pos = search_from + rel;
-        let preceded_ok = pos == 0
-            || tag_inner.as_bytes()[pos - 1].is_ascii_whitespace()
-            || tag_inner.as_bytes()[pos - 1] == b'/';
-        if !preceded_ok {
-            search_from = pos + needle.len();
+    let bytes = tag_inner.as_bytes();
+    let len = bytes.len();
+    let mut i = 0usize;
+    // Skip leading tag name if `tag_inner` begins with a non-whitespace token not followed by `=`.
+    if !bytes.is_empty() && !bytes[0].is_ascii_whitespace() {
+        let first_sep = bytes
+            .iter()
+            .position(|b| b.is_ascii_whitespace() || *b == b'/' || *b == b'=')
+            .unwrap_or(len);
+        let mut after_ws = first_sep;
+        while after_ws < len && bytes[after_ws].is_ascii_whitespace() {
+            after_ws += 1;
+        }
+        if after_ws < len && bytes[after_ws] != b'=' {
+            i = after_ws;
+        }
+    }
+
+    while i < len {
+        while i < len && (bytes[i].is_ascii_whitespace() || bytes[i] == b'/') {
+            i += 1;
+        }
+        if i >= len {
+            break;
+        }
+        let name_start = i;
+        while i < len
+            && !bytes[i].is_ascii_whitespace()
+            && bytes[i] != b'='
+            && bytes[i] != b'/'
+            && bytes[i] != b'>'
+        {
+            i += 1;
+        }
+        if i == name_start {
+            i += 1;
             continue;
         }
-        let val_start = pos + needle.len();
-        let rest = tag_inner[val_start..].trim_start();
-        if let Some(stripped) = rest.strip_prefix('"') {
-            let end = stripped.find('"')?;
-            return Some(decode_html_entities(&stripped[..end]));
+        let name = &tag_inner[name_start..i];
+        while i < len && bytes[i].is_ascii_whitespace() {
+            i += 1;
         }
-        if let Some(stripped) = rest.strip_prefix('\'') {
-            let end = stripped.find('\'')?;
-            return Some(decode_html_entities(&stripped[..end]));
+        if i >= len || bytes[i] != b'=' {
+            continue;
         }
-        let end = rest
-            .find(|c: char| c.is_whitespace() || c == '/' || c == '>')
-            .unwrap_or(rest.len());
-        return Some(decode_html_entities(&rest[..end]));
+        i += 1; // consume '='
+        while i < len && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= len {
+            break;
+        }
+        let val = if bytes[i] == b'"' || bytes[i] == b'\'' {
+            let quote = bytes[i];
+            i += 1;
+            let val_start = i;
+            while i < len && bytes[i] != quote {
+                i += 1;
+            }
+            let slice = &tag_inner[val_start..i];
+            if i < len {
+                i += 1;
+            }
+            slice
+        } else {
+            let val_start = i;
+            while i < len && !bytes[i].is_ascii_whitespace() && bytes[i] != b'/' && bytes[i] != b'>'
+            {
+                i += 1;
+            }
+            &tag_inner[val_start..i]
+        };
+        if name.eq_ignore_ascii_case(attr_name) {
+            return Some(decode_html_entities(val));
+        }
     }
     None
 }
@@ -3862,6 +5436,7 @@ struct MediaLoader<'a, R: Read + Seek> {
     filename_to_key: HashMap<String, String>,
     lowercase_to_key: HashMap<String, String>,
     filename_to_hash: HashMap<String, Option<String>>,
+    svg_shapes_by_key: HashMap<String, Option<Vec<RawSvgShape>>>,
     referenced_keys: HashSet<String>,
     loaded_assets: HashMap<String, ParsedMediaAsset>,
     total_decompressed_bytes: usize,
@@ -3887,6 +5462,7 @@ impl<'a, R: Read + Seek> MediaLoader<'a, R> {
             filename_to_key,
             lowercase_to_key,
             filename_to_hash: HashMap::new(),
+            svg_shapes_by_key: HashMap::new(),
             referenced_keys: HashSet::new(),
             loaded_assets: HashMap::new(),
             total_decompressed_bytes: 0,
@@ -3910,6 +5486,75 @@ impl<'a, R: Read + Seek> MediaLoader<'a, R> {
             ));
         }
         Ok(())
+    }
+
+    /// Parse and cache SVG mask geometry for Image Occlusion Enhanced entries so each unique
+    /// ZIP entry is decompressed and billed against `total_decompressed_bytes` at most once.
+    fn load_svg_shapes_by_filename(
+        &mut self,
+        filename: &str,
+    ) -> Result<Option<Vec<RawSvgShape>>, CollectionError> {
+        let trimmed = filename.trim();
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+        let decoded_name = decode_percent_encoded(trimmed);
+        let Some(zip_key) = self
+            .filename_to_key
+            .get(trimmed)
+            .or_else(|| self.filename_to_key.get(&decoded_name))
+            .or_else(|| self.lowercase_to_key.get(&trimmed.to_ascii_lowercase()))
+            .or_else(|| {
+                self.lowercase_to_key
+                    .get(&decoded_name.to_ascii_lowercase())
+            })
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        if let Some(cached) = self.svg_shapes_by_key.get(&zip_key) {
+            return Ok(cached.clone());
+        }
+        if self.archive.index_for_name(&zip_key).is_none() {
+            self.svg_shapes_by_key.insert(zip_key, None);
+            return Ok(None);
+        }
+        let remaining_budget = MAX_TOTAL_MEDIA_BYTES.saturating_sub(self.total_decompressed_bytes);
+        let cap = MAX_IO_SVG_BYTES
+            .min(MAX_SINGLE_MEDIA_BYTES)
+            .min(remaining_budget);
+        let raw = match read_zip_entry_counted(self.archive, &zip_key, cap) {
+            Ok(bytes) => bytes,
+            Err(MediaReadError::NotFound) => {
+                self.svg_shapes_by_key.insert(zip_key, None);
+                return Ok(None);
+            }
+            Err(MediaReadError::SizeLimit { bytes_read })
+            | Err(MediaReadError::Unreadable { bytes_read }) => {
+                self.account_decompressed(bytes_read)?;
+                self.svg_shapes_by_key.insert(zip_key, None);
+                return Ok(None);
+            }
+        };
+        let raw_len = raw.len();
+        let bytes = match maybe_decompress_zstd_counted(raw, cap) {
+            Ok(decoded) => decoded,
+            Err(MediaReadError::NotFound) => {
+                self.svg_shapes_by_key.insert(zip_key, None);
+                return Ok(None);
+            }
+            Err(MediaReadError::SizeLimit { bytes_read })
+            | Err(MediaReadError::Unreadable { bytes_read }) => {
+                self.account_decompressed(raw_len.max(bytes_read))?;
+                self.svg_shapes_by_key.insert(zip_key, None);
+                return Ok(None);
+            }
+        };
+        self.account_decompressed(bytes.len())?;
+        let text = String::from_utf8_lossy(&bytes);
+        let parsed = parse_svg_shapes(&text);
+        self.svg_shapes_by_key.insert(zip_key, parsed.clone());
+        Ok(parsed)
     }
 
     fn load_by_filename(&mut self, filename: &str) -> Result<Option<String>, CollectionError> {
@@ -4400,6 +6045,26 @@ mod prop_tests {
     }
 
     #[test]
+    fn regression_svg_and_randomizer_dos_guards_stay_linear() {
+        // Deeply nested `<g>` with huge fill attribute must not OOM or blow stack.
+        let huge_fill = "a".repeat(8_192);
+        let nested_svg = format!(
+            "<svg width=\"100\" height=\"100\"><g fill=\"{huge_fill}\">{}{}</g></svg>",
+            "<g>".repeat(5_000),
+            "</g>".repeat(5_000)
+        );
+        assert_eq!(parse_svg_shapes(&nested_svg), Some(Vec::new()));
+
+        // Unclosed `<` spam must terminate cleanly in O(N).
+        let unclosed_svg = format!("<svg width=\"100\" height=\"100\">{}", "<".repeat(20_000));
+        assert_eq!(parse_svg_shapes(&unclosed_svg), Some(Vec::new()));
+
+        // Unclosed `[[r::` spam must terminate cleanly in O(N).
+        let rand_spam = "[[r::".repeat(20_000);
+        assert_eq!(unwrap_cloze_overlapping_randomizers(&rand_spam), rand_spam);
+    }
+
+    #[test]
     fn regression_closed_link_before_plain_bracket_scheme_text_is_not_flagged() {
         let html = r#"<a href="https://example.com/a(b)">ok</a><A<a href="https://ok.com&amp;#41;[pwn]&amp;#40;javascript:alert&amp;#40;1&amp;#41;&amp;#41;">foo](javascript:alert(1))</a>"#;
         let zip_bytes = empty_zip_bytes();
@@ -4457,6 +6122,8 @@ mod prop_tests {
             let _ = render_anki_template("{{#Front}}{{Front}}{{/Front}}{{^Front}}{{Back}}{{/Front}}", &fields, &["t".into()]);
             let _ = render_anki_back_template("{{FrontSide}}<hr id=answer>{{Back}}", &fields, &["t".into()]);
             let _ = parse_anki_io_mask(1, &field_val);
+            let _ = parse_io_enhanced_svg(&html, Some(&field_val));
+            let _ = unwrap_cloze_overlapping_randomizers(&field_val);
         }
     }
 }
