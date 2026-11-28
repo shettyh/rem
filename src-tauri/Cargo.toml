@@ -5,7 +5,7 @@ resolver = "2"
 
 [package]
 name = "app"
-version = "0.32.2"
+version = "0.32.3"
 default-run = "app"
 description = "Desktop application for rem spaced repetition"
 authors = ["Manjunatha Shetty H"]

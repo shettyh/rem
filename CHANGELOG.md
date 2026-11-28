@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.32.3 (2026-11-28)
+
+## What's Changed
+* docs(site,ios,sync): refresh docs, website, Cloud page, and App Store marketing for v0.32 by @shettyh in https://github.com/shettyh/rem/pull/297
+* docs(site): refresh Desktop & iPhone screenshots and add Image Occlusion slide by @shettyh in https://github.com/shettyh/rem/pull/299
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.32.2...v0.32.3
+
 ## 0.32.2 (2026-11-28)
 
 ## What's Changed
