@@ -86,9 +86,53 @@ rem draft list --output json
 ```
 
 Drafts have no scheduling state or due date. They do not affect study counts, stats, backup, or cloud
-sync. Open **Drafts** in the desktop sidebar to try the front, reveal the proposal, edit its content
-or target deck, and accept or reject it. Creating or rejecting a draft does not change the
-synchronized collection revision; acceptance creates a normal due card.
+sync. Review pending proposals in the desktop sidebar (**Drafts**) or interactively in the terminal
+with `rem draft review` to try the front, reveal the proposal, edit its content or target deck, and
+accept or reject it. Creating or rejecting a draft does not change the synchronized collection
+revision; acceptance creates a normal due card.
+
+### Terminal draft review
+
+Triage pending drafts front-first in the terminal across all decks or for a single deck:
+
+```sh
+rem draft review
+rem draft review --deck <id-or-exact-name>
+```
+
+`rem draft review` requires an interactive terminal (exiting with code `3` otherwise) and never emits
+machine JSON. Each draft shows its tags and question (`front`) first so you can test recall before
+revealing the proposed `back` and provenance (`rationale`, `sources`, and `producer`).
+
+| Key | Action |
+| --- | --- |
+| <kbd>Space</kbd> / <kbd>Enter</kbd> | Reveal the proposed answer and provenance. |
+| <kbd>a</kbd> | Accept the revealed draft into due cards (preserving provenance; clears duplicate drafts when an identical card already exists). |
+| <kbd>r</kbd> | Reject (discard) the current draft. |
+| <kbd>e</kbd> | Edit the current draft in `$VISUAL` / `$EDITOR` (falls back to `vi`). |
+| <kbd>n</kbd> / <kbd>Tab</kbd> | Skip the current draft for now (moves it to the end of the queue when more than one draft remains, preserving in-memory edits). |
+| <kbd>↑</kbd> / <kbd>↓</kbd> / <kbd>j</kbd> / <kbd>k</kbd> | Scroll long drafts. |
+| <kbd>q</kbd> / <kbd>Ctrl+C</kbd> | Exit and print a triage summary (`accepted`, `existing`, `rejected`, `remaining`). |
+
+Pressing <kbd>e</kbd> suspends the TUI and opens a temporary `.md` buffer in `$VISUAL` (or `$EDITOR`,
+falling back to `vi`; commands with arguments such as `code --wait` are supported):
+
+```markdown
+deck: Rust
+tags: rust, ownership
+
+--- FRONT ---
+Why does Rust ownership prevent use-after-free?
+
+--- BACK ---
+A value has one owner, and dropping that owner ends the value lifetime.
+```
+
+Change `deck:` to another deck's exact unique name or ID to move the draft, edit `tags:` as a
+comma-separated list, and save/close your editor to return to the TUI with the updated draft revealed
+and ready to accept (<kbd>a</kbd>). Clearing the `--- FRONT ---` section cancels the edit. Draft
+resolutions use optimistic concurrency (`revision`), so any draft already modified or resolved
+elsewhere (for example in the desktop app) is skipped cleanly.
 
 ### Draft JSON input
 
@@ -168,6 +212,29 @@ support `--dry-run`.
 
 Directly created cards are due immediately and reach the sync server on the next `rem sync` or desktop sync.
 
+## Searching cards
+
+Search scheduled cards across the collection or within a single deck:
+
+```sh
+rem card search 'ownership'
+rem card search 'ownership' --deck <id-or-exact-name>
+rem card search 'Pin<P>' --limit 25 --output json
+```
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `<query>` | required | Matches card `front`, `back`, `tags`, and `rationale`. Blank queries return no hits. |
+| `--deck <id-or-exact-name>` | all decks | Restrict search to one deck by ID or exact unique name. |
+| `--limit <1-200>` | `50` | Maximum number of hits to return (`1`–`200`). |
+| `--output <text\|json>` | `text` | Text mode prints tab-separated `<card-id>\t<deck-name>\t<first-line-of-front>` (or `No matching cards.`). |
+
+`rem card search` queries the SQLite FTS5 index (`cards_fts`) with prefix matching per alphanumeric
+term, ranked by BM25 and then `updated_at DESC`. When a query contains code punctuation or operators
+(such as `Pin<P>`, `->`, or `::`)—or when FTS5 returns no hits—it automatically falls back to a
+case-insensitive substring (`LIKE`) search across `front`, `back`, `tags`, and `rationale` ordered
+by `updated_at DESC`.
+
 ## Importing Anki decks (`.apkg`)
 
 Import Anki deck packages (`.apkg` — legacy `anki2`, `anki21`, and modern zstd-compressed `anki21b`
@@ -184,11 +251,11 @@ rem import biology.apkg --output json
 ```
 
 The importer converts Anki HTML to clean Markdown, strips `<script>` and `<style>` blocks, preserves
-nested `Parent::Child` deck hierarchies, maps cloze, Anki 23.10+ built-in Image Occlusion, and
-multi-template notes into `rem` sibling groups (respecting `bury_related`), converts `<img>` and
-`[sound:...]` references to content-addressed `asset:<hash>` blobs, normalizes `\(...\)` / `\[...\]`
-math delimiters, and replays `revlog` history into FSRS-7 scheduling state. Existing decks with the
-exact same name are replaced.
+nested `Parent::Child` deck hierarchies, maps cloze, Anki 23.10+ built-in Image Occlusion, Anki
+Image Occlusion Enhanced, and multi-template notes into `rem` sibling groups (respecting
+`bury_related`), converts `<img>` and `[sound:...]` references to content-addressed `asset:<hash>`
+blobs, normalizes `\(...\)` / `\[...\]` math delimiters, and replays `revlog` history into FSRS-7
+scheduling state. Existing decks with the exact same name are replaced.
 
 *(In `rem study`, Image Occlusion cards display a concise placeholder and a note directing you to
 the desktop or iPhone app rather than raw JSON.)*
@@ -269,6 +336,49 @@ Card-add success:
 Results follow input order. Dry-run inputs that would be inserted have status `wouldCreate` and no
 `id`.
 
+Card-search success:
+
+```json
+{
+  "version": 1,
+  "command": "card.search",
+  "data": {
+    "hits": [
+      {
+        "card": {
+          "id": "...",
+          "deckId": "...",
+          "front": "Why does Rust ownership prevent use-after-free?",
+          "back": "A value has one owner, and dropping that owner ends the value lifetime.",
+          "createdAt": 1700000000000,
+          "updatedAt": 1700000000000,
+          "tags": ["rust", "ownership"],
+          "suspended": false,
+          "lastAgainAt": null,
+          "scheduling": {
+            "kind": "fsrs",
+            "stability": 0.0,
+            "difficulty": 0.0,
+            "reps": 0,
+            "lapses": 0,
+            "state": 0,
+            "step": 0,
+            "lastReview": null,
+            "due": 1700000000000
+          }
+        },
+        "deckName": "Rust",
+        "deckColor": "#4f6d7a"
+      }
+    ]
+  }
+}
+```
+
+Each hit's `card` object also includes optional provenance fields (`rationale`, `sources`,
+`proposedBy`), sibling fields (`siblingGroupId`, `clozeIndex`), and `scheduling.stabilityFast` when
+present.
+
 Anki `.apkg` import success (`--dry-run` omits writes and returns preview keys `totalCards`,
 `mediaCount`, and `reviewLogs` instead of `importedCards`, `importedReviews`, and `importedMedia`):
 
@@ -308,7 +418,7 @@ Stable exit codes:
 | --- | --- |
 | `0` | Success, including duplicate-only requests. |
 | `2` | Invalid command arguments. |
-| `3` | Invalid or unreadable input, including starting study without an interactive terminal. |
+| `3` | Invalid or unreadable input, including starting study or draft review without an interactive terminal. |
 | `4` | Missing or ambiguous deck reference. |
 | `5` | Collection/storage failure. |
 | `6` | Cloud sync authentication, configuration, or network failure. |

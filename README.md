@@ -56,17 +56,21 @@ Because the agent already sees your files, terminal output, and conversation, yo
 | --- | --- |
 | **Card-writing craft** ([`SKILL.md`](skills/rem-card-capture/SKILL.md)) | Caps batches at **≤3 durable cards** (zero is valid and preferred over filler). Applies the **3-month / 5-second test** (self-contained fronts with no *"we"* or *"this PR"*, crisp answer-first backs), uses **mechanism / contrast / diagnosis / command** prompts instead of vague essays, yes/no coin flips, or list dumps, and formats plain Markdown that renders cleanly on desktop, iPhone, and `rem study`. |
 | **Provenance & rationale** | Attaches `rationale` (*why this matters*, kept out of the answer) and exact `sources` (file paths with line ranges, commits, or URLs) so every proposal is auditable in **Drafts**. |
-| **Machine-safe CLI contract** ([`docs/cli.md`](docs/cli.md)) | Lists decks (`rem deck list --output json`), inspects pending drafts (`rem draft list --output json`) to avoid near-duplicates, validates the entire atomic batch with `--dry-run --output json` first, handles exact duplicates as retry-safe exit-0 no-ops (`duplicateCard` / `duplicateDraft`), and checks `version: 1` JSON responses. |
-| **Human authority** | Agent-authored drafts stay strictly local (no scheduling state, no stats impact, excluded from backup and Cloud sync) until you try the front, edit if needed, and click **Accept** in the desktop **Drafts** inbox. |
+| **Machine-safe CLI contract** ([`docs/cli.md`](docs/cli.md)) | Lists decks (`rem deck list --output json`), searches existing cards (`rem card search --output json`) and inspects pending drafts (`rem draft list --output json`) to avoid near-duplicates, validates the entire atomic batch with `--dry-run --output json` first, handles exact duplicates as retry-safe exit-0 no-ops (`duplicateCard` / `duplicateDraft`), and checks `version: 1` JSON responses. |
+| **Human authority** | Agent-authored drafts stay strictly local (no scheduling state, no stats impact, excluded from backup and Cloud sync) until you try the front, edit if needed, and accept them in the desktop **Drafts** inbox or `rem draft review` TUI. |
 
 ### 4. Direct CLI scripting, terminal review, and sync
 
 The same `rem` binary works while the desktop app is closed — for agent drafts, direct trusted scripts, terminal study, and cloud sync:
 
 ```sh
-# Inspect decks & pending drafts (human-readable or --output json)
+# Inspect decks, search existing cards, and list pending drafts (human-readable or --output json)
 rem deck list --output json
+rem card search 'ownership' --output json
 rem draft list --output json
+
+# Triage pending drafts front-first in the terminal (with $EDITOR handoff)
+rem draft review
 
 # Validate & submit source-grounded agent drafts atomically
 rem draft add --deck <deck-id> --producer claude-code \
@@ -102,13 +106,14 @@ See the full [`rem-card-capture` skill](skills/rem-card-capture/SKILL.md) and [C
 
 - **Local-first by default** — decks, cards, media assets, and review history live on your device in SQLite (WAL mode).
 - **FSRS-7 in Rust** — modern scheduling in `rem-core` with Anki/FSRS-aligned learning steps and Hard-step behavior, configurable retention, daily limits, sibling burying (`bury_related`), optional answer timer, leech handling, and per-deck parameter optimization across desktop and iOS.
-- **Anki `.apkg` import & migration** — pure-Rust importer (`anki2`, `anki21`, and zstd `anki21b`) on desktop, CLI (`rem import`), and iOS that converts HTML to clean Markdown while preserving nested `::` decks, cloze/reversed and Image Occlusion siblings, LaTeX math, image & audio assets, and FSRS-7 review history.
+- **Anki `.apkg` import & migration** — pure-Rust importer (`anki2`, `anki21`, and zstd `anki21b`) on desktop, CLI (`rem import`), and iOS that converts HTML to clean Markdown while preserving nested `::` decks, cloze/reversed, built-in Image Occlusion, and Image Occlusion Enhanced siblings, LaTeX math, image & audio assets, and FSRS-7 review history.
+- **Fast FTS5 global search** — search cards across all decks by front, back, tags, or rationale via <kbd>Cmd+K</kbd> / <kbd>Ctrl+K</kbd> on desktop, in the iOS app, or from the CLI (`rem card search`), with automatic substring fallback for code punctuation (`::`, `->`, `Pin<P>`).
 - **Agent Skill + CLI capture** — installable [`rem-card-capture`](skills/rem-card-capture/SKILL.md) skill and versioned JSON CLI for atomic dry-run draft batches, retry-safe deduplication, and front-first approval in the desktop **Drafts** inbox or `rem draft review` TUI.
 - **Rich Markdown, Cloze, Image Occlusion, LaTeX & Audio** — WYSIWYG TipTap desktop editor, custom-SVG Image Occlusion canvas (rectangles, ellipses, grouping, Hide All / Hide One), and paper-canvas iOS editor supporting `{{c1::cloze::hint}}` deletions, LaTeX math (KaTeX on desktop, native SwiftUI math on iOS), syntax-highlighted code, offline images/GIFs, inline audio clips, nested `Parent::Child` decks, and tags.
 - **Shared study engine across every surface** — study with full rich-media fidelity on desktop and iPhone (keyboard shortcuts or haptic touch grading, live interval previews, optimistic concurrency via `local_revision`, mid-session editing, in-review suspend, and atomic grade undo), or do quick text/Markdown review in the lightweight, scope-frozen terminal companion (`rem study`).
 - **Native iOS companion** — SwiftUI iPhone app (`ios/`) backed by `rem-core` and `rem-sync` via UniFFI, featuring native `TabView`/`Form`/`List`, collapsible nested deck trees, top-right Quick Capture with Photos & cloze button, native math & audio playback, pinch-to-zoom image lightbox, full deck editing & per-deck FSRS-7 options, 7D/30D/90D Swift Charts stats, native Sign in with Apple, local daily reminders, and JSON / `.apkg` import.
 - **Actionable statistics** — review activity, recall rate, streaks, grade distribution, and per-deck breakdowns across desktop and iOS.
-- **Optional Cloud sync** — incremental HLC-based sync for decks, reviews, and media across desktop, CLI, and iPhone using hosted [rem Premium](https://rem-sync.shettyh.fyi/premium) (30-day no-card free trial, $5/year on desktop/web or $4.99/year on iOS) or your own free self-hosted Apache-2.0 [Cloudflare Worker](sync-server/README.md).
+- **Optional Cloud sync (v1.1)** — incremental HLC-based sync with real-time WebSocket pokes and fast gzipped snapshot bootstrap for decks, reviews, and media across desktop, CLI, and iPhone using hosted [rem Premium](https://rem-sync.shettyh.fyi/premium) (30-day no-card free trial, $5/year on desktop/web or $4.99/year on iOS) or your own free self-hosted Apache-2.0 [Cloudflare Worker](sync-server/README.md).
 - **Portable data** — import and export full-fidelity JSON backups preserving scheduling state and review history.
 - **Calm Quiet Paper design** — light and dark themes, collapsible icon-rail sidebar with deck progress rings on desktop, and distraction-free review.
 
@@ -160,7 +165,7 @@ The [Skills CLI](https://github.com/vercel-labs/skills) detects supported agents
 
 ### iOS companion
 
-The native SwiftUI iPhone app lives in [`ios/`](ios/README.md) (iOS 17+, Xcode 16+). iOS builds and Simulator unit tests run in CI, and versioned releases automatically archive and upload to TestFlight via App Store Connect cloud signing (see [`ios/README.md`](ios/README.md) for local builds and manual TestFlight dispatch).
+The native SwiftUI iPhone app lives in [`ios/`](ios/README.md) (local builds require Xcode 16+ with the iOS 17+ SDK; CI and TestFlight workflows run on `xcode-27` with the latest stable Xcode/iOS SDK). iOS builds and Simulator unit tests run in CI, and versioned releases automatically archive and upload to TestFlight via Xcode Cloud Signing (see [`ios/README.md`](ios/README.md) for local builds and manual TestFlight dispatch).
 
 ### Code signing
 
@@ -178,7 +183,7 @@ macOS desktop releases (`.dmg`) and CLI archives are signed with an Apple Develo
 
 rem stores local data in SQLite through its native Rust layer (`rem-core`) across desktop, CLI, and iOS. JSON backup files preserve decks, cards, scheduling state, and review history. Unapproved drafts stay strictly local and are excluded from backup and cloud sync.
 
-Cloud sync is optional and local-first by default (`Local only` vs. `Cloud sync` in **Settings**). When enabled, mutations are recorded in a transactional SQLite outbox with per-domain hybrid logical clocks (HLCs) and synced incrementally across desktop, CLI (`rem sync`), and iPhone without halting conflict dialogs:
+Cloud sync is optional and local-first by default (`Local only` vs. `Cloud sync` in **Settings**). When enabled, mutations are recorded in a transactional SQLite outbox with per-domain hybrid logical clocks (HLCs) and synced incrementally across desktop, CLI (`rem sync`), and iPhone without halting conflict dialogs — with Cloud Sync v1.1 real-time WebSocket pokes and fast gzipped compacted snapshot bootstrap for new or long-offline devices:
 
 - **Hosted [rem Premium](https://rem-sync.shettyh.fyi/premium)** — sign in with Google or Apple (native Sign in with Apple on iOS, OAuth + PKCE on desktop/CLI, tokens stored only in your OS Keychain). Includes a one-time 30-day free trial with no card required, then $5/year (Polar on desktop/web) or $4.99/year (App Store on iOS).
 - **Self-hosted (free, open source)** — deploy the Apache-2.0 [`sync-server/`](sync-server/README.md) (Cloudflare Workers + per-user SQLite Durable Objects + D1 + R2) on your own Cloudflare account and point `rem` at your server URL.
@@ -214,6 +219,7 @@ Use `npm run app:dev`, not `npm run dev`. The latter starts only the internal Vi
 | `cd src-tauri && cargo test` | Run Rust tests |
 | `cd src-tauri && cargo run -p rem-cli -- --help` | Run the CLI from source |
 | `cd sync-server && npm test` | Run Cloudflare Workers sync server tests |
+| `bash tools/build-sync-wasm.sh` | Rebuild the `rem-sync-reduce` WASM bundle for `sync-server` (`--check` to verify) |
 | `bash tools/build-ios-xcframework.sh --debug` | Build `RemCore.xcframework` & Swift UniFFI bindings for iOS |
 
 Browser tests require Playwright's Chromium binary:
@@ -247,14 +253,14 @@ src/
   data/        Storage interface, native Tauri adapter, backup, updater, and Cloud sync client
   features/    decks, cards, drafts, review, settings, and statistics
   ui/          app shell, shared components, themes, and design tokens
-src-tauri/     native shell, rem-core (SQLite + FSRS-7 + sync engine), rem-sync, rem-ffi (UniFFI), and rem-cli
+src-tauri/     native shell, rem-core (SQLite + FSRS-7 + sync engine), rem-sync, rem-sync-reduce (native & WASM CRDT reducer), rem-ffi (UniFFI), and rem-cli
 ios/           native SwiftUI iOS companion app backed by RemCore.xcframework
 sync-server/   open-source Cloudflare Workers + Durable Objects + D1 + R2 sync backend
 skills/        installable AI agent skills (rem-card-capture)
 site/          landing page and interactive Desktop + iPhone + Agent showcase
 ```
 
-The desktop frontend uses React, TypeScript, and Vite inside a Tauri v2 native shell, and the iPhone companion is built in native SwiftUI (`ios/`). The shared Rust `rem-core` crate owns SQLite, FSRS-7 calculation and optimization, the transactional sync outbox, and the complete `StudySession` state machine used by desktop, `rem study` terminal UI, and iOS (via UniFFI in `rem-ffi`); `rem-sync` owns HTTPS sync, asset upload/download, and OAuth/Keychain sessions across all three surfaces.
+The desktop frontend uses React, TypeScript, and Vite inside a Tauri v2 native shell, and the iPhone companion is built in native SwiftUI (`ios/`). The shared Rust `rem-core` crate owns SQLite (including FTS5 search), FSRS-7 calculation and optimization, the transactional sync outbox, and the complete `StudySession` state machine used by desktop, `rem study` terminal UI, and iOS (via UniFFI in `rem-ffi`); `rem-sync-reduce` provides the pure-Rust CRDT reducer shared natively and compiled to WASM for `sync-server` snapshot compaction; `rem-sync` owns HTTPS/WebSocket sync, snapshot bootstrap, asset upload/download, and OAuth/Keychain sessions across all three surfaces.
 
 ## Contributing
 

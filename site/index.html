@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="rem is local-first spaced repetition across desktop, terminal, and iPhone — with an AI agent skill and CLI for source-grounded card capture, FSRS-7 scheduling, and optional Cloud sync."
+      content="rem is local-first spaced repetition across desktop, terminal, and iPhone — with Image Occlusion, Anki .apkg import, FTS5 global search, an AI agent skill and CLI for source-grounded capture, FSRS-7 scheduling, and optional real-time Cloud Sync."
     />
     <meta name="theme-color" content="#f8f7f4" />
     <meta property="og:title" content="rem — build understanding that lasts" />
     <meta
       property="og:description"
-      content="Pair your AI agents with a calm local-first memory system. Capture source-grounded drafts via CLI, approve what sticks, and study with FSRS-7 on desktop, terminal, and iPhone."
+      content="Pair your AI agents with a calm local-first memory system. Capture source-grounded drafts via CLI, build Cloze and Image Occlusion cards, import Anki .apkg decks, and study with FSRS-7 on desktop, terminal, and iPhone."
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://shettyh.github.io/rem/" />
@@ -59,7 +59,8 @@
           <p class="hero-lede">
             Pair your coding and research agents with a calm, local-first memory system. The
             <code>rem</code> CLI and skill turn real work into concise, source-grounded drafts —
-            you approve what sticks, and FSRS-7 keeps it sharp across desktop, terminal, and iPhone.
+            you approve what sticks, review Markdown, Cloze, LaTeX, and Image Occlusion cards with
+            FSRS-7, and sync in real time across desktop, terminal, and iPhone.
           </p>
           <div class="hero-actions">
             <a class="button button-primary" href="https://github.com/shettyh/rem/releases/latest">
@@ -77,11 +78,11 @@
             </li>
             <li>
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
-              Agent Skill + CLI
+              Image Occlusion
             </li>
             <li>
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
-              Cloud sync
+              Agent Skill + CLI
             </li>
             <li>
               <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7" /></svg>
@@ -143,9 +144,9 @@
           <span class="trust-divider"></span>
           <strong>FSRS-7</strong>
           <span class="trust-divider"></span>
-          <strong>Markdown</strong>
+          <strong>Image Occlusion</strong>
           <span class="trust-divider"></span>
-          <strong>SQLite</strong>
+          <strong>SQLite + FTS5</strong>
           <span class="trust-divider"></span>
           <strong>Tauri</strong>
           <span class="trust-divider"></span>
@@ -185,8 +186,8 @@
             </span>
             <h3>Skill + CLI propose drafts</h3>
             <p>
-              <code>rem-card-capture</code> dry-runs at most 3 atomic drafts grounded in exact
-              files, lines, or URLs.
+              <code>rem-card-capture</code> checks existing cards and drafts, then dry-runs at most
+              3 atomic drafts grounded in exact files, lines, or URLs.
             </p>
           </li>
           <li>
@@ -196,8 +197,8 @@
             </span>
             <h3>Try, edit, and approve</h3>
             <p>
-              Test yourself front-first in Drafts, inspect the rationale and sources, and accept
-              only what belongs.
+              Test yourself front-first in Desktop Drafts or the <code>rem draft review</code> TUI,
+              and accept what belongs — rationale and sources stay attached during review.
             </p>
           </li>
           <li>
@@ -207,8 +208,8 @@
             </span>
             <h3>Study anywhere</h3>
             <p>
-              FSRS-7 schedules accepted cards identically across the desktop app,
-              <code>rem study</code>, and iPhone.
+              FSRS-7 schedules accepted cards identically across Desktop, iPhone, and lightweight
+              <code>rem study</code> sessions — synced in real time via Cloud Sync.
             </p>
           </li>
         </ol>
@@ -278,10 +279,11 @@
                 <div>
                   <h3>Machine-safe, retry-proof CLI</h3>
                   <p>
-                    Agents resolve exact deck IDs, inspect pending drafts, validate every batch with
-                    <code>--dry-run</code> and <code>--output json</code> before writing, get
-                    retry-safe <code>duplicateCard</code> / <code>duplicateDraft</code> no-ops, and
-                    verify versioned <code>version: 1</code> JSON.
+                    Agents resolve exact deck IDs, search existing cards via
+                    <code>rem card search</code> and pending drafts via
+                    <code>rem draft list</code>, validate every batch with <code>--dry-run</code>
+                    and <code>--output json</code>, and get retry-safe
+                    <code>duplicateCard</code> / <code>duplicateDraft</code> no-ops.
                   </p>
                 </div>
               </article>
@@ -289,12 +291,13 @@
               <article class="agent-pillar">
                 <span class="pillar-index">04</span>
                 <div>
-                  <h3>Local drafts by default, direct CLI when you ask</h3>
+                  <h3>Local drafts, terminal triage &amp; provenance</h3>
                   <p>
-                    Every proposal lands in the local-only <strong>Drafts</strong> inbox with
-                    rationale and exact file paths, line ranges, commits, or URLs. When you
-                    explicitly want immediate scheduling or scripted pipelines,
-                    <code>rem card add</code> and <code>rem sync</code> are right there.
+                    Proposals land in the local-only <strong>Drafts</strong> inbox — triage them on
+                    Desktop or in the shell with <code>rem draft review</code> (front-first TUI with
+                    <code>$EDITOR</code> handoff). Accepted cards retain their rationale and source
+                    locators during review; <code>rem card add</code> and <code>rem sync</code> stay
+                    ready for scripts.
                   </p>
                 </div>
               </article>
@@ -379,7 +382,7 @@ JSON
 
                   <div class="console-outcome">
                     <span class="outcome-pill is-ok">1 atomic draft pending</span>
-                    <span>Local-only until you test and accept it in Drafts</span>
+                    <span>Triage in Desktop Drafts or <code>rem draft review</code> — provenance stays on the card</span>
                   </div>
                 </div>
 
@@ -400,7 +403,8 @@ JSON
                     </p>
                   </div>
 
-                  <pre class="console-code"><code><span class="c-muted"># 1. Checks pending inbox first to avoid reworded near-duplicates</span>
+                  <pre class="console-code"><code><span class="c-muted"># 1. Searches existing cards (FTS5) and pending drafts to avoid near-duplicates</span>
+<span class="c-prompt">$</span> rem card search "sync invariant" --output json
 <span class="c-prompt">$</span> rem draft list --output json
 
 <span class="c-muted"># 2. Picks ≤3 high-recall contrast/why prompts (rejects trivia &amp; list dumps)</span>
@@ -411,18 +415,18 @@ JSON
     <span class="c-key">"front"</span>: <span class="c-str">"Why don't pending rem drafts sync to Cloud or appear in backups?"</span>,
     <span class="c-key">"back"</span>: <span class="c-str">"Drafts are unapproved local operational state without scheduling data; a card enters sync only after human acceptance."</span>,
     <span class="c-key">"sources"</span>: [{ <span class="c-key">"locator"</span>: <span class="c-str">"docs/cli.md#L77-L80"</span> }]
-  },
-  ...
+  }
 ]
 JSON
 
-<span class="c-ok">{ "version": 1, "command": "draft.add", "data": { "drafts": [
-  { "status": "created" }, { "status": "duplicateCard" }
-] } }</span></code></pre>
+<span class="c-ok">{ "version": 1, "command": "draft.add", "data": { "drafts": [{ "status": "created" }] } }</span>
+
+<span class="c-muted"># 3. Triage front-first in your terminal (with $EDITOR handoff)</span>
+<span class="c-prompt">$</span> rem draft review --deck distributed-systems</code></pre>
 
                   <div class="console-outcome">
-                    <span class="outcome-pill is-ok">Retry-safe dedup</span>
-                    <span>Existing cards take precedence; duplicates return exit 0 no-ops</span>
+                    <span class="outcome-pill is-ok">FTS5 check + TUI triage</span>
+                    <span>Existing cards take precedence; accepted cards keep source provenance</span>
                   </div>
                 </div>
 
@@ -438,8 +442,8 @@ JSON
                   <div class="prompt-bubble">
                     <span class="prompt-role">Terminal · Trusted scripts · CI</span>
                     <p>
-                      Bypass drafts when you want immediate scheduling, review straight in your
-                      shell, and sync incrementally to your iPhone.
+                      Bypass drafts when you want immediate scheduling, import Anki decks, review
+                      Markdown cards in your shell, and sync in real time to Desktop and iPhone.
                     </p>
                   </div>
 
@@ -447,20 +451,20 @@ JSON
 <span class="c-prompt">$</span> rem card add --deck Systems --input-json notes.json --dry-run --output json
 <span class="c-prompt">$</span> rem card add --deck Systems --input-json notes.json --output json
 
-<span class="c-muted"># Import existing Anki .apkg decks with cloze, math, audio &amp; FSRS-7 history</span>
-<span class="c-prompt">$</span> rem import biology.apkg --dry-run
-<span class="c-prompt">$</span> rem import biology.apkg
+<span class="c-muted"># Import Anki .apkg (Cloze, Image Occlusion, LaTeX, audio &amp; FSRS-7 history)</span>
+<span class="c-prompt">$</span> rem import anatomy.apkg --dry-run
+<span class="c-prompt">$</span> rem import anatomy.apkg
 
-<span class="c-muted"># Study due cards right in the terminal (shared Rust FSRS-7 StudySession)</span>
+<span class="c-muted"># Lightweight terminal text/Markdown review (Desktop &amp; iOS for visual media)</span>
 <span class="c-prompt">$</span> rem study --deck Systems
 
-<span class="c-muted"># Push/pull via OS Keychain or headless REM_SYNC_TOKEN</span>
+<span class="c-muted"># Fast snapshot bootstrap &amp; incremental sync via Keychain or REM_SYNC_TOKEN</span>
 <span class="c-prompt">$</span> rem sync status
 <span class="c-prompt">$</span> rem sync</code></pre>
 
                   <div class="console-outcome">
                     <span class="outcome-pill is-ok">Shared SQLite + Keychain</span>
-                    <span>Works even when desktop is closed; converges with iPhone via HLC</span>
+                    <span>Works when desktop is closed; Cloud Sync v1.1 keeps Desktop &amp; iPhone live</span>
                   </div>
                 </div>
               </div>
@@ -599,12 +603,12 @@ JSON
                   <h3>Open rem, see what’s due,<br /><em>start in one tap or keystroke.</em></h3>
                   <p>
                     Today keeps your queue inviting on both desktop and iPhone — estimated session
-                    time, deck progress rings, inline sync status, collapsible icon-rail sidebar,
-                    and instant cross-deck study.
+                    time, nested <code>::</code> deck progress rings, real-time WebSocket sync
+                    status, and instant <code>⌘K</code> FTS5 search across every card.
                   </p>
                   <ul class="check-list">
-                    <li><span>✓</span> Estimated duration &amp; live due counts before you begin</li>
-                    <li><span>✓</span> Press Enter on desktop or tap Start review on iPhone</li>
+                    <li><span>✓</span> Estimated duration, rolled-up subdeck counts &amp; live due badges</li>
+                    <li><span>✓</span> Press <code>⌘K</code> on desktop or search in iPhone Decks for FTS5 lookup</li>
                     <li><span>✓</span> Identical Quiet Paper aesthetic in light and dark themes</li>
                   </ul>
                   <div class="surface-badges">
@@ -665,16 +669,16 @@ JSON
               >
                 <div class="slide-copy">
                   <p class="slide-tag">02 · Focused recall</p>
-                  <h3>Distraction-free review<br />for <em>rich Markdown cards.</em></h3>
+                  <h3>Distraction-free review<br />for <em>rich &amp; visual cards.</em></h3>
                   <p>
                     Navigation folds away during review on both desktop and iPhone so attention stays
-                    on the prompt, syntax-highlighted code, offline images, and Anki/FSRS-aligned
-                    interval previews.
+                    on the prompt — syntax-highlighted code, native LaTeX math, interactive Image
+                    Occlusion masks, audio clips, and retained source provenance.
                   </p>
                   <ul class="check-list">
-                    <li><span>✓</span> Cloze deletions, LaTeX math, audio clips, code blocks, and zoomable images</li>
-                    <li><span>✓</span> Keyboard 1–4 on desktop, haptic 4-button dock on iPhone, optional answer timer</li>
-                    <li><span>✓</span> Edit cards mid-session, suspend, and atomic grade undo everywhere</li>
+                    <li><span>✓</span> Interactive Image Occlusion reveal &amp; spoiler-safe zoom on Desktop &amp; iOS</li>
+                    <li><span>✓</span> Cloze deletions with sibling burying, LaTeX math, audio &amp; code blocks</li>
+                    <li><span>✓</span> Inspect retained provenance, edit mid-session, suspend, or undo grades</li>
                   </ul>
                   <div class="surface-badges">
                     <span class="surface-badge is-dark">Dark mode</span>
@@ -734,20 +738,21 @@ JSON
               >
                 <div class="slide-copy">
                   <p class="slide-tag">03 · Capture &amp; approval</p>
-                  <h3>Approve agent drafts.<br /><em>Capture ideas on the go.</em></h3>
+                  <h3>Approve agent drafts.<br /><em>Draw masks or import on the go.</em></h3>
                   <p>
-                    Triage source-grounded AI agent proposals in the desktop Drafts inbox before
-                    they ever enter your schedule, or tap <strong>+</strong> on iPhone to capture a
-                    Markdown card in seconds.
+                    Triage source-grounded AI proposals in Desktop Drafts or the
+                    <code>rem draft review</code> TUI, draw Image Occlusion masks on the SVG canvas,
+                    or tap <strong>+</strong> on iPhone to create cards or import Anki
+                    <code>.apkg</code> decks directly.
                   </p>
                   <ul class="check-list">
-                    <li><span>✓</span> Front-first draft triage with rationale and file/URL provenance</li>
-                    <li><span>✓</span> Paper-canvas iPhone editor with Write/Preview &amp; Photos</li>
-                    <li><span>✓</span> Unapproved drafts stay strictly local until accepted</li>
+                    <li><span>✓</span> Front-first triage (Desktop &amp; <code>rem draft review</code>) with retained provenance</li>
+                    <li><span>✓</span> Desktop SVG canvas &amp; native iPhone editor for Image Occlusion &amp; Photos</li>
+                    <li><span>✓</span> Direct Anki <code>.apkg</code> import (23.10+ &amp; IO Enhanced) on Desktop, CLI &amp; iOS</li>
                   </ul>
                   <div class="surface-badges">
-                    <span class="surface-badge">Desktop Drafts Inbox</span>
-                    <span class="surface-badge">iPhone Quick Capture</span>
+                    <span class="surface-badge">Drafts + SVG Occlusion</span>
+                    <span class="surface-badge">iPhone Capture + .apkg</span>
                   </div>
                 </div>
 
@@ -806,16 +811,16 @@ JSON
                   <h3>Watch your recall<br />and <em>rhythm compound.</em></h3>
                   <p>
                     Track daily review activity, recall rate, active streaks, grade distribution,
-                    and per-deck performance across 7, 30, or 90-day windows — with native Swift
-                    Charts on iPhone and FSRS-7 weight optimization per deck.
+                    and rolled-up nested deck performance across 7, 30, or 90-day windows — powered
+                    by one shared Rust stats engine with native Swift Charts and Custom Study on iPhone.
                   </p>
                   <ul class="check-list">
-                    <li><span>✓</span> Filter globally or focus on any individual deck</li>
-                    <li><span>✓</span> 7D, 30D, and 90D activity and recall trends</li>
-                    <li><span>✓</span> Optional daily iOS reminders only when cards are due</li>
+                    <li><span>✓</span> Filter globally or focus on any nested <code>::</code> deck tree</li>
+                    <li><span>✓</span> Custom Study modes (study-ahead, review-forgotten, preview-new) on Desktop &amp; iOS</li>
+                    <li><span>✓</span> FSRS-7 weight optimization &amp; optional daily iOS reminders</li>
                   </ul>
                   <div class="surface-badges">
-                    <span class="surface-badge">Desktop Stats</span>
+                    <span class="surface-badge">Unified Rust Stats</span>
                     <span class="surface-badge">iPhone Swift Charts</span>
                   </div>
                 </div>
@@ -871,21 +876,22 @@ JSON
                 aria-hidden="true"
               >
                 <div class="slide-copy">
-                  <p class="slide-tag">05 · One review engine</p>
-                  <h3>Stay in the terminal.<br /><em>Pick up on your phone.</em></h3>
+                  <p class="slide-tag">05 · Terminal + Cloud Sync v1.1</p>
+                  <h3>Lightweight in the shell.<br /><em>Full richness on Desktop &amp; iPhone.</em></h3>
                   <p>
-                    <code>rem study</code> drives the exact same Rust <code>StudySession</code> as
-                    the desktop and iPhone apps. Grade a few cards in your shell, sync incrementally
-                    with <code>rem sync</code>, and finish the rest away from your desk.
+                    <code>rem study</code> brings lightweight text and Markdown review to your
+                    terminal over the same Rust <code>StudySession</code> — with undo, suspend, and
+                    source provenance — while Desktop and iPhone handle full rich media, Image
+                    Occlusion, and LaTeX.
                   </p>
                   <ul class="check-list">
-                    <li><span>✓</span> Clean terminal Markdown with live FSRS-7 interval previews</li>
-                    <li><span>✓</span> Versioned JSON CLI &amp; skill-guided agent capture</li>
-                    <li><span>✓</span> HLC-based Cloud Sync keeps every device converged</li>
+                    <li><span>✓</span> Fast terminal Markdown review (graceful placeholders for visual cards)</li>
+                    <li><span>✓</span> Interactive <code>rem draft review</code> TUI &amp; <code>rem card search</code> FTS5 CLI</li>
+                    <li><span>✓</span> Cloud Sync v1.1: real-time WebSocket pokes &amp; fast snapshot bootstrap</li>
                   </ul>
                   <div class="surface-badges">
-                    <span class="surface-badge is-dark">rem study TUI</span>
-                    <span class="surface-badge">Cloud Sync · HLC</span>
+                    <span class="surface-badge is-dark">rem study + draft TUI</span>
+                    <span class="surface-badge">Cloud Sync v1.1</span>
                   </div>
                 </div>
 
@@ -954,50 +960,52 @@ JSON
             <h3>Local by default</h3>
             <p>
               Your decks, cards, media assets, and complete review history live on your device in
-              SQLite — no account or cloud service required.
+              SQLite — no account or cloud service required, with portable JSON export and import.
+            </p>
+          </article>
+          <article>
+            <span class="feature-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><rect x="7" y="8" width="5.5" height="4" rx="1" /><circle cx="15.5" cy="14" r="2.2" /></svg>
+            </span>
+            <h3>Image Occlusion</h3>
+            <p>
+              Author rectangle and ellipse masks in the desktop SVG canvas editor (or on iPhone)
+              with <em>Hide All</em> / <em>Hide One</em> grouping, interactive reveal &amp;
+              spoiler-safe zoom on Desktop and iOS, plus Anki 23.10+ and Image Occlusion Enhanced
+              <code>.apkg</code> import.
+            </p>
+          </article>
+          <article>
+            <span class="feature-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+            </span>
+            <h3>Instant FTS5 search</h3>
+            <p>
+              Search front, back, tags, and rationale across every deck in milliseconds via
+              trigger-maintained SQLite FTS5 (with substring fallback for code operators) using
+              <code>⌘K</code> on desktop, Decks search on iPhone, or <code>rem card search</code>.
             </p>
           </article>
           <article>
             <span class="feature-icon">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-14v5l4 2" /></svg>
             </span>
-            <h3>FSRS-7 in Rust</h3>
+            <h3>FSRS-7 &amp; Custom Study</h3>
             <p>
-              Modern scheduling with Anki/FSRS-aligned steps, configurable retention, daily limits,
-              and per-deck weight optimization across desktop and iPhone.
+              Modern FSRS-7 scheduling in Rust with Anki-aligned steps, configurable retention,
+              sibling burying, Custom Study modes, and per-deck weight optimization across desktop
+              and iPhone.
             </p>
           </article>
           <article>
             <span class="feature-icon">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 9l2.5 3L8 15m5 0h3" /></svg>
             </span>
-            <h3>Agent Skill + CLI</h3>
+            <h3>Agent Skill, TUI &amp; Provenance</h3>
             <p>
-              <code>rem-card-capture</code> and the versioned JSON CLI let Claude Code, Codex, pi,
-              or scripts propose ≤3 atomic, source-grounded drafts with dry-runs and safe dedup.
-            </p>
-          </article>
-          <article>
-            <span class="feature-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M10.5 18.5h3" /></svg>
-            </span>
-            <h3>Native iOS companion</h3>
-            <p>
-              SwiftUI iPhone app backed by the same Rust core via UniFFI — offline review, Quick
-              Capture with Photos, per-deck FSRS options, Swift Charts stats, Sign in with Apple,
-              and daily reminders.
-            </p>
-          </article>
-          <article>
-            <span class="feature-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .9-7.9A5.5 5.5 0 0 0 7.2 8.7 3.8 3.8 0 0 0 7 18Z" /></svg>
-            </span>
-            <h3>Optional Cloud sync</h3>
-            <p>
-              Sync decks, reviews, and media across desktop, CLI, and iPhone via
-              <a class="inline-link" href="https://rem-sync.shettyh.fyi/premium">rem Premium</a>
-              (30-day free trial, no card required, $5/year) or self-host the Apache-2.0 Cloudflare
-              Worker for free.
+              <code>rem-card-capture</code> and the versioned JSON CLI propose ≤3 atomic drafts;
+              triage them on Desktop or in the <code>rem draft review</code> TUI with
+              <code>$EDITOR</code> handoff, keeping source provenance visible during review.
             </p>
           </article>
           <article>
@@ -1006,9 +1014,44 @@ JSON
             </span>
             <h3>Anki import, Cloze &amp; LaTeX</h3>
             <p>
-              Import Anki <code>.apkg</code> decks on desktop, CLI, or iPhone with review history
-              replayed into FSRS-7. Write cloze deletions with sibling burying, LaTeX math, audio
-              clips, nested <code>::</code> decks, syntax-highlighted code, and portable JSON backups.
+              Import Anki <code>.apkg</code> decks on desktop, CLI, or iPhone with
+              <code>revlog</code> replayed into FSRS-7. Write cloze deletions with sibling burying,
+              LaTeX math, inline audio clips, nested <code>::</code> subdecks, and highlighted code.
+            </p>
+          </article>
+          <article>
+            <span class="feature-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M10.5 18.5h3" /></svg>
+            </span>
+            <h3>Native iOS companion</h3>
+            <p>
+              SwiftUI iPhone app backed by the same Rust core via UniFFI — direct <code>.apkg</code>
+              import on iPhone, Image Occlusion, native LaTeX math, audio playback, nested
+              <code>::</code> subdecks, Custom Study, global search, Swift Charts stats, and
+              reminders.
+            </p>
+          </article>
+          <article>
+            <span class="feature-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .9-7.9A5.5 5.5 0 0 0 7.2 8.7 3.8 3.8 0 0 0 7 18Z" /></svg>
+            </span>
+            <h3>Cloud Sync v1.1</h3>
+            <p>
+              Real-time WebSocket pokes, fast compacted snapshot bootstrap for new devices, and 500
+              MB R2 media for images, occlusion diagrams, and audio via
+              <a class="inline-link" href="https://rem-sync.shettyh.fyi/premium">rem Premium</a>
+              (30-day free trial, $5/year) — or self-host the Apache-2.0 Worker free.
+            </p>
+          </article>
+          <article>
+            <span class="feature-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="m7.5 10 2.5 2-2.5 2m4.5 0h4.5" /></svg>
+            </span>
+            <h3>Lightweight terminal review</h3>
+            <p>
+              <code>rem study</code> gives you fast terminal review for text and Markdown cards over
+              the shared Rust <code>StudySession</code> — with undo, suspend, and provenance — while
+              Desktop and iPhone handle rich media, Image Occlusion, and LaTeX.
             </p>
           </article>
         </div>
@@ -1022,7 +1065,8 @@ JSON
             <p>
               Install the desktop app and bundled <code>rem</code> CLI together on macOS or Linux,
               add the <code>rem-card-capture</code> skill for your local agents, download Windows
-              packages from Releases, or run the SwiftUI iOS companion via TestFlight or Xcode.
+              packages from Releases, or build the SwiftUI iPhone companion locally with Xcode 16+
+              (TestFlight builds are published automatically on releases).
             </p>
             <a class="button button-primary" href="https://github.com/shettyh/rem/releases/latest">
               View all downloads
@@ -1086,7 +1130,7 @@ JSON
               <div class="command-label">
                 <span>iPhone companion</span>
                 <div class="command-label-right">
-                  <span>iOS 17+ · Xcode 16+</span>
+                  <span>iOS 17+ · Xcode 16+ · Rust iOS targets</span>
                   <button
                     type="button"
                     class="copy-btn"
@@ -1101,7 +1145,10 @@ JSON
             </div>
             <p class="install-note">
               macOS releases are signed, notarized, bundle the <code>rem</code> CLI, and include
-              in-app auto-updates. Windows installers are available from Releases (unsigned). See
+              in-app auto-updates. Windows installers are available from Releases (unsigned). Local
+              iPhone builds require Xcode 16+ (iOS 17+ SDK) and
+              <code>rustup target add aarch64-apple-ios aarch64-apple-ios-sim</code> (pass
+              <code>--sim-only</code> for faster Simulator builds). See
               <a href="https://github.com/shettyh/rem#code-signing">code signing</a>,
               <a href="https://github.com/shettyh/rem/blob/main/docs/cli.md">CLI docs</a>, and the
               <a href="https://github.com/shettyh/rem/blob/main/ios/README.md">iOS build guide</a>.

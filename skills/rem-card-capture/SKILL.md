@@ -28,9 +28,10 @@ memorable.
    Honor a deck the user named. If the target is missing or ambiguous, ask instead of silently
    choosing or inventing one. If no suitable deck exists, ask the user to create or choose one.
 
-   When capturing iteratively on an ongoing topic, optionally inspect pending drafts first
+   When capturing iteratively on an ongoing topic, optionally inspect existing scheduled cards
+   (`rem card search <query> --deck <deck-id> --output json`) alongside pending drafts
    (`rem draft list --output json`, filtered to the target deck) so you avoid proposing a
-   reworded near-duplicate of a draft already awaiting approval.
+   reworded near-duplicate of a card already in the deck or a draft already awaiting approval.
 
 2. Select at most three durable learning opportunities. Zero drafts is valid and preferred to weak
    material. Every candidate must:
@@ -75,8 +76,9 @@ memorable.
    fails or its output is malformed, report that no draft creation was confirmed.
 
 The result is pending human approval, not a scheduled card. The user can review it from **Drafts**
-in the desktop sidebar. Drafts are local-only and do not reach Cloud sync or backup. Never claim they
-were accepted, scheduled, or synced.
+in the desktop sidebar or interactively in the terminal with `rem draft review`. Drafts are
+local-only and do not reach Cloud sync or backup. Never claim they were accepted, scheduled, or
+synced.
 
 ## Writing high-recall cards
 

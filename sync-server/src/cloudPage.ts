@@ -19,7 +19,7 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="rem Premium — optional managed Cloud Sync for rem across desktop, CLI, and iPhone. Start a ${trialDays}-day free trial with no card required, or keep local storage and open-source self-hosting free forever."
+      content="rem Premium — optional real-time Cloud Sync for rem across desktop, CLI, and iPhone with fast new-device snapshots and 500 MB R2 media for images, Image Occlusion diagrams, and audio. Start a ${trialDays}-day free trial with no card required, or keep local storage and open-source self-hosting free forever."
     />
     <meta name="theme-color" content="#f8f7f4" />
     <title>rem Premium — Cloud Sync across all your devices</title>
@@ -541,14 +541,16 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
           <h1>Sync everywhere.<br /><em>Keep owning your data.</em></h1>
           <p class="lede">
             All local features and self-hosting stay free forever. rem Premium (${safePrice})
-            unlocks managed Cloud Sync across macOS, Linux, Windows, CLI, and iPhone—and supports
-            development.
+            unlocks real-time Cloud Sync across macOS, Linux, Windows, CLI, and iPhone — with
+            instant WebSocket pokes, fast new-device snapshot sync, and rich media storage — while
+            supporting development.
           </p>
           <ul class="highlights">
             <li><span>✓</span> Optional ${trialDays}-day free trial with no card required</li>
-            <li><span>✓</span> Local-first SQLite with automatic conflict-free merges</li>
-            <li><span>✓</span> Isolated per-user Cloudflare Durable Objects + 500 MB R2 media</li>
-            <li><span>✓</span> Sign out or delete cloud data anytime without touching local decks</li>
+            <li><span>✓</span> Real-time cross-device sync via WebSocket pokes &amp; conflict-free HLC merges</li>
+            <li><span>✓</span> Fast new-device onboarding with compacted gzipped snapshot sync</li>
+            <li><span>✓</span> Sync images, Image Occlusion diagrams, and audio clips (500 MB R2 allowance)</li>
+            <li><span>✓</span> Isolated per-user Cloudflare Durable Objects — sign out or delete cloud data anytime without touching local decks</li>
           </ul>
         </div>
 
@@ -620,8 +622,9 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
               <p class="tier-label">Default · Free forever</p>
               <h3>Local only</h3>
               <p>
-                No account required. Your decks, FSRS reviews, drafts, and media stay in local
-                SQLite with portable JSON export and import.
+                No account required. Your decks, FSRS-7 reviews, Image Occlusion cards, drafts, and
+                media stay in local SQLite with Anki <code>.apkg</code> import and portable JSON
+                export.
               </p>
               <a class="tier-link" href="https://github.com/shettyh/rem/releases/latest">
                 Download rem →
@@ -632,8 +635,10 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
               <p class="tier-label">Optional · ${trialDays}-day free trial, then ${safePrice}</p>
               <h3>rem Premium</h3>
               <p>
-                Zero-setup managed Cloud Sync across Desktop, CLI, and iPhone. Start a ${trialDays}-day
-                free trial with no card required, then ${safePrice} to keep syncing and support rem.
+                Zero-setup real-time Cloud Sync across Desktop, CLI, and iPhone — WebSocket pokes,
+                fast compacted snapshot sync for new devices, and 500 MB R2 media for images, Image
+                Occlusion diagrams, and audio. Free ${trialDays}-day trial with no card required,
+                then ${safePrice}.
               </p>
               <a class="tier-link" href="#account-card">Start free trial ↑</a>
             </article>
@@ -642,8 +647,9 @@ function buildCloudPageHtml(trialDays: number, priceDisplay: string): string {
               <p class="tier-label">Open source · Apache-2.0</p>
               <h3>Self-hosted</h3>
               <p>
-                Deploy the exact same Cloudflare Workers + Durable Objects + R2 sync server to your
-                own account and enter its URL in Settings.
+                Deploy the exact same Cloudflare Workers + Durable Objects + R2 sync server
+                (including WebSocket pokes and snapshot compaction) to your own account and enter
+                its URL in Settings.
               </p>
               <a
                 class="tier-link"

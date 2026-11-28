@@ -28,9 +28,14 @@ struct FirstRunView: View {
                         subtitle: "Your cards live on this iPhone. No account required."
                     )
                     featureRow(
+                        systemImage: "tray.and.arrow.down",
+                        title: "Import Anki decks",
+                        subtitle: "Bring .apkg decks with Cloze, Image Occlusion, LaTeX, audio, and review history."
+                    )
+                    featureRow(
                         systemImage: "icloud",
                         title: "Optional cloud sync",
-                        subtitle: "Keep decks, progress, and images in sync across Mac and iPhone."
+                        subtitle: "Keep decks, progress, and media in sync across desktop, CLI, and iPhone."
                     )
                 }
             }
