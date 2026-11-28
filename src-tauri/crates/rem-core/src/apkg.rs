@@ -677,11 +677,11 @@ fn parse_anki_io_mask(index: u32, answer: &str) -> Option<(OcclusionMask, Option
                     let mut max_x = f64::NEG_INFINITY;
                     let mut min_y = f64::INFINITY;
                     let mut max_y = f64::NEG_INFINITY;
-                    for pair in coords.chunks_exact(2) {
-                        min_x = min_x.min(pair[0]);
-                        max_x = max_x.max(pair[0]);
-                        min_y = min_y.min(pair[1]);
-                        max_y = max_y.max(pair[1]);
+                    for &[px, py] in coords.as_chunks::<2>().0 {
+                        min_x = min_x.min(px);
+                        max_x = max_x.max(px);
+                        min_y = min_y.min(py);
+                        max_y = max_y.max(py);
                     }
                     if min_x.is_finite()
                         && max_x > min_x
