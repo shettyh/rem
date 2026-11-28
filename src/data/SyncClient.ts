@@ -46,6 +46,7 @@ export interface SyncStatus {
   subscriptionRequired: boolean
   upgradeUrl: string | null
   entitlement: EntitlementInfo | null
+  pokeConnected?: boolean
 }
 
 export interface AuthProviders {
@@ -203,6 +204,7 @@ const DEFAULT_LOCAL_STATUS: SyncStatus = {
   subscriptionRequired: false,
   upgradeUrl: null,
   entitlement: null,
+  pokeConnected: false,
 }
 
 export class LocalOnlySyncClient implements SyncClient {

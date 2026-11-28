@@ -37,6 +37,7 @@
 		B4AC627A03E5CC15B940ED53 /* RemPremium.storekit in Resources */ = {isa = PBXBuildFile; fileRef = D71278DB08B3D3BDFAEBD87B /* RemPremium.storekit */; };
 		B55EBD4B3D524BD59F1A46B2 /* ReviewScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18E47F2E81FEB1CEAD6E46CA /* ReviewScreen.swift */; };
 		B57A53243BF8D80F1E4FEDD1 /* DecksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA01A89644F04D2536A7AC3D /* DecksView.swift */; };
+		B8E3D1F27A6C39208D4E1B21 /* SyncPokeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F4E2C18B7D40319E5F2A10 /* SyncPokeClient.swift */; };
 		BA683193E62377A9CB644FAC /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E2AEDEFBEE449696BAAEA397 /* UserNotifications.framework */; };
 		BC5481300B1E21BB8D4BB204 /* DeckOptionsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36855D285827CEB531DABB0B /* DeckOptionsSheet.swift */; };
 		BD2A8231712350E735F56878 /* CardProvenanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED6176CB006FFE48B03DA615 /* CardProvenanceView.swift */; };
@@ -91,6 +92,7 @@
 		A1D83B33D3DD6D4646C9D8E7 /* AuthenticationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AuthenticationServices.framework; path = System/Library/Frameworks/AuthenticationServices.framework; sourceTree = SDKROOT; };
 		A23A9B47C22CFA16FA06F8D2 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
 		A84A243D48ABBD2F8C18E812 /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
+		A9F4E2C18B7D40319E5F2A10 /* SyncPokeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncPokeClient.swift; sourceTree = "<group>"; };
 		AA8613AEACCC074B9C549649 /* PremiumPaywallSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PremiumPaywallSheet.swift; sourceTree = "<group>"; };
 		B297A224C7F01BD19A9EB8D7 /* RemAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemAppTests.swift; sourceTree = "<group>"; };
 		B61826F3FB259AB3054EB2B6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -205,6 +207,7 @@
 				82581381AD6AC6E10D3D734B /* RemApp.swift */,
 				38E2DD644390DD61851BB031 /* RemStore.swift */,
 				A84A243D48ABBD2F8C18E812 /* RootTabView.swift */,
+				A9F4E2C18B7D40319E5F2A10 /* SyncPokeClient.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -472,6 +475,7 @@
 				5F55AE7919E11A6C0BBDD818 /* SettingsView.swift in Sources */,
 				1C57FC6B61E61725F7433B5E /* StatsView.swift in Sources */,
 				702FC76F9081A6EC69B8323B /* StoreKitManager.swift in Sources */,
+				B8E3D1F27A6C39208D4E1B21 /* SyncPokeClient.swift in Sources */,
 				7847E21ADEB515B1E9B67B67 /* TodayView.swift in Sources */,
 				0DDAD341758AB938466D3415 /* rem_ffi.swift in Sources */,
 			);

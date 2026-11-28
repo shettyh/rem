@@ -44,13 +44,13 @@ struct RemApp: App {
             self.appState = state
             if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
                 state.startStoreKitListener()
-            }
-            Task {
-                await state.refreshAll()
-                if state.syncStatus?.signedIn == true {
-                    await state.refreshAccount(triggerSyncIfUnlocked: false)
-                    if !state.isSyncPaused {
-                        await state.syncNow(silent: true)
+                Task {
+                    await state.refreshAll()
+                    if state.syncStatus?.signedIn == true {
+                        await state.refreshAccount(triggerSyncIfUnlocked: false)
+                        if !state.isSyncPaused {
+                            await state.syncNow(silent: true)
+                        }
                     }
                 }
             }
@@ -76,7 +76,14 @@ struct RootContainerView: View {
             appState: appState,
             enabled: appState.studyLaunch == nil && appState.captureRequest == nil
         )
+        .onAppear {
+            appState.setSceneActive(scenePhase == .active)
+        }
+        .onDisappear {
+            appState.setSceneActive(false)
+        }
         .onChange(of: scenePhase) { _, phase in
+            appState.setSceneActive(phase == .active)
             if phase == .active {
                 Task {
                     await appState.refreshAll()

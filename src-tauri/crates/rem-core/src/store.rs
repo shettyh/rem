@@ -107,7 +107,7 @@ impl Collection {
             .map(|name| normalize_deck_name(&name))
             .transpose()?;
         if let Some(ref deck_settings) = patch.settings {
-            deck_settings.validate()?;
+            crate::validate_deck_settings(deck_settings)?;
         }
         let settings = patch
             .settings

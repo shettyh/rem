@@ -8,8 +8,11 @@ pub const DEFAULT_CLOUD_SERVER_URL: &str = match option_env!("REM_DEFAULT_SYNC_U
 
 mod auth_client;
 mod client;
+mod coalesce;
 mod credentials;
 mod error;
+#[cfg(feature = "ws")]
+mod poke;
 mod protocol;
 mod session;
 mod transport;
@@ -21,14 +24,21 @@ pub use auth_client::{
 };
 pub use client::{
     sync_collection, sync_collection_with_options, sync_with_http, SyncOptions, SyncReport,
-    DEFAULT_OUTBOX_BATCH_SIZE, DEFAULT_PULL_LIMIT, MAX_MISSING_ASSETS_CHUNK,
+    ASSET_TRANSFER_CONCURRENCY, DEFAULT_OUTBOX_BATCH_SIZE, DEFAULT_PULL_LIMIT,
+    MAX_MISSING_ASSETS_CHUNK,
 };
+pub use coalesce::{coalesce_outbox_batch, CoalescedBatch};
 #[cfg(feature = "keyring")]
 pub use credentials::KeyringCredentialStore;
 pub use credentials::{
     normalize_server_url, CredentialStore, MemoryCredentialStore, StoredCredentials,
 };
 pub use error::SyncError;
+#[cfg(feature = "ws")]
+pub use poke::{
+    build_poke_ws_url, parse_poke_message, spawn_poke_listener, PokeEvent, PokeListenerConfig,
+    PokeListenerHandle, POKE_CLOSE_ACCOUNT_DELETED,
+};
 pub use protocol::{
     AccountProfile, AuthAccount, AuthProviders, AuthTokenResponse, DownloadedAsset,
     EntitlementInfo, EntitlementState, LogoutRequest, MissingAssetsRequest, MissingAssetsResponse,
@@ -39,9 +49,9 @@ pub use session::{
     connect_collection, create_polar_checkout_authenticated, create_polar_checkout_with_client,
     create_polar_portal_authenticated, create_polar_portal_with_client, delete_cloud_account,
     delete_cloud_account_with_client, fetch_account_authenticated, fetch_account_with_client,
-    sign_out, sign_out_with_client, start_trial_authenticated, start_trial_with_client,
-    sync_authenticated, sync_with_credentials, verify_apple_transaction_authenticated,
-    verify_apple_transaction_with_client, verify_dev_token, verify_dev_token_with_client,
-    ConnectResult,
+    prepare_poke_auth, prepare_poke_auth_with_client, sign_out, sign_out_with_client,
+    start_trial_authenticated, start_trial_with_client, sync_authenticated, sync_with_credentials,
+    verify_apple_transaction_authenticated, verify_apple_transaction_with_client, verify_dev_token,
+    verify_dev_token_with_client, ConnectResult, PokeAuth,
 };
-pub use transport::{HttpTransport, SyncTransport};
+pub use transport::{HttpTransport, SyncTransport, GZIP_REQUEST_THRESHOLD_BYTES};

@@ -4,11 +4,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rem_core::{Collection, SyncMode};
 use rem_sync::{
     connect_collection, create_polar_checkout_authenticated, create_polar_portal_authenticated,
-    delete_cloud_account, fetch_account_authenticated, open_system_browser, run_loopback_oauth,
-    sign_out, start_trial_authenticated, sync_authenticated, verify_dev_token, AccountProfile,
-    AuthClient, AuthProviders, CredentialStore, EntitlementInfo, EntitlementState, HttpAuthClient,
-    KeyringCredentialStore, OAuthProvider, StoredCredentials, SyncError, DEFAULT_CLOUD_SERVER_URL,
-    DEFAULT_OAUTH_TIMEOUT,
+    delete_cloud_account, fetch_account_authenticated, open_system_browser, prepare_poke_auth,
+    run_loopback_oauth, sign_out, spawn_poke_listener, start_trial_authenticated,
+    sync_authenticated, verify_dev_token, AccountProfile, AuthClient, AuthProviders,
+    CredentialStore, EntitlementInfo, EntitlementState, HttpAuthClient, KeyringCredentialStore,
+    OAuthProvider, PokeEvent, PokeListenerConfig, PokeListenerHandle, StoredCredentials, SyncError,
+    DEFAULT_CLOUD_SERVER_URL, DEFAULT_OAUTH_TIMEOUT,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -43,6 +44,7 @@ pub struct SyncStatusSnapshot {
     pub subscription_required: bool,
     pub upgrade_url: Option<String>,
     pub entitlement: Option<EntitlementInfo>,
+    pub poke_connected: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -76,6 +78,18 @@ struct SyncRuntimeState {
     cached_email: Option<String>,
     cached_provider: Option<String>,
     pending_switch: Option<(String, StoredCredentials)>,
+    poke_connected: bool,
+    poke_generation: u64,
+    poke_listener: Option<PokeListenerHandle>,
+}
+
+impl SyncRuntimeState {
+    fn is_sync_paused(&self) -> bool {
+        self.entitlement
+            .as_ref()
+            .map(|e| !e.sync_enabled)
+            .unwrap_or(self.subscription_required)
+    }
 }
 
 #[derive(Default)]
@@ -134,7 +148,223 @@ impl SyncManager {
             subscription_required: rt.subscription_required,
             upgrade_url: rt.upgrade_url.clone(),
             entitlement: rt.entitlement.clone(),
+            poke_connected: rt.poke_connected,
         })
+    }
+
+    pub fn reconcile_poke_listener(&self, app: &AppHandle, collection: &Collection) {
+        self.reconcile_poke_listener_inner(app, collection, false);
+    }
+
+    fn restart_poke_listener(&self, app: &AppHandle, collection: &Collection) {
+        self.reconcile_poke_listener_inner(app, collection, true);
+    }
+
+    fn stop_poke_listener(&self) -> bool {
+        let (old_handle, was_connected) = match self.runtime.lock() {
+            Ok(mut rt) => {
+                rt.poke_generation = rt.poke_generation.wrapping_add(1);
+                let old = rt.poke_listener.take();
+                let was_connected = rt.poke_connected;
+                rt.poke_connected = false;
+                (old, was_connected)
+            }
+            Err(_) => return false,
+        };
+        drop(old_handle);
+        was_connected
+    }
+
+    fn stop_poke_listener_for_gen(&self, expected_gen: u64) -> bool {
+        let (old_handle, changed) = match self.runtime.lock() {
+            Ok(mut rt) => {
+                if rt.poke_generation != expected_gen {
+                    return false;
+                }
+                rt.poke_generation = rt.poke_generation.wrapping_add(1);
+                let old = rt.poke_listener.take();
+                let had_listener = old.is_some();
+                let was_connected = rt.poke_connected;
+                rt.poke_connected = false;
+                (old, had_listener || was_connected)
+            }
+            Err(_) => return false,
+        };
+        drop(old_handle);
+        changed
+    }
+
+    fn set_poke_connected_for_gen(&self, expected_gen: u64, connected: bool) -> bool {
+        match self.runtime.lock() {
+            Ok(mut rt) => {
+                if rt.poke_generation != expected_gen || rt.poke_connected == connected {
+                    return false;
+                }
+                rt.poke_connected = connected;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn is_current_poke_gen(&self, expected_gen: u64) -> bool {
+        self.runtime
+            .lock()
+            .map(|rt| rt.poke_generation == expected_gen)
+            .unwrap_or(false)
+    }
+
+    fn reconcile_poke_listener_inner(
+        &self,
+        app: &AppHandle,
+        collection: &Collection,
+        force_restart: bool,
+    ) {
+        let should_run = match collection.sync_state() {
+            Ok(state) if state.mode == SyncMode::Cloud => {
+                match (&state.server_url, &state.account_id) {
+                    (Some(url), Some(account_id)) => {
+                        let store = KeyringCredentialStore;
+                        store.load(url, account_id).ok().flatten().is_some()
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        };
+
+        let (old_handle, next_gen) = match self.runtime.lock() {
+            Ok(mut rt) => {
+                if !should_run || rt.is_sync_paused() {
+                    rt.poke_generation = rt.poke_generation.wrapping_add(1);
+                    let old = rt.poke_listener.take();
+                    let was_connected = rt.poke_connected;
+                    rt.poke_connected = false;
+                    drop(rt);
+                    drop(old);
+                    if was_connected {
+                        if let Ok(snap) = self.snapshot(collection) {
+                            emit_status(app, &snap);
+                        }
+                    }
+                    return;
+                }
+                if rt.poke_listener.is_some() && !force_restart {
+                    return;
+                }
+                rt.poke_generation = rt.poke_generation.wrapping_add(1);
+                let old = rt.poke_listener.take();
+                rt.poke_connected = false;
+                (old, rt.poke_generation)
+            }
+            Err(_) => return,
+        };
+        drop(old_handle);
+
+        let app_for_auth = app.clone();
+        let auth_provider = move |force_refresh: bool| {
+            let collection = app_for_auth.state::<Collection>();
+            let store = KeyringCredentialStore;
+            prepare_poke_auth(&collection, &store, now_millis(), force_refresh)
+        };
+
+        let app_for_events = app.clone();
+        let on_event = move |event: PokeEvent| {
+            let manager = app_for_events.state::<SyncManager>();
+            if !manager.is_current_poke_gen(next_gen) {
+                return;
+            }
+            match event {
+                PokeEvent::Connected => {
+                    if manager.set_poke_connected_for_gen(next_gen, true) {
+                        let collection = app_for_events.state::<Collection>();
+                        if let Ok(snap) = manager.snapshot(&collection) {
+                            emit_status(&app_for_events, &snap);
+                        }
+                    }
+                }
+                PokeEvent::Disconnected => {
+                    if manager.set_poke_connected_for_gen(next_gen, false) {
+                        let collection = app_for_events.state::<Collection>();
+                        if let Ok(snap) = manager.snapshot(&collection) {
+                            emit_status(&app_for_events, &snap);
+                        }
+                    }
+                }
+                PokeEvent::AuthFailed => {
+                    if manager.set_poke_connected_for_gen(next_gen, false) {
+                        let collection = app_for_events.state::<Collection>();
+                        if let Ok(snap) = manager.snapshot(&collection) {
+                            emit_status(&app_for_events, &snap);
+                        }
+                    }
+                }
+                PokeEvent::Poke { latest_seq } => {
+                    let collection = app_for_events.state::<Collection>();
+                    let local_seq = collection.sync_state().map(|s| s.last_seq).unwrap_or(0);
+                    if !should_trigger_poke_sync(latest_seq, local_seq) {
+                        return;
+                    }
+                    let app_sync = app_for_events.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        let collection = app_sync.state::<Collection>();
+                        let manager = app_sync.state::<SyncManager>();
+                        let Ok(_guard) = manager.sync_lock.lock() else {
+                            return;
+                        };
+                        let current_seq = collection.sync_state().map(|s| s.last_seq).unwrap_or(0);
+                        if !should_trigger_poke_sync(latest_seq, current_seq) {
+                            return;
+                        }
+                        let _ = run_sync_with_lock_held(&app_sync, &collection, &manager);
+                    });
+                }
+                PokeEvent::SubscriptionRequired => {
+                    let app_sub = app_for_events.clone();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        let collection = app_sub.state::<Collection>();
+                        let manager = app_sub.state::<SyncManager>();
+                        manager.stop_poke_listener_for_gen(next_gen);
+                        let store = KeyringCredentialStore;
+                        if let Ok(profile) =
+                            fetch_account_authenticated(&collection, &store, now_millis())
+                        {
+                            manager.record_account_profile(&profile);
+                        } else {
+                            manager.record_subscription_required(
+                                "Active rem Cloud subscription required for sync.".to_owned(),
+                                None,
+                            );
+                        }
+                        if let Ok(snap) = manager.snapshot(&collection) {
+                            emit_status(&app_sub, &snap);
+                        }
+                    });
+                }
+                PokeEvent::AccountDeleted => {
+                    if manager.stop_poke_listener_for_gen(next_gen) {
+                        let collection = app_for_events.state::<Collection>();
+                        if let Ok(snap) = manager.snapshot(&collection) {
+                            emit_status(&app_for_events, &snap);
+                        }
+                    }
+                }
+            }
+        };
+
+        let handle = spawn_poke_listener(auth_provider, on_event, PokeListenerConfig::default());
+        let discarded = match self.runtime.lock() {
+            Ok(mut rt) => {
+                if rt.poke_generation == next_gen {
+                    rt.poke_listener = Some(handle);
+                    None
+                } else {
+                    Some(handle)
+                }
+            }
+            Err(_) => Some(handle),
+        };
+        drop(discarded);
     }
 
     fn record_account_profile(&self, profile: &AccountProfile) {
@@ -225,6 +455,10 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
+fn should_trigger_poke_sync(poke_latest_seq: u64, local_last_seq: u64) -> bool {
+    poke_latest_seq > local_last_seq
+}
+
 fn format_sync_error(err: &SyncError) -> String {
     match err {
         SyncError::Unauthorized => {
@@ -265,6 +499,7 @@ fn run_sync_with_lock_held(
     match sync_authenticated(collection, &store, now) {
         Ok(report) => {
             manager.record_success(now);
+            manager.reconcile_poke_listener(app, collection);
             if report.applied_ops > 0 {
                 let _ = app.emit(EVENT_STORAGE_REMOTE_APPLIED, report.applied_ops);
             }
@@ -276,6 +511,7 @@ fn run_sync_with_lock_held(
             message,
             upgrade_url,
         }) => {
+            manager.stop_poke_listener();
             manager.record_subscription_required(message.clone(), upgrade_url);
             if let Ok(profile) = fetch_account_authenticated(collection, &store, now_millis()) {
                 manager.record_account_profile(&profile);
@@ -329,6 +565,7 @@ fn finish_connect(
                     .map(|e| e.sync_enabled)
                     .unwrap_or(profile.sync_enabled);
                 if !can_sync {
+                    manager.stop_poke_listener();
                     let snapshot = manager.snapshot(collection)?;
                     emit_status(app, &snapshot);
                     return Ok(SignInOutcome::Connected {
@@ -339,6 +576,7 @@ fn finish_connect(
                 }
             }
 
+            manager.restart_poke_listener(app, collection);
             match run_sync_with_lock_held(app, collection, manager) {
                 Ok(snapshot) => Ok(SignInOutcome::Connected {
                     snapshot: Box::new(snapshot),
@@ -497,6 +735,7 @@ pub async fn sync_refresh_account(app: AppHandle) -> Result<SyncStatusSnapshot, 
         let profile = fetch_account_authenticated(&collection, &store, now_millis())
             .map_err(|err| format_sync_error(&err))?;
         manager.record_account_profile(&profile);
+        manager.reconcile_poke_listener(&app, &collection);
         let snap = manager.snapshot(&collection)?;
         emit_status(&app, &snap);
         Ok(snap)
@@ -524,8 +763,10 @@ pub async fn sync_start_trial(app: AppHandle) -> Result<SyncStatusSnapshot, Stri
             .map(|e| e.sync_enabled)
             .unwrap_or(profile.sync_enabled);
         if can_sync {
+            manager.restart_poke_listener(&app, &collection);
             run_sync_with_lock_held(&app, &collection, &manager)
         } else {
+            manager.stop_poke_listener();
             let snap = manager.snapshot(&collection)?;
             emit_status(&app, &snap);
             Ok(snap)
@@ -544,8 +785,12 @@ pub async fn sync_sign_out(app: AppHandle) -> Result<SyncStatusSnapshot, String>
             .sync_lock
             .lock()
             .map_err(|_| "sync lock poisoned".to_owned())?;
+        manager.stop_poke_listener();
         let store = KeyringCredentialStore;
-        sign_out(&collection, &store).map_err(|err| format_sync_error(&err))?;
+        if let Err(err) = sign_out(&collection, &store) {
+            manager.reconcile_poke_listener(&app, &collection);
+            return Err(format_sync_error(&err));
+        }
         manager.clear_session_metadata();
         let snap = manager.snapshot(&collection)?;
         emit_status(&app, &snap);
@@ -605,9 +850,12 @@ pub async fn sync_delete_account(app: AppHandle) -> Result<SyncStatusSnapshot, S
             .sync_lock
             .lock()
             .map_err(|_| "sync lock poisoned".to_owned())?;
+        manager.stop_poke_listener();
         let store = KeyringCredentialStore;
-        delete_cloud_account(&collection, &store, now_millis())
-            .map_err(|err| format_sync_error(&err))?;
+        if let Err(err) = delete_cloud_account(&collection, &store, now_millis()) {
+            manager.reconcile_poke_listener(&app, &collection);
+            return Err(format_sync_error(&err));
+        }
         manager.clear_session_metadata();
         let snap = manager.snapshot(&collection)?;
         emit_status(&app, &snap);
@@ -615,4 +863,31 @@ pub async fn sync_delete_account(app: AppHandle) -> Result<SyncStatusSnapshot, S
     })
     .await
     .map_err(|err| format!("account deletion task failed: {err}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn poke_seq_gating_only_triggers_when_server_seq_advances() {
+        assert!(should_trigger_poke_sync(11, 10));
+        assert!(!should_trigger_poke_sync(10, 10));
+        assert!(!should_trigger_poke_sync(9, 10));
+    }
+
+    #[test]
+    fn sync_manager_poke_generation_guards_stale_callbacks() {
+        let manager = SyncManager::default();
+        assert!(manager.is_current_poke_gen(0));
+        assert!(manager.set_poke_connected_for_gen(0, true));
+        assert!(!manager.set_poke_connected_for_gen(0, true)); // idempotent
+        assert!(!manager.set_poke_connected_for_gen(99, false)); // stale gen ignored
+
+        let was_connected = manager.stop_poke_listener();
+        assert!(was_connected);
+        assert!(!manager.is_current_poke_gen(0));
+        assert!(manager.is_current_poke_gen(1));
+        assert!(!manager.set_poke_connected_for_gen(0, true));
+    }
 }

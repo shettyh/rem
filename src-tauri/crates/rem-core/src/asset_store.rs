@@ -149,16 +149,4 @@ pub(crate) fn asset_from_row(row: &Row<'_>) -> rusqlite::Result<Asset> {
     })
 }
 
-pub(crate) fn asset_refs(markdown: &str) -> HashSet<String> {
-    markdown
-        .match_indices("asset:")
-        .filter_map(|(index, _)| {
-            let start = index + "asset:".len();
-            let candidate = markdown.get(start..start + 64)?;
-            candidate
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-                .then(|| candidate.to_owned())
-        })
-        .collect()
-}
+pub(crate) use rem_sync_reduce::asset_refs;

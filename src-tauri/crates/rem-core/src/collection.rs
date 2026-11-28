@@ -80,6 +80,15 @@ impl From<serde_json::Error> for CollectionError {
     }
 }
 
+impl From<rem_sync_reduce::ReduceError> for CollectionError {
+    fn from(error: rem_sync_reduce::ReduceError) -> Self {
+        match error {
+            rem_sync_reduce::ReduceError::InvalidInput(message) => Self::InvalidInput(message),
+            rem_sync_reduce::ReduceError::Json(err) => Self::Json(err),
+        }
+    }
+}
+
 pub fn default_database_path() -> Result<PathBuf, CollectionError> {
     let project_dirs = ProjectDirs::from("com", "shettyh", "rem")
         .ok_or(CollectionError::DataDirectoryUnavailable)?;
