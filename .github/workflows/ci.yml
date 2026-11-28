@@ -40,6 +40,15 @@ jobs:
       - name: Test (unit + browser)
         run: npm test
 
+      - name: Upload Playwright UI screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-ui-screenshots
+          path: test-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
       # `npm run build` is `tsc --noEmit && vite build`, so this also typechecks.
       - name: Build
         run: npm run build
@@ -105,6 +114,38 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+  sync-e2e:
+    name: Sync E2E (rem-sync ↔ wrangler)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sync-server/package-lock.json
+
+      - name: Install sync-server dependencies
+        working-directory: sync-server
+        run: npm ci
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          key: sync-e2e
+
+      - name: Run live sync E2E tests
+        run: bash tools/run-sync-e2e.sh
 
   ios:
     name: iOS (xcframework · test)
