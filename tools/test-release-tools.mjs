@@ -219,5 +219,18 @@ const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
   } finally {
     fs.rmSync(tmpRoot, { recursive: true, force: true })
   }
+
+  // `xcrun` has no `--show-sdk-name` flag; ensure neither the Xcode selector
+  // nor the TestFlight workflow regresses to calling it.
+  const selectXcodeSrc = fs.readFileSync(scriptPath, 'utf8')
+  const testflightWorkflowSrc = fs.readFileSync(
+    path.join(ROOT_DIR, '.github/workflows/ios-testflight.yml'),
+    'utf8',
+  )
+  assert.doesNotMatch(selectXcodeSrc, /--show-sdk-name/)
+  assert.doesNotMatch(testflightWorkflowSrc, /--show-sdk-name/)
+  assert.match(selectXcodeSrc, /Print :CanonicalName/)
+  assert.match(testflightWorkflowSrc, /Print :CanonicalName/)
+
   console.log('ok   - select-latest-xcode.sh picks the highest stable Xcode and skips betas/symlinks')
 }

@@ -171,7 +171,8 @@ jobs:
           non_exempt=$(/usr/libexec/PlistBuddy -c "Print :ITSAppUsesNonExemptEncryption" "$info_plist")
           device_families=$(/usr/libexec/PlistBuddy -c "Print :UIDeviceFamily" "$info_plist" | tr -d '[:space:]')
           sdk_name=$(/usr/libexec/PlistBuddy -c "Print :DTSDKName" "$info_plist")
-          expected_sdk=$(xcrun --sdk iphoneos --show-sdk-name)
+          sdk_path=$(xcrun --sdk iphoneos --show-sdk-path)
+          expected_sdk=$(/usr/libexec/PlistBuddy -c "Print :CanonicalName" "$sdk_path/SDKSettings.plist")
           archived_entitlements=$(codesign -d --entitlements :- "$app_path" 2>/dev/null)
 
           echo "Archived bundle: $bundle_id v$short_ver ($build_ver), SDK=$sdk_name, ITSAppUsesNonExemptEncryption=$non_exempt, UIDeviceFamily=$device_families"
