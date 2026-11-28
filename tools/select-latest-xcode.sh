@@ -84,4 +84,8 @@ else
 fi
 
 xcodebuild -version
-echo "iOS SDK: $(xcrun --sdk iphoneos --show-sdk-name) ($(xcrun --sdk iphoneos --show-sdk-version), build $(xcrun --sdk iphoneos --show-sdk-build-version))"
+sdk_path=$(xcrun --sdk iphoneos --show-sdk-path)
+sdk_name=$(/usr/libexec/PlistBuddy -c "Print :CanonicalName" "$sdk_path/SDKSettings.plist")
+sdk_version=$(xcrun --sdk iphoneos --show-sdk-version)
+sdk_build=$(xcrun --sdk iphoneos --show-sdk-build-version)
+echo "iOS SDK: ${sdk_name} (${sdk_version}, build ${sdk_build})"
