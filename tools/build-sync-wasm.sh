@@ -53,8 +53,11 @@ fi
 # that affect rem-sync-reduce's WASM output:
 #   - wasm-bindgen version from Cargo.lock
 #   - tools/build-sync-wasm.sh
-#   - all source files under src-tauri/crates/rem-sync-reduce/
+#   - all source files under src-tauri/crates/rem-sync-reduce/ (normalizing only
+#     rem-sync-reduce's own [package] version line in Cargo.toml so Release Please
+#     version bumps do not spuriously invalidate the committed WASM bundle)
 #   - transitive package closure of rem-sync-reduce from src-tauri/Cargo.lock
+#     (normalizing only rem-sync-reduce's own local version)
 generate_source_manifest() {
   python3 - "$ROOT_DIR" "$EXPECTED_WBG_VERSION" <<'PY'
 import hashlib
@@ -70,6 +73,26 @@ def sha256_file(path: str) -> str:
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
+    return h.hexdigest()
+
+def sha256_normalized_crate_manifest(path: str) -> str:
+    """Hash rem-sync-reduce/Cargo.toml while normalizing only [package].version."""
+    h = hashlib.sha256()
+    section = None
+    with open(path, "r", encoding="utf-8", newline="") as f:
+        for line in f:
+            stripped = line.strip()
+            header_match = re.match(r"^\[([^\]]+)\]\s*(?:#.*)?$", stripped)
+            if header_match:
+                section = header_match.group(1).strip()
+            elif section == "package" and re.match(r'^version\s*=\s*"[^"]*"\s*(?:#.*)?$', stripped):
+                line = re.sub(
+                    r'^(\s*version\s*=\s*)"[^"]*"',
+                    r'\1"<normalized>"',
+                    line,
+                    count=1,
+                )
+            h.update(line.encode("utf-8"))
     return h.hexdigest()
 
 # Parse [[package]] blocks from src-tauri/Cargo.lock (pure stdlib, Python 3.8+)
@@ -154,12 +177,21 @@ for dirpath, dirnames, filenames in os.walk(crate_root):
         rel_path = os.path.relpath(abs_path, root_dir).replace(os.sep, "/")
         source_files.append((rel_path, abs_path))
 
+crate_manifest_rel = "src-tauri/crates/rem-sync-reduce/Cargo.toml"
 for rel_path, abs_path in sorted(source_files):
-    lines.append(f"file={sha256_file(abs_path)}  {rel_path}")
+    digest = (
+        sha256_normalized_crate_manifest(abs_path)
+        if rel_path == crate_manifest_rel
+        else sha256_file(abs_path)
+    )
+    lines.append(f"file={digest}  {rel_path}")
 
 for (name, version) in sorted(visited.keys()):
     checksum = visited[(name, version)]["checksum"]
-    lines.append(f"pkg={name} {version} {checksum}")
+    if name == "rem-sync-reduce" and checksum == "local":
+        lines.append(f"pkg={name} <normalized> {checksum}")
+    else:
+        lines.append(f"pkg={name} {version} {checksum}")
 
 sys.stdout.write("\n".join(lines) + "\n")
 PY
@@ -223,7 +255,7 @@ if [[ "$CHECK_ONLY" == "true" ]]; then
 
   # Compare generated JS/TS bindings byte-for-byte. Raw .wasm binary bytes vary
   # across rustc/LLVM versions and host platforms, so binary freshness is gated
-  # by source-manifest.txt above plus sync-server's vitest-pool-workers suite.
+  # by source-manifest.txt above plus sync-server's @cloudflare/vitest-plugin suite.
   for binding_file in rem_sync_reduce.js rem_sync_reduce.d.ts rem_sync_reduce_bg.wasm.d.ts; do
     if [[ ! -f "$OUT_DIR/$binding_file" ]]; then
       echo "Missing committed binding file: $OUT_DIR/$binding_file. Run: bash tools/build-sync-wasm.sh" >&2

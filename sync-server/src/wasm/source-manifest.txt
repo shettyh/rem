@@ -1,6 +1,6 @@
 wasm-bindgen=0.2.130
-script=7639afb1fe1c7f19409fd42fd7e629c66bdbc5b2aead7900f608bb4ff44f45a2  tools/build-sync-wasm.sh
-file=22b0106d7e77fd522884f95d3a1551f0fc810325a90d38b8eb465fde529165be  src-tauri/crates/rem-sync-reduce/Cargo.toml
+script=37e3afec3b8552f6f9557b5cffc0a50ecf6f72307d3becffb8426c01984d443c  tools/build-sync-wasm.sh
+file=c3673bcd5fe31c3d87885679126a6661ff9975db0a1a09ba3d157f8d9b2261e2  src-tauri/crates/rem-sync-reduce/Cargo.toml
 file=4fceb6c46ec00bf4962f03dd4033635033c895425c9b2993e02066e2205941d2  src-tauri/crates/rem-sync-reduce/src/assets.rs
 file=d97e873780695bfe2eb9ba279f56087192f4f7c571d952eb29bc5fa98d1b2747  src-tauri/crates/rem-sync-reduce/src/deck_name.rs
 file=65068e6010ff84bdba7803af1fcb11588529215245295e479499b1009cba1ef6  src-tauri/crates/rem-sync-reduce/src/error.rs
@@ -16,7 +16,7 @@ pkg=itoa 1.0.18 8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682
 pkg=memchr 2.8.2 88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4
 pkg=proc-macro2 1.0.107 985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9
 pkg=quote 1.0.47 1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001
-pkg=rem-sync-reduce 0.31.0 local
+pkg=rem-sync-reduce <normalized> local
 pkg=rustversion 1.0.22 b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d
 pkg=serde 1.0.229 4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba
 pkg=serde_core 1.0.229 67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48
