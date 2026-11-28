@@ -44,7 +44,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Test (vitest-pool-workers)
+      - name: Test (@cloudflare/vitest-plugin)
         run: npm test
 
       - name: Check Cloudflare deploy credentials

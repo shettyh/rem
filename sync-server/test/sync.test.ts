@@ -437,7 +437,7 @@ describe('rem-sync-server', () => {
       status: 'allowed',
     })
 
-    // 4. Invalid quota parameters are rejected cleanly (run inside DO to avoid vitest-pool-workers RPC error hook).
+    // 4. Invalid quota parameters are rejected cleanly (run inside DO to avoid @cloudflare/vitest-plugin RPC error hook).
     await runInDurableObject(perfStub, async (instance) => {
       await expect(instance.checkAssetQuota('d'.repeat(64), -1, 1000)).rejects.toThrow(
         'invalid asset quota parameters',
