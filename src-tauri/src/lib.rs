@@ -1,5 +1,6 @@
 mod cli;
 mod fsrs_sched;
+mod relaunch;
 mod storage;
 mod study;
 mod sync;
@@ -14,6 +15,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             cli::cli_status,
             cli::cli_install,
+            relaunch::app_relaunch,
             fsrs_sched::fsrs_optimize,
             study::study_start,
             study::study_reveal,

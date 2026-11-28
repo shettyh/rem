@@ -1,6 +1,11 @@
 import { act, render, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import type { CliStatus, PendingUpdateHandle, UpdaterClient } from './UpdaterClient'
+import {
+  TauriUpdaterClient,
+  type CliStatus,
+  type PendingUpdateHandle,
+  type UpdaterClient,
+} from './UpdaterClient'
 import { UpdaterProvider, useUpdaterOptional, type UpdaterContextValue } from './UpdaterContext'
 import { AUTO_UPDATE_KEY, getAutoUpdateEnabled, setAutoUpdateEnabled } from './updaterPrefs'
 
@@ -189,5 +194,16 @@ describe('UpdaterProvider auto-update lifecycle', () => {
       await ctx.current.checkForUpdates()
     })
     expect(closeFirst).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('TauriUpdaterClient', () => {
+  test('invokes native app_relaunch command on relaunch', async () => {
+    const invokeMock = vi.fn(async () => undefined)
+    const client = new TauriUpdaterClient(invokeMock as never)
+
+    await client.relaunch()
+
+    expect(invokeMock).toHaveBeenCalledWith('app_relaunch')
   })
 })
