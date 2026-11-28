@@ -168,6 +168,8 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const activeRowRef = useRef<HTMLDivElement | null>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
+  const keyboardNavRef = useRef(false)
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null)
   const [query, setQuery] = useState('')
   const [settledQuery, setSettledQuery] = useState('')
   const [decks, setDecks] = useState<DeckTodaySummary[]>([])
@@ -187,6 +189,8 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
       setLoading(false)
       setSearchError(null)
       setActiveIndex(0)
+      keyboardNavRef.current = false
+      lastPointerRef.current = null
       const previous = restoreFocusRef.current
       restoreFocusRef.current = null
       if (previous && document.contains(previous)) {
@@ -400,6 +404,7 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
     if (e.nativeEvent.isComposing) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
+      keyboardNavRef.current = true
       setActiveIndex((idx) => {
         if (options.length === 0) return 0
         const cur = Math.min(idx, options.length - 1)
@@ -409,6 +414,7 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault()
+      keyboardNavRef.current = true
       setActiveIndex((idx) => {
         if (options.length === 0) return 0
         const cur = Math.min(idx, options.length - 1)
@@ -421,6 +427,19 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
       if (safeActiveIndex >= 0 && options[safeActiveIndex]) {
         activateOption(options[safeActiveIndex])
       }
+    }
+  }
+
+  function handleOptionPointerMove(optionIndex: number, e: React.MouseEvent) {
+    const prev = lastPointerRef.current
+    const moved = prev !== null && (prev.x !== e.clientX || prev.y !== e.clientY)
+    lastPointerRef.current = { x: e.clientX, y: e.clientY }
+    if (keyboardNavRef.current && !moved) return
+    if (moved) {
+      keyboardNavRef.current = false
+    }
+    if (optionIndex !== safeActiveIndex) {
+      setActiveIndex(optionIndex)
     }
   }
 
@@ -559,7 +578,7 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
                           aria-selected={isSelected}
                           className={`search-result-row search-deck-row${isSelected ? ' is-active' : ''}`}
                           onMouseDown={(e) => e.preventDefault()}
-                          onMouseEnter={() => setActiveIndex(optionIndex)}
+                          onMouseMove={(e) => handleOptionPointerMove(optionIndex, e)}
                           onClick={() => openDeck(deck)}
                         >
                           <span className="search-deck-main">
@@ -635,7 +654,7 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
                           aria-disabled={isSearchingCards || undefined}
                           className={`search-result-row${isSelected ? ' is-active' : ''}${isSearchingCards ? ' is-stale' : ''}`}
                           onMouseDown={(e) => e.preventDefault()}
-                          onMouseEnter={() => setActiveIndex(optionIndex)}
+                          onMouseMove={(e) => handleOptionPointerMove(optionIndex, e)}
                           onClick={() => openCardHit(hit)}
                         >
                           <div className="search-result-top">

@@ -348,10 +348,12 @@ test('incremental typing waits for updated query to settle before keyboard navig
   const input = page.getByRole('combobox', { name: 'Search all cards' })
   await expect.element(input).toBeVisible()
 
-  // Let a prefix settle first, then continue typing to exercise the stale-results transition.
+  // Let a prefix settle first, park the pointer over the first option, then continue typing
+  // to verify neither stale-state transitions nor a stationary cursor hijack ArrowDown.
   await userEvent.type(input.element(), 'memo')
   const results = page.getByRole('listbox', { name: 'Search results' })
   await expect.element(results).toHaveAttribute('aria-busy', 'false')
+  await userEvent.hover(page.getByRole('option').first().element())
 
   await userEvent.type(input.element(), 'ry')
   await expect.element(input).toHaveValue('memory')
