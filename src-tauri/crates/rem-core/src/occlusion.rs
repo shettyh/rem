@@ -364,98 +364,6 @@ pub fn strip_occlusion_markup(markdown: &str) -> String {
     out.trim().to_owned()
 }
 
-fn escape_tui_text(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match ch {
-            '\\' | '*' | '_' | '[' | ']' | '`' => {
-                out.push('\\');
-                out.push(ch);
-            }
-            '\n' | '\r' => out.push(' '),
-            _ => out.push(ch),
-        }
-    }
-    out
-}
-
-/// Render `rem-occlusion` blocks into a concise terminal placeholder for `rem study` TUI.
-pub fn render_occlusion_tui_summary(
-    markdown: &str,
-    active_index: Option<u32>,
-    revealed: bool,
-) -> String {
-    render_occlusion_tui_with_text_transform(markdown, active_index, revealed, |s| s.to_owned())
-}
-
-/// Like [`render_occlusion_tui_summary`], applying `transform_text` only to non-occlusion
-/// Markdown segments so cloze rendering never mutates `rem-occlusion` JSON or placeholders.
-pub fn render_occlusion_tui_with_text_transform<F>(
-    markdown: &str,
-    active_index: Option<u32>,
-    revealed: bool,
-    mut transform_text: F,
-) -> String
-where
-    F: FnMut(&str) -> String,
-{
-    let spans = parse_occlusion_blocks(markdown);
-    if spans.is_empty() {
-        return transform_text(markdown);
-    }
-    let mut out = String::with_capacity(markdown.len() + 64);
-    let mut cursor = 0;
-    for span in spans {
-        out.push_str(&transform_text(&markdown[cursor..span.start]));
-        let groups: Vec<u32> = span
-            .block
-            .masks
-            .iter()
-            .map(|m| m.id)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        let group_count = groups.len();
-        let mode = span.block.mode.as_str();
-        let title = escape_tui_text(
-            span.block
-                .alt
-                .as_deref()
-                .unwrap_or(span.block.image.as_str()),
-        );
-        let state = if revealed { "revealed" } else { "hidden" };
-        let mask_detail = match active_index {
-            Some(idx) => {
-                let ordinal = groups.iter().position(|&id| id == idx).map(|p| p + 1);
-                let position_str = match ordinal {
-                    Some(ord) => format!("mask #{idx} ({ord}/{group_count})"),
-                    None => format!("mask #{idx} ({group_count} masks)"),
-                };
-                let labels: Vec<String> = span
-                    .block
-                    .masks
-                    .iter()
-                    .filter(|m| m.id == idx)
-                    .filter_map(|m| m.label.as_deref())
-                    .map(escape_tui_text)
-                    .collect();
-                if revealed && !labels.is_empty() {
-                    format!("{position_str} · {} · {state}", labels.join(", "))
-                } else {
-                    format!("{position_str} · {state}")
-                }
-            }
-            None => format!("{group_count} masks"),
-        };
-        out.push_str(&format!(
-            "\\[Image Occlusion: {title} · {mask_detail} ({mode}) · study visually on Desktop or iPhone\\]\n"
-        ));
-        cursor = span.end;
-    }
-    out.push_str(&transform_text(&markdown[cursor..]));
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_serialization_and_renders_tui_summary() {
+    fn round_trips_serialization_and_strips_markup() {
         let hash = sample_hash();
         let block = OcclusionBlock {
             v: 1,
@@ -522,8 +430,6 @@ mod tests {
         let parsed = parse_occlusion_blocks(&fenced);
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].block.masks[0].x, 0.1235);
-        assert!(render_occlusion_tui_summary(&fenced, Some(1), false).contains("CPU Pipeline"));
-        assert!(render_occlusion_tui_summary(&fenced, Some(1), true).contains("Fetch"));
         assert_eq!(
             strip_occlusion_markup(&fenced),
             "[Image occlusion: CPU Pipeline]"

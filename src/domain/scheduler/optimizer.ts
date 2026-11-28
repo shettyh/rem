@@ -1,6 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
-import type { ReviewLog } from '../models'
-import { MS_PER_DAY } from './index'
+import { MS_PER_DAY, type ReviewLog } from '../models'
 
 export interface FsrsReviewHistory {
   reviews: Array<{ reviewedAt: number; rating: number }>

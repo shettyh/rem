@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest'
 import { page } from 'vitest/browser'
+import type { CollectionStats } from '../../domain/models'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
 import { StatsPage } from './StatsPage'
@@ -9,6 +10,15 @@ function daysAgo(days: number): number {
   date.setDate(date.getDate() - days)
   date.setHours(0, 0, 0, 0)
   return date.getTime()
+}
+
+function makeDaily(days: number, todayCount: number, yesterdayCount: number) {
+  return Array.from({ length: days }, (_, idx) => {
+    const offset = days - 1 - idx
+    const ts = daysAgo(offset)
+    const count = offset === 0 ? todayCount : offset === 1 ? yesterdayCount : 0
+    return { day: `day-${offset}`, timestampMs: ts, count }
+  })
 }
 
 test('shows an honest empty state before review history exists', async () => {
@@ -26,12 +36,36 @@ test('renders review metrics and responds to deck and range filters', async () =
   const storage = freshStorage()
   const alpha = await storage.createDeck('Alpha')
   const beta = await storage.createDeck('Beta')
-  const a = await storage.createCard(alpha.id, 'a', 'a')
-  const b = await storage.createCard(beta.id, 'b', 'b')
 
-  await storage.commitReview({ cardId: a.id, deckId: alpha.id, patch: {}, reviewedAt: daysAgo(0), fsrsGrade: 'good' })
-  await storage.commitReview({ cardId: a.id, deckId: alpha.id, patch: {}, reviewedAt: daysAgo(1), fsrsGrade: 'again' })
-  await storage.commitReview({ cardId: b.id, deckId: beta.id, patch: {}, reviewedAt: daysAgo(0) + 1, fsrsGrade: 'easy' })
+  storage.setStats((deckId, days): CollectionStats => {
+    if (deckId === alpha.id) {
+      return {
+        historyCount: 2,
+        totalReviews: 2,
+        recallRate: 0.5,
+        currentStreakDays: 2,
+        activeDays: 2,
+        grades: { again: 1, hard: 0, good: 1, easy: 0 },
+        daily: makeDaily(days, 1, 1),
+        byDeck: [{ deckId: alpha.id, deckName: alpha.name, deckColor: alpha.color, reviews: 2, recallRate: 0.5 }],
+        upcoming7d: [],
+      }
+    }
+    return {
+      historyCount: 3,
+      totalReviews: 3,
+      recallRate: 2 / 3,
+      currentStreakDays: 2,
+      activeDays: 2,
+      grades: { again: 1, hard: 0, good: 1, easy: 1 },
+      daily: makeDaily(days, 2, 1),
+      byDeck: [
+        { deckId: alpha.id, deckName: alpha.name, deckColor: alpha.color, reviews: 2, recallRate: 0.5 },
+        { deckId: beta.id, deckName: beta.name, deckColor: beta.color, reviews: 1, recallRate: 1 },
+      ],
+      upcoming7d: [],
+    }
+  })
 
   await renderRoute({ storage, entry: '/stats', path: '/stats', element: <StatsPage /> })
 

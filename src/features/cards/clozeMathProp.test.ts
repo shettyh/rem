@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { assetRefs } from '../../data/assetRefs'
 import { forAll, pick, randBool, randInt, randString } from '../../test/prop'
 import {
   CLOZE_BLANK_HREF,
@@ -19,7 +18,7 @@ import {
 const HEX = '0123456789abcdef'
 const ALIGNS: readonly ImageAlign[] = ['left', 'center', 'right']
 
-describe('cloze, mathPreprocess & assetRefs property tests', () => {
+describe('cloze, mathPreprocess & imageSrc property tests', () => {
   it('extractClozeIndices and stripClozeMarkup ignore clozes inside inline code and fenced code blocks', () => {
     const inlineOnly = 'Use `{{c1::answer}}` syntax in Anki.'
     expect(extractClozeIndices(inlineOnly)).toEqual([])
@@ -131,10 +130,9 @@ describe('cloze, mathPreprocess & assetRefs property tests', () => {
     })
   })
 
-  it('property: assetRefs & imageSrc round-trip valid 64-hex hashes and reject invalid ones', () => {
+  it('property: imageSrc round-trips valid 64-hex hashes and rejects invalid ones', () => {
     forAll(100, 0xa55e71, (rng) => {
       const h1 = randString(rng, HEX, 64, 64)
-      const h2 = randString(rng, HEX, 64, 64)
       const align = pick(rng, ALIGNS)
       const src = buildAssetSrc(h1, align)
       expect(isAssetSrc(src)).toBe(true)
@@ -144,11 +142,6 @@ describe('cloze, mathPreprocess & assetRefs property tests', () => {
       expect(isAssetSrc(`asset:${h1.slice(0, 63)}`)).toBe(false)
       expect(isAssetSrc(`asset:${h1.toUpperCase()}`)).toBe(false)
       expect(parseAssetSrc(`asset:${h1}#invalid`)).toBeNull()
-
-      const md = `![a](${src}) [b](asset:${h2}) ![dup](asset:${h1}) [bad](asset:${h1.slice(0, 20)})`
-      const refs = assetRefs(md).sort()
-      const expected = [...new Set([h1, h2])].sort()
-      expect(refs).toEqual(expected)
     })
   })
 })

@@ -2,7 +2,7 @@ use std::io::Write;
 
 use rem_core::{
     extract_occlusion_indices, has_image_occlusion, parse_occlusion_blocks, parse_occlusion_json,
-    render_occlusion_tui_summary, serialize_occlusion_block, Collection, DeckPatch, DeckSettings,
+    serialize_occlusion_block, strip_occlusion_markup, Collection, DeckPatch, DeckSettings,
     DraftDecision, DraftResolution, Grade, NewCardInput, NewDraftInput, OcclusionBlock,
     OcclusionMask, OcclusionMode, OcclusionShapeType, ProposalMetadata, ProposalMode,
     StudyGradeOutcome, StudyRequest, StudySession,
@@ -169,11 +169,10 @@ fn image_occlusion_sibling_lifecycle_burying_orphan_assets_and_backup_roundtrip(
     assert!(!card3.suspended);
     assert_eq!(card3.sibling_group_id, card1.sibling_group_id);
 
-    // TUI summary never leaks raw JSON
-    let tui_text = render_occlusion_tui_summary(&updated_front, Some(3), true);
-    assert!(tui_text.contains("Image Occlusion"));
-    assert!(tui_text.contains("Checksum"));
-    assert!(!tui_text.contains("\"masks\""));
+    // Stripped preview text never leaks raw JSON
+    let preview_text = strip_occlusion_markup(&updated_front);
+    assert!(preview_text.contains("[Image occlusion"));
+    assert!(!preview_text.contains("\"masks\""));
 
     // Backup export + import into a fresh collection preserves occlusion block and siblings
     let backup_json = col.export_backup_json(NOW + 50).unwrap();
@@ -349,14 +348,10 @@ fn adversarial_review_regressions_draft_siblings_reactivation_lossy_masks_and_fe
     assert_eq!(parsed.masks[1].id, 3);
     assert_eq!(parsed.masks[1].shape_type, OcclusionShapeType::Ellipse);
 
-    // Non-contiguous TUI summary shows ordinal (2/2), never "mask #3 of 2"
+    // Stripped preview reports distinct mask group count cleanly
     let fenced_non_contig = serialize_occlusion_block(&parsed).unwrap();
-    let tui = render_occlusion_tui_summary(&fenced_non_contig, Some(3), false);
-    assert!(
-        tui.contains("mask #3 (2/2)"),
-        "unexpected TUI summary: {tui}"
-    );
-    assert!(!tui.contains("of 2"));
+    let stripped = strip_occlusion_markup(&fenced_non_contig);
+    assert_eq!(stripped, "[Image occlusion · 2 masks]");
 
     // 2. Draft acceptance creates sibling occlusion cards with cloze_index and sibling_group_id
     let draft_res = col

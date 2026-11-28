@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import Dexie from 'dexie'
 import {
   collectBackup,
   serializeBackup,
@@ -8,12 +7,9 @@ import {
   type DeckBackup,
 } from './backup'
 import type { Storage } from './Storage'
-import { RemDB } from './dexie/db'
-import { DexieStorage } from './dexie/DexieStorage'
 import type { Card, Deck, Grade, ReviewLog } from '../domain/models'
-import { DEFAULT_DECK_SETTINGS } from '../domain/models'
-import { getScheduler } from '../domain/scheduler'
-import { forAll, forAllAsync, pick, randBool, randInt, randString } from '../test/prop'
+import { DEFAULT_DECK_SETTINGS, initialFsrsState } from '../domain/models'
+import { forAll, pick, randBool, randInt, randString } from '../test/prop'
 
 const NOW = 1_700_000_000_000
 const sched = { kind: 'fsrs' as const, stability: 5, difficulty: 5, reps: 1, lapses: 0, state: 2, step: 0, lastReview: 1, due: 999 }
@@ -147,7 +143,7 @@ describe('parseBackup', () => {
         { front: 'a', back: 'b', createdAt: 1, updatedAt: 1, scheduling: { repetitions: 1, intervalDays: 3, easeFactor: 2.6, due: 999 } },
       ] }],
     })
-    expect(parseBackup(legacy, NOW)[0].cards[0].scheduling).toEqual(getScheduler().initial(NOW))
+    expect(parseBackup(legacy, NOW)[0].cards[0].scheduling).toEqual(initialFsrsState(NOW))
   })
 
   it('resets explicit SM-2 scheduling to a fresh FSRS card', () => {
@@ -159,7 +155,7 @@ describe('parseBackup', () => {
     })
     const deck = parseBackup(legacy, NOW)[0]
     expect(deck.schedulerKind).toBe('fsrs')
-    expect(deck.cards[0].scheduling).toEqual(getScheduler().initial(NOW))
+    expect(deck.cards[0].scheduling).toEqual(initialFsrsState(NOW))
   })
 
   it('accepts FSRS scheduling unchanged', () => {
@@ -337,8 +333,8 @@ describe('backup validation & property/fuzz invariants', () => {
     })
   })
 
-  it('property: generated valid backups round-trip through serialize -> parse -> DexieStorage.importDecks', async () => {
-    await forAllAsync(25, 0xba5e01, async (rng, iter) => {
+  it('property: generated valid backups round-trip through serialize -> parse', () => {
+    forAll(25, 0xba5e01, (rng, iter) => {
       const deckCount = randInt(rng, 1, 3)
       const decks: DeckBackup[] = Array.from({ length: deckCount }, (_, dIdx) => {
         const cardCount = randInt(rng, 0, 4)
@@ -400,21 +396,6 @@ describe('backup validation & property/fuzz invariants', () => {
 
       const reparsed = parseBackup(serializeBackup(decks, NOW), NOW)
       expect(reparsed).toEqual(decks)
-
-      const dbName = `backup-prop-${iter}`
-      await Dexie.delete(dbName)
-      const db = new RemDB(dbName)
-      const storage = new DexieStorage(db)
-      try {
-        const res = await storage.importDecks(reparsed)
-        expect(res.added).toEqual(decks.map((d) => d.name))
-        expect(res.replaced).toEqual([])
-        const storedDecks = await storage.listDecks()
-        expect(storedDecks).toHaveLength(decks.length)
-      } finally {
-        db.close()
-        await Dexie.delete(dbName)
-      }
     })
   })
 
@@ -498,50 +479,6 @@ describe('backup validation & property/fuzz invariants', () => {
           expect(Number.isFinite(c.scheduling.difficulty) && c.scheduling.difficulty >= 0).toBe(true)
           if (c.scheduling.reps > 0) expect(c.scheduling.stability).toBeGreaterThan(0)
         }
-      }
-    })
-  })
-
-  it('property: planImport normalized names match DexieStorage.importDecks added/replaced sets', async () => {
-    await forAllAsync(20, 0x51a701, async (rng, iter) => {
-      const dbName = `plan-prop-${iter}`
-      await Dexie.delete(dbName)
-      const db = new RemDB(dbName)
-      const storage = new DexieStorage(db)
-      try {
-        const pool = ['Alpha', 'Beta::Sub', 'Gamma::One::Two', 'Delta']
-        const existingNames: string[] = []
-        for (const name of pool) {
-          if (randBool(rng)) {
-            await storage.createDeck(name)
-            existingNames.push(name)
-          }
-        }
-        const incomingDecks: DeckBackup[] = []
-        const seen = new Set<string>()
-        for (const name of pool) {
-          if (!randBool(rng) || seen.has(name)) continue
-          seen.add(name)
-          const padded = randBool(rng)
-            ? `  ${name.split('::').join(' :: ')}  `
-            : name
-          incomingDecks.push({
-            name: padded,
-            createdAt: 1,
-            schedulerKind: 'fsrs',
-            settings: DEFAULT_DECK_SETTINGS,
-            cards: [],
-          })
-        }
-        const planned = planImport(
-          incomingDecks.map((d) => d.name),
-          existingNames,
-        )
-        const actual = await storage.importDecks(incomingDecks)
-        expect(actual).toEqual(planned)
-      } finally {
-        db.close()
-        await Dexie.delete(dbName)
       }
     })
   })

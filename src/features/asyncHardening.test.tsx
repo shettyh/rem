@@ -1,16 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
-import Dexie from 'dexie'
-import { RemDB } from '../data/dexie/db'
-import { DexieStorage } from '../data/dexie/DexieStorage'
 import { StorageProvider } from '../data/StorageContext'
 import { SyncProvider } from '../data/SyncContext'
-import { DEFAULT_DECK_SETTINGS, type CardSearchHit, type StudyView } from '../domain/models'
-import { MS_PER_DAY } from '../domain/scheduler'
+import { DEFAULT_DECK_SETTINGS, MS_PER_DAY, type CardSearchHit, type StudyView } from '../domain/models'
 import { DEFAULT_FSRS_WEIGHTS, getFsrsOptimizer } from '../domain/scheduler/optimizer'
 import { serializeBackup, type DeckBackup } from '../data/backup'
 import { deferred } from '../test/prop'
+import { freshStorage, type MemoryStorage } from '../test/seed'
 import { ReviewPage } from './review/ReviewPage'
 import { CardEditorPage } from './cards/CardEditorPage'
 import { DeckSettingsPage } from './decks/DeckSettingsPage'
@@ -18,18 +15,10 @@ import { DraftInboxPage } from './drafts/DraftInboxPage'
 import { SettingsPage } from './settings/SettingsPage'
 import { SearchModal } from '../ui/SearchModal'
 
-let dbSeq = 0
-async function makeStorage(): Promise<{ storage: DexieStorage; cleanupDb: () => Promise<void> }> {
-  const name = `async-hardening-${++dbSeq}-${Date.now()}`
-  await Dexie.delete(name)
-  const db = new RemDB(name)
-  const storage = new DexieStorage(db)
+async function makeStorage(): Promise<{ storage: MemoryStorage; cleanupDb: () => Promise<void> }> {
   return {
-    storage,
-    cleanupDb: async () => {
-      db.close()
-      await Dexie.delete(name)
-    },
+    storage: freshStorage(),
+    cleanupDb: async () => {},
   }
 }
 
@@ -182,8 +171,8 @@ describe('deterministic async-interleaving guardrails', () => {
     try {
       const deck = await storage.createDeck('OptimizeRace')
       const card = await storage.createCard(deck.id, 'Q', 'A')
-      await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: 0, fsrsGrade: 'good' })
-      await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: MS_PER_DAY, fsrsGrade: 'good' })
+      storage.addReviewLog({ cardId: card.id, deckId: deck.id, reviewedAt: 0, grade: 'good' })
+      storage.addReviewLog({ cardId: card.id, deckId: deck.id, reviewedAt: MS_PER_DAY, grade: 'good' })
 
       const optGate = deferred<number[]>()
       vi.spyOn(getFsrsOptimizer(), 'optimize').mockReturnValueOnce(optGate.promise)

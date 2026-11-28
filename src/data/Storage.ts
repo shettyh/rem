@@ -48,21 +48,11 @@ export interface DeckPatch {
   settings?: DeckSettings
 }
 
-/** One atomic persisted review outcome. `fsrsGrade` is omitted for fixed steps. */
-export interface ReviewCommit {
-  cardId: ID
-  deckId: ID
-  patch: CardPatch
-  reviewedAt: number
-  fsrsGrade?: Grade
-  daily?: { day: string; field: 'newIntroduced' | 'reviewsDone' }
-}
-
 /**
  * Native application port for collection persistence and study sessions.
  *
  * Packaged builds use SQLite and the shared Rust StudySession through
- * {@link ./TauriStorage}; browser tests inject the Dexie adapter without
+ * {@link ./TauriStorage}; frontend tests inject an in-memory stub without
  * changing feature code.
  */
 export interface Storage {
@@ -111,19 +101,9 @@ export interface Storage {
   suspendStudyCard(sessionId: string): Promise<StudyView>
   endStudy(sessionId: string): Promise<void>
 
-  /** Atomically persist card/counter changes and an optional FSRS training event. */
-  commitReview(commit: ReviewCommit): Promise<ReviewLog | null>
   listReviewLogs(deckId: ID): Promise<ReviewLog[]>
-  getTodaySummary?(now?: number): Promise<TodaySummary>
+  getTodaySummary(now?: number): Promise<TodaySummary>
   getStats(deckId: ID | null, days: number, now?: number): Promise<CollectionStats>
-
-  /** Cards in a deck due at or before `now`, soonest-due first. */
-  dueCards(deckId: ID, now: number): Promise<Card[]>
-  /** How many cards in a deck are due at or before `now`. */
-  countDue(deckId: ID, now: number): Promise<number>
-
-  /** Today's cap counters for a deck; zeros when the day has no row yet. */
-  getDailyStat(deckId: ID, day: string): Promise<{ newIntroduced: number; reviewsDone: number }>
 
   /** Insert decks+cards; any existing deck whose name matches an incoming deck
    *  is removed first (replace-by-name). IDs are regenerated. */

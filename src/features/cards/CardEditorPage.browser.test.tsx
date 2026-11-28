@@ -1,25 +1,19 @@
 // src/features/cards/CardEditorPage.browser.test.tsx
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { page, userEvent } from 'vitest/browser'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
-import Dexie from 'dexie'
-import { RemDB } from '../../data/dexie/db'
-import { DexieStorage } from '../../data/dexie/DexieStorage'
+import type { Storage } from '../../data/Storage'
 import { StorageProvider } from '../../data/StorageContext'
 import { CardEditorPage } from './CardEditorPage'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
 
-beforeEach(async () => {
-  await Dexie.delete('rem-editorpage')
-})
-
 afterEach(async () => {
   await page.viewport(1280, 800)
 })
 
-function renderAt(storage: DexieStorage, path: string) {
+function renderAt(storage: Storage, path: string) {
   const router = createMemoryRouter(
     [
       { path: '/decks/:deckId/cards/new', element: <CardEditorPage /> },
@@ -37,7 +31,7 @@ function renderAt(storage: DexieStorage, path: string) {
 
 describe('CardEditorPage', () => {
   it('creates a card and navigates back to the deck', async () => {
-    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const storage = freshStorage()
     const deck = await storage.createDeck('D', 'fsrs')
     const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
 
@@ -54,7 +48,7 @@ describe('CardEditorPage', () => {
   })
 
   it('saves and resets for the next card with Save & add another', async () => {
-    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const storage = freshStorage()
     const deck = await storage.createDeck('D', 'fsrs')
     const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
 
@@ -70,7 +64,7 @@ describe('CardEditorPage', () => {
   })
 
   it('groups front and back into one surface with a flat toolbar', async () => {
-    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const storage = freshStorage()
     const deck = await storage.createDeck('D')
     const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
 
@@ -94,7 +88,7 @@ describe('CardEditorPage', () => {
   })
 
   it('keeps essential card field labels legible', async () => {
-    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const storage = freshStorage()
     const deck = await storage.createDeck('D')
     const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
 
@@ -176,7 +170,7 @@ describe('CardEditorPage', () => {
   })
 
   it('warns before discarding unsaved changes', async () => {
-    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const storage = freshStorage()
     const deck = await storage.createDeck('D')
     const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
     const front = screen.container.querySelector('[aria-label="Front"]') as HTMLElement
@@ -195,7 +189,7 @@ describe('CardEditorPage', () => {
   })
 
   it('confirms before permanently deleting a card', async () => {
-    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const storage = freshStorage()
     const deck = await storage.createDeck('D')
     const card = await storage.createCard(deck.id, 'Question', 'Answer')
     const screen = await renderAt(storage, `/decks/${deck.id}/cards/${card.id}/edit`)
@@ -213,7 +207,7 @@ describe('CardEditorPage', () => {
   })
 
   it('shows a suspended leech and restores it without removing the tag', async () => {
-    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const storage = freshStorage()
     const deck = await storage.createDeck('D')
     const card = await storage.createCard(deck.id, 'Hard question', 'Answer')
     await storage.updateCard(card.id, { tags: ['leech'], suspended: true })
@@ -221,13 +215,13 @@ describe('CardEditorPage', () => {
 
     await expect.element(screen.getByText('leech', { exact: true })).toBeVisible()
     await expect.element(screen.getByRole('button', { name: 'Unsuspend card' })).toBeVisible()
-    expect(await storage.countDue(deck.id, Date.now() + 1000)).toBe(0)
+    expect((await storage.getTodaySummary(Date.now() + 1000)).totalDue).toBe(0)
 
     await userEvent.click(screen.getByRole('button', { name: 'Unsuspend card' }))
 
     await expect.poll(async () => (await storage.getCard(card.id))?.suspended).toBe(false)
     expect((await storage.getCard(card.id))?.tags).toEqual(['leech'])
-    expect(await storage.countDue(deck.id, Date.now() + 1000)).toBe(1)
+    expect((await storage.getTodaySummary(Date.now() + 1000)).totalDue).toBe(1)
     await expect.element(screen.getByText('Active')).toBeVisible()
 
     await userEvent.fill(screen.getByRole('textbox', { name: 'Tags', exact: true }), 'hard, grammar')
@@ -241,7 +235,7 @@ describe('CardEditorPage', () => {
   })
 
   it('opens the heading dropdown cleanly outside the horizontally scrollable toolbar', async () => {
-    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const storage = freshStorage()
     const deck = await storage.createDeck('Rust')
     const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
 
@@ -261,7 +255,7 @@ describe('CardEditorPage', () => {
   })
 
   it('supports interactive tag chips and deck tag suggestions', async () => {
-    const storage = new DexieStorage(new RemDB('rem-editorpage'))
+    const storage = freshStorage()
     const deck = await storage.createDeck('Rust')
     await storage.createCard(deck.id, 'Existing', 'Answer', ['ownership', 'cargo'])
     const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)

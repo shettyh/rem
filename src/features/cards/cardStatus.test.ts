@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { cardStatus } from './DeckDetailPage'
-import { MS_PER_DAY } from '../../domain/scheduler'
-import type { SchedulingState } from '../../domain/models'
+import { MS_PER_DAY, type SchedulingState } from '../../domain/models'
 
 const now = 1_000_000_000_000
 const card = (scheduling: SchedulingState, tags: string[] = [], suspended = false) => ({

@@ -118,16 +118,20 @@ Avoid weak prompt shapes:
 
 ### Formatting across desktop, iPhone, and terminal
 
-Cards are reviewed on desktop (large centered unrevealed front), iPhone, and `rem study` in the
-terminal:
+Desktop and iPhone are the primary study surfaces (rendering Markdown, `{{c1::...}}` cloze
+deletions, LaTeX math `$...$` / `$$...$$`, and Markdown tables); `rem study` is a lightweight
+frozen terminal companion for plain Markdown (showing raw `$...$` text and placeholders for
+media/occlusion). Accepting a draft that uses `{{c1::...}}` cloze syntax automatically expands it
+into sibling cloze cards.
 
-- Use plain Markdown: short prose, inline code, compact fenced code blocks with language tags, and
-  at most 2–3 flat bullets. Preserve the fidelity of quoted code and symbols.
-- Do **not** use Anki cloze syntax (`{{c1::...}}`) or LaTeX math (`$...$` / `$$...$$`); neither is
-  rendered across `rem`'s surfaces (`rem study` drops math). Use plain phrasing, inline code, or
-  Unicode symbols instead.
-- Avoid Markdown tables and deeply nested lists—they degrade on narrow iPhone screens and
-  `rem study` does not render Markdown tables.
+- Default to clean plain Markdown: short prose, inline code, compact fenced code blocks with
+  language tags, and at most 2–3 flat bullets. Preserve the fidelity of quoted code and symbols.
+- Use cloze syntax (`{{c1::answer::optional hint}}`) or LaTeX math (`$...$` / `$$...$$`) only when
+  the concept genuinely benefits (e.g., formulas or fill-in-the-blank recalls); otherwise prefer
+  direct Q&A prose and plain Unicode symbols so cards stay concise and legible everywhere,
+  including `rem study`.
+- Avoid wide Markdown tables and deeply nested lists—they degrade on narrow iPhone screens and
+  terminal viewports.
 - Do not wrap a short front in a `#` heading; the review UI already styles fronts prominently.
 
 ### Calibration examples

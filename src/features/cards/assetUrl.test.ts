@@ -1,16 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import Dexie from 'dexie'
-import { RemDB } from '../../data/dexie/db'
-import { DexieStorage } from '../../data/dexie/DexieStorage'
+import { describe, it, expect, vi } from 'vitest'
+import { freshStorage } from '../../test/seed'
 import { loadAssetUrl } from './assetUrl'
-
-beforeEach(async () => {
-  await Dexie.delete('rem-asseturl')
-})
 
 describe('loadAssetUrl', () => {
   it('returns an object URL built from the asset blob', async () => {
-    const storage = new DexieStorage(new RemDB('rem-asseturl'))
+    const storage = freshStorage()
     const asset = await storage.putAsset(new Uint8Array([1, 2, 3]), 'image/png')
     const createObjectURL = vi.fn(() => 'blob:fake')
     vi.stubGlobal('URL', { ...URL, createObjectURL })
@@ -25,7 +19,7 @@ describe('loadAssetUrl', () => {
   })
 
   it('returns null for a missing asset', async () => {
-    const storage = new DexieStorage(new RemDB('rem-asseturl'))
+    const storage = freshStorage()
     expect(await loadAssetUrl(storage, 'd'.repeat(64))).toBeNull()
   })
 })

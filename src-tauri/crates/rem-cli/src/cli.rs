@@ -23,7 +23,7 @@ pub enum Command {
     Card(CardArgs),
     /// Propose and inspect cards awaiting human approval.
     Draft(DraftArgs),
-    /// Study due cards in an interactive terminal.
+    /// Quick terminal review of due text/Markdown cards (use desktop/iOS for rich media or custom study).
     Study(StudyArgs),
     /// Import an Anki deck archive (.apkg) into the local collection.
     Import(ImportArgs),

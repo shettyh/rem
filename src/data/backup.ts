@@ -1,6 +1,5 @@
 import type { DeckSettings, DraftSource, FSRSState, Grade, ID, SchedulerKind, SchedulingState } from '../domain/models'
-import { DEFAULT_DECK_SETTINGS } from '../domain/models'
-import { getScheduler } from '../domain/scheduler'
+import { DEFAULT_DECK_SETTINGS, initialFsrsState } from '../domain/models'
 import { normalizeDeckName } from '../features/decks/deckTree'
 import type { Storage } from './Storage'
 
@@ -373,5 +372,5 @@ function normalizeScheduling(v: Record<string, unknown>, now: number): Schedulin
     }
     return state
   }
-  return getScheduler().initial(now)
+  return initialFsrsState(now)
 }

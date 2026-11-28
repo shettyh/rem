@@ -1,5 +1,7 @@
 /** Domain models. All timestamps are epoch milliseconds (number). */
 
+export const MS_PER_DAY = 86_400_000
+
 export type ID = string
 
 export interface Deck {
@@ -100,6 +102,21 @@ export interface FSRSState {
 
 /** Per-card scheduling state, owned by the deck's scheduling algorithm. */
 export type SchedulingState = FSRSState
+
+/** Initial FSRS state for a newly created or reset card (immediately due). */
+export function initialFsrsState(now: number): FSRSState {
+  return {
+    kind: 'fsrs',
+    stability: 0,
+    difficulty: 0,
+    reps: 0,
+    lapses: 0,
+    state: FSRS_STATE.New,
+    step: 0,
+    lastReview: null,
+    due: now,
+  }
+}
 
 export interface Card {
   id: ID
@@ -244,15 +261,6 @@ export interface Asset {
   createdAt: number
 }
 
-/** Per-deck, per-day cap counters (#3b). Local-only — not synced or backed up. */
-export interface DailyStat {
-  id: string          // `${deckId}:${day}`
-  deckId: ID
-  day: string         // local calendar date, YYYY-MM-DD
-  newIntroduced: number
-  reviewsDone: number
-}
-
 /** One immutable grade that updated FSRS memory, used for parameter training. */
 export interface ReviewLog {
   id: ID
@@ -305,11 +313,3 @@ export interface StartedStudy {
 export type StudyGradeOutcome =
   | { status: 'graded'; view: StudyView }
   | { status: 'conflict'; cardId: ID; view: StudyView }
-
-/** Records that a deck or card was deleted, so the deletion propagates on sync. */
-export interface Tombstone {
-  id: ID
-  kind: 'deck' | 'card'
-  /** When the deletion happened (epoch ms). */
-  deletedAt: number
-}
