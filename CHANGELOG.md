@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.29.1 (2026-11-28)
+
+## What's Changed
+* fix(ui): eliminate SearchModal debounce race in browser tests by @shettyh in https://github.com/shettyh/rem/pull/272
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.29.0...v0.29.1
+
 ## 0.29.0 (2026-11-28)
 
 ## What's Changed
