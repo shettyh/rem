@@ -11,8 +11,9 @@ use crate::review_store::{grade_name, review_log_from_row};
 use crate::store::{bump_sync_revision, card_from_row, deck_exists, deck_from_row, CARD_COLUMNS};
 use crate::tags::{normalize_card_tags, normalize_user_tags};
 use crate::{
-    ApplyRemoteResult, Asset, Card, Collection, CollectionError, Deck, FsrsState, OutboxOp,
-    RemoteSyncOp, SyncMode, SyncOp, SyncState, Tombstone, TombstoneKind,
+    ApplyBootstrapResult, ApplyRemoteResult, Asset, Card, Collection, CollectionError,
+    CompactedSnapshot, Deck, FsrsState, OutboxOp, RemoteSyncOp, SyncMode, SyncOp, SyncState,
+    Tombstone, TombstoneKind, COMPACTED_SNAPSHOT_SCHEMA_VERSION,
 };
 
 impl Collection {
@@ -220,6 +221,394 @@ impl Collection {
         Ok(ApplyRemoteResult {
             applied_ops,
             acked_ops,
+            last_seq,
+            missing_asset_hashes,
+        })
+    }
+
+    /// Merge a compacted server snapshot non-destructively into this collection using CRDT/HLC rules
+    /// in a single SQLite write transaction.
+    ///
+    /// Local offline edits, reviews, deletions, and pending `sync_outbox` rows are preserved; only
+    /// entities/registers where the snapshot has a strictly newer HLC (or tombstones) are applied.
+    pub fn apply_bootstrap_snapshot(
+        &self,
+        snapshot: &CompactedSnapshot,
+    ) -> Result<ApplyBootstrapResult, CollectionError> {
+        if snapshot.schema_version != COMPACTED_SNAPSHOT_SCHEMA_VERSION {
+            return Err(CollectionError::InvalidInput(format!(
+                "unsupported compacted snapshot schemaVersion: {} (expected {})",
+                snapshot.schema_version, COMPACTED_SNAPSHOT_SCHEMA_VERSION
+            )));
+        }
+        if !snapshot.max_hlc.is_empty() {
+            Hlc::parse(&snapshot.max_hlc)?;
+        }
+
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| CollectionError::Poisoned)?;
+        let transaction = write_transaction(&mut connection)?;
+
+        let current_last_seq: u64 = get_sync_meta(&transaction, "last_seq")?
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0);
+        let mut max_hlc = get_sync_meta(&transaction, "last_hlc")?.unwrap_or_default();
+        if snapshot.max_hlc > max_hlc {
+            max_hlc = snapshot.max_hlc.clone();
+        }
+
+        let mut mutated = false;
+        let mut applied_decks = 0usize;
+        let mut applied_cards = 0usize;
+        let mut applied_review_logs = 0usize;
+        let mut referenced_assets = HashSet::new();
+
+        // 1. Tombstones first (tombstones dominate live decks/cards and cascade child rows).
+        for tombstone in &snapshot.tombstones {
+            if !tombstone.hlc.is_empty() {
+                Hlc::parse(&tombstone.hlc)?;
+                if tombstone.hlc > max_hlc {
+                    max_hlc = tombstone.hlc.clone();
+                }
+            }
+            let deleted = match tombstone.kind {
+                TombstoneKind::Deck => {
+                    transaction.execute("DELETE FROM decks WHERE id = ?1", [&tombstone.id])?
+                }
+                TombstoneKind::Card => {
+                    transaction.execute("DELETE FROM cards WHERE id = ?1", [&tombstone.id])?
+                }
+            };
+            let tombstoned = put_tombstone_with_hlc(
+                &transaction,
+                &tombstone.id,
+                tombstone.kind,
+                tombstone.deleted_at,
+                &tombstone.hlc,
+            )?;
+            if deleted > 0 || tombstoned {
+                mutated = true;
+            }
+        }
+
+        // 2. Review log tombstones (prevent late/snapshot review logs from resurrecting undone logs).
+        for rlt in &snapshot.review_log_tombstones {
+            let tombstoned = transaction.execute(
+                "INSERT OR IGNORE INTO review_log_tombstones(id, deleted_at) VALUES (?1, ?2)",
+                params![rlt.id, rlt.deleted_at],
+            )?;
+            let deleted =
+                transaction.execute("DELETE FROM review_logs WHERE id = ?1", [&rlt.id])?;
+            if tombstoned > 0 || deleted > 0 {
+                mutated = true;
+            }
+        }
+
+        // 3. Decks (HLC LWW; tombstones win).
+        for deck in &snapshot.decks {
+            if is_tombstoned(&transaction, &deck.id)? {
+                continue;
+            }
+            if !deck.hlc.is_empty() {
+                Hlc::parse(&deck.hlc)?;
+                if deck.hlc > max_hlc {
+                    max_hlc = deck.hlc.clone();
+                }
+            }
+            let existing_hlc: Option<String> = transaction
+                .query_row("SELECT hlc FROM decks WHERE id = ?1", [&deck.id], |row| {
+                    row.get(0)
+                })
+                .optional()?;
+            let normalized_name = crate::deck_tree::normalize_deck_name(&deck.name)
+                .unwrap_or_else(|_| deck.name.trim().to_owned());
+            let settings_json = serde_json::to_string(&deck.settings)?;
+            match existing_hlc {
+                None => {
+                    transaction.execute(
+                        "INSERT INTO decks(
+                            id, name, created_at, updated_at, color, scheduler_kind, settings_json, hlc
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, 'fsrs', ?6, ?7)",
+                        params![
+                            deck.id,
+                            normalized_name,
+                            deck.created_at,
+                            deck.updated_at,
+                            deck.color,
+                            settings_json,
+                            deck.hlc,
+                        ],
+                    )?;
+                    mutated = true;
+                    applied_decks += 1;
+                }
+                Some(current_hlc) if deck.hlc.as_str() > current_hlc.as_str() => {
+                    transaction.execute(
+                        "UPDATE decks SET
+                            name = ?2,
+                            color = ?3,
+                            settings_json = ?4,
+                            updated_at = MAX(updated_at, ?5),
+                            hlc = ?6
+                         WHERE id = ?1",
+                        params![
+                            deck.id,
+                            normalized_name,
+                            deck.color,
+                            settings_json,
+                            deck.updated_at,
+                            deck.hlc,
+                        ],
+                    )?;
+                    mutated = true;
+                    applied_decks += 1;
+                }
+                Some(_) => {}
+            }
+        }
+
+        // 4. Cards (per-register HLC LWW across content, suspended, scheduling, and leech).
+        for snap_card in &snapshot.cards {
+            if is_tombstoned(&transaction, &snap_card.id)?
+                || is_tombstoned(&transaction, &snap_card.deck_id)?
+            {
+                continue;
+            }
+            if !deck_exists(&transaction, &snap_card.deck_id)? {
+                continue;
+            }
+            for hlc in [
+                &snap_card.content_hlc,
+                &snap_card.suspended_hlc,
+                &snap_card.scheduling_hlc,
+                &snap_card.leech_hlc,
+            ] {
+                if !hlc.is_empty() {
+                    Hlc::parse(hlc)?;
+                    if *hlc > max_hlc {
+                        max_hlc = hlc.clone();
+                    }
+                }
+            }
+
+            match find_card_with_hlcs(&transaction, &snap_card.id)? {
+                None => {
+                    let normalized_tags = normalize_card_tags(snap_card.tags.clone());
+                    let tags_json = serde_json::to_string(&normalized_tags)?;
+                    let scheduling_json = serde_json::to_string(&snap_card.scheduling)?;
+                    let normalized_provenance = snap_card.provenance.clone().normalize();
+                    let sources_json = serde_json::to_string(&normalized_provenance.sources)?;
+                    let sanitized_sibling = snap_card
+                        .sibling_group_id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty());
+                    let sanitized_cloze = snap_card.cloze_index.filter(|&idx| idx >= 1);
+                    transaction.execute(
+                        "INSERT INTO cards(
+                            id, deck_id, front, back, created_at, updated_at, tags_json,
+                            suspended, last_again_at, scheduling_json, due,
+                            content_hlc, suspended_hlc, scheduling_hlc, leech_hlc,
+                            rationale, sources_json, proposed_by, sibling_group_id, cloze_index
+                         ) VALUES (
+                            ?1, ?2, ?3, ?4, ?5, ?6, ?7,
+                            ?8, ?9, ?10, ?11,
+                            ?12, ?13, ?14, ?15,
+                            ?16, ?17, ?18, ?19, ?20
+                         )",
+                        params![
+                            snap_card.id,
+                            snap_card.deck_id,
+                            snap_card.front,
+                            snap_card.back,
+                            snap_card.created_at,
+                            snap_card.updated_at,
+                            tags_json,
+                            snap_card.suspended,
+                            snap_card.last_again_at,
+                            scheduling_json,
+                            snap_card.scheduling.due,
+                            snap_card.content_hlc,
+                            snap_card.suspended_hlc,
+                            snap_card.scheduling_hlc,
+                            snap_card.leech_hlc,
+                            normalized_provenance.rationale,
+                            sources_json,
+                            normalized_provenance.proposed_by,
+                            sanitized_sibling,
+                            sanitized_cloze,
+                        ],
+                    )?;
+                    referenced_assets.extend(asset_refs(&snap_card.front));
+                    referenced_assets.extend(asset_refs(&snap_card.back));
+                    mutated = true;
+                    applied_cards += 1;
+                }
+                Some(CardWithHlcs {
+                    mut card,
+                    mut content_hlc,
+                    mut suspended_hlc,
+                    mut scheduling_hlc,
+                    mut leech_hlc,
+                }) => {
+                    if card.deck_id != snap_card.deck_id {
+                        continue;
+                    }
+                    let mut card_dirty = false;
+                    let mut has_leech = card.tags.iter().any(|tag| tag == "leech");
+                    let snap_has_leech = snap_card.tags.iter().any(|tag| tag == "leech");
+
+                    if snap_card.leech_hlc.as_str() > leech_hlc.as_str() {
+                        has_leech = snap_has_leech;
+                        leech_hlc = snap_card.leech_hlc.clone();
+                        card_dirty = true;
+                    }
+                    if snap_card.content_hlc.as_str() > content_hlc.as_str() {
+                        card.front = snap_card.front.clone();
+                        card.back = snap_card.back.clone();
+                        card.tags = normalize_user_tags(&snap_card.tags);
+                        content_hlc = snap_card.content_hlc.clone();
+                        referenced_assets.extend(asset_refs(&card.front));
+                        referenced_assets.extend(asset_refs(&card.back));
+                        card_dirty = true;
+                    }
+                    if snap_card.suspended_hlc.as_str() > suspended_hlc.as_str() {
+                        card.suspended = snap_card.suspended;
+                        suspended_hlc = snap_card.suspended_hlc.clone();
+                        card_dirty = true;
+                    }
+                    if snap_card.scheduling_hlc.as_str() > scheduling_hlc.as_str() {
+                        card.scheduling = snap_card.scheduling.clone();
+                        card.last_again_at = snap_card.last_again_at;
+                        scheduling_hlc = snap_card.scheduling_hlc.clone();
+                        card_dirty = true;
+                    }
+
+                    if card_dirty {
+                        let mut merged_tags = normalize_user_tags(&card.tags);
+                        if has_leech {
+                            merged_tags.insert(0, "leech".into());
+                        }
+                        card.tags = merged_tags;
+                        card.updated_at = card.updated_at.max(snap_card.updated_at);
+                        let tags_json = serde_json::to_string(&card.tags)?;
+                        let scheduling_json = serde_json::to_string(&card.scheduling)?;
+                        transaction.execute(
+                            "UPDATE cards SET
+                                front = ?2,
+                                back = ?3,
+                                updated_at = ?4,
+                                tags_json = ?5,
+                                suspended = ?6,
+                                last_again_at = ?7,
+                                scheduling_json = ?8,
+                                due = ?9,
+                                content_hlc = ?10,
+                                suspended_hlc = ?11,
+                                scheduling_hlc = ?12,
+                                leech_hlc = ?13,
+                                local_revision = local_revision + 1
+                             WHERE id = ?1",
+                            params![
+                                card.id,
+                                card.front,
+                                card.back,
+                                card.updated_at,
+                                tags_json,
+                                card.suspended,
+                                card.last_again_at,
+                                scheduling_json,
+                                card.scheduling.due,
+                                content_hlc,
+                                suspended_hlc,
+                                scheduling_hlc,
+                                leech_hlc,
+                            ],
+                        )?;
+                        mutated = true;
+                        applied_cards += 1;
+                    }
+                }
+            }
+        }
+
+        // 5. Review logs (set union by id, respecting tombstones and live parent card/deck).
+        for log in &snapshot.review_logs {
+            let log_id = log.id();
+            let deck_id = log.deck_id();
+            let card_id = log.card_id();
+            let tombstoned: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM review_log_tombstones WHERE id = ?1)",
+                [log_id],
+                |row| row.get(0),
+            )?;
+            if tombstoned
+                || is_tombstoned(&transaction, deck_id)?
+                || is_tombstoned(&transaction, card_id)?
+            {
+                continue;
+            }
+            let card_deck: Option<String> = transaction
+                .query_row(
+                    "SELECT deck_id FROM cards WHERE id = ?1",
+                    [card_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if card_deck.as_deref() != Some(deck_id) {
+                continue;
+            }
+            let inserted = transaction.execute(
+                "INSERT OR IGNORE INTO review_logs(id, deck_id, card_id, reviewed_at, grade)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    log_id,
+                    deck_id,
+                    card_id,
+                    log.reviewed_at(),
+                    grade_name(log.grade())
+                ],
+            )?;
+            if inserted > 0 {
+                mutated = true;
+                applied_review_logs += 1;
+            }
+        }
+
+        // 6. Advance cursors and queue any missing referenced assets for download.
+        let last_seq = current_last_seq.max(snapshot.snapshot_seq);
+        set_sync_meta(&transaction, "last_seq", &last_seq.to_string())?;
+        set_sync_meta(&transaction, "last_hlc", &max_hlc)?;
+
+        if mutated {
+            bump_sync_revision(&transaction)?;
+        }
+
+        let mut missing_asset_hashes = Vec::new();
+        for hash in referenced_assets {
+            let present: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM assets WHERE hash = ?1)",
+                [&hash],
+                |row| row.get(0),
+            )?;
+            if !present {
+                transaction.execute(
+                    "INSERT OR IGNORE INTO pending_asset_downloads(hash) VALUES (?1)",
+                    [&hash],
+                )?;
+                missing_asset_hashes.push(hash);
+            }
+        }
+        missing_asset_hashes.sort();
+
+        transaction.commit()?;
+        Ok(ApplyBootstrapResult {
+            applied_decks,
+            applied_cards,
+            applied_review_logs,
+            mutated,
             last_seq,
             missing_asset_hashes,
         })

@@ -257,6 +257,8 @@ impl SyncTransport for TokenCheckingTransport {
             has_more: false,
             acked_op_ids: request.ops.iter().map(|op| op.op_id.clone()).collect(),
             ops: vec![],
+            bootstrap_required: false,
+            snapshot_seq: None,
         })
     }
 

@@ -12,6 +12,7 @@ directories = "6.0"
 fsrs = "7.0.0"
 hex = "0.4"
 rand = "0.10"
+rem-sync-reduce = { path = "../rem-sync-reduce" }
 rusqlite = { version = "0.43", features = ["bundled", "fallible_uint", "collation", "hooks"] }
 ruzstd = "0.9"
 serde = { version = "1.0", features = ["derive"] }

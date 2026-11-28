@@ -159,7 +159,7 @@ proptest! {
         grades in prop::collection::vec(0_u8..4, 1..=12),
         step_deltas_ms in prop::collection::vec(-3_600_000_i64..=10 * MS_PER_DAY, 1..=12),
     ) {
-        settings.validate().expect("generated settings must be valid");
+        rem_core::validate_deck_settings(&settings).expect("generated settings must be valid");
         let mut state = FsrsState::initial(BASE_NOW);
         let mut now = BASE_NOW;
 
@@ -196,33 +196,29 @@ fn validation_rejects_non_finite_and_out_of_range_settings_and_states() {
             ..DeckSettings::default()
         };
         assert!(
-            s.validate().is_err(),
+            rem_core::validate_deck_settings(&s).is_err(),
             "expected error for retention {bad_retention}"
         );
     }
-    assert!(DeckSettings {
+    assert!(rem_core::validate_deck_settings(&DeckSettings {
         maximum_interval: 0,
         ..DeckSettings::default()
-    }
-    .validate()
+    })
     .is_err());
-    assert!(DeckSettings {
+    assert!(rem_core::validate_deck_settings(&DeckSettings {
         maximum_interval: MAX_MAXIMUM_INTERVAL_DAYS + 1,
         ..DeckSettings::default()
-    }
-    .validate()
+    })
     .is_err());
-    assert!(DeckSettings {
+    assert!(rem_core::validate_deck_settings(&DeckSettings {
         fsrs_weights: Some(vec![f64::NAN; 21]),
         ..DeckSettings::default()
-    }
-    .validate()
+    })
     .is_err());
-    assert!(DeckSettings {
+    assert!(rem_core::validate_deck_settings(&DeckSettings {
         fsrs_weights: Some(vec![1.0, 2.0]),
         ..DeckSettings::default()
-    }
-    .validate()
+    })
     .is_err());
 
     let mut bad_state = FsrsState::initial(BASE_NOW);

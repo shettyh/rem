@@ -34,18 +34,23 @@ pub use deck_tree::{
 };
 pub use hlc::Hlc;
 pub use models::{
-    Asset, Card, CardBackup, CardDraft, CardPatch, CardProvenance, CreateCardsResult, DailyField,
-    DailyIncrement, DailyStat, Deck, DeckBackup, DeckPatch, DeckSettings, DraftDecision,
-    DraftProposalOutcome, DraftResolution, DraftSource, DuplicatePolicy, FsrsCardState, FsrsState,
-    Grade, Id, ImportResult, InsertionOrder, LeechAction, NewCardInput, NewDraftInput,
-    ProposalMetadata, ProposalMode, ProposeDraftsResult, ReviewBackup, ReviewCommit, ReviewLog,
-    SchedulerKind, SchedulingState, Tombstone, TombstoneKind, MAX_MAXIMUM_INTERVAL_DAYS,
-    MAX_VALID_TIMESTAMP_MS,
+    validate_deck_settings, Asset, Card, CardBackup, CardDraft, CardPatch, CardProvenance,
+    CreateCardsResult, DailyField, DailyIncrement, DailyStat, Deck, DeckBackup, DeckPatch,
+    DeckSettings, DraftDecision, DraftProposalOutcome, DraftResolution, DraftSource,
+    DuplicatePolicy, FsrsCardState, FsrsState, Grade, Id, ImportResult, InsertionOrder,
+    LeechAction, NewCardInput, NewDraftInput, ProposalMetadata, ProposalMode, ProposeDraftsResult,
+    ReviewBackup, ReviewCommit, ReviewLog, SchedulerKind, SchedulingState, Tombstone,
+    TombstoneKind, MAX_MAXIMUM_INTERVAL_DAYS, MAX_VALID_TIMESTAMP_MS,
 };
 pub use occlusion::{
     extract_occlusion_indices, has_image_occlusion, parse_occlusion_blocks, parse_occlusion_json,
     serialize_occlusion_block, strip_occlusion_markup, OcclusionBlock, OcclusionBlockSpan,
     OcclusionMask, OcclusionMode, OcclusionShapeType, MAX_OCCLUSION_MASKS, OCCLUSION_FENCE_LANG,
+};
+pub use rem_sync_reduce::{
+    CompactedSnapshot, ReduceError, ReducerOpEnvelope, SnapshotCard, SnapshotDeck, SnapshotReducer,
+    SnapshotReviewLog, SnapshotReviewLogTombstone, SnapshotTombstone,
+    COMPACTED_SNAPSHOT_SCHEMA_VERSION,
 };
 pub use scheduler::{
     calculate_fsrs_next_states, optimize_fsrs_histories, DeckFsrsParams, FsrsNextStates,
@@ -60,6 +65,8 @@ pub use study::{
     compute_study_next_states, CustomStudyMode, CustomStudyRequest, StudyGradeOutcome,
     StudyNextStates, StudyRequest, StudySession, StudyView,
 };
-pub use sync_ops::{ApplyRemoteResult, OutboxOp, RemoteSyncOp, SyncMode, SyncOp, SyncState};
+pub use sync_ops::{
+    ApplyBootstrapResult, ApplyRemoteResult, OutboxOp, RemoteSyncOp, SyncMode, SyncOp, SyncState,
+};
 pub use sync_store::extract_asset_refs;
 pub use tags::normalize_user_tags;

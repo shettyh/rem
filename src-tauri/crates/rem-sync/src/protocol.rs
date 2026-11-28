@@ -24,6 +24,10 @@ pub struct SyncResponse {
     pub has_more: bool,
     pub acked_op_ids: Vec<String>,
     pub ops: Vec<RemoteSyncOp>,
+    #[serde(default)]
+    pub bootstrap_required: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_seq: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

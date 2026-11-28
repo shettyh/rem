@@ -39,7 +39,7 @@ impl Collection {
                     deck.name
                 )));
             }
-            deck.settings.validate()?;
+            crate::validate_deck_settings(&deck.settings)?;
             for card in &deck.cards {
                 if card.front.trim().is_empty() {
                     return Err(CollectionError::InvalidInput(
