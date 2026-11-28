@@ -1,5 +1,5 @@
 import { test, expect, afterEach } from 'vitest'
-import { page } from 'vitest/browser'
+import { page, userEvent } from 'vitest/browser'
 import { DeckListPage } from '../features/decks/DeckListPage'
 import { DeckDetailPage } from '../features/cards/DeckDetailPage'
 import { CardEditorPage } from '../features/cards/CardEditorPage'
@@ -276,6 +276,41 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       await page.getByRole('button', { name: 'Show answer', exact: false }).click()
       await page.getByRole('button', { name: 'Good', exact: false }).click()
       await expect.element(page.getByText('Review complete', { exact: false })).toBeVisible()
+    },
+  },
+  {
+    name: 'search-modal',
+    run: async () => {
+      const storage = freshStorage()
+      const rust = await storage.createDeck('Rust')
+      const sql = await storage.createDeck('SQL::Internals')
+      await storage.createCard(rust.id, 'Ownership Rules', 'Each value in Rust has an owner.', ['ownership'])
+      await storage.createCard(rust.id, 'Cargo basics', 'cargo build', ['cargo'])
+      await storage.createCard(sql.id, 'What is WAL mode?', 'Write-Ahead Logging.', ['sqlite'])
+      await renderRoute({ storage, entry: `/decks/${rust.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
+      await expect.element(page.getByText('Ownership Rules')).toBeVisible()
+      await page.getByRole('button', { name: 'Search', exact: false }).click()
+      await expect.element(page.getByText('Jump to deck')).toBeVisible()
+    },
+  },
+  {
+    name: 'search-modal-results',
+    run: async () => {
+      const storage = freshStorage()
+      const rust = await storage.createDeck('Rust')
+      const sql = await storage.createDeck('SQL::Internals')
+      await storage.createCard(rust.id, 'Ownership Rules', 'Each value in Rust has an owner.', ['ownership'])
+      await storage.createCard(rust.id, 'Rust Pin<P> guarantee', 'The pointee cannot be moved in memory.', ['async', 'rust'])
+      await storage.createCard(sql.id, 'What is WAL mode?', 'Write-Ahead Logging.', ['sqlite'])
+      await renderRoute({ storage, entry: `/decks/${rust.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
+      await expect.element(page.getByText('Ownership Rules')).toBeVisible()
+      await page.getByRole('button', { name: 'Search', exact: false }).click()
+      const input = page.getByRole('combobox', { name: 'Search all cards' })
+      await expect.element(input).toBeVisible()
+      await userEvent.type(input.element(), 'Rust')
+      const results = page.getByRole('listbox', { name: 'Search results' })
+      await expect.element(results).toHaveAttribute('aria-busy', 'false')
+      await expect.element(results.getByText('Rust Pin<P> guarantee')).toBeVisible()
     },
   },
 ]

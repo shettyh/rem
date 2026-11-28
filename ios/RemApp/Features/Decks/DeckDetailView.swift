@@ -91,14 +91,14 @@ struct DeckDetailView: View {
         return ["All"] + set.sorted()
     }
 
+    private var trimmedSearchText: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var filteredCards: [CardDto] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return cards.filter { card in
+        cards.filter { card in
             let matchesTag = selectedTag == "All" || card.tags.contains(selectedTag)
-            let matchesQuery = query.isEmpty
-                || card.front.lowercased().contains(query)
-                || card.back.lowercased().contains(query)
-                || card.tags.contains(where: { $0.lowercased().contains(query) })
+            let matchesQuery = CardSearchResultMeta.matchesInDeckFilter(card: card, query: trimmedSearchText)
             return matchesTag && matchesQuery
         }
     }
@@ -248,8 +248,8 @@ struct DeckDetailView: View {
             if filteredCards.isEmpty {
                 Section {
                     Group {
-                        if !searchText.isEmpty {
-                            ContentUnavailableView.search(text: searchText)
+                        if !trimmedSearchText.isEmpty {
+                            ContentUnavailableView.search(text: trimmedSearchText)
                         } else if cards.isEmpty && hasSubdecks {
                             HStack(spacing: 12) {
                                 Text(
@@ -302,7 +302,7 @@ struct DeckDetailView: View {
             } else {
                 Section {
                     ForEach(filteredCards, id: \.id) { card in
-                        CardBrowserRow(card: card) {
+                        CardBrowserRow(card: card, searchQuery: trimmedSearchText) {
                             appState.openQuickCapture(deckId: deckId, editingCard: card) {
                                 Task { await loadCards() }
                             }
@@ -511,20 +511,29 @@ struct DeckDetailView: View {
 
 struct CardBrowserRow: View {
     let card: CardDto
+    var searchQuery: String = ""
     let onTap: () -> Void
 
     var body: some View {
         let preview = MarkdownBlockParser.plainTextPreview(card.front)
+        let rationaleMatch = CardSearchResultMeta.rationaleOnlyPreview(card: card, query: searchQuery)
         Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(preview.isEmpty ? card.front : preview)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(card.suspended ? RemColor.muted : RemColor.text)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
+                if let rationaleMatch {
+                    Text(rationaleMatch)
+                        .font(.caption.italic())
+                        .foregroundStyle(RemColor.muted)
+                        .lineLimit(1)
+                }
+
                 HStack(spacing: 8) {
-                    if let clozeIdx = card.clozeIndex {
+                    if let clozeIdx = card.clozeIndex, clozeIdx > 0 {
                         Text(ImageOcclusionParser.hasOcclusion(card.front) ? "IO \(clozeIdx)" : "c\(clozeIdx)")
                             .font(.caption2.weight(.bold).monospaced())
                             .foregroundStyle(RemColor.accent)
@@ -532,6 +541,9 @@ struct CardBrowserRow: View {
                             .padding(.vertical, 2)
                             .background(RemColor.accentTint)
                             .clipShape(Capsule())
+                    }
+                    if rationaleMatch != nil {
+                        RemPillBadge(text: "Rationale", tone: .neutral)
                     }
                     if let firstTag = card.tags.first {
                         Text("#\(firstTag)")

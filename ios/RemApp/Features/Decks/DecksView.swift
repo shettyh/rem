@@ -16,8 +16,10 @@ struct DecksView: View {
     @Bindable var appState: AppState
     @State private var navPath: [String] = []
     @State private var searchText: String = ""
-    @State private var cardHits: [CardSearchHitDto] = []
+    @State private var cardEntries: [CardSearchEntry] = []
+    @State private var settledSearchQuery: String = ""
     @State private var isSearching: Bool = false
+    @State private var searchError: String? = nil
     @State private var searchToken: Int = 0
     @State private var pendingDelete: PendingDeckDelete?
     @State private var showImportDialog: Bool = false
@@ -26,14 +28,19 @@ struct DecksView: View {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var isSearchPending: Bool {
+        !trimmedSearch.isEmpty && (isSearching || settledSearchQuery != trimmedSearch)
+    }
+
     private var allDeckSummaries: [DeckSummaryDto] {
         appState.todaySummary?.decks ?? []
     }
 
     private var filteredDecks: [DeckSummaryDto] {
-        let query = trimmedSearch.lowercased()
-        guard !query.isEmpty else { return allDeckSummaries }
-        return allDeckSummaries.filter { $0.name.lowercased().contains(query) }
+        guard !trimmedSearch.isEmpty else { return allDeckSummaries }
+        return allDeckSummaries.filter {
+            CardSearchResultMeta.matchesDeck(name: $0.name, query: trimmedSearch)
+        }
     }
 
     private func rolledUpTotals(for deck: DeckSummaryDto) -> (due: UInt32, newDue: UInt32, total: UInt32) {
@@ -71,8 +78,8 @@ struct DecksView: View {
     var body: some View {
         NavigationStack(path: $navPath) {
             Group {
-                if filteredDecks.isEmpty && cardHits.isEmpty && !trimmedSearch.isEmpty && !isSearching {
-                    ContentUnavailableView.search(text: searchText)
+                if filteredDecks.isEmpty && cardEntries.isEmpty && !trimmedSearch.isEmpty && !isSearchPending && searchError == nil {
+                    ContentUnavailableView.search(text: trimmedSearch)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(RemColor.groupedBg)
                 } else if filteredDecks.isEmpty && trimmedSearch.isEmpty {
@@ -223,6 +230,7 @@ struct DecksView: View {
                                         DeckSummaryRow(
                                             deck: deck,
                                             showChevron: false,
+                                            displayName: CardSearchResultMeta.formatDeckPath(deck.name),
                                             hasSubdecks: !(matchedNode?.children.isEmpty ?? true),
                                             subdeckCount: matchedNode?.subdeckCount ?? 0,
                                             dueOverride: totals.due,
@@ -263,7 +271,12 @@ struct DecksView: View {
                                         Button(role: .destructive) {
                                             pendingDelete = .deck(id: deck.id, copy: deleteCopy)
                                         } label: {
-                                            Label("Delete deck", systemImage: "trash")
+                                            Label(
+                                                allDeckSummaries.contains {
+                                                    DeckTreeBuilder.isStrictDescendant($0.name, of: deck.name)
+                                                } ? "Delete deck & subdecks" : "Delete deck",
+                                                systemImage: "trash"
+                                            )
                                         }
                                     }
                                 }
@@ -272,41 +285,43 @@ struct DecksView: View {
                             .listRowSeparatorTint(RemColor.border)
                         }
 
-                        if !trimmedSearch.isEmpty && !cardHits.isEmpty {
+                        if !trimmedSearch.isEmpty && (isSearchPending || searchError != nil || !cardEntries.isEmpty) {
                             Section("Cards") {
-                                ForEach(cardHits, id: \.card.id) { hit in
-                                    Button {
-                                        appState.openQuickCapture(
-                                            deckId: hit.card.deckId,
-                                            editingCard: hit.card
-                                        ) {
+                                if isSearchPending && cardEntries.isEmpty {
+                                    HStack(spacing: 10) {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                        Text("Searching cards…")
+                                            .font(.subheadline)
+                                            .foregroundStyle(RemColor.muted)
+                                    }
+                                    .padding(.vertical, 4)
+                                } else if let error = searchError, cardEntries.isEmpty {
+                                    HStack(spacing: 12) {
+                                        Text(error)
+                                            .font(.subheadline)
+                                            .foregroundStyle(RemColor.muted)
+                                        Spacer(minLength: 8)
+                                        Button("Retry") {
                                             Task { await runCardSearch(trimmedSearch) }
                                         }
-                                    } label: {
-                                        VStack(alignment: .leading, spacing: 6) {
-                                            HStack(spacing: 6) {
-                                                Circle()
-                                                    .fill(Color(hexString: hit.deckColor))
-                                                    .frame(width: 7, height: 7)
-                                                Text(hit.deckName)
-                                                    .font(.caption.weight(.medium))
-                                                    .foregroundStyle(RemColor.muted)
-                                                Spacer()
-                                                if hit.card.suspended {
-                                                    RemPillBadge(text: "Suspended", tone: .neutral)
-                                                }
-                                            }
-                                            let preview = MarkdownBlockParser.plainTextPreview(hit.card.front)
-                                            Text(preview.isEmpty ? hit.card.front : preview)
-                                                .font(.subheadline.weight(.medium))
-                                                .foregroundStyle(hit.card.suspended ? RemColor.muted : RemColor.text)
-                                                .lineLimit(2)
-                                                .multilineTextAlignment(.leading)
-                                        }
-                                        .padding(.vertical, 2)
-                                        .contentShape(Rectangle())
+                                        .font(.subheadline.weight(.medium))
+                                        .tint(RemColor.accent)
                                     }
-                                    .buttonStyle(.plain)
+                                    .padding(.vertical, 4)
+                                } else {
+                                    ForEach(cardEntries) { entry in
+                                        CardSearchResultRow(entry: entry) {
+                                            appState.openQuickCapture(
+                                                deckId: entry.hit.card.deckId,
+                                                editingCard: entry.hit.card
+                                            ) {
+                                                Task { await runCardSearch(trimmedSearch) }
+                                            }
+                                        }
+                                        .opacity(isSearchPending ? 0.55 : 1)
+                                        .disabled(isSearchPending)
+                                    }
                                 }
                             }
                             .listRowBackground(RemColor.surface)
@@ -354,6 +369,11 @@ struct DecksView: View {
             .searchable(text: $searchText, prompt: "Search decks and cards")
             .task(id: trimmedSearch) {
                 await runCardSearch(trimmedSearch, debounce: true)
+            }
+            .onAppear {
+                if !trimmedSearch.isEmpty {
+                    Task { await runCardSearch(trimmedSearch) }
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -424,12 +444,15 @@ struct DecksView: View {
         let token = searchToken
         guard !query.isEmpty else {
             isSearching = false
-            cardHits = []
+            searchError = nil
+            settledSearchQuery = ""
+            cardEntries = []
             return
         }
         isSearching = true
+        searchError = nil
         defer {
-            if token == searchToken {
+            if !Task.isCancelled && token == searchToken {
                 isSearching = false
             }
         }
@@ -440,10 +463,248 @@ struct DecksView: View {
         do {
             let results = try await appState.store.searchCards(query: query, limit: 40)
             guard !Task.isCancelled && token == searchToken else { return }
-            cardHits = results
+            cardEntries = results.map { hit in
+                CardSearchEntry(hit: hit, meta: CardSearchResultMeta.build(hit: hit, query: query))
+            }
+            settledSearchQuery = query
+            searchError = nil
         } catch {
             guard !Task.isCancelled && token == searchToken else { return }
-            cardHits = []
+            cardEntries = []
+            settledSearchQuery = query
+            searchError = "Couldn't search cards."
         }
+    }
+}
+
+struct CardSearchEntry: Identifiable {
+    let hit: CardSearchHitDto
+    let meta: CardSearchResultMeta
+    var id: String { hit.card.id }
+}
+
+struct CardSearchResultMeta: Equatable {
+    let displayDeckName: String
+    let frontPreview: String
+    let backPreview: String?
+    let clozeBadge: String?
+    let rationalePreview: String?
+    let visibleTags: [String]
+    let matchingTags: Set<String>
+
+    static func formatDeckPath(_ name: String) -> String {
+        name.replacingOccurrences(of: DeckTreeBuilder.separator, with: " / ")
+    }
+
+    static func matchesDeck(name: String, query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        let lower = trimmed.lowercased()
+        let rawLower = name.lowercased()
+        let formattedLower = formatDeckPath(name).lowercased()
+        if rawLower.contains(lower) || formattedLower.contains(lower) {
+            return true
+        }
+        if hasCodePunctuation(trimmed) {
+            return false
+        }
+        let words = trimmed
+            .components(separatedBy: .whitespacesAndNewlines)
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"'")).lowercased() }
+            .filter { !$0.isEmpty }
+        return words.count > 1 && words.allSatisfy { formattedLower.contains($0) }
+    }
+
+    static func build(hit: CardSearchHitDto, query: String) -> CardSearchResultMeta {
+        let card = hit.card
+        let frontPlain = MarkdownBlockParser.plainTextPreview(card.front)
+        let frontPreview = frontPlain.isEmpty ? card.front.trimmingCharacters(in: .whitespacesAndNewlines) : frontPlain
+
+        let backPlain = MarkdownBlockParser.plainTextPreview(card.back)
+        let backTrimmed = backPlain.isEmpty ? card.back.trimmingCharacters(in: .whitespacesAndNewlines) : backPlain
+        let backPreview = backTrimmed.isEmpty ? nil : backTrimmed
+
+        let clozeBadge: String? = card.clozeIndex.flatMap { idx in
+            guard idx > 0 else { return nil }
+            return ImageOcclusionParser.hasOcclusion(card.front) ? "IO \(idx)" : "c\(idx)"
+        }
+
+        let terms = searchTerms(from: query)
+        let matchingTagList = card.tags.filter { matchesAny($0, terms: terms) }
+        let matchingTags = Set(matchingTagList)
+        let orderedTags = matchingTagList + card.tags.filter { !matchingTags.contains($0) }
+        let visibleTags = Array(orderedTags.prefix(3))
+
+        let matchedPrimary = matchesAny(frontPreview, terms: terms)
+            || matchesAny(card.front, terms: terms)
+            || (backPreview.map { matchesAny($0, terms: terms) } ?? false)
+            || matchesAny(card.back, terms: terms)
+            || !matchingTags.isEmpty
+
+        let rationalePlain = card.rationale.map { MarkdownBlockParser.plainTextPreview($0) } ?? ""
+        let rationaleTrimmed = rationalePlain.isEmpty
+            ? (card.rationale?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+            : rationalePlain
+        let rationalePreview: String? = (!matchedPrimary && !rationaleTrimmed.isEmpty && matchesAny(rationaleTrimmed, terms: terms))
+            ? rationaleTrimmed
+            : nil
+
+        return CardSearchResultMeta(
+            displayDeckName: formatDeckPath(hit.deckName),
+            frontPreview: frontPreview.isEmpty ? "(empty front)" : frontPreview,
+            backPreview: backPreview,
+            clozeBadge: clozeBadge,
+            rationalePreview: rationalePreview,
+            visibleTags: visibleTags,
+            matchingTags: matchingTags
+        )
+    }
+
+    static func matchesInDeckFilter(card: CardDto, query: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+        let haystack = [
+            card.front,
+            card.back,
+            card.tags.joined(separator: " "),
+            card.rationale ?? ""
+        ].joined(separator: "\n").lowercased()
+
+        let lower = trimmed.lowercased()
+        if haystack.contains(lower) { return true }
+        if hasCodePunctuation(trimmed) { return false }
+
+        let words = trimmed
+            .components(separatedBy: .whitespacesAndNewlines)
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"'")).lowercased() }
+            .filter { !$0.isEmpty }
+        return words.count > 1 && words.allSatisfy { haystack.contains($0) }
+    }
+
+    static func rationaleOnlyPreview(card: CardDto, query: String) -> String? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let rawRationale = card.rationale, !rawRationale.isEmpty else {
+            return nil
+        }
+        let terms = searchTerms(from: trimmed)
+        let matchedPrimary = matchesAny(card.front, terms: terms)
+            || matchesAny(card.back, terms: terms)
+            || card.tags.contains { matchesAny($0, terms: terms) }
+        guard !matchedPrimary else { return nil }
+        let plain = MarkdownBlockParser.plainTextPreview(rawRationale)
+        let resolved = plain.isEmpty ? rawRationale.trimmingCharacters(in: .whitespacesAndNewlines) : plain
+        return matchesAny(resolved, terms: terms) ? resolved : nil
+    }
+
+    private static func hasCodePunctuation(_ query: String) -> Bool {
+        let allowed = CharacterSet.alphanumerics
+            .union(.whitespacesAndNewlines)
+            .union(CharacterSet(charactersIn: "-'\""))
+        return query.unicodeScalars.contains { !allowed.contains($0) }
+    }
+
+    private static func searchTerms(from query: String) -> [String] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        if hasCodePunctuation(trimmed) {
+            return [trimmed.lowercased()]
+        }
+        let rawTokens = trimmed
+            .components(separatedBy: .whitespacesAndNewlines)
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"'")).lowercased() }
+            .filter { !$0.isEmpty }
+        var expanded: [String] = []
+        for token in rawTokens {
+            expanded.append(token)
+            if token.contains("-") {
+                for part in token.split(separator: "-") where !part.isEmpty {
+                    expanded.append(String(part))
+                }
+            }
+        }
+        return expanded.isEmpty ? [trimmed.lowercased()] : Array(Set(expanded))
+    }
+
+    private static func matchesAny(_ text: String, terms: [String]) -> Bool {
+        guard !text.isEmpty, !terms.isEmpty else { return false }
+        let lower = text.lowercased()
+        return terms.contains { lower.contains($0) }
+    }
+}
+
+private struct CardSearchResultRow: View {
+    let entry: CardSearchEntry
+    let onTap: () -> Void
+
+    var body: some View {
+        let hit = entry.hit
+        let meta = entry.meta
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color(hexString: hit.deckColor))
+                        .frame(width: 7, height: 7)
+                    Text(meta.displayDeckName)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(RemColor.muted)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    if meta.rationalePreview != nil {
+                        RemPillBadge(text: "Rationale", tone: .neutral)
+                    }
+                    if hit.card.suspended {
+                        RemPillBadge(text: "Suspended", tone: .neutral)
+                    }
+                }
+
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let badge = meta.clozeBadge {
+                        Text(badge)
+                            .font(.caption2.weight(.bold).monospaced())
+                            .foregroundStyle(RemColor.accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(RemColor.accentTint)
+                            .clipShape(Capsule())
+                    }
+                    Text(meta.frontPreview)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(hit.card.suspended ? RemColor.muted : RemColor.text)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+
+                if let back = meta.backPreview {
+                    Text(back)
+                        .font(.footnote)
+                        .foregroundStyle(RemColor.muted)
+                        .lineLimit(1)
+                }
+
+                if let rationale = meta.rationalePreview {
+                    Text(rationale)
+                        .font(.caption.italic())
+                        .foregroundStyle(RemColor.muted)
+                        .lineLimit(1)
+                }
+
+                if !meta.visibleTags.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(meta.visibleTags, id: \.self) { tag in
+                            Text("#\(tag)")
+                                .font(.caption)
+                                .foregroundStyle(
+                                    meta.matchingTags.contains(tag) ? RemColor.accent : RemColor.faint
+                                )
+                        }
+                    }
+                    .padding(.top, 1)
+                }
+            }
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

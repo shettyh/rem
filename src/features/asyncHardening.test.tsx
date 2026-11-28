@@ -236,12 +236,12 @@ describe('deterministic async-interleaving guardrails', () => {
         </StorageProvider>,
       )
 
-      const input = screen.getByRole('searchbox', { name: 'Search all cards' })
+      const input = screen.getByRole('combobox', { name: 'Search all cards' })
       fireEvent.change(input, { target: { value: 'Alpha' } })
 
-      // Immediately after typing (before debounce/IPC settles), must show Searching…, never "No cards match".
+      // Immediately after typing (before debounce/IPC settles), must show Searching…, never "No results for".
       expect(screen.getByText('Searching…')).toBeInTheDocument()
-      expect(screen.queryByText(/No cards match/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/No results for/i)).not.toBeInTheDocument()
 
       // Wait for debounce to dispatch query 1.
       await waitFor(() => expect(searchSpy).toHaveBeenCalledTimes(1))
@@ -252,14 +252,14 @@ describe('deterministic async-interleaving guardrails', () => {
 
       // Resolve query 2 FIRST, then resolve stale query 1 AFTER.
       q2.resolve([{ card: cardB, deckName: deck.name, deckColor: deck.color }])
-      await screen.findByText('Beta item')
+      await screen.findByRole('option', { name: /Beta item/ })
 
       q1.resolve([{ card: cardA, deckName: deck.name, deckColor: deck.color }])
       await Promise.resolve()
 
       // Stale query 1 must NOT overwrite query 2's results.
-      expect(screen.getByText('Beta item')).toBeInTheDocument()
-      expect(screen.queryByText('Alpha item')).not.toBeInTheDocument()
+      expect(screen.getByRole('option', { name: /Beta item/ })).toBeInTheDocument()
+      expect(screen.queryByRole('option', { name: /Alpha item/ })).not.toBeInTheDocument()
     } finally {
       await cleanupDb()
     }
