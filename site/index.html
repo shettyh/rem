@@ -107,7 +107,7 @@
                 src="./assets/rem-today.png"
                 width="1200"
                 height="750"
-                alt="rem desktop Today screen showing 14 cards due across 3 decks with deck progress rings and collapsible sidebar"
+                alt="rem desktop Today screen showing 15 cards due across 5 nested decks (Systems::Distributed, Systems::Rust, Medicine::Cardiology), Search ⌘K, 3 pending drafts, and deck progress rings"
               />
             </picture>
           </div>
@@ -121,7 +121,7 @@
                   src="./assets/rem-ios-today.png"
                   width="804"
                   height="1748"
-                  alt="rem iOS companion Today screen showing the same 14 cards due, 10-day streak, 3 decks, native tab bar, and top-right quick capture button"
+                  alt="rem iPhone Today screen showing 18 cards due across 5 nested decks, 12-day streak, native tab bar, and top-right quick capture button"
                 />
               </picture>
             </div>
@@ -524,12 +524,23 @@ JSON
                   type="button"
                   role="tab"
                   class="slide-tab"
+                  id="tab-occlusion"
+                  aria-selected="false"
+                  aria-controls="slide-occlusion"
+                  data-slide="2"
+                >
+                  <span>03</span> Occlusion
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  class="slide-tab"
                   id="tab-capture"
                   aria-selected="false"
                   aria-controls="slide-capture"
-                  data-slide="2"
+                  data-slide="3"
                 >
-                  <span>03</span> Capture
+                  <span>04</span> Capture
                 </button>
                 <button
                   type="button"
@@ -538,9 +549,9 @@ JSON
                   id="tab-stats"
                   aria-selected="false"
                   aria-controls="slide-stats"
-                  data-slide="3"
+                  data-slide="4"
                 >
-                  <span>04</span> Stats
+                  <span>05</span> Stats
                 </button>
                 <button
                   type="button"
@@ -549,15 +560,15 @@ JSON
                   id="tab-terminal"
                   aria-selected="false"
                   aria-controls="slide-terminal"
-                  data-slide="4"
+                  data-slide="5"
                 >
-                  <span>05</span> Terminal
+                  <span>06</span> Terminal
                 </button>
               </div>
 
               <div class="slide-nav">
                 <span class="slide-counter" aria-live="polite">
-                  <strong data-slide-current>01</strong> / <span>05</span>
+                  <strong data-slide-current>01</strong> / <span>06</span>
                 </span>
                 <button
                   type="button"
@@ -631,7 +642,7 @@ JSON
                         src="./assets/rem-today.png"
                         width="1200"
                         height="750"
-                        alt="rem desktop Today screen with collapsible sidebar, 14 cards due, and deck progress rings"
+                        alt="rem desktop Today screen with collapsible sidebar, Search ⌘K, 3 pending drafts, 15 cards due across nested Systems and Medicine decks, and progress rings"
                       />
                     </picture>
                   </div>
@@ -650,7 +661,7 @@ JSON
                           src="./assets/rem-ios-today.png"
                           width="804"
                           height="1748"
-                          alt="rem iPhone Today screen showing 14 cards due, 10d streak, and deck list"
+                          alt="rem iPhone Today screen showing 18 cards due, 12d streak, and expanded nested Systems and Medicine subdecks"
                         />
                       </picture>
                     </span>
@@ -669,16 +680,16 @@ JSON
               >
                 <div class="slide-copy">
                   <p class="slide-tag">02 · Focused recall</p>
-                  <h3>Distraction-free review<br />for <em>rich &amp; visual cards.</em></h3>
+                  <h3>Distraction-free review<br />for <em>Cloze, math &amp; provenance.</em></h3>
                   <p>
                     Navigation folds away during review on both desktop and iPhone so attention stays
-                    on the prompt — syntax-highlighted code, native LaTeX math, interactive Image
-                    Occlusion masks, audio clips, and retained source provenance.
+                    on the prompt — Cloze deletions with sibling burying, native LaTeX math,
+                    syntax-highlighted code, inline audio, and retained source provenance.
                   </p>
                   <ul class="check-list">
-                    <li><span>✓</span> Interactive Image Occlusion reveal &amp; spoiler-safe zoom on Desktop &amp; iOS</li>
-                    <li><span>✓</span> Cloze deletions with sibling burying, LaTeX math, audio &amp; code blocks</li>
-                    <li><span>✓</span> Inspect retained provenance, edit mid-session, suspend, or undo grades</li>
+                    <li><span>✓</span> Cloze deletions with sibling burying, KaTeX &amp; native iOS LaTeX math</li>
+                    <li><span>✓</span> Expanded <em>Source &amp; rationale</em> provenance stays attached during review</li>
+                    <li><span>✓</span> Shared FSRS-7 grade dock with mid-session edit, suspend, and undo</li>
                   </ul>
                   <div class="surface-badges">
                     <span class="surface-badge is-dark">Dark mode</span>
@@ -692,7 +703,7 @@ JSON
                     <div class="window-bar window-bar-dark" aria-hidden="true">
                       <span class="traffic red"></span><span class="traffic yellow"></span
                       ><span class="traffic green"></span>
-                      <span class="window-title">rem · TypeScript Review</span>
+                      <span class="window-title">rem · Systems::Distributed</span>
                     </div>
                     <picture>
                       <source type="image/webp" srcset="./assets/rem-review-dark.webp" />
@@ -700,7 +711,7 @@ JSON
                         src="./assets/rem-review-dark.png"
                         width="1200"
                         height="750"
-                        alt="Dark-mode desktop review of a TypeScript satisfies card with syntax highlighting and FSRS grading intervals"
+                        alt="Dark-mode desktop review of a Cloze card in Systems::Distributed showing KaTeX quorum math (R + W > N), expanded Source &amp; rationale provenance, and FSRS-7 grading intervals"
                       />
                     </picture>
                   </div>
@@ -719,7 +730,7 @@ JSON
                           src="./assets/rem-ios-review-dark.png"
                           width="804"
                           height="1748"
-                          alt="Dark-mode iPhone review of the same TypeScript satisfies card with syntax-highlighted code and 4-button FSRS-7 grade dock"
+                          alt="Dark-mode iPhone review of an Amdahl's Law Cloze card in Distributed showing native LaTeX fraction rendering, tags, expanded Source &amp; rationale provenance, and 4-button FSRS-7 grade dock"
                         />
                       </picture>
                     </span>
@@ -727,31 +738,99 @@ JSON
                 </div>
               </article>
 
-              <!-- Slide 03: Capture & Draft Approval -->
+              <!-- Slide 03: Image Occlusion -->
+              <article
+                class="slide"
+                id="slide-occlusion"
+                role="tabpanel"
+                aria-labelledby="tab-occlusion"
+                data-slide-panel="2"
+                aria-hidden="true"
+              >
+                <div class="slide-copy">
+                  <p class="slide-tag">03 · Image Occlusion</p>
+                  <h3>Turn diagrams into recall.<br /><em>Draw masks once, study anywhere.</em></h3>
+                  <p>
+                    Author rectangle and ellipse masks on any diagram in the desktop SVG canvas or
+                    native iPhone editor, or import Anki 23.10+ and Image Occlusion Enhanced
+                    <code>.apkg</code> decks — complete with interactive reveal and spoiler-safe zoom.
+                  </p>
+                  <ul class="check-list">
+                    <li><span>✓</span> Active highlighted <code>?</code> mask with muted <em>Hide All</em> siblings until reveal</li>
+                    <li><span>✓</span> Desktop SVG canvas &amp; native iPhone editor with spoiler-safe lightbox zoom</li>
+                    <li><span>✓</span> Imports Anki 23.10+ built-in &amp; Image Occlusion Enhanced <code>.apkg</code> decks</li>
+                  </ul>
+                  <div class="surface-badges">
+                    <span class="surface-badge">Desktop SVG Occlusion</span>
+                    <span class="surface-badge">iPhone Lightbox Zoom</span>
+                  </div>
+                </div>
+
+                <div class="slide-stage">
+                  <div class="stage-glow"></div>
+                  <div class="stage-desktop">
+                    <div class="window-bar" aria-hidden="true">
+                      <span class="traffic red"></span><span class="traffic yellow"></span
+                      ><span class="traffic green"></span>
+                      <span class="window-title">rem · Systems::Networking</span>
+                    </div>
+                    <picture>
+                      <source type="image/webp" srcset="./assets/rem-occlusion.webp" />
+                      <img
+                        src="./assets/rem-occlusion.png"
+                        width="1200"
+                        height="750"
+                        alt="rem desktop Image Occlusion review on a TCP Segment Header diagram in Systems::Networking showing an active indigo question-mark mask, four muted Hide-All masks, and Show answer button"
+                      />
+                    </picture>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="stage-phone phone-frame"
+                    data-phone-spotlight
+                    aria-label="Inspect iPhone Image Occlusion review screen"
+                  >
+                    <span class="phone-island" aria-hidden="true"></span>
+                    <span class="phone-screen">
+                      <picture>
+                        <source type="image/webp" srcset="./assets/rem-ios-occlusion.webp" />
+                        <img
+                          src="./assets/rem-ios-occlusion.png"
+                          width="804"
+                          height="1748"
+                          alt="rem iPhone Image Occlusion review on a Cardiac Conduction System diagram in Cardiology showing an active indigo question-mark mask, four muted masks, zoom button, and Show answer dock"
+                        />
+                      </picture>
+                    </span>
+                  </button>
+                </div>
+              </article>
+
+              <!-- Slide 04: Capture & Draft Approval -->
               <article
                 class="slide"
                 id="slide-capture"
                 role="tabpanel"
                 aria-labelledby="tab-capture"
-                data-slide-panel="2"
+                data-slide-panel="3"
                 aria-hidden="true"
               >
                 <div class="slide-copy">
-                  <p class="slide-tag">03 · Capture &amp; approval</p>
-                  <h3>Approve agent drafts.<br /><em>Draw masks or import on the go.</em></h3>
+                  <p class="slide-tag">04 · Capture &amp; approval</p>
+                  <h3>Approve agent drafts.<br /><em>Capture Cloze or import on the go.</em></h3>
                   <p>
                     Triage source-grounded AI proposals in Desktop Drafts or the
-                    <code>rem draft review</code> TUI, draw Image Occlusion masks on the SVG canvas,
-                    or tap <strong>+</strong> on iPhone to create cards or import Anki
-                    <code>.apkg</code> decks directly.
+                    <code>rem draft review</code> TUI, or tap <strong>+</strong> on iPhone to author
+                    Cloze and Image Occlusion cards or import Anki <code>.apkg</code> decks directly.
                   </p>
                   <ul class="check-list">
                     <li><span>✓</span> Front-first triage (Desktop &amp; <code>rem draft review</code>) with retained provenance</li>
-                    <li><span>✓</span> Desktop SVG canvas &amp; native iPhone editor for Image Occlusion &amp; Photos</li>
+                    <li><span>✓</span> Paper-canvas iPhone editor with live Cloze count, <code>Occlude</code> &amp; <code>Preview</code> pills</li>
                     <li><span>✓</span> Direct Anki <code>.apkg</code> import (23.10+ &amp; IO Enhanced) on Desktop, CLI &amp; iOS</li>
                   </ul>
                   <div class="surface-badges">
-                    <span class="surface-badge">Drafts + SVG Occlusion</span>
+                    <span class="surface-badge">Desktop Drafts Inbox</span>
                     <span class="surface-badge">iPhone Capture + .apkg</span>
                   </div>
                 </div>
@@ -770,7 +849,7 @@ JSON
                         src="./assets/rem-draft-approval.png"
                         width="1344"
                         height="840"
-                        alt="rem desktop Drafts inbox showing an agent proposal with rationale, source path, and Accept or Reject controls"
+                        alt="rem desktop Drafts inbox showing 3 pending agent proposals from claude-code for Systems::Distributed with Hybrid Logical Clock rationale, hlc.rs source locator, tags, and Reject, Skip, or Accept controls"
                       />
                     </picture>
                   </div>
@@ -789,7 +868,7 @@ JSON
                           src="./assets/rem-ios-capture.png"
                           width="804"
                           height="1748"
-                          alt="rem iPhone Quick Capture paper-canvas Markdown editor with deck picker and tag chips"
+                          alt="rem iPhone Quick Capture paper-canvas editor for Systems::Distributed with Raft Cloze deletions, Creates 2 cloze cards badge, Occlude and Preview pills, tag chips, and bottom formatting toolbar"
                         />
                       </picture>
                     </span>
@@ -797,17 +876,17 @@ JSON
                 </div>
               </article>
 
-              <!-- Slide 04: Stats -->
+              <!-- Slide 05: Stats -->
               <article
                 class="slide"
                 id="slide-stats"
                 role="tabpanel"
                 aria-labelledby="tab-stats"
-                data-slide-panel="3"
+                data-slide-panel="4"
                 aria-hidden="true"
               >
                 <div class="slide-copy">
-                  <p class="slide-tag">04 · Actionable insight</p>
+                  <p class="slide-tag">05 · Actionable insight</p>
                   <h3>Watch your recall<br />and <em>rhythm compound.</em></h3>
                   <p>
                     Track daily review activity, recall rate, active streaks, grade distribution,
@@ -839,7 +918,7 @@ JSON
                         src="./assets/rem-stats.png"
                         width="1200"
                         height="750"
-                        alt="rem desktop Stats screen showing 99 reviews, 90% recall rate, 10-day streak, 30-day activity bars, and deck breakdown"
+                        alt="rem desktop Stats screen showing 248 reviews, 91% recall rate, 12-day streak, 23 active days, 30-day review activity bars, grade distribution, and nested deck breakdown"
                       />
                     </picture>
                   </div>
@@ -858,7 +937,7 @@ JSON
                           src="./assets/rem-ios-stats.png"
                           width="804"
                           height="1748"
-                          alt="rem iPhone Stats screen showing matching 99 reviews, 90% recall rate, 10-day streak, and grade distribution"
+                          alt="rem iPhone Stats screen showing 276 reviews, 92% recall rate, 12-day streak, 27 active days, 30-day native Swift Charts activity bars, and grade distribution"
                         />
                       </picture>
                     </span>
@@ -866,17 +945,17 @@ JSON
                 </div>
               </article>
 
-              <!-- Slide 05: Terminal + Sync -->
+              <!-- Slide 06: Terminal + Sync -->
               <article
                 class="slide"
                 id="slide-terminal"
                 role="tabpanel"
                 aria-labelledby="tab-terminal"
-                data-slide-panel="4"
+                data-slide-panel="5"
                 aria-hidden="true"
               >
                 <div class="slide-copy">
-                  <p class="slide-tag">05 · Terminal + Cloud Sync v1.1</p>
+                  <p class="slide-tag">06 · Terminal + Cloud Sync v1.1</p>
                   <h3>Lightweight in the shell.<br /><em>Full richness on Desktop &amp; iPhone.</em></h3>
                   <p>
                     <code>rem study</code> brings lightweight text and Markdown review to your
@@ -920,7 +999,7 @@ JSON
                           src="./assets/rem-ios-review-dark.png"
                           width="804"
                           height="1748"
-                          alt="rem iPhone dark-mode review using the same FSRS-7 StudySession as rem study"
+                          alt="rem iPhone dark-mode review of an Amdahl's Law Cloze card using the same FSRS-7 StudySession as rem study"
                         />
                       </picture>
                     </span>
@@ -936,6 +1015,7 @@ JSON
                 <button type="button" class="slide-dot" data-slide="2" tabindex="-1"></button>
                 <button type="button" class="slide-dot" data-slide="3" tabindex="-1"></button>
                 <button type="button" class="slide-dot" data-slide="4" tabindex="-1"></button>
+                <button type="button" class="slide-dot" data-slide="5" tabindex="-1"></button>
               </div>
               <p class="stage-hint">
                 <span>Click the iPhone to spotlight</span>
