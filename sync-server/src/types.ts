@@ -15,6 +15,16 @@ export interface Env {
   MAX_ASSET_BYTES?: string
   /** Maximum total stored asset bytes per user (default 500 MB). */
   MAX_USER_QUOTA_BYTES?: string
+  /** Trigger background compaction once uncompacted ops reach this count (default 5000). */
+  COMPACT_AFTER_OPS?: string
+  /** Minimum trailing ops retained in DO SQLite when op pruning is enabled (default 2000). */
+  RETAIN_TAIL_OPS?: string
+  /** Minimum age in days before compacted ops are eligible for pruning (default 30). */
+  RETAIN_TAIL_DAYS?: string
+  /** When "true", prune compacted ops outside the retention window (default "false"). */
+  ENABLE_OP_PRUNING?: string
+  /** Grace period in days before unreferenced R2 assets are garbage collected (default 30). */
+  ASSET_GC_GRACE_DAYS?: string
   /** When "true", only subscribed, trialing, or allowlisted users may sync or access R2 assets (HTTP 402 otherwise). */
   REQUIRE_SUBSCRIPTION?: string
   /** Optional comma-separated emails always permitted to sync when REQUIRE_SUBSCRIPTION="true". */
@@ -85,6 +95,18 @@ export interface SyncResponse {
   hasMore: boolean
   ackedOpIds: string[]
   ops: RemoteSyncOp[]
+  bootstrapRequired?: boolean
+  snapshotSeq?: number
+}
+
+export interface BootstrapInfo {
+  snapshotSeq: number
+  snapshotR2Key: string
+}
+
+export interface PokeMessage {
+  type: 'poke'
+  latestSeq: number
 }
 
 export type SyncRpcResult =
