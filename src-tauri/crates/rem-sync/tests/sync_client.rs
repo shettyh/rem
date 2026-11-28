@@ -1,13 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
-use rem_core::{CardPatch, Collection, FsrsState, Grade, RemoteSyncOp, ReviewCommit};
+use rem_core::{CardPatch, Collection, CollectionError, DeckPatch, FsrsState, Grade, RemoteSyncOp, ReviewCommit};
 use rem_sync::{
-    sync_collection, sync_collection_with_options, sync_with_http, DownloadedAsset, HttpTransport,
-    SyncError, SyncOptions, SyncRequest, SyncResponse, SyncTransport,
+    connect_collection, sign_out_with_client, sync_collection, sync_collection_with_options,
+    sync_with_credentials, sync_with_http, AccountProfile, AuthAccount, AuthClient, AuthProviders,
+    AuthTokenResponse, DownloadedAsset, HttpTransport, MemoryCredentialStore, StoredCredentials,
+    SyncError, SyncOptions, SyncRequest, SyncResponse, SyncTransport, MAX_MISSING_ASSETS_CHUNK,
 };
 use tempfile::tempdir;
 
@@ -363,4 +365,640 @@ fn http_transport_sends_bearer_auth_and_maps_error_statuses() {
     assert_eq!(ok.latest_seq, 0);
 
     server_thread.join().unwrap();
+}
+
+#[test]
+fn chunks_missing_asset_checks_over_500_unique_hashes() {
+    struct ChunkCheckingTransport {
+        inner: MockTransport,
+        missing_batch_sizes: Mutex<Vec<usize>>,
+    }
+
+    impl SyncTransport for ChunkCheckingTransport {
+        fn post_sync(&self, request: &SyncRequest) -> Result<SyncResponse, SyncError> {
+            self.inner.post_sync(request)
+        }
+
+        fn post_missing_assets(&self, hashes: &[String]) -> Result<Vec<String>, SyncError> {
+            self.missing_batch_sizes.lock().unwrap().push(hashes.len());
+            if hashes.len() > MAX_MISSING_ASSETS_CHUNK {
+                return Err(SyncError::Http {
+                    status: 400,
+                    message: r#"{"error":"invalid_hashes"}"#.into(),
+                });
+            }
+            self.inner.post_missing_assets(hashes)
+        }
+
+        fn put_asset(&self, hash: &str, mime: &str, bytes: &[u8]) -> Result<(), SyncError> {
+            self.inner.put_asset(hash, mime, bytes)
+        }
+
+        fn get_asset(&self, hash: &str) -> Result<DownloadedAsset, SyncError> {
+            self.inner.get_asset(hash)
+        }
+    }
+
+    let (_ta, dev_a) = open_collection();
+    let (_tb, dev_b) = open_collection();
+    let transport = ChunkCheckingTransport {
+        inner: MockTransport::default(),
+        missing_batch_sizes: Mutex::new(Vec::new()),
+    };
+
+    dev_a
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+    dev_b
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+
+    let deck = dev_a.create_deck("Big Media", 1_010).unwrap();
+    // Create 520 unique assets across 104 cards (5 assets per card), all fitting in a single
+    // default 200-op outbox batch so `unsynced.len() == 520 > 500`.
+    let total_assets = 520usize;
+    let mut hashes = Vec::with_capacity(total_assets);
+    for i in 0..total_assets {
+        let payload = format!("asset-payload-{i:04}");
+        let asset = dev_a
+            .put_asset(payload.as_bytes(), "image/png", 1_020 + i as i64)
+            .unwrap();
+        hashes.push(asset.hash);
+    }
+    for (card_idx, chunk) in hashes.chunks(5).enumerate() {
+        let front = chunk
+            .iter()
+            .enumerate()
+            .map(|(j, h)| format!("![img{j}](asset:{h})"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        dev_a
+            .create_card(&deck.id, &front, "Back", vec![], 2_000 + card_idx as i64)
+            .unwrap();
+    }
+
+    let report_a = sync_collection(&dev_a, &transport, 5_000).unwrap();
+    assert_eq!(report_a.uploaded_assets, total_assets);
+    assert_eq!(dev_a.pending_outbox_count().unwrap(), 0);
+
+    let batch_sizes = transport.missing_batch_sizes.lock().unwrap().clone();
+    assert_eq!(batch_sizes, vec![MAX_MISSING_ASSETS_CHUNK, 20]);
+
+    let report_b = sync_collection(&dev_b, &transport, 5_100).unwrap();
+    assert_eq!(report_b.downloaded_assets, total_assets);
+    assert!(dev_b.list_pending_asset_downloads().unwrap().is_empty());
+    assert_eq!(dev_b.list_cards(&deck.id).unwrap().len(), 104);
+    assert_eq!(
+        dev_b.get_asset(&hashes[519]).unwrap().unwrap().bytes,
+        b"asset-payload-0519"
+    );
+}
+
+#[test]
+fn step4_get_asset_failure_persists_pending_downloads_and_recovers_on_next_sync() {
+    struct FailNthGetTransport {
+        inner: MockTransport,
+        fail_on_call: Mutex<Option<usize>>,
+        get_calls: Mutex<usize>,
+    }
+
+    impl SyncTransport for FailNthGetTransport {
+        fn post_sync(&self, request: &SyncRequest) -> Result<SyncResponse, SyncError> {
+            self.inner.post_sync(request)
+        }
+
+        fn post_missing_assets(&self, hashes: &[String]) -> Result<Vec<String>, SyncError> {
+            self.inner.post_missing_assets(hashes)
+        }
+
+        fn put_asset(&self, hash: &str, mime: &str, bytes: &[u8]) -> Result<(), SyncError> {
+            self.inner.put_asset(hash, mime, bytes)
+        }
+
+        fn get_asset(&self, hash: &str) -> Result<DownloadedAsset, SyncError> {
+            let mut calls = self.get_calls.lock().unwrap();
+            *calls += 1;
+            let mut fail_slot = self.fail_on_call.lock().unwrap();
+            if *fail_slot == Some(*calls) {
+                *fail_slot = None;
+                return Err(SyncError::Transport("simulated Step-4 download drop".into()));
+            }
+            drop(fail_slot);
+            drop(calls);
+            self.inner.get_asset(hash)
+        }
+    }
+
+    let (_ta, dev_a) = open_collection();
+    let (_tb, dev_b) = open_collection();
+    let transport = FailNthGetTransport {
+        inner: MockTransport::default(),
+        fail_on_call: Mutex::new(Some(2)),
+        get_calls: Mutex::new(0),
+    };
+
+    dev_a
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+    dev_b
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+
+    let deck = dev_a.create_deck("Anatomy", 1_010).unwrap();
+    let a1 = dev_a.put_asset(b"image-alpha", "image/png", 1_020).unwrap();
+    let a2 = dev_a.put_asset(b"image-beta", "image/png", 1_021).unwrap();
+    dev_a
+        .create_card(
+            &deck.id,
+            &format!("![a](asset:{}) ![b](asset:{})", a1.hash, a2.hash),
+            "Both images",
+            vec![],
+            1_030,
+        )
+        .unwrap();
+
+    sync_collection(&dev_a, &transport, 2_000).unwrap();
+
+    // Device B pulls ops (advancing last_seq) and downloads asset #1, then fails on asset #2.
+    let err = sync_collection(&dev_b, &transport, 2_100).unwrap_err();
+    assert!(matches!(err, SyncError::Transport(_)));
+    assert_eq!(dev_b.sync_state().unwrap().last_seq, 2);
+    let pending = dev_b.list_pending_asset_downloads().unwrap();
+    assert_eq!(pending.len(), 1);
+
+    // Next sync pulls 0 new ops, yet still drains the persisted pending download!
+    let recovered = sync_collection(&dev_b, &transport, 2_200).unwrap();
+    assert_eq!(recovered.pulled_ops, 0);
+    assert_eq!(recovered.downloaded_assets, 1);
+    assert!(dev_b.list_pending_asset_downloads().unwrap().is_empty());
+    assert_eq!(dev_b.get_asset(&a1.hash).unwrap().unwrap().bytes, b"image-alpha");
+    assert_eq!(dev_b.get_asset(&a2.hash).unwrap().unwrap().bytes, b"image-beta");
+}
+
+#[test]
+fn step4_get_asset_401_triggers_refresh_and_completes_pending_downloads() {
+    struct Step4UnauthorizedAuth {
+        refreshes: Mutex<usize>,
+    }
+
+    impl AuthClient for Step4UnauthorizedAuth {
+        fn fetch_providers(&self) -> Result<AuthProviders, SyncError> {
+            unimplemented!()
+        }
+        fn exchange_code(&self, _: &str, _: &str, _: &str, _: &str) -> Result<AuthTokenResponse, SyncError> {
+            unimplemented!()
+        }
+        fn exchange_apple_native(&self, _: &str, _: Option<&str>, _: &str, _: Option<&str>, _: &str) -> Result<AuthTokenResponse, SyncError> {
+            unimplemented!()
+        }
+        fn refresh_token(&self, refresh_token: &str, _: &str) -> Result<AuthTokenResponse, SyncError> {
+            let mut count = self.refreshes.lock().unwrap();
+            *count += 1;
+            Ok(AuthTokenResponse {
+                access_token: "jwt-fresh".into(),
+                expires_in: 900,
+                refresh_token: format!("{refresh_token}-rot"),
+                account: AuthAccount {
+                    id: ACCOUNT_ID.into(),
+                    email: Some("alice@example.com".into()),
+                    provider: "google".into(),
+                },
+            })
+        }
+        fn logout(&self, _: &str) -> Result<(), SyncError> {
+            Ok(())
+        }
+        fn get_account(&self, _: &str) -> Result<AccountProfile, SyncError> {
+            unimplemented!()
+        }
+        fn start_trial(&self, _: &str) -> Result<AccountProfile, SyncError> {
+            unimplemented!()
+        }
+        fn create_polar_checkout(&self, _: &str) -> Result<String, SyncError> {
+            unimplemented!()
+        }
+        fn create_polar_portal(&self, _: &str) -> Result<String, SyncError> {
+            unimplemented!()
+        }
+        fn verify_apple_transaction(&self, _: &str, _: &str) -> Result<AccountProfile, SyncError> {
+            unimplemented!()
+        }
+        fn delete_account(&self, _: &str) -> Result<(), SyncError> {
+            Ok(())
+        }
+    }
+
+    struct TokenGatedGetTransport {
+        inner: Arc<MockTransport>,
+        token: String,
+    }
+
+    impl SyncTransport for TokenGatedGetTransport {
+        fn post_sync(&self, request: &SyncRequest) -> Result<SyncResponse, SyncError> {
+            self.inner.post_sync(request)
+        }
+        fn post_missing_assets(&self, hashes: &[String]) -> Result<Vec<String>, SyncError> {
+            self.inner.post_missing_assets(hashes)
+        }
+        fn put_asset(&self, hash: &str, mime: &str, bytes: &[u8]) -> Result<(), SyncError> {
+            self.inner.put_asset(hash, mime, bytes)
+        }
+        fn get_asset(&self, hash: &str) -> Result<DownloadedAsset, SyncError> {
+            if self.token != "jwt-fresh" {
+                return Err(SyncError::Unauthorized);
+            }
+            self.inner.get_asset(hash)
+        }
+    }
+
+    let (_ta, dev_a) = open_collection();
+    let (_tb, dev_b) = open_collection();
+    let shared = Arc::new(MockTransport::default());
+
+    dev_a
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+    let deck = dev_a.create_deck("Media", 1_010).unwrap();
+    let asset = dev_a.put_asset(b"img-401-retry", "image/png", 1_020).unwrap();
+    dev_a
+        .create_card(
+            &deck.id,
+            &format!("![x](asset:{})", asset.hash),
+            "Answer",
+            vec![],
+            1_030,
+        )
+        .unwrap();
+    sync_collection(&dev_a, shared.as_ref(), 2_000).unwrap();
+
+    let store = MemoryCredentialStore::default();
+    let creds = StoredCredentials::OAuth {
+        account_id: ACCOUNT_ID.into(),
+        email: Some("alice@example.com".into()),
+        provider: "google".into(),
+        access_token: "jwt-expiring-mid-sync".into(),
+        access_expires_at: 999_999,
+        refresh_token: "rt-1".into(),
+    };
+    connect_collection(&dev_b, &store, SERVER_URL, &creds, 2_000, false).unwrap();
+
+    let auth = Step4UnauthorizedAuth {
+        refreshes: Mutex::new(0),
+    };
+    let report = sync_with_credentials(
+        &dev_b,
+        &store,
+        &auth,
+        |_url, token| {
+            Ok(Box::new(TokenGatedGetTransport {
+                inner: Arc::clone(&shared),
+                token: token.to_owned(),
+            }))
+        },
+        2_100,
+    )
+    .unwrap();
+
+    assert_eq!(*auth.refreshes.lock().unwrap(), 1);
+    assert_eq!(report.downloaded_assets, 1);
+    assert!(dev_b.list_pending_asset_downloads().unwrap().is_empty());
+    assert_eq!(
+        dev_b.get_asset(&asset.hash).unwrap().unwrap().bytes,
+        b"img-401-retry"
+    );
+}
+
+#[test]
+fn corrupted_asset_download_rejected_and_stays_pending_until_valid_retry() {
+    struct CorruptOnceTransport {
+        inner: MockTransport,
+        corrupt_next_get: Mutex<bool>,
+    }
+
+    impl SyncTransport for CorruptOnceTransport {
+        fn post_sync(&self, request: &SyncRequest) -> Result<SyncResponse, SyncError> {
+            self.inner.post_sync(request)
+        }
+        fn post_missing_assets(&self, hashes: &[String]) -> Result<Vec<String>, SyncError> {
+            self.inner.post_missing_assets(hashes)
+        }
+        fn put_asset(&self, hash: &str, mime: &str, bytes: &[u8]) -> Result<(), SyncError> {
+            self.inner.put_asset(hash, mime, bytes)
+        }
+        fn get_asset(&self, hash: &str) -> Result<DownloadedAsset, SyncError> {
+            let mut corrupt = self.corrupt_next_get.lock().unwrap();
+            if *corrupt {
+                *corrupt = false;
+                return Ok(DownloadedAsset {
+                    mime: "image/png".into(),
+                    bytes: b"tampered-corrupt-bytes".to_vec(),
+                });
+            }
+            drop(corrupt);
+            self.inner.get_asset(hash)
+        }
+    }
+
+    let (_ta, dev_a) = open_collection();
+    let (_tb, dev_b) = open_collection();
+    let transport = CorruptOnceTransport {
+        inner: MockTransport::default(),
+        corrupt_next_get: Mutex::new(true),
+    };
+
+    dev_a
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+    dev_b
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+
+    let deck = dev_a.create_deck("Verify", 1_010).unwrap();
+    let asset = dev_a
+        .put_asset(b"authentic-png-bytes", "image/png", 1_020)
+        .unwrap();
+    dev_a
+        .create_card(
+            &deck.id,
+            &format!("![ok](asset:{})", asset.hash),
+            "Back",
+            vec![],
+            1_030,
+        )
+        .unwrap();
+    sync_collection(&dev_a, &transport, 2_000).unwrap();
+
+    // First pull receives tampered bytes -> SHA-256 mismatch error, asset NOT stored, stays pending.
+    let err = sync_collection(&dev_b, &transport, 2_100).unwrap_err();
+    assert!(matches!(
+        err,
+        SyncError::Collection(CollectionError::InvalidInput(_))
+    ));
+    assert!(dev_b.get_asset(&asset.hash).unwrap().is_none());
+    assert_eq!(
+        dev_b.list_pending_asset_downloads().unwrap(),
+        vec![asset.hash.clone()]
+    );
+
+    // Retry fetches authentic bytes -> stored and removed from pending_asset_downloads.
+    let ok = sync_collection(&dev_b, &transport, 2_200).unwrap();
+    assert_eq!(ok.downloaded_assets, 1);
+    assert!(dev_b.list_pending_asset_downloads().unwrap().is_empty());
+    assert_eq!(
+        dev_b.get_asset(&asset.hash).unwrap().unwrap().bytes,
+        b"authentic-png-bytes"
+    );
+}
+
+#[test]
+fn rejects_bogus_acked_op_ids_without_spinning() {
+    struct BogusAckTransport {
+        sync_calls: Mutex<usize>,
+    }
+
+    impl SyncTransport for BogusAckTransport {
+        fn post_sync(&self, _request: &SyncRequest) -> Result<SyncResponse, SyncError> {
+            *self.sync_calls.lock().unwrap() += 1;
+            Ok(SyncResponse {
+                latest_seq: 1,
+                has_more: false,
+                acked_op_ids: vec!["bogus-nonexistent-op-id".into()],
+                ops: vec![],
+            })
+        }
+        fn post_missing_assets(&self, _: &[String]) -> Result<Vec<String>, SyncError> {
+            Ok(vec![])
+        }
+        fn put_asset(&self, _: &str, _: &str, _: &[u8]) -> Result<(), SyncError> {
+            Ok(())
+        }
+        fn get_asset(&self, _: &str) -> Result<DownloadedAsset, SyncError> {
+            unimplemented!()
+        }
+    }
+
+    let (_ta, dev_a) = open_collection();
+    dev_a
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+    dev_a.create_deck("SpinGuard", 1_010).unwrap();
+
+    let transport = BogusAckTransport {
+        sync_calls: Mutex::new(0),
+    };
+    let err = sync_collection(&dev_a, &transport, 2_000).unwrap_err();
+    assert!(matches!(err, SyncError::InvalidResponse(_)));
+    // Must fail on the very first round rather than spinning MAX_SYNC_ROUNDS (1000) times.
+    assert_eq!(*transport.sync_calls.lock().unwrap(), 1);
+    assert_eq!(dev_a.pending_outbox_count().unwrap(), 1);
+    assert_eq!(dev_a.sync_state().unwrap().last_seq, 0);
+}
+
+#[test]
+fn rejects_has_more_without_advancing_cursor() {
+    struct StuckCursorTransport {
+        sync_calls: Mutex<usize>,
+        stale_ops: bool,
+    }
+
+    impl SyncTransport for StuckCursorTransport {
+        fn post_sync(&self, request: &SyncRequest) -> Result<SyncResponse, SyncError> {
+            *self.sync_calls.lock().unwrap() += 1;
+            let ops = if self.stale_ops {
+                vec![RemoteSyncOp {
+                    seq: request.since_seq,
+                    op_id: "stale-op".into(),
+                    device_id: "otherdev".into(),
+                    payload: rem_core::SyncOp::DeckDelete {
+                        id: "d-none".into(),
+                        hlc: "0000000001000-0000-otherdev".into(),
+                    },
+                }]
+            } else {
+                vec![]
+            };
+            Ok(SyncResponse {
+                latest_seq: request.since_seq + 5,
+                has_more: true,
+                acked_op_ids: vec![],
+                ops,
+            })
+        }
+        fn post_missing_assets(&self, _: &[String]) -> Result<Vec<String>, SyncError> {
+            Ok(vec![])
+        }
+        fn put_asset(&self, _: &str, _: &str, _: &[u8]) -> Result<(), SyncError> {
+            Ok(())
+        }
+        fn get_asset(&self, _: &str) -> Result<DownloadedAsset, SyncError> {
+            unimplemented!()
+        }
+    }
+
+    let (_ta, dev_a) = open_collection();
+    dev_a
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+
+    // Case 1: hasMore=true with empty ops.
+    let empty_transport = StuckCursorTransport {
+        sync_calls: Mutex::new(0),
+        stale_ops: false,
+    };
+    let err = sync_collection(&dev_a, &empty_transport, 2_000).unwrap_err();
+    assert!(matches!(err, SyncError::InvalidResponse(_)));
+    assert_eq!(*empty_transport.sync_calls.lock().unwrap(), 1);
+
+    // Case 2: hasMore=true with seq <= since_seq.
+    let stale_transport = StuckCursorTransport {
+        sync_calls: Mutex::new(0),
+        stale_ops: true,
+    };
+    let err2 = sync_collection(&dev_a, &stale_transport, 2_000).unwrap_err();
+    assert!(matches!(err2, SyncError::InvalidResponse(_)));
+    assert_eq!(*stale_transport.sync_calls.lock().unwrap(), 1);
+}
+
+#[test]
+fn http_transport_rejects_non_loopback_plaintext_http() {
+    assert!(matches!(
+        HttpTransport::new("http://insecure.example.com", "tok"),
+        Err(SyncError::NotConfigured(_))
+    ));
+    assert!(matches!(
+        HttpTransport::new("ftp://sync.example.com", "tok"),
+        Err(SyncError::NotConfigured(_))
+    ));
+    assert!(matches!(
+        HttpTransport::new("   ", "tok"),
+        Err(SyncError::NotConfigured(_))
+    ));
+    assert!(HttpTransport::new("https://sync.example.com/", "tok").is_ok());
+    assert!(HttpTransport::new("http://127.0.0.1:8787", "tok").is_ok());
+    assert!(HttpTransport::new("http://localhost:8787", "tok").is_ok());
+}
+
+#[test]
+fn sign_out_offline_edits_and_reviews_sync_on_reconnect() {
+    struct NoopAuth;
+    impl AuthClient for NoopAuth {
+        fn fetch_providers(&self) -> Result<AuthProviders, SyncError> {
+            unimplemented!()
+        }
+        fn exchange_code(&self, _: &str, _: &str, _: &str, _: &str) -> Result<AuthTokenResponse, SyncError> {
+            unimplemented!()
+        }
+        fn exchange_apple_native(&self, _: &str, _: Option<&str>, _: &str, _: Option<&str>, _: &str) -> Result<AuthTokenResponse, SyncError> {
+            unimplemented!()
+        }
+        fn refresh_token(&self, _: &str, _: &str) -> Result<AuthTokenResponse, SyncError> {
+            unimplemented!()
+        }
+        fn logout(&self, _: &str) -> Result<(), SyncError> {
+            Ok(())
+        }
+        fn get_account(&self, _: &str) -> Result<AccountProfile, SyncError> {
+            unimplemented!()
+        }
+        fn start_trial(&self, _: &str) -> Result<AccountProfile, SyncError> {
+            unimplemented!()
+        }
+        fn create_polar_checkout(&self, _: &str) -> Result<String, SyncError> {
+            unimplemented!()
+        }
+        fn create_polar_portal(&self, _: &str) -> Result<String, SyncError> {
+            unimplemented!()
+        }
+        fn verify_apple_transaction(&self, _: &str, _: &str) -> Result<AccountProfile, SyncError> {
+            unimplemented!()
+        }
+        fn delete_account(&self, _: &str) -> Result<(), SyncError> {
+            Ok(())
+        }
+    }
+
+    let (_ta, dev_a) = open_collection();
+    let (_tb, dev_b) = open_collection();
+    let store_a = MemoryCredentialStore::default();
+    let transport = MockTransport::default();
+
+    let creds = StoredCredentials::DevToken {
+        account_id: ACCOUNT_ID.into(),
+        token: "dev-tok".into(),
+    };
+    connect_collection(&dev_a, &store_a, SERVER_URL, &creds, 1_000, false).unwrap();
+    dev_b
+        .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
+        .unwrap();
+
+    let deck = dev_a.create_deck("OfflineSync", 1_010).unwrap();
+    let card = dev_a
+        .create_card(&deck.id, "Original Q", "Original A", vec!["v1".into()], 1_020)
+        .unwrap();
+    sync_collection(&dev_a, &transport, 1_100).unwrap();
+    sync_collection(&dev_b, &transport, 1_110).unwrap();
+
+    // Sign out dev_a -> network sync is paused, but bound-account dirty tracking stays active.
+    sign_out_with_client(&dev_a, &store_a, &NoopAuth).unwrap();
+    assert!(matches!(
+        sync_collection(&dev_a, &transport, 1_200),
+        Err(SyncError::NotConfigured(_))
+    ));
+
+    // Perform offline mutations on already-stamped items while signed out.
+    dev_a
+        .update_deck(
+            &deck.id,
+            DeckPatch {
+                name: Some("Renamed Offline".into()),
+                ..DeckPatch::default()
+            },
+            2_000,
+        )
+        .unwrap();
+    dev_a
+        .update_card(
+            &card.id,
+            CardPatch {
+                front: Some("Edited Offline Q".into()),
+                ..CardPatch::default()
+            },
+            2_010,
+        )
+        .unwrap();
+    dev_a
+        .commit_review(ReviewCommit {
+            card_id: card.id.clone(),
+            deck_id: deck.id.clone(),
+            patch: CardPatch {
+                scheduling: Some(FsrsState {
+                    reps: 1,
+                    state: 2,
+                    stability: 3.5,
+                    difficulty: 5.0,
+                    last_review: Some(2_020),
+                    due: 90_000,
+                    ..card.scheduling.clone()
+                }),
+                ..CardPatch::default()
+            },
+            reviewed_at: 2_020,
+            fsrs_grade: Some(Grade::Good),
+            daily: None,
+        })
+        .unwrap();
+    assert_eq!(dev_a.pending_outbox_count().unwrap(), 3);
+
+    // Reconnect dev_a to the same account and sync both devices.
+    connect_collection(&dev_a, &store_a, SERVER_URL, &creds, 3_000, false).unwrap();
+    let push = sync_collection(&dev_a, &transport, 3_010).unwrap();
+    assert_eq!(push.pushed_ops, 3);
+    assert_eq!(dev_a.pending_outbox_count().unwrap(), 0);
+
+    sync_collection(&dev_b, &transport, 3_020).unwrap();
+    assert_eq!(dev_b.list_decks().unwrap()[0].name, "Renamed Offline");
+    let card_b = dev_b.get_card(&card.id).unwrap().unwrap();
+    assert_eq!(card_b.front, "Edited Offline Q");
+    assert_eq!(card_b.scheduling.reps, 1);
+    assert_eq!(dev_b.list_review_logs(&deck.id).unwrap().len(), 1);
 }
