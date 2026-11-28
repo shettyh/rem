@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.1 (2026-11-28)
+
+## What's Changed
+* fix(anki,ui,ios): polish nested deck tree, cascading subtree delete, and Anki card rendering by @shettyh in https://github.com/shettyh/rem/pull/277
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.30.0...v0.30.1
+
 ## 0.30.0 (2026-11-28)
 
 ## What's Changed
