@@ -53,6 +53,7 @@
 }
 
 html {
+  overflow-x: clip;
   scroll-padding-top: 90px;
 }
 
@@ -1264,12 +1265,14 @@ h2 em,
 }
 
 .check-list li {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
+  position: relative;
+  padding-left: 22px;
 }
 
-.check-list span {
+.check-list li > span:first-child {
+  position: absolute;
+  left: 0;
+  top: 0;
   color: var(--purple);
   font-weight: 700;
 }
