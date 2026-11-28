@@ -1,9 +1,17 @@
 import { DurableObject } from 'cloudflare:workers'
-import type { Env, QuotaCheckResult, RemoteSyncOp, SyncRequest, SyncResponse } from './types'
+import type { Env, QuotaCheckResult, RemoteSyncOp, SyncRequest, SyncRpcResult } from './types'
 
 const MAX_SYNC_LIMIT = 500
 const DEFAULT_SYNC_LIMIT = 500
 const MAX_PUSH_BATCH = 500
+const MAX_OP_PAYLOAD_BYTES = 256 * 1024
+const MAX_BATCH_PAYLOAD_BYTES = 2 * 1024 * 1024
+const HLC_RE = /^\d{13}-\d{4}-[a-z0-9]{8}$/
+const TEXT_ENCODER = new TextEncoder()
+
+function validationFailure(error: string): SyncRpcResult {
+  return { status: 'invalid', error }
+}
 
 export class UserSyncDO extends DurableObject<Env> {
   private schemaReady = false
@@ -34,39 +42,72 @@ export class UserSyncDO extends DurableObject<Env> {
     this.schemaReady = true
   }
 
-  async sync(req: SyncRequest): Promise<SyncResponse> {
+  async sync(req: SyncRequest): Promise<SyncRpcResult> {
     this.ensureSchema()
-    if (typeof req.deviceId !== 'string' || req.deviceId.trim().length === 0 || req.deviceId.length > 64) {
-      throw new Error('invalid deviceId')
+    if (!req || typeof req !== 'object' || Array.isArray(req)) {
+      return validationFailure('invalid sync request body')
     }
-    if (!Number.isInteger(req.sinceSeq) || req.sinceSeq < 0) {
-      throw new Error('invalid sinceSeq')
+    if (typeof req.deviceId !== 'string' || req.deviceId.trim().length === 0 || req.deviceId.length > 64) {
+      return validationFailure('invalid deviceId')
+    }
+    if (!Number.isSafeInteger(req.sinceSeq) || req.sinceSeq < 0) {
+      return validationFailure('invalid sinceSeq')
     }
     if (!Array.isArray(req.ops) || req.ops.length > MAX_PUSH_BATCH) {
-      throw new Error(`ops batch must contain at most ${MAX_PUSH_BATCH} entries`)
+      return validationFailure(`ops batch must contain at most ${MAX_PUSH_BATCH} entries`)
     }
     const rawLimit = req.limit ?? DEFAULT_SYNC_LIMIT
-    if (!Number.isInteger(rawLimit) || rawLimit < 1) {
-      throw new Error('invalid limit')
+    if (!Number.isSafeInteger(rawLimit) || rawLimit < 1) {
+      return validationFailure('invalid limit')
     }
     const limit = Math.min(rawLimit, MAX_SYNC_LIMIT)
 
+    const preparedOps: Array<{ opId: string; payloadJson: string }> = []
+    let totalBatchBytes = 0
+
     for (const op of req.ops) {
+      if (!op || typeof op !== 'object' || Array.isArray(op)) {
+        return validationFailure('invalid op entry')
+      }
       if (typeof op.opId !== 'string' || op.opId.trim().length === 0 || op.opId.length > 128) {
-        throw new Error('invalid opId')
+        return validationFailure('invalid opId')
       }
       if (!op.payload || typeof op.payload !== 'object' || Array.isArray(op.payload)) {
-        throw new Error('invalid op payload')
+        return validationFailure('invalid op payload')
       }
-      if (typeof op.payload.type !== 'string' || typeof op.payload.hlc !== 'string') {
-        throw new Error('op payload must include string type and hlc')
+      if (
+        typeof op.payload.type !== 'string' ||
+        op.payload.type.trim().length === 0 ||
+        op.payload.type.length > 64
+      ) {
+        return validationFailure('op payload must include valid string type')
       }
+      if (typeof op.payload.hlc !== 'string' || !HLC_RE.test(op.payload.hlc)) {
+        return validationFailure('op payload must include canonical hlc')
+      }
+      let payloadJson: string
+      try {
+        payloadJson = JSON.stringify(op.payload)
+      } catch {
+        return validationFailure('op payload is not serializable')
+      }
+      const opBytes = TEXT_ENCODER.encode(payloadJson).byteLength
+      if (opBytes > MAX_OP_PAYLOAD_BYTES) {
+        return validationFailure(`op payload exceeds maximum size of ${MAX_OP_PAYLOAD_BYTES} bytes`)
+      }
+      totalBatchBytes += opBytes
+      if (totalBatchBytes > MAX_BATCH_PAYLOAD_BYTES) {
+        return validationFailure(
+          `ops batch exceeds maximum serialized size of ${MAX_BATCH_PAYLOAD_BYTES} bytes`,
+        )
+      }
+      preparedOps.push({ opId: op.opId, payloadJson })
     }
 
     const now = Date.now()
-    return this.ctx.storage.transactionSync(() => {
+    const response = this.ctx.storage.transactionSync(() => {
       const ackedOpIds: string[] = []
-      for (const op of req.ops) {
+      for (const op of preparedOps) {
         // Check existence before INSERT so retried opIds never burn AUTOINCREMENT seq values.
         const existing = this.ctx.storage.sql
           .exec<{ op_id: string }>('SELECT op_id FROM ops WHERE op_id = ?', op.opId)
@@ -76,7 +117,7 @@ export class UserSyncDO extends DurableObject<Env> {
             'INSERT INTO ops(op_id, device_id, payload, created_at) VALUES (?, ?, ?, ?)',
             op.opId,
             req.deviceId,
-            JSON.stringify(op.payload),
+            op.payloadJson,
             now,
           )
         }
@@ -111,6 +152,7 @@ export class UserSyncDO extends DurableObject<Env> {
         ops,
       }
     })
+    return { status: 'ok', response }
   }
 
   async missingAssets(hashes: string[]): Promise<string[]> {

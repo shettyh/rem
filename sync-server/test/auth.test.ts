@@ -742,11 +742,23 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
     expect(delA.status).toBe(200)
     expect(await delA.json()).toEqual({ deleted: true })
 
-    // User A's asset, DO ops, and refresh token are all gone.
-    const assetAfterDel = await callWorker(`https://sync.example.com/v1/assets/${hash}`, {
+    // User A's stale JWT is rejected with 401 account_not_found, and R2/DO/refresh token are purged.
+    const staleJwtAsset = await callWorker(`https://sync.example.com/v1/assets/${hash}`, {
       headers: { Authorization: `Bearer ${userA.accessToken}` },
     })
-    expect(assetAfterDel.status).toBe(404)
+    expect(staleJwtAsset.status).toBe(401)
+    expect(await staleJwtAsset.json()).toEqual({ error: 'account_not_found' })
+
+    const staleJwtSync = await callWorker('https://sync.example.com/v1/sync', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${userA.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ deviceId: 'dev-a', sinceSeq: 0, ops: [] }),
+    })
+    expect(staleJwtSync.status).toBe(401)
+    expect(await staleJwtSync.json()).toEqual({ error: 'account_not_found' })
 
     const refreshAfterDel = await callWorker('https://sync.example.com/v1/auth/refresh', {
       method: 'POST',
@@ -755,10 +767,12 @@ describe('OAuth, token refresh, isolation, and account deletion', () => {
     })
     expect(refreshAfterDel.status).toBe(401)
 
+    // Verify underlying R2 object and DO op log were actually purged.
+    expect(await TEST_ENV.ASSETS.get(`users/${userA.account.id}/assets/${hash}`)).toBeNull()
     const opsAfterDel = await callWorker('https://sync.example.com/v1/sync', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${userA.accessToken}`,
+        Authorization: `Bearer ${TEST_ENV.DEV_AUTH_TOKEN}:${userA.account.id}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ deviceId: 'dev-a', sinceSeq: 0, ops: [] }),
