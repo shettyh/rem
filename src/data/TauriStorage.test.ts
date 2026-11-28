@@ -228,4 +228,20 @@ describe('TauriStorage', () => {
       ['storage_get_stats', { deckId: 'd1', days: 30, now: 456 }],
     ])
   })
+
+  it('forwards deleteDeckTree to native command and notifies subscribers', async () => {
+    const fake = fakeInvoke((command) => {
+      if (command === 'storage_delete_deck_tree') return ['d1', 'd2']
+      throw new Error(`unexpected command ${command}`)
+    })
+    const storage = new TauriStorage(fake.invoke, () => 789)
+    let notifications = 0
+    storage.subscribe(() => notifications++)
+
+    await expect(storage.deleteDeckTree('Anatomy')).resolves.toEqual(['d1', 'd2'])
+    expect(fake.calls).toEqual([
+      ['storage_delete_deck_tree', { path: 'Anatomy', now: 789 }],
+    ])
+    expect(notifications).toBe(1)
+  })
 })

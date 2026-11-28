@@ -4,6 +4,7 @@ import { useStorage } from '../data/StorageContext'
 import type { CardSearchHit } from '../domain/models'
 import { stripClozeMarkup } from '../features/cards/cloze'
 import { hasImageOcclusion, stripOcclusionMarkup } from '../features/cards/occlusion'
+import { stripRubyMarkup } from '../features/cards/ruby'
 
 interface SearchModalProps {
   open: boolean
@@ -11,8 +12,9 @@ interface SearchModalProps {
 }
 
 function snippet(markdown: string, maxLen = 110): string {
-  const plain = stripClozeMarkup(stripOcclusionMarkup(markdown))
+  const plain = stripRubyMarkup(stripClozeMarkup(stripOcclusionMarkup(markdown)))
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '[image]')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[^\n]*\n?|```/g, ' '))
     .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?)/gm, '')
     .replace(/[*_`~]+/g, '')

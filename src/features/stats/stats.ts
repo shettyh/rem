@@ -1,4 +1,5 @@
 import type { Deck, Grade, ReviewLog } from '../../domain/models'
+import { deckIsStrictDescendant } from '../decks/deckTree'
 import { localDay } from '../review/day'
 
 export type StatsRange = 7 | 30 | 90
@@ -35,10 +36,20 @@ export function buildStats(
   deckId: string | null,
 ): StatsSummary {
   const deckById = new Map(decks.map((deck) => [deck.id, deck]))
+  const rootDeck = deckId ? deckById.get(deckId) : undefined
+  const scopedDeckIds = deckId === null
+    ? null
+    : new Set(
+        rootDeck
+          ? decks
+              .filter((deck) => deck.id === rootDeck.id || deckIsStrictDescendant(deck.name, rootDeck.name))
+              .map((deck) => deck.id)
+          : [deckId],
+      )
   const scopedHistory = logs.filter((log) => (
     log.reviewedAt <= now &&
     deckById.has(log.deckId) &&
-    (deckId === null || log.deckId === deckId)
+    (scopedDeckIds === null || scopedDeckIds.has(log.deckId))
   ))
 
   const start = new Date(now)
@@ -64,7 +75,7 @@ export function buildStats(
   const totalReviews = ranged.length
   const recalled = grades.hard + grades.good + grades.easy
   const byDeck = decks
-    .filter((deck) => deckId === null || deck.id === deckId)
+    .filter((deck) => scopedDeckIds === null || scopedDeckIds.has(deck.id))
     .map((deck) => {
       const deckLogs = ranged.filter((log) => log.deckId === deck.id)
       const deckRecalled = deckLogs.filter((log) => log.grade !== 'again').length

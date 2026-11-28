@@ -14,6 +14,39 @@ struct DeckTreeNode: Identifiable {
     var id: String {
         deck?.id ?? "group:\(path)"
     }
+
+    /// IDs of every real deck in this subtree (self when real + all descendants).
+    var subtreeDeckIds: [String] {
+        var ids: [String] = []
+        if let deck {
+            ids.append(deck.id)
+        }
+        for child in children {
+            ids.append(contentsOf: child.subtreeDeckIds)
+        }
+        return ids
+    }
+
+    /// Total number of real decks in this subtree.
+    var subtreeDeckCount: Int {
+        subtreeDeckIds.count
+    }
+
+    /// Number of strict descendant real decks (excluding self when real).
+    var subdeckCount: Int {
+        max(0, subtreeDeckCount - (deck == nil ? 0 : 1))
+    }
+
+    /// Rolled-up total cards across this subtree.
+    var subtreeCardCount: UInt32 {
+        totalCards
+    }
+}
+
+struct DeckDeleteCopy: Equatable {
+    let title: String
+    let message: String
+    let confirmLabel: String
 }
 
 enum DeckTreeBuilder {
@@ -29,9 +62,13 @@ enum DeckTreeBuilder {
         segments(name).last ?? name
     }
 
+    static func isStrictDescendant(_ candidate: String, of root: String) -> Bool {
+        candidate.hasPrefix("\(root)\(separator)")
+    }
+
     static func isDescendantOrSelf(_ candidate: String, of root: String) -> Bool {
         if candidate == root { return true }
-        return candidate.hasPrefix("\(root)\(separator)")
+        return isStrictDescendant(candidate, of: root)
     }
 
     static func build(from summaries: [DeckSummaryDto]) -> [DeckTreeNode] {
@@ -70,7 +107,23 @@ enum DeckTreeBuilder {
             let parts = segments(summary.name)
             guard !parts.isEmpty else { continue }
             let node = ensureNode(parts: parts, depth: parts.count - 1)
-            node.deck = summary
+            if node.deck == nil {
+                node.deck = summary
+            } else {
+                // Preserve duplicate-named decks as sibling nodes rather than silently overwriting.
+                let dupNode = MutableNode(
+                    path: "\(node.path)#\(summary.id)",
+                    label: node.label,
+                    depth: node.depth
+                )
+                dupNode.deck = summary
+                if node.depth == 0 {
+                    roots.append(dupNode)
+                } else {
+                    let parent = ensureNode(parts: parts, depth: node.depth - 1)
+                    parent.children.append(dupNode)
+                }
+            }
         }
 
         func freeze(_ node: MutableNode) -> DeckTreeNode {
@@ -110,5 +163,78 @@ enum DeckTreeBuilder {
         }
         visit(roots)
         return out
+    }
+
+    static func pruneCollapsedPaths(_ collapsed: Set<String>, removing removedPaths: [String]) -> Set<String> {
+        guard !removedPaths.isEmpty else { return collapsed }
+        return Set(
+            collapsed.filter { existing in
+                !removedPaths.contains { target in
+                    existing == target || isStrictDescendant(existing, of: target)
+                }
+            }
+        )
+    }
+
+    static func describeDelete(node: DeckTreeNode) -> DeckDeleteCopy {
+        let cards = Int(node.subtreeCardCount)
+        let cardsText = "\(cards) \(cards == 1 ? "card" : "cards")"
+        if node.deck == nil {
+            let subdecks = node.subtreeDeckCount
+            let decksText = "\(subdecks) \(subdecks == 1 ? "subdeck" : "subdecks")"
+            return DeckDeleteCopy(
+                title: "Delete \"\(node.label)\"?",
+                message: "Permanently deletes \(decksText) and \(cardsText) inside \"\(node.path)\" locally and on synced devices.",
+                confirmLabel: "Delete all"
+            )
+        }
+        let deckName = node.deck?.name ?? node.label
+        let subdecks = node.subdeckCount
+        if subdecks > 0 {
+            let subText = "\(subdecks) \(subdecks == 1 ? "subdeck" : "subdecks")"
+            return DeckDeleteCopy(
+                title: "Delete \"\(node.label)\" and subdecks?",
+                message: "Permanently deletes \"\(deckName)\", \(subText), and \(cardsText) total locally and on synced devices.",
+                confirmLabel: "Delete all"
+            )
+        }
+        let body = cards > 0
+            ? "Permanently deletes \"\(deckName)\" and its \(cardsText) locally and on synced devices."
+            : "Permanently deletes the empty deck \"\(deckName)\" locally and on synced devices."
+        return DeckDeleteCopy(
+            title: "Delete \"\(node.label)\"?",
+            message: body,
+            confirmLabel: "Delete"
+        )
+    }
+
+    static func describeDelete(
+        deckId: String,
+        deckName: String,
+        allSummaries: [DeckSummaryDto]
+    ) -> DeckDeleteCopy {
+        let direct = allSummaries.first { $0.id == deckId }
+        let descendants = allSummaries.filter {
+            $0.id != deckId && isStrictDescendant($0.name, of: deckName)
+        }
+        let label = leafName(deckName)
+        let totalCards = Int((direct?.totalCards ?? 0) + descendants.reduce(0) { $0 + $1.totalCards })
+        let cardsText = "\(totalCards) \(totalCards == 1 ? "card" : "cards")"
+        if !descendants.isEmpty {
+            let subText = "\(descendants.count) \(descendants.count == 1 ? "subdeck" : "subdecks")"
+            return DeckDeleteCopy(
+                title: "Delete \"\(label)\" and subdecks?",
+                message: "Permanently deletes \"\(deckName)\", \(subText), and \(cardsText) total locally and on synced devices.",
+                confirmLabel: "Delete all"
+            )
+        }
+        let body = totalCards > 0
+            ? "Permanently deletes \"\(deckName)\" and its \(cardsText) locally and on synced devices."
+            : "Permanently deletes the empty deck \"\(deckName)\" locally and on synced devices."
+        return DeckDeleteCopy(
+            title: "Delete \"\(label)\"?",
+            message: body,
+            confirmLabel: "Delete"
+        )
     }
 }

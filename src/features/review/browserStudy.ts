@@ -12,7 +12,7 @@ import {
   type StudyView,
 } from '../../domain/models'
 import { nextStates } from '../../domain/scheduler/reviewScheduler'
-import { deckIsDescendantOrSelf } from '../decks/deckTree'
+import { deckIsStrictDescendant } from '../decks/deckTree'
 import {
   selectCustomStudyCards,
 } from './customStudy'
@@ -237,7 +237,7 @@ async function buildInitialCards(
     const rootDeck = allDecks.find((d) => d.id === request.deckId)
     if (!rootDeck) return []
     const targetDecks = allDecks.filter(
-      (d) => d.id === rootDeck.id || deckIsDescendantOrSelf(d.name, rootDeck.name),
+      (d) => d.id === rootDeck.id || deckIsStrictDescendant(d.name, rootDeck.name),
     )
     const reviewedTodayByGroup = request.custom
       ? new Map<string, Set<string>>()

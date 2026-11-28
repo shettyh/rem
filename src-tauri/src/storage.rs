@@ -50,6 +50,15 @@ pub fn storage_delete_deck(
 }
 
 #[tauri::command]
+pub fn storage_delete_deck_tree(
+    collection: State<'_, Collection>,
+    path: String,
+    now: i64,
+) -> Result<Vec<String>, String> {
+    collection.delete_deck_tree(&path, now).map_err(message)
+}
+
+#[tauri::command]
 pub fn storage_update_deck(
     collection: State<'_, Collection>,
     id: String,

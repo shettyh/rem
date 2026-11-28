@@ -3,8 +3,12 @@ import { DEFAULT_DECK_SETTINGS, type Deck } from '../../domain/models'
 import {
   buildDeckTree,
   deckIsDescendantOrSelf,
+  deckIsStrictDescendant,
+  describeDeckDelete,
   flattenVisibleDeckTree,
   normalizeDeckName,
+  pruneCollapsedDeckPaths,
+  summarizeDeckSubtree,
 } from './deckTree'
 
 function makeDeck(id: string, name: string): Deck {
@@ -65,5 +69,67 @@ describe('deckTree', () => {
 
     const collapsed = flattenVisibleDeckTree(tree, new Set(['CS']))
     expect(collapsed.map((n) => n.path)).toEqual(['CS', 'Languages', 'Languages::Japanese'])
+  })
+
+  it('checks strict descendants, summarizes subtrees, formats delete copy, and prunes collapsed paths', () => {
+    expect(deckIsStrictDescendant('CS', 'CS')).toBe(false)
+    expect(deckIsStrictDescendant('CS::Rust', 'CS')).toBe(true)
+    expect(deckIsStrictDescendant('CSS', 'CS')).toBe(false)
+
+    const tree = buildDeckTree([
+      { deck: makeDeck('1', 'Anatomy::Unit 01::Cells'), due: 2, newCount: 1, total: 10, studied: 4 },
+      { deck: makeDeck('2', 'Anatomy::Unit 02::Bones'), due: 3, newCount: 2, total: 15, studied: 5 },
+      { deck: makeDeck('3', 'CS'), due: 1, newCount: 0, total: 4, studied: 4 },
+      { deck: makeDeck('4', 'CS::Rust'), due: 2, newCount: 1, total: 6, studied: 2 },
+      { deck: makeDeck('5', 'Solo'), due: 0, newCount: 0, total: 0, studied: 0 },
+    ])
+
+    // Virtual parent folder "Anatomy"
+    const anatomy = tree[0]
+    expect(summarizeDeckSubtree(anatomy)).toEqual({
+      deckCount: 2,
+      subdeckCount: 2,
+      cardCount: 25,
+      deckIds: ['1', '2'],
+      paths: [
+        'Anatomy',
+        'Anatomy::Unit 01',
+        'Anatomy::Unit 01::Cells',
+        'Anatomy::Unit 02',
+        'Anatomy::Unit 02::Bones',
+      ],
+    })
+    expect(describeDeckDelete(anatomy)).toEqual({
+      title: 'Delete "Anatomy"?',
+      description: 'Permanently deletes 2 subdecks and 25 cards inside "Anatomy". This can\'t be undone.',
+      confirmLabel: 'Delete all',
+    })
+
+    // Real parent deck "CS"
+    const cs = tree[1]
+    expect(summarizeDeckSubtree(cs)).toMatchObject({
+      deckCount: 2,
+      subdeckCount: 1,
+      cardCount: 10,
+      deckIds: ['3', '4'],
+    })
+    expect(describeDeckDelete(cs)).toEqual({
+      title: 'Delete "CS" and subdecks?',
+      description: 'Permanently deletes "CS", 1 subdeck, and 10 cards total. This can\'t be undone.',
+      confirmLabel: 'Delete all',
+    })
+
+    // Empty leaf deck "Solo"
+    expect(describeDeckDelete(tree[2])).toEqual({
+      title: 'Delete "Solo"?',
+      description: 'Permanently deletes the empty deck "Solo". This can\'t be undone.',
+      confirmLabel: 'Delete deck',
+    })
+
+    const pruned = pruneCollapsedDeckPaths(
+      new Set(['Anatomy', 'Anatomy::Unit 01', 'Anatomy2', 'CS']),
+      ['Anatomy'],
+    )
+    expect([...pruned]).toEqual(['Anatomy2', 'CS'])
   })
 })

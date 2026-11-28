@@ -1,16 +1,21 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useStorage } from '../../data/StorageContext'
 import { useStorageQuery } from '../../data/useStorageQuery'
+import { ConfirmDialog } from '../../ui/ConfirmDialog'
 import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
-import { loadDueOverview } from '../review/dueOverview'
+import { loadDueOverview, type DeckOverview } from '../review/dueOverview'
 import {
   buildDeckTree,
   COLLAPSED_DECKS_EVENT,
+  describeDeckDelete,
   flattenVisibleDeckTree,
   loadCollapsedDeckPaths,
+  pruneCollapsedDeckPaths,
   saveCollapsedDeckPaths,
+  summarizeDeckSubtree,
+  type DeckTreeNode,
 } from './deckTree'
 
 /** Time-of-day greeting for the Today header. */
@@ -41,6 +46,7 @@ export function DeckListPage() {
   const [name, setName] = useState('')
   const [deckError, setDeckError] = useState<string | null>(null)
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(() => loadCollapsedDeckPaths())
+  const [pendingDelete, setPendingDelete] = useState<DeckTreeNode<DeckOverview> | null>(null)
 
   useEffect(() => {
     const sync = () => setCollapsedPaths(loadCollapsedDeckPaths())
@@ -49,13 +55,33 @@ export function DeckListPage() {
   }, [])
 
   function toggleDeckPath(path: string) {
-    setCollapsedPaths((prev) => {
-      const next = new Set(prev)
-      if (next.has(path)) next.delete(path)
-      else next.add(path)
-      saveCollapsedDeckPaths(next)
-      return next
-    })
+    const next = new Set(collapsedPaths)
+    if (next.has(path)) next.delete(path)
+    else next.add(path)
+    setCollapsedPaths(next)
+    saveCollapsedDeckPaths(next)
+  }
+
+  async function confirmDeleteNode(node: DeckTreeNode<DeckOverview>) {
+    const summary = summarizeDeckSubtree(node)
+    setPendingDelete(null)
+    try {
+      const deck = node.item?.deck ?? null
+      if (deck) {
+        await storage.deleteDeck(deck.id)
+      } else {
+        await storage.deleteDeckTree(node.path)
+      }
+      await storage.sweepOrphanAssets()
+      const nextCollapsed = pruneCollapsedDeckPaths(loadCollapsedDeckPaths(), [
+        node.path,
+        ...summary.paths,
+      ])
+      setCollapsedPaths(nextCollapsed)
+      saveCollapsedDeckPaths(nextCollapsed)
+    } catch (err) {
+      setDeckError(err instanceof Error ? err.message : 'Could not delete deck.')
+    }
   }
 
   const overview = useStorageQuery(() => loadDueOverview(storage, Date.now()), [])
@@ -166,111 +192,145 @@ export function DeckListPage() {
                 </span>
               </div>
               <nav className="deck-list" aria-label="Decks">
-                {flattenVisibleDeckTree(buildDeckTree(decks), collapsedPaths).map((node) => {
-                  const hasChildren = node.children.length > 0
-                  const isCollapsed = collapsedPaths.has(node.path)
-                  const due = node.due
-                  const newCount = node.newCount
-                  const total = node.total
-                  const studied = node.studied
-                  const pct = total > 0 ? Math.min(1, studied / total) : 0
-                  const ringCircumference = 2 * Math.PI * 7
-                  const ringOffset = ringCircumference * (1 - pct)
-                  const complete = total > 0 && studied >= total
-                  const deck = node.item?.deck ?? null
-                  const rowStyle =
-                    node.depth > 0 ? { paddingLeft: `${node.depth * 22}px` } : undefined
+                {(() => {
+                  const deckTree = buildDeckTree(decks)
+                  const hasAnyNested = deckTree.some((root) => root.children.length > 0)
+                  const visibleNodes = flattenVisibleDeckTree(deckTree, collapsedPaths)
+                  return visibleNodes.map((node) => {
+                    const hasChildren = node.children.length > 0
+                    const isCollapsed = collapsedPaths.has(node.path)
+                    const due = node.due
+                    const newCount = node.newCount
+                    const total = node.total
+                    const studied = node.studied
+                    const pct = total > 0 ? Math.min(1, studied / total) : 0
+                    const ringCircumference = 2 * Math.PI * 7
+                    const ringOffset = ringCircumference * (1 - pct)
+                    const complete = total > 0 && studied >= total
+                    const deck = node.item?.deck ?? null
+                    const visualDepth = Math.min(node.depth, 5)
+                    const canQuickDelete = !deck || hasChildren
 
-                  const meta = (
-                    <span className="deck-list-meta">
-                      {due > 0 && <span className="deck-list-due has-due">{due} due</span>}
-                      {newCount > 0 && <span>{newCount} new</span>}
-                      {total > 0 && studied > 0 ? (
-                        <span
-                          className={`deck-progress-ring${complete ? ' is-complete' : ''}`}
-                          title={`${studied} of ${total} studied`}
-                        >
-                          <svg viewBox="0 0 18 18" aria-hidden="true">
-                            <circle className="deck-progress-track" cx="9" cy="9" r="7" />
-                            <circle
-                              className="deck-progress-fill"
-                              cx="9"
-                              cy="9"
-                              r="7"
-                              strokeDasharray={ringCircumference}
-                              strokeDashoffset={ringOffset}
-                            />
-                          </svg>
-                          <span>
-                            {studied} / {total} studied
-                          </span>
-                        </span>
-                      ) : (
-                        <span>
-                          {total} {total === 1 ? 'card' : 'cards'}
-                        </span>
-                      )}
-                    </span>
-                  )
-
-                  return (
-                    <div
-                      key={deck ? deck.id : `group:${node.path}`}
-                      className={`deck-list-row${node.depth > 0 ? ' deck-list-row--nested' : ''}${!deck ? ' deck-list-row--virtual' : ''}`}
-                      style={rowStyle}
-                    >
-                      {deck && hasChildren && (
-                        <button
-                          type="button"
-                          className={`deck-tree-toggle${isCollapsed ? ' is-collapsed' : ''}`}
-                          aria-label={isCollapsed ? `Expand ${node.label}` : `Collapse ${node.label}`}
-                          aria-expanded={!isCollapsed}
-                          onClick={() => toggleDeckPath(node.path)}
-                        >
-                          ▾
-                        </button>
-                      )}
-                      {deck ? (
-                        <Link to={`/decks/${deck.id}`} className="deck-list-link">
-                          <span className="deck-list-name">{node.label}</span>
-                          {meta}
-                        </Link>
-                      ) : (
-                        <button
-                          type="button"
-                          className="deck-list-link deck-list-folder-btn"
-                          aria-expanded={!isCollapsed}
-                          onClick={() => toggleDeckPath(node.path)}
-                        >
-                          <span className={`deck-tree-toggle${isCollapsed ? ' is-collapsed' : ''}`} aria-hidden="true">
-                            ▾
-                          </span>
-                          <span className="deck-list-name">{node.label}</span>
-                          {meta}
-                        </button>
-                      )}
-                      {deck ? (
-                        due > 0 ? (
-                          <Link
-                            to={`/decks/${deck.id}/study`}
-                            className="btn btn-ghost btn-sm deck-list-study"
-                            aria-label={`Study ${deck.name}`}
+                    const meta = (
+                      <span className="deck-list-meta">
+                        {due > 0 && <span className="deck-list-due has-due">{due} due</span>}
+                        {newCount > 0 && <span>{newCount} new</span>}
+                        {total > 0 && studied > 0 ? (
+                          <span
+                            className={`deck-progress-ring${complete ? ' is-complete' : ''}`}
+                            title={`${studied} of ${total} studied`}
                           >
-                            Study
+                            <svg viewBox="0 0 18 18" aria-hidden="true">
+                              <circle className="deck-progress-track" cx="9" cy="9" r="7" />
+                              <circle
+                                className="deck-progress-fill"
+                                cx="9"
+                                cy="9"
+                                r="7"
+                                strokeDasharray={ringCircumference}
+                                strokeDashoffset={ringOffset}
+                              />
+                            </svg>
+                            <span>
+                              {studied} / {total} studied
+                            </span>
+                          </span>
+                        ) : (
+                          <span>
+                            {total} {total === 1 ? 'card' : 'cards'}
+                          </span>
+                        )}
+                      </span>
+                    )
+
+                    return (
+                      <div
+                        key={deck ? deck.id : `group:${node.path}`}
+                        className={`deck-list-row${node.depth > 0 ? ' deck-list-row--nested' : ''}${!deck ? ' deck-list-row--virtual' : ''}${hasAnyNested ? ' has-tree' : ''}`}
+                        style={{ '--deck-depth': visualDepth } as CSSProperties}
+                      >
+                        {hasAnyNested &&
+                          (hasChildren ? (
+                            <button
+                              type="button"
+                              className={`deck-tree-toggle${isCollapsed ? '' : ' is-expanded'}`}
+                              aria-label={isCollapsed ? `Expand ${node.label}` : `Collapse ${node.label}`}
+                              aria-expanded={!isCollapsed}
+                              onClick={() => toggleDeckPath(node.path)}
+                            >
+                              <svg className="deck-chevron" viewBox="0 0 12 12" aria-hidden="true">
+                                <path d="M4.25 2.75 7.75 6l-3.5 3.25" />
+                              </svg>
+                            </button>
+                          ) : (
+                            <span className="deck-tree-spacer" aria-hidden="true" />
+                          ))}
+                        {deck ? (
+                          <Link to={`/decks/${deck.id}`} className="deck-list-link">
+                            {hasAnyNested && (
+                              <svg className="deck-icon deck-list-icon" viewBox="0 0 16 16" aria-hidden="true">
+                                <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />
+                                <path d="M4.5 1.5h7a2 2 0 0 1 2 2v6" />
+                              </svg>
+                            )}
+                            <span className="deck-list-name">{node.label}</span>
+                            {meta}
                           </Link>
                         ) : (
-                          <Link
-                            to={`/decks/${deck.id}`}
-                            className="deck-list-arrow"
-                            aria-label={`Open ${deck.name}`}
+                          <button
+                            type="button"
+                            className="deck-list-link deck-list-folder-btn"
+                            aria-expanded={!isCollapsed}
+                            onClick={() => toggleDeckPath(node.path)}
                           >
-                            ›
-                          </Link>
-                        )
-                      ) : null}
-                    </div>
-                  )
-                })}
+                            <svg className="deck-icon deck-list-icon deck-folder-icon" viewBox="0 0 16 16" aria-hidden="true">
+                              <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6a1.5 1.5 0 0 1 1.15.54l.65.78a1 1 0 0 0 .77.36h3.83A1.5 1.5 0 0 1 14 6.18v5.32A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
+                            </svg>
+                            <span className="deck-list-name">{node.label}</span>
+                            {meta}
+                          </button>
+                        )}
+                        <div className="deck-list-actions">
+                          {canQuickDelete && (
+                            <button
+                              type="button"
+                              className="deck-list-delete"
+                              aria-label={`Delete ${node.label}`}
+                              title={`Delete ${node.label} and subdecks`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setPendingDelete(node)
+                              }}
+                            >
+                              <svg viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="M3 4.5h10M6 4.5V3.25A.75.75 0 0 1 6.75 2.5h2.5a.75.75 0 0 1 .75.75V4.5M5 4.5l.6 8.2a1 1 0 0 0 1 .93h2.8a1 1 0 0 0 1-.93l.6-8.2" />
+                              </svg>
+                            </button>
+                          )}
+                          {deck ? (
+                            due > 0 ? (
+                              <Link
+                                to={`/decks/${deck.id}/study`}
+                                className="btn btn-ghost btn-sm deck-list-study"
+                                aria-label={`Study ${deck.name}`}
+                              >
+                                Study
+                              </Link>
+                            ) : (
+                              <Link
+                                to={`/decks/${deck.id}`}
+                                className="deck-list-arrow"
+                                aria-label={`Open ${deck.name}`}
+                              >
+                                ›
+                              </Link>
+                            )
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
               </nav>
             </>
           )}
@@ -306,6 +366,19 @@ export function DeckListPage() {
           )}
         </div>
       </div>
+      {pendingDelete && (() => {
+        const copy = describeDeckDelete(pendingDelete)
+        return (
+          <ConfirmDialog
+            danger
+            title={copy.title}
+            description={copy.description}
+            confirmLabel={copy.confirmLabel}
+            onConfirm={() => void confirmDeleteNode(pendingDelete)}
+            onCancel={() => setPendingDelete(null)}
+          />
+        )
+      })()}
     </>
   )
 }

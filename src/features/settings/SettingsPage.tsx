@@ -555,7 +555,6 @@ export function SettingsPage() {
     setMessage(null)
     setPending(null)
     setPendingApkg(null)
-    setPendingApkg(null)
     if (file.size > 512 * 1024 * 1024) {
       setError('Anki archive exceeds the maximum supported size (512 MB).')
       return
@@ -1119,7 +1118,7 @@ export function SettingsPage() {
                   ref={apkgInput}
                   className="settings-file-input"
                   type="file"
-                  accept=".apkg,application/octet-stream,application/zip"
+                  accept=".apkg,.colpkg,application/octet-stream,application/zip"
                   aria-label="Import Anki deck file"
                   onChange={onApkgFile}
                 />

@@ -21,8 +21,16 @@ struct DeckDetailView: View {
     private var subdecks: [DeckSummaryDto] {
         guard let rootName = deckSummary?.name else { return [] }
         return (appState.todaySummary?.decks ?? []).filter {
-            $0.id != deckId && DeckTreeBuilder.isDescendantOrSelf($0.name, of: rootName)
+            $0.id != deckId && DeckTreeBuilder.isStrictDescendant($0.name, of: rootName)
         }
+    }
+
+    private var deleteCopy: DeckDeleteCopy {
+        DeckTreeBuilder.describeDelete(
+            deckId: deckId,
+            deckName: deckSummary?.name ?? "Deck",
+            allSummaries: appState.todaySummary?.decks ?? []
+        )
     }
 
     private var rolledUpDueCount: UInt32 {
@@ -41,7 +49,7 @@ struct DeckDetailView: View {
     private func rolledUpCounts(for sub: DeckSummaryDto) -> (due: UInt32, newDue: UInt32, total: UInt32) {
         let all = appState.todaySummary?.decks ?? []
         let group = all.filter {
-            $0.id == sub.id || DeckTreeBuilder.isDescendantOrSelf($0.name, of: sub.name)
+            $0.id == sub.id || DeckTreeBuilder.isStrictDescendant($0.name, of: sub.name)
         }
         return (
             due: group.reduce(0) { $0 + $1.dueCount },
@@ -161,6 +169,24 @@ struct DeckDetailView: View {
                     Group {
                         if !searchText.isEmpty {
                             ContentUnavailableView.search(text: searchText)
+                        } else if cards.isEmpty && !subdecks.isEmpty {
+                            VStack(spacing: 10) {
+                                Text("No direct cards in this deck")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(RemColor.text)
+                                Text("Cards live in the subdecks above. Tap Study above to review them together, or add a card directly here.")
+                                    .font(.footnote)
+                                    .foregroundStyle(RemColor.muted)
+                                    .multilineTextAlignment(.center)
+                                Button("Add direct card") {
+                                    appState.openQuickCapture(deckId: deckId) {
+                                        Task { await loadCards() }
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(RemColor.accent)
+                            }
+                            .padding(.horizontal, 12)
                         } else if cards.isEmpty {
                             ContentUnavailableView {
                                 Label("No cards in this deck", systemImage: "rectangle.on.rectangle")
@@ -249,7 +275,10 @@ struct DeckDetailView: View {
                     Button(role: .destructive) {
                         showDeleteConfirm = true
                     } label: {
-                        Label("Delete deck", systemImage: "trash")
+                        Label(
+                            subdecks.isEmpty ? "Delete deck" : "Delete deck & subdecks",
+                            systemImage: "trash"
+                        )
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -292,8 +321,8 @@ struct DeckDetailView: View {
                 pendingCustomStudy = spec
             }
         }
-        .alert("Delete deck?", isPresented: $showDeleteConfirm) {
-            Button("Delete", role: .destructive) {
+        .alert(deleteCopy.title, isPresented: $showDeleteConfirm) {
+            Button(deleteCopy.confirmLabel, role: .destructive) {
                 Task {
                     await appState.deleteDeck(id: deckId)
                     dismiss()
@@ -301,7 +330,7 @@ struct DeckDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This deletes the deck and all its cards locally and on synced devices.")
+            Text(deleteCopy.message)
         }
         .alert(
             "Delete card?",

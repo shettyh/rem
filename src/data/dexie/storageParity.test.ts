@@ -200,4 +200,63 @@ describe('DexieStorage rem-core parity contract', () => {
     expect(stats.upcoming7d[0].count).toBe(1) // overdue c1 counted today
     expect(stats.upcoming7d[2].count).toBe(1) // c2 due in 2 days
   })
+
+  it('cascades deleteDeck to strict subdecks, supports deleteDeckTree on virtual folders, and rolls up nested getStats', async () => {
+    const now = new Date(2026, 7, 10, 12, 0, 0, 0).getTime()
+    const parent = await storage.createDeck('CS')
+    const child = await storage.createDeck('CS::Rust')
+    const grandchild = await storage.createDeck('CS::Rust::Async')
+    const dupSibling = await storage.createDeck('CS')
+    const collision = await storage.createDeck('CSS')
+
+    const cParent = await storage.createCard(parent.id, 'P?', 'P!')
+    const cChild = await storage.createCard(child.id, 'C?', 'C!')
+    await storage.createCard(grandchild.id, 'G?', 'G!')
+    await storage.createCard(dupSibling.id, 'D?', 'D!')
+    await storage.createCard(collision.id, 'X?', 'X!')
+
+    await storage.commitReview({
+      cardId: cParent.id,
+      deckId: parent.id,
+      patch: { scheduling: { ...cParent.scheduling, state: FSRS_STATE.Review, reps: 1, due: now + MS_PER_DAY } },
+      reviewedAt: now - 1000,
+      fsrsGrade: 'good',
+    })
+    await storage.commitReview({
+      cardId: cChild.id,
+      deckId: child.id,
+      patch: { scheduling: { ...cChild.scheduling, state: FSRS_STATE.Review, reps: 1, due: now + 2 * MS_PER_DAY } },
+      reviewedAt: now - 500,
+      fsrsGrade: 'good',
+    })
+
+    // Parent stats include strict descendants (not duplicate sibling or CSS).
+    const parentStats = await storage.getStats(parent.id, 7, now)
+    expect(parentStats.totalReviews).toBe(2)
+    expect(parentStats.upcoming7d[1].count).toBe(1)
+    expect(parentStats.upcoming7d[2].count).toBe(1)
+
+    // deleteDeck(parent.id) cascades to child + grandchild, leaving dupSibling + CSS intact.
+    await storage.deleteDeck(parent.id)
+    expect(new Set((await storage.listDecks()).map((d) => d.id))).toEqual(new Set([dupSibling.id, collision.id]))
+    expect(await db.tombstones.get(parent.id)).toMatchObject({ id: parent.id, kind: 'deck' })
+    expect(await db.tombstones.get(child.id)).toMatchObject({ id: child.id, kind: 'deck' })
+    expect(await db.tombstones.get(grandchild.id)).toMatchObject({ id: grandchild.id, kind: 'deck' })
+
+    // deleteDeckTree deletes virtual parent folders cleanly.
+    const v1 = await storage.createDeck('JLPT::N5::Vocab')
+    const v2 = await storage.createDeck('JLPT::N4::Kanji')
+    const keep = await storage.createDeck('JLPT2::Other')
+    await expect(storage.deleteDeckTree('   ')).rejects.toThrow(/blank/i)
+    await expect(storage.deleteDeckTree('Missing')).rejects.toThrow(/deck not found/i)
+
+    const deletedIds = await storage.deleteDeckTree(' JLPT ')
+    expect(new Set(deletedIds)).toEqual(new Set([v1.id, v2.id]))
+    expect(deletedIds).toHaveLength(2)
+    expect(new Set((await storage.listDecks()).map((d) => d.id))).toEqual(
+      new Set([dupSibling.id, collision.id, keep.id]),
+    )
+    expect(await db.tombstones.get(v1.id)).toMatchObject({ id: v1.id, kind: 'deck' })
+    expect(await db.tombstones.get(v2.id)).toMatchObject({ id: v2.id, kind: 'deck' })
+  })
 })

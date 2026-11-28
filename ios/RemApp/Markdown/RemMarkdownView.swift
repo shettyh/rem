@@ -368,7 +368,38 @@ struct RemMarkdownView: View {
                 attributed[run.range].foregroundColor = RemColor.accent
             }
         }
-        return attributed
+
+        guard raw.contains("{"), raw.contains("|") else {
+            return attributed
+        }
+
+        var withRuby = AttributedString()
+        for run in attributed.runs {
+            let isCode = run.inlinePresentationIntent?.contains(.code) == true
+            let runText = String(attributed[run.range].characters)
+            if isCode || !runText.contains("{") || !runText.contains("|") {
+                withRuby.append(AttributedString(attributed[run.range]))
+                continue
+            }
+            let tokens = RubyFormatter.splitTokens(runText)
+            if !tokens.contains(where: { $0.reading != nil }) {
+                withRuby.append(AttributedString(attributed[run.range]))
+                continue
+            }
+            let baseAttrs = run.attributes
+            for token in tokens {
+                var basePart = AttributedString(token.base)
+                basePart.mergeAttributes(baseAttrs, mergePolicy: .keepNew)
+                withRuby.append(basePart)
+                if let reading = token.reading {
+                    var rtPart = AttributedString("(\(reading))")
+                    rtPart.font = .system(size: max(10.5, fontSize * 0.72), weight: .regular)
+                    rtPart.foregroundColor = RemColor.muted
+                    withRuby.append(rtPart)
+                }
+            }
+        }
+        return withRuby
     }
 
     private func offlineImagePlaceholder(label: String) -> some View {

@@ -200,3 +200,29 @@ test('deletes the deck after confirm and navigates away', async () => {
   await expect.poll(async () => await storage.getDeck(deck.id)).toBeUndefined()
   await expect.element(page.getByText('Home')).toBeInTheDocument()
 })
+
+test('shows subtree counts and cascades deletion to subdecks from Deck options', async () => {
+  const storage = freshStorage()
+  const parent = await storage.createDeck('Anatomy::Unit 03')
+  const child1 = await storage.createDeck('Anatomy::Unit 03::3.1 Intro')
+  const child2 = await storage.createDeck('Anatomy::Unit 03::3.2 Tissues')
+  const keep = await storage.createDeck('Rust')
+  await storage.createCard(parent.id, 'P', 'P')
+  await storage.createCard(child1.id, 'C1', 'C1')
+  await storage.createCard(child2.id, 'C2', 'C2')
+
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId/options',
+    entry: `/decks/${parent.id}/options`,
+    element: <DeckSettingsPage />,
+    extraRoutes: [{ path: '/', element: <div>Home</div> }],
+  })
+
+  await expect.element(page.getByText(/2 subdecks, and 3 cards total/)).toBeVisible()
+  await page.getByRole('button', { name: 'Delete deck & subdecks' }).click()
+  await page.getByRole('button', { name: 'Confirm delete' }).click()
+
+  await expect.poll(async () => (await storage.listDecks()).map((d) => d.id)).toEqual([keep.id])
+  await expect.element(page.getByText('Home')).toBeInTheDocument()
+})

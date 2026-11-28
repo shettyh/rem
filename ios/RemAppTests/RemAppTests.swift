@@ -726,6 +726,25 @@ final class RemAppTests: XCTestCase {
         XCTAssertTrue(q1.contains("42"))
         XCTAssertFalse(q1.contains("{{c1"))
 
+        // ClozeRenderer skips inline backtick code spans
+        let codeCloze = "Literal `{{c1::ignored}}` and {{c1::active}}"
+        XCTAssertEqual(ClozeRenderer.extractIndices(codeCloze), [1])
+        let codeClozeQ = ClozeRenderer.render(codeCloze, activeIndex: 1, revealed: false)
+        XCTAssertTrue(codeClozeQ.contains("`{{c1::ignored}}`"))
+        XCTAssertFalse(codeClozeQ.contains("active"))
+
+        // RubyFormatter strips `{base|reading}` outside code spans and GFM table cells preserve escaped `\|`
+        XCTAssertEqual(
+            RubyFormatter.stripMarkup("{答|こた}えに **{丸|まる}** and `{残|のこ}`"),
+            "答えに **丸** and `{残|のこ}`"
+        )
+        XCTAssertEqual(
+            MarkdownBlockParser.plainTextPreview("{答|こた}えに **{丸|まる}** をつける"),
+            "答えに 丸 をつける"
+        )
+        let rubyTable = MarkdownBlockParser.parse("| Kanji | Meaning |\n| --- | --- |\n| {日\\|にち} | day |")
+        XCTAssertEqual(rubyTable, [.table(headers: ["Kanji", "Meaning"], rows: [["{日|にち}", "day"]])])
+
         let formattedCloze = MarkdownFormatter.apply(
             .cloze(index: 2),
             to: "Capital of France is Paris.",
@@ -917,5 +936,93 @@ final class RemAppTests: XCTestCase {
             syncAltFromHeader: true
         )
         XCTAssertNil(ImageOcclusionParser.extractDocument(cleared)?.block.alt)
+    }
+
+    func testDeckTreeBuilderDuplicatesSubtreeSummaryAndDeleteTreeLifecycle() async throws {
+        // 1. Strict descendant matching excludes self and non-matching prefixes
+        XCTAssertFalse(DeckTreeBuilder.isStrictDescendant("CS", of: "CS"))
+        XCTAssertTrue(DeckTreeBuilder.isStrictDescendant("CS::Rust", of: "CS"))
+        XCTAssertFalse(DeckTreeBuilder.isStrictDescendant("CSS", of: "CS"))
+
+        // 2. Duplicate-named decks are preserved as siblings instead of overwriting
+        let summaries: [DeckSummaryDto] = [
+            DeckSummaryDto(id: "d1", name: "Anatomy::Unit 01::Cells", color: "#5a47e8", totalCards: 10, dueCount: 3, newDueCount: 1, masteredRatio: 0.5, desiredRetention: 0.9),
+            DeckSummaryDto(id: "d2", name: "Anatomy::Unit 02::Bones", color: "#1e9b5e", totalCards: 15, dueCount: 2, newDueCount: 2, masteredRatio: 0.2, desiredRetention: 0.9),
+            DeckSummaryDto(id: "d3", name: "CS", color: "#d97914", totalCards: 4, dueCount: 1, newDueCount: 0, masteredRatio: 0.75, desiredRetention: 0.9),
+            DeckSummaryDto(id: "d4", name: "CS::Rust", color: "#3ba0e8", totalCards: 6, dueCount: 2, newDueCount: 1, masteredRatio: 0.5, desiredRetention: 0.9),
+            DeckSummaryDto(id: "d5", name: "CS", color: "#e8638c", totalCards: 2, dueCount: 0, newDueCount: 0, masteredRatio: 1.0, desiredRetention: 0.9),
+        ]
+        let roots = DeckTreeBuilder.build(from: summaries)
+        XCTAssertEqual(roots.count, 3)
+
+        // Virtual parent folder "Anatomy"
+        let anatomy = roots[0]
+        XCTAssertNil(anatomy.deck)
+        XCTAssertEqual(anatomy.subtreeDeckIds, ["d1", "d2"])
+        XCTAssertEqual(anatomy.subtreeDeckCount, 2)
+        XCTAssertEqual(anatomy.subdeckCount, 2)
+        XCTAssertEqual(anatomy.subtreeCardCount, 25)
+        let anatomyDelete = DeckTreeBuilder.describeDelete(node: anatomy)
+        XCTAssertEqual(anatomyDelete.title, "Delete \"Anatomy\"?")
+        XCTAssertTrue(anatomyDelete.message.contains("2 subdecks and 25 cards"))
+        XCTAssertEqual(anatomyDelete.confirmLabel, "Delete all")
+
+        // Real parent deck "CS" and duplicate sibling "CS"
+        let csPrimary = roots[1]
+        let csDup = roots[2]
+        XCTAssertEqual(csPrimary.deck?.id, "d3")
+        XCTAssertEqual(csPrimary.subdeckCount, 1)
+        XCTAssertEqual(csPrimary.subtreeCardCount, 10)
+        XCTAssertEqual(csDup.deck?.id, "d5")
+        XCTAssertEqual(csDup.subdeckCount, 0)
+        XCTAssertEqual(csDup.subtreeCardCount, 2)
+
+        // Collapsed path pruning
+        let pruned = DeckTreeBuilder.pruneCollapsedPaths(
+            ["Anatomy", "Anatomy::Unit 01", "Anatomy2", "CS"],
+            removing: ["Anatomy"]
+        )
+        XCTAssertEqual(pruned, ["Anatomy2", "CS"])
+
+        // 3. End-to-end store: cascading deleteDeck, virtual-folder deleteDeckTree, and sweepOrphanAssets
+        let (dir, store) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let now: Int64 = 1_764_400_000_000
+        let parent = try await store.createDeck(name: "Bio", color: "#5a47e8", nowMs: now)
+        let child = try await store.createDeck(name: "Bio::Cells", color: "#1e9b5e", nowMs: now + 1)
+        let dupSibling = try await store.createDeck(name: "Bio", color: "#d97914", nowMs: now + 2)
+        let prefixCollision = try await store.createDeck(name: "Bio2::Lab", color: "#3ba0e8", nowMs: now + 3)
+
+        let v1 = try await store.createDeck(name: "JLPT::N5::Vocab", color: "#5a47e8", nowMs: now + 4)
+        let v2 = try await store.createDeck(name: "JLPT::N4::Kanji", color: "#1e9b5e", nowMs: now + 5)
+
+        let doomedHash = try await store.putAsset(mime: "image/png", bytes: Data([1, 2, 3]), nowMs: now + 6)
+        let keptHash = try await store.putAsset(mime: "image/png", bytes: Data([4, 5, 6]), nowMs: now + 7)
+        _ = try await store.createCard(deckId: v1.id, front: "![](asset:\(doomedHash))", back: "a", tags: [], nowMs: now + 8)
+        _ = try await store.createCard(deckId: dupSibling.id, front: "![](asset:\(keptHash))", back: "b", tags: [], nowMs: now + 9)
+        _ = try await store.createCard(deckId: child.id, front: "Cell", back: "Unit", tags: [], nowMs: now + 10)
+
+        // Cascading deleteDeck removes parent + child, keeps duplicate sibling + prefix collision
+        try await store.deleteDeck(id: parent.id, nowMs: now + 20)
+        let afterParentDelete = Set(try await store.listDecks().map(\.id))
+        XCTAssertFalse(afterParentDelete.contains(parent.id))
+        XCTAssertFalse(afterParentDelete.contains(child.id))
+        XCTAssertTrue(afterParentDelete.contains(dupSibling.id))
+        XCTAssertTrue(afterParentDelete.contains(prefixCollision.id))
+
+        // deleteDeckTree removes virtual parent folder "JLPT" and all its subdecks
+        let deletedTreeIds = try await store.deleteDeckTree(path: "JLPT", nowMs: now + 30)
+        XCTAssertEqual(Set(deletedTreeIds), Set([v1.id, v2.id]))
+        let remainingIds = Set(try await store.listDecks().map(\.id))
+        XCTAssertEqual(remainingIds, Set([dupSibling.id, prefixCollision.id]))
+
+        // Orphan asset sweep deletes asset from deleted JLPT card and preserves surviving asset
+        let swept = try await store.sweepOrphanAssets()
+        XCTAssertEqual(swept, 1)
+        let fetchedDoomed = try await store.getAsset(hash: doomedHash)
+        let fetchedKept = try await store.getAsset(hash: keptHash)
+        XCTAssertNil(fetchedDoomed)
+        XCTAssertNotNil(fetchedKept)
     }
 }

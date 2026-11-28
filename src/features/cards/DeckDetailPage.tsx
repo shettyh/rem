@@ -7,19 +7,21 @@ import { MS_PER_DAY } from '../../domain/scheduler'
 import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
 import { isNew, loadDueOverview } from '../review/dueOverview'
-import { deckIsDescendantOrSelf } from '../decks/deckTree'
+import { deckIsStrictDescendant } from '../decks/deckTree'
 import { userTags } from './cardTags'
 import { stripClozeMarkup } from './cloze'
 import { hasImageOcclusion, stripOcclusionMarkup } from './occlusion'
+import { stripRubyMarkup } from './ruby'
 
 /** Clean a single line of markdown into plain preview text. */
 function cleanMarkdownLine(line: string): string {
-  return stripClozeMarkup(line)
+  return stripRubyMarkup(stripClozeMarkup(line))
     .replace(/^#{1,6}\s+/, '') // heading
     .replace(/^>\s?/, '') // blockquote
     .replace(/^[-*+]\s+/, '') // bullet list
     .replace(/^\d+\.\s+/, '') // ordered list
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // link -> text
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, (_m, alt: string) => alt.trim() || '[image]') // image -> alt or placeholder
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1') // link / audio -> label
     .replace(/(\*\*|__|~~|[*_`])/g, '') // emphasis / inline-code markers
     .trim()
 }
@@ -100,10 +102,8 @@ export function DeckDetailPage() {
     if (!current) {
       return { totalDue: 0, rolledNew: 0, rolledTotal: 0, rolledStudied: 0, subdecks: [] }
     }
-    const descendants = overview.decks.filter(
-      (entry) =>
-        entry.deck.id !== current.deck.id
-        && deckIsDescendantOrSelf(entry.deck.name, current.deck.name),
+    const descendants = overview.decks.filter((entry) =>
+      deckIsStrictDescendant(entry.deck.name, current.deck.name),
     )
     const subdecks = descendants.map((entry) => ({ deck: entry.deck, due: entry.due }))
     const totalDue = current.due + descendants.reduce((acc, s) => acc + s.due, 0)
@@ -321,14 +321,51 @@ export function DeckDetailPage() {
             )}
           </section>
         )}
+        {(cards.length > 0 || (subdecks.length > 0 && totalCount > 0)) && (
+          <section className="deck-summary-bar" aria-label="Deck overview">
+            <div className="deck-stats" aria-label="Deck summary">
+              <div className="deck-stat deck-stat-due">
+                <span className="deck-stat-num">{due ?? 0}</span>
+                <span className="deck-stat-label">Due now</span>
+              </div>
+              <div className="deck-stat">
+                <span className="deck-stat-num">{newCount}</span>
+                <span className="deck-stat-label">New</span>
+              </div>
+              <div className="deck-stat">
+                <span className="deck-stat-num">{totalCount}</span>
+                <span className="deck-stat-label">Total</span>
+              </div>
+            </div>
+            <div className="deck-summary-progress" title={`${studiedCount} of ${totalCount} cards studied`}>
+              <span>{studiedCount} / {totalCount} studied</span>
+              <span className="deck-summary-track" aria-hidden="true">
+                <span style={{ width: `${studiedPct}%` }} />
+              </span>
+              {subdecks.length === 0 && !addingSubdeck && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setAddingSubdeck(true)}
+                >
+                  + Subdeck
+                </button>
+              )}
+            </div>
+          </section>
+        )}
         {cards.length === 0 ? (
           <div className="empty-state">
             <EmptyIcon kind="cards" />
-            <h3>No cards yet</h3>
-            <p>Add your first card — front, back, done.</p>
+            <h3>{subdecks.length > 0 ? 'No direct cards in this deck' : 'No cards yet'}</h3>
+            <p>
+              {subdecks.length > 0
+                ? 'Cards live in the subdecks above. You can still study them all together or add direct cards here.'
+                : 'Add your first card — front, back, done.'}
+            </p>
             <div className="empty-state-actions">
               <button className="btn btn-primary cta" onClick={() => navigate(`/decks/${deckId}/cards/new`)}>
-                + Add your first card
+                {subdecks.length > 0 ? '+ Add card here' : '+ Add your first card'}
               </button>
               {!addingSubdeck && (
                 <button className="btn btn-ghost cta" onClick={() => setAddingSubdeck(true)}>
@@ -339,37 +376,6 @@ export function DeckDetailPage() {
           </div>
         ) : (
           <>
-            <section className="deck-summary-bar" aria-label="Deck overview">
-              <div className="deck-stats" aria-label="Deck summary">
-                <div className="deck-stat deck-stat-due">
-                  <span className="deck-stat-num">{due ?? 0}</span>
-                  <span className="deck-stat-label">Due now</span>
-                </div>
-                <div className="deck-stat">
-                  <span className="deck-stat-num">{newCount}</span>
-                  <span className="deck-stat-label">New</span>
-                </div>
-                <div className="deck-stat">
-                  <span className="deck-stat-num">{totalCount}</span>
-                  <span className="deck-stat-label">Total</span>
-                </div>
-              </div>
-              <div className="deck-summary-progress" title={`${studiedCount} of ${totalCount} cards studied`}>
-                <span>{studiedCount} / {totalCount} studied</span>
-                <span className="deck-summary-track" aria-hidden="true">
-                  <span style={{ width: `${studiedPct}%` }} />
-                </span>
-                {subdecks.length === 0 && !addingSubdeck && (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => setAddingSubdeck(true)}
-                  >
-                    + Subdeck
-                  </button>
-                )}
-              </div>
-            </section>
 
             <div className="card-list-tools">
               <div className="card-search-wrap">

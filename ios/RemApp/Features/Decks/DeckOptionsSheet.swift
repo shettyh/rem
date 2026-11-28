@@ -54,6 +54,30 @@ struct DeckOptionsSheet: View {
     @State private var isOptimizing: Bool = false
     @State private var showDeleteConfirm: Bool = false
 
+    private var effectiveDeckName: String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        return appState.decks.first(where: { $0.id == deckId })?.name
+            ?? appState.todaySummary?.decks.first(where: { $0.id == deckId })?.name
+            ?? "Deck"
+    }
+
+    private var hasSubdecks: Bool {
+        let currentName = appState.decks.first(where: { $0.id == deckId })?.name ?? effectiveDeckName
+        return (appState.todaySummary?.decks ?? []).contains {
+            $0.id != deckId && DeckTreeBuilder.isStrictDescendant($0.name, of: currentName)
+        }
+    }
+
+    private var deleteCopy: DeckDeleteCopy {
+        let currentName = appState.decks.first(where: { $0.id == deckId })?.name ?? effectiveDeckName
+        return DeckTreeBuilder.describeDelete(
+            deckId: deckId,
+            deckName: currentName,
+            allSummaries: appState.todaySummary?.decks ?? []
+        )
+    }
+
     private var canSave: Bool {
         isLoaded
             && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -103,8 +127,8 @@ struct DeckOptionsSheet: View {
         .task {
             await loadDeck()
         }
-        .alert("Delete deck?", isPresented: $showDeleteConfirm) {
-            Button("Delete", role: .destructive) {
+        .alert(deleteCopy.title, isPresented: $showDeleteConfirm) {
+            Button(deleteCopy.confirmLabel, role: .destructive) {
                 Task {
                     await appState.deleteDeck(id: deckId)
                     dismiss()
@@ -113,7 +137,7 @@ struct DeckOptionsSheet: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This deletes the deck and all its cards locally and on synced devices.")
+            Text(deleteCopy.message)
         }
     }
 
@@ -378,10 +402,13 @@ struct DeckOptionsSheet: View {
             Button(role: .destructive) {
                 showDeleteConfirm = true
             } label: {
-                Label("Delete this deck", systemImage: "trash")
+                Label(
+                    hasSubdecks ? "Delete deck and subdecks" : "Delete this deck",
+                    systemImage: "trash"
+                )
             }
         } footer: {
-            Text("Permanently removes the deck and all its cards locally and on synced devices.")
+            Text(deleteCopy.message)
         }
         .listRowBackground(RemColor.surface)
     }

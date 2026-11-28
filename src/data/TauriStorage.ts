@@ -77,6 +77,15 @@ export class TauriStorage implements Storage {
     this.notify()
   }
 
+  async deleteDeckTree(path: string): Promise<ID[]> {
+    const deleted = await this.call<ID[]>('storage_delete_deck_tree', {
+      path,
+      now: this.now(),
+    })
+    this.notify()
+    return deleted
+  }
+
   async updateDeck(id: ID, patch: DeckPatch): Promise<void> {
     await this.call('storage_update_deck', { id, patch, now: this.now() })
     this.notify()

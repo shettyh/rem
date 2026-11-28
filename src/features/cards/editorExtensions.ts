@@ -6,7 +6,18 @@ import { Markdown } from 'tiptap-markdown'
 import { common, createLowlight } from 'lowlight'
 import { createImageExtension } from './imageExtension'
 
-const lowlight = createLowlight(common)
+const baseLowlight = createLowlight(common)
+// Avoid random syntax auto-detection on untagged code blocks while keeping explicit languages highlighted.
+const lowlight = {
+  ...baseLowlight,
+  highlight: baseLowlight.highlight.bind(baseLowlight),
+  listLanguages: baseLowlight.listLanguages.bind(baseLowlight),
+  registered: baseLowlight.registered.bind(baseLowlight),
+  highlightAuto: (value: string) => ({
+    type: 'root' as const,
+    children: [{ type: 'text' as const, value }],
+  }),
+}
 
 /**
  * Shared TipTap extension set: the "practical" markdown feature set —

@@ -372,31 +372,80 @@ impl Collection {
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
         let transaction = write_transaction(&mut connection)?;
-        let deleted = transaction.execute("DELETE FROM decks WHERE id = ?1", [id])?;
-        if deleted == 0 {
+        let root_name: Option<String> = transaction
+            .query_row("SELECT name FROM decks WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .optional()?;
+        let Some(root_name) = root_name else {
             return Err(CollectionError::NotFound {
                 kind: "deck",
                 id: id.to_owned(),
             });
-        }
-        let hlc = if is_cloud_sync_enabled(&transaction)? {
-            let hlc = next_hlc(&transaction, now)?;
-            enqueue_new_op(
-                &transaction,
-                &SyncOp::DeckDelete {
-                    id: id.to_owned(),
-                    hlc: hlc.clone(),
-                },
-                now,
-            )?;
-            hlc
-        } else {
-            String::new()
         };
-        put_tombstone_with_hlc(&transaction, id, TombstoneKind::Deck, now, &hlc)?;
+        let target_ids: Vec<String> = {
+            let mut stmt =
+                transaction.prepare("SELECT id, name FROM decks ORDER BY created_at, rowid")?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows.into_iter()
+                .filter_map(|(deck_id, deck_name)| {
+                    if deck_id == id
+                        || crate::deck_tree::deck_is_strict_descendant(&deck_name, &root_name)
+                    {
+                        Some(deck_id)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+        delete_deck_ids_in_tx(&transaction, &target_ids, now)?;
         bump_sync_revision(&transaction)?;
         transaction.commit()?;
         Ok(())
+    }
+
+    /// Delete every deck matching `path` or nested under `path::...` (supports virtual parent
+    /// folders that have no backing row of their own). Returns the deleted deck IDs.
+    pub fn delete_deck_tree(&self, path: &str, now: i64) -> Result<Vec<String>, CollectionError> {
+        let normalized = crate::deck_tree::normalize_deck_name(path)?;
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| CollectionError::Poisoned)?;
+        let transaction = write_transaction(&mut connection)?;
+        let target_ids: Vec<String> = {
+            let mut stmt =
+                transaction.prepare("SELECT id, name FROM decks ORDER BY created_at, rowid")?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows.into_iter()
+                .filter_map(|(deck_id, deck_name)| {
+                    if crate::deck_tree::deck_is_descendant_or_self(&deck_name, &normalized) {
+                        Some(deck_id)
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+        if target_ids.is_empty() {
+            return Err(CollectionError::NotFound {
+                kind: "deck",
+                id: normalized,
+            });
+        }
+        delete_deck_ids_in_tx(&transaction, &target_ids, now)?;
+        bump_sync_revision(&transaction)?;
+        transaction.commit()?;
+        Ok(target_ids)
     }
 
     pub fn list_tombstones(&self) -> Result<Vec<Tombstone>, CollectionError> {
@@ -411,6 +460,33 @@ impl Collection {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(tombstones)
     }
+}
+
+fn delete_deck_ids_in_tx(
+    transaction: &Transaction<'_>,
+    ids: &[String],
+    now: i64,
+) -> Result<(), CollectionError> {
+    let cloud_enabled = is_cloud_sync_enabled(transaction)?;
+    for deck_id in ids {
+        transaction.execute("DELETE FROM decks WHERE id = ?1", [deck_id])?;
+        let hlc = if cloud_enabled {
+            let hlc = next_hlc(transaction, now)?;
+            enqueue_new_op(
+                transaction,
+                &SyncOp::DeckDelete {
+                    id: deck_id.clone(),
+                    hlc: hlc.clone(),
+                },
+                now,
+            )?;
+            hlc
+        } else {
+            String::new()
+        };
+        put_tombstone_with_hlc(transaction, deck_id, TombstoneKind::Deck, now, &hlc)?;
+    }
+    Ok(())
 }
 
 fn apply_one_remote_op(

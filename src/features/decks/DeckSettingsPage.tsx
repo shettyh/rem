@@ -18,6 +18,12 @@ import {
   customStudyPreset,
   type CustomStudyMode,
 } from '../review/customStudy'
+import {
+  deckIsStrictDescendant,
+  loadCollapsedDeckPaths,
+  pruneCollapsedDeckPaths,
+  saveCollapsedDeckPaths,
+} from './deckTree'
 
 export function DeckSettingsPage() {
   const { deckId } = useParams()
@@ -42,6 +48,18 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
   const [optimizing, setOptimizing] = useState(false)
   const [optimizerError, setOptimizerError] = useState(false)
   const reviewLogs = useStorageQuery(() => storage.listReviewLogs(deck.id), [deck.id]) ?? []
+  const subtreeInfo = useStorageQuery(async () => {
+    const allDecks = await storage.listDecks()
+    const descendants = allDecks.filter(
+      (candidate) => candidate.id !== deck.id && deckIsStrictDescendant(candidate.name, deck.name),
+    )
+    const directCards = await storage.listCards(deck.id)
+    const childCards = await Promise.all(descendants.map((child) => storage.listCards(child.id)))
+    const cardCount = directCards.length + childCards.reduce((sum, list) => sum + list.length, 0)
+    return { subdeckCount: descendants.length, cardCount }
+  }, [deck.id, deck.name])
+  const subdeckCount = subtreeInfo?.subdeckCount ?? 0
+  const subtreeCardCount = subtreeInfo?.cardCount ?? 0
   const reviewHistories = buildReviewHistories(reviewLogs)
   const canOptimize = hasDelayedReview(reviewHistories)
 
@@ -376,8 +394,14 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
           <div className="ds-card is-danger">
             <div className="ds-row">
               <div>
-                <div className="ds-row-title">Delete this deck</div>
-                <div className="ds-row-sub">Permanently removes the deck and all its cards. This can't be undone.</div>
+                <div className="ds-row-title">
+                  {subdeckCount > 0 ? 'Delete this deck and subdecks' : 'Delete this deck'}
+                </div>
+                <div className="ds-row-sub">
+                  {subdeckCount > 0
+                    ? `Permanently removes this deck, ${subdeckCount} ${subdeckCount === 1 ? 'subdeck' : 'subdecks'}, and ${subtreeCardCount} ${subtreeCardCount === 1 ? 'card' : 'cards'} total. This can't be undone.`
+                    : "Permanently removes the deck and all its cards. This can't be undone."}
+                </div>
               </div>
               {confirmDelete ? (
                 <div className="row">
@@ -388,6 +412,9 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
                       try {
                         await storage.deleteDeck(deck.id)
                         await storage.sweepOrphanAssets()
+                        saveCollapsedDeckPaths(
+                          pruneCollapsedDeckPaths(loadCollapsedDeckPaths(), [deck.name]),
+                        )
                         navigate('/')
                       } catch (err) {
                         console.error('deck delete failed', err)
@@ -403,7 +430,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
                 </div>
               ) : (
                 <button type="button" className="btn btn-danger-outline" onClick={() => setConfirmDelete(true)}>
-                  Delete deck
+                  {subdeckCount > 0 ? 'Delete deck & subdecks' : 'Delete deck'}
                 </button>
               )}
             </div>

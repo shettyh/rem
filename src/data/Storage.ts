@@ -75,6 +75,7 @@ export interface Storage {
   listDecks(): Promise<Deck[]>
   getDeck(id: ID): Promise<Deck | undefined>
   deleteDeck(id: ID): Promise<void>
+  deleteDeckTree(path: string): Promise<ID[]>
   updateDeck(id: ID, patch: DeckPatch): Promise<void>
 
   createCard(deckId: ID, front: string, back: string, tags?: string[]): Promise<Card>
