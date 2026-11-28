@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.32.0 (2026-11-28)
+
+## What's Changed
+* fix(anki): support Image Occlusion Enhanced, fix adjacent emphasis, empty clozes, and IO back rendering by @shettyh in https://github.com/shettyh/rem/pull/285
+* ci(ios): update iOS CI and TestFlight builds to Xcode 27 / latest iOS SDK by @shettyh in https://github.com/shettyh/rem/pull/286
+* fix(core,ui,ios): materialize ancestor decks and polish nested subdeck UX by @shettyh in https://github.com/shettyh/rem/pull/289
+* design(ui,ios): polish global search palette and iOS search results by @shettyh in https://github.com/shettyh/rem/pull/288
+* feat(sync): Cloud Sync v1.1 — Rust WASM compaction, /v1/bootstrap, WebSocket pokes, and R2 asset GC by @shettyh in https://github.com/shettyh/rem/pull/291
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.31.0...v0.32.0
+
 ## 0.31.0 (2026-11-28)
 
 ## What's Changed
