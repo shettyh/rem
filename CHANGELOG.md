@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.31.0 (2026-11-28)
+
+## What's Changed
+* refactor: remove TypeScript shadow engine and freeze CLI study scope by @shettyh in https://github.com/shettyh/rem/pull/281
+* fix(desktop): relaunch macOS app in foreground after auto-update by @shettyh in https://github.com/shettyh/rem/pull/284
+* feat(ui,ios): add Anki (.apkg) and JSON import to deck creation flows by @shettyh in https://github.com/shettyh/rem/pull/283
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.30.2...v0.31.0
+
 ## 0.30.2 (2026-11-28)
 
 ## What's Changed
