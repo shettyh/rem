@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.32.1 (2026-11-28)
+
+## What's Changed
+* ci(ios): fix iOS SDK canonical name lookup in TestFlight workflow by @shettyh in https://github.com/shettyh/rem/pull/292
+* test(ci,core,web,ios): harden Anki, Image Occlusion, IPC, and live sync test automations by @shettyh in https://github.com/shettyh/rem/pull/290
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.32.0...v0.32.1
+
 ## 0.32.0 (2026-11-28)
 
 ## What's Changed
