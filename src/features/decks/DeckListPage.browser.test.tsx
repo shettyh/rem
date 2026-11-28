@@ -137,7 +137,7 @@ test('formats nested decks with aligned chevrons, icons, typography, and progres
   expect(anatomyRow.querySelector('.deck-tree-toggle')?.textContent?.trim()).toBe('')
 })
 
-test('deletes a whole virtual parent folder from Today with subtree count confirmation', async () => {
+test('materialized parent decks show Study buttons, consistent folder icons, and open their deck page', async () => {
   localStorage.removeItem('rem:collapsed-deck-paths')
   const storage = freshStorage()
   const d1 = await storage.createDeck('JLPT::N5::Vocab')
@@ -151,15 +151,18 @@ test('deletes a whole virtual parent folder from Today with subtree count confir
   const deckList = page.getByLabelText('Decks')
   await expect.element(deckList.getByText('JLPT')).toBeVisible()
 
-  const jlptRow = deckList.element().querySelector<HTMLElement>('.deck-list-row--virtual')!
-  const deleteBtn = jlptRow.querySelector<HTMLButtonElement>('.deck-list-delete')!
-  deleteBtn.click()
+  // Materialized parent deck gets a Study button and links to its own deck page (no hover-only delete mismatch on Today).
+  const jlptStudy = deckList.getByRole('link', { name: 'Study JLPT' })
+  await expect.element(jlptStudy).toBeVisible()
+  const rustStudy = deckList.getByRole('link', { name: 'Study Rust' })
+  await expect.element(rustStudy).toBeVisible()
+  expect(deckList.element().querySelector('.deck-list-row--virtual')).toBeNull()
+  expect(deckList.element().querySelector('.deck-list-delete')).toBeNull()
 
-  await expect.element(page.getByText('Delete "JLPT"?')).toBeVisible()
-  await expect.element(page.getByText(/2 subdecks and 2 cards inside "JLPT"/)).toBeVisible()
-  await page.getByRole('button', { name: 'Delete all' }).click()
-
-  await expect.poll(async () => (await storage.listDecks()).map((d) => d.name)).toEqual(['Rust'])
+  // Clicking JLPT in the sidebar navigates to its DeckDetailPage instead of only toggling collapse.
+  const sidebarLink = document.querySelector<HTMLAnchorElement>('.side-decks a.side-deck-main[title="JLPT"]')
+  expect(sidebarLink).toBeTruthy()
+  expect(sidebarLink!.querySelector('.deck-folder-icon')).toBeTruthy()
 })
 
 function makeBackupFile(decks: DeckBackup[], filename = 'backup.json'): File {

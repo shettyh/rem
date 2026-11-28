@@ -176,7 +176,7 @@ test('deleting a parent folder from the sidebar redirects away from a deleted ch
   )!
   anatomyRow.querySelector<HTMLButtonElement>('.side-deck-delete')!.click()
 
-  await expect.element(page.getByText('Delete "Anatomy"?')).toBeVisible()
+  await expect.element(page.getByText('Delete "Anatomy" and subdecks?')).toBeVisible()
   await page.getByRole('button', { name: 'Delete all' }).click()
 
   await expect.poll(async () => (await storage.listDecks()).map((d) => d.id)).toEqual([keep.id])

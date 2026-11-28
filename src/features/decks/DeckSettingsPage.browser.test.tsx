@@ -223,6 +223,9 @@ test('shows subtree counts and cascades deletion to subdecks from Deck options',
   await page.getByRole('button', { name: 'Delete deck & subdecks' }).click()
   await page.getByRole('button', { name: 'Confirm delete' }).click()
 
-  await expect.poll(async () => (await storage.listDecks()).map((d) => d.id)).toEqual([keep.id])
+  await expect.poll(async () => (await storage.listDecks()).map((d) => d.name)).toEqual([
+    'Anatomy',
+    keep.name,
+  ])
   await expect.element(page.getByText('Home')).toBeInTheDocument()
 })

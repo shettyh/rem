@@ -32,6 +32,22 @@ export function deckSegments(name: string): string[] {
     .filter(Boolean)
 }
 
+export function deckAncestorPaths(name: string): string[] {
+  const segments = deckSegments(name)
+  if (segments.length <= 1) return []
+  const paths: string[] = []
+  for (let len = 1; len < segments.length; len += 1) {
+    paths.push(segments.slice(0, len).join(DECK_SEPARATOR))
+  }
+  return paths
+}
+
+export function deckIsDirectChild(candidateName: string, rootName: string): boolean {
+  if (!deckIsStrictDescendant(candidateName, rootName)) return false
+  const remainder = candidateName.slice(rootName.length + DECK_SEPARATOR.length)
+  return remainder.length > 0 && !remainder.includes(DECK_SEPARATOR)
+}
+
 export function deckIsStrictDescendant(candidateName: string, rootName: string): boolean {
   return candidateName.startsWith(`${rootName}${DECK_SEPARATOR}`)
 }

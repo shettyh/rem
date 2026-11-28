@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { SearchModal } from './SearchModal'
 import { Sidebar } from './Sidebar'
@@ -18,6 +18,7 @@ export function Layout() {
   const [collapsed, setCollapsed] = useState<boolean>(() => getSidebarCollapsed())
   const [hoverExpand, setHoverExpand] = useState<boolean>(() => getSidebarHoverExpand())
   const [searchOpen, setSearchOpen] = useState(false)
+  const closeSearch = useCallback(() => setSearchOpen(false), [])
 
   useEffect(() => {
     if (focusedReview) setSearchOpen(false)
@@ -66,7 +67,7 @@ export function Layout() {
       <main className="content">
         <Outlet />
       </main>
-      <SearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <SearchModal open={searchOpen} onClose={closeSearch} />
     </div>
   )
 }

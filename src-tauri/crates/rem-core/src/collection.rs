@@ -13,9 +13,11 @@ use rusqlite::{params, Connection, ErrorCode, Transaction, TransactionBehavior};
 use uuid::Uuid;
 
 use crate::scheduler::{build_fsrs_for_migration, migrate_card_scheduling_to_fsrs7};
+use crate::store::{bump_sync_revision, ensure_ancestor_decks_in_tx};
+use crate::sync_store::is_cloud_sync_enabled;
 use crate::{DeckSettings, FsrsState, Grade};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 7;
+pub const CURRENT_SCHEMA_VERSION: u32 = 8;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
@@ -327,7 +329,7 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
         );
 
         INSERT INTO metadata(key, value) VALUES ('sync_revision', 0);
-        PRAGMA user_version = 7;
+        PRAGMA user_version = 8;
         ",
     )?;
     transaction.execute_batch(CARDS_FTS_DDL)?;
@@ -335,7 +337,7 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
     transaction.commit()
 }
 
-fn migrate_schema(connection: &mut Connection) -> Result<(), rusqlite::Error> {
+fn migrate_schema(connection: &mut Connection) -> Result<(), CollectionError> {
     let transaction = write_transaction(connection)?;
     let version: u32 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version < 2 {
@@ -416,7 +418,69 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), rusqlite::Error> {
             ",
         )?;
     }
-    transaction.commit()
+    if version < 8 {
+        migrate_v7_to_v8_materialize_ancestor_decks(&transaction)?;
+        transaction.execute_batch("PRAGMA user_version = 8;")?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
+fn migrate_v7_to_v8_materialize_ancestor_decks(
+    transaction: &Transaction<'_>,
+) -> Result<(), CollectionError> {
+    let existing: Vec<(String, i64)> = {
+        let mut stmt =
+            transaction.prepare("SELECT name, created_at FROM decks ORDER BY created_at, rowid")?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    if existing.is_empty() {
+        return Ok(());
+    }
+    let mut min_created_at: HashMap<String, i64> = HashMap::new();
+    for (name, created_at) in &existing {
+        for ancestor in crate::deck_tree::deck_ancestor_paths(name) {
+            min_created_at
+                .entry(ancestor)
+                .and_modify(|ts| *ts = (*ts).min(*created_at))
+                .or_insert(*created_at);
+        }
+    }
+    if min_created_at.is_empty() {
+        return Ok(());
+    }
+    let cloud_enabled = is_cloud_sync_enabled(transaction)?;
+    let now = chrono::Utc::now().timestamp_millis();
+    let mut created_any = false;
+    for (name, created_at) in &existing {
+        let inserted = ensure_ancestor_decks_in_tx(
+            transaction,
+            name,
+            |ancestor| {
+                min_created_at
+                    .get(ancestor)
+                    .copied()
+                    .unwrap_or(*created_at)
+                    .saturating_sub(1)
+                    .max(0)
+            },
+            now,
+            cloud_enabled,
+            true,
+        )?;
+        if !inserted.is_empty() {
+            created_any = true;
+        }
+    }
+    if created_any {
+        bump_sync_revision(transaction)?;
+    }
+    Ok(())
 }
 
 const CARDS_FTS_DDL: &str = "

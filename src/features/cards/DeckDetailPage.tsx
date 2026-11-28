@@ -5,8 +5,14 @@ import { useStorageQuery } from '../../data/useStorageQuery'
 import { MS_PER_DAY, type Card } from '../../domain/models'
 import { EmptyIcon } from '../../ui/EmptyIcon'
 import { PageHeader } from '../../ui/PageHeader'
-import { isNew, loadDueOverview } from '../review/dueOverview'
-import { deckIsStrictDescendant } from '../decks/deckTree'
+import { isNew, loadDueOverview, type DeckOverview } from '../review/dueOverview'
+import {
+  buildDeckTree,
+  deckAncestorPaths,
+  deckLeafName,
+  summarizeDeckSubtree,
+  type DeckTreeNode,
+} from '../decks/deckTree'
 import { userTags } from './cardTags'
 import { stripClozeMarkup } from './cloze'
 import { hasImageOcclusion, stripOcclusionMarkup } from './occlusion'
@@ -70,6 +76,47 @@ export function cardStatus(
   return { kind: 'scheduled', label }
 }
 
+function findTreeNodeByDeckId(
+  nodes: DeckTreeNode<DeckOverview>[],
+  deckId: string,
+): DeckTreeNode<DeckOverview> | null {
+  for (const node of nodes) {
+    if (node.item?.deck.id === deckId) return node
+    const nested = findTreeNodeByDeckId(node.children, deckId)
+    if (nested) return nested
+  }
+  return null
+}
+
+interface NavigableSubdeck {
+  node: DeckTreeNode<DeckOverview>
+  deck: DeckOverview['deck']
+  displayLabel: string
+}
+
+/** Promote real decks through any virtual intermediate folders (e.g. from older v7 sync peers)
+ *  so every descendant remains reachable from its parent page. */
+function collectNavigableSubdecks(
+  children: DeckTreeNode<DeckOverview>[],
+  parentName: string,
+): NavigableSubdeck[] {
+  const out: NavigableSubdeck[] = []
+  const prefix = `${parentName}::`
+  const visit = (nodes: DeckTreeNode<DeckOverview>[], viaVirtual: boolean) => {
+    for (const child of nodes) {
+      if (child.item) {
+        const displayLabel =
+          viaVirtual && child.path.startsWith(prefix) ? child.path.slice(prefix.length) : child.label
+        out.push({ node: child, deck: child.item.deck, displayLabel })
+      } else {
+        visit(child.children, true)
+      }
+    }
+  }
+  visit(children, false)
+  return out
+}
+
 type StatusFilter = 'all' | 'due' | 'new' | 'suspended'
 
 export function DeckDetailPage() {
@@ -84,6 +131,15 @@ export function DeckDetailPage() {
   const [subdeckName, setSubdeckName] = useState('')
   const [subdeckError, setSubdeckError] = useState<string | null>(null)
 
+  useEffect(() => {
+    setQuery('')
+    setStatusFilter('all')
+    setTagFilter('')
+    setAddingSubdeck(false)
+    setSubdeckName('')
+    setSubdeckError(null)
+  }, [deckId])
+
   const deck = useStorageQuery(() => (deckId ? storage.getDeck(deckId) : undefined), [deckId])
   const cards = useStorageQuery(() => (deckId ? storage.listCards(deckId) : []), [deckId])
   const subdecksInfo = useStorageQuery(async () => {
@@ -93,26 +149,61 @@ export function DeckDetailPage() {
         rolledNew: 0,
         rolledTotal: 0,
         rolledStudied: 0,
-        subdecks: [] as { deck: Awaited<ReturnType<typeof storage.listDecks>>[number]; due: number }[],
+        subdeckCount: 0,
+        ancestors: [] as { path: string; label: string; deckId: string | null }[],
+        directSubdecks: [] as NavigableSubdeck[],
       }
     }
     const overview = await loadDueOverview(storage, Date.now())
     const current = overview.decks.find((entry) => entry.deck.id === deckId)
     if (!current) {
-      return { totalDue: 0, rolledNew: 0, rolledTotal: 0, rolledStudied: 0, subdecks: [] }
+      return {
+        totalDue: 0,
+        rolledNew: 0,
+        rolledTotal: 0,
+        rolledStudied: 0,
+        subdeckCount: 0,
+        ancestors: [],
+        directSubdecks: [],
+      }
     }
-    const descendants = overview.decks.filter((entry) =>
-      deckIsStrictDescendant(entry.deck.name, current.deck.name),
-    )
-    const subdecks = descendants.map((entry) => ({ deck: entry.deck, due: entry.due }))
-    const totalDue = current.due + descendants.reduce((acc, s) => acc + s.due, 0)
-    const rolledTotal = current.total + descendants.reduce((acc, s) => acc + s.total, 0)
-    const rolledStudied = current.studied + descendants.reduce((acc, s) => acc + s.studied, 0)
-    const rolledNew = Math.max(0, rolledTotal - rolledStudied)
-    return { totalDue, rolledNew, rolledTotal, rolledStudied, subdecks }
+    const byName = new Map<string, string>()
+    for (const entry of overview.decks) {
+      if (!byName.has(entry.deck.name)) byName.set(entry.deck.name, entry.deck.id)
+    }
+    const ancestors = deckAncestorPaths(current.deck.name).map((path) => ({
+      path,
+      label: deckLeafName(path),
+      deckId: byName.get(path) ?? null,
+    }))
+    const tree = buildDeckTree(overview.decks)
+    const node = findTreeNodeByDeckId(tree, deckId)
+    if (!node) {
+      return {
+        totalDue: current.due,
+        rolledNew: Math.max(0, current.total - current.studied),
+        rolledTotal: current.total,
+        rolledStudied: current.studied,
+        subdeckCount: 0,
+        ancestors,
+        directSubdecks: [],
+      }
+    }
+    const summary = summarizeDeckSubtree(node)
+    return {
+      totalDue: node.due,
+      rolledNew: Math.max(0, node.total - node.studied),
+      rolledTotal: node.total,
+      rolledStudied: node.studied,
+      subdeckCount: summary.subdeckCount,
+      ancestors,
+      directSubdecks: collectNavigableSubdecks(node.children, current.deck.name),
+    }
   }, [deckId])
   const due = subdecksInfo?.totalDue ?? 0
-  const subdecks = subdecksInfo?.subdecks ?? []
+  const directSubdecks = subdecksInfo?.directSubdecks ?? []
+  const subdeckCount = subdecksInfo?.subdeckCount ?? 0
+  const ancestors = subdecksInfo?.ancestors ?? []
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -127,14 +218,16 @@ export function DeckDetailPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  if (!deckId || deck === undefined || cards === undefined) return null
+  if (!deckId || deck === undefined || cards === undefined || subdecksInfo === undefined) return null
 
   const now = Date.now()
   const directNewCount = cards.filter((c) => isNew(c.scheduling)).length
-  const totalCount = subdecks.length > 0 ? (subdecksInfo?.rolledTotal ?? cards.length) : cards.length
-  const newCount = subdecks.length > 0 ? (subdecksInfo?.rolledNew ?? directNewCount) : directNewCount
+  const totalCount = subdeckCount > 0 ? (subdecksInfo?.rolledTotal ?? cards.length) : cards.length
+  const newCount = subdeckCount > 0 ? (subdecksInfo?.rolledNew ?? directNewCount) : directNewCount
   const studiedCount =
-    subdecks.length > 0 ? (subdecksInfo?.rolledStudied ?? (cards.length - directNewCount)) : cards.length - directNewCount
+    subdeckCount > 0
+      ? (subdecksInfo?.rolledStudied ?? (cards.length - directNewCount))
+      : cards.length - directNewCount
   const studiedPct = totalCount > 0 ? Math.round((studiedCount / totalCount) * 100) : 0
   const tagOptions = [...new Set(cards.flatMap((card) => userTags(card.tags)))]
     .sort((a, b) => a.localeCompare(b))
@@ -175,10 +268,30 @@ export function DeckDetailPage() {
     }
   }
 
+  const leafLabel = deckLeafName(deck.name)
+  const hasAnyCards = cards.length > 0 || totalCount > 0
   const title = (
     <>
-      <span className="header-title-text">{deck.name}</span>
-      {(cards.length > 0 || subdecks.length > 0) && (
+      {ancestors.length > 0 ? (
+        <span className="header-breadcrumbs" aria-label="Deck path">
+          {ancestors.map((crumb) => (
+            <span key={crumb.path} className="header-crumb-item">
+              {crumb.deckId ? (
+                <Link to={`/decks/${crumb.deckId}`} className="header-crumb-link" title={crumb.path}>
+                  {crumb.label}
+                </Link>
+              ) : (
+                <span className="header-crumb-text" title={crumb.path}>{crumb.label}</span>
+              )}
+              <span className="header-crumb-sep" aria-hidden="true">/</span>
+            </span>
+          ))}
+          <span className="header-title-text" title={deck.name}>{leafLabel}</span>
+        </span>
+      ) : (
+        <span className="header-title-text" title={deck.name}>{deck.name}</span>
+      )}
+      {hasAnyCards && (
         due > 0 ? (
           <span className="header-status-pill is-due">
             <span className="status-dot" aria-hidden="true" />
@@ -210,7 +323,7 @@ export function DeckDetailPage() {
           <circle cx="11" cy="11.5" r="1.4" />
         </svg>
       </button>
-      {(cards.length > 0 || subdecks.length > 0) && (
+      {hasAnyCards ? (
         due > 0 ? (
           <>
             <button
@@ -242,7 +355,15 @@ export function DeckDetailPage() {
             </button>
           </>
         )
-      )}
+      ) : subdeckCount > 0 ? (
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => navigate(`/decks/${deckId}/cards/new`)}
+        >
+          + Add card
+        </button>
+      ) : null}
     </>
   )
 
@@ -257,10 +378,48 @@ export function DeckDetailPage() {
     <>
       <PageHeader title={title} actions={actions} />
       <div className="page-body">
-        {(subdecks.length > 0 || addingSubdeck) && (
-          <section className="subdecks-section" aria-label="Subdecks">
-            <div className="subdecks-head">
-              <span className="subdecks-title">Subdecks</span>
+        {(cards.length > 0 || (subdeckCount > 0 && totalCount > 0)) && (
+          <section className="deck-summary-bar" aria-label="Deck overview">
+            <div className="deck-stats" aria-label="Deck summary">
+              <div className="deck-stat deck-stat-due">
+                <span className="deck-stat-num">{due ?? 0}</span>
+                <span className="deck-stat-label">Due now</span>
+              </div>
+              <div className="deck-stat">
+                <span className="deck-stat-num">{newCount}</span>
+                <span className="deck-stat-label">New</span>
+              </div>
+              <div className="deck-stat">
+                <span className="deck-stat-num">{totalCount}</span>
+                <span className="deck-stat-label">Total</span>
+              </div>
+            </div>
+            <div className="deck-summary-progress" title={`${studiedCount} of ${totalCount} cards studied`}>
+              <span>{studiedCount} / {totalCount} studied</span>
+              <span className="deck-summary-track" aria-hidden="true">
+                <span style={{ width: `${studiedPct}%` }} />
+              </span>
+              {directSubdecks.length === 0 && !addingSubdeck && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setAddingSubdeck(true)}
+                >
+                  + Subdeck
+                </button>
+              )}
+            </div>
+          </section>
+        )}
+        {(directSubdecks.length > 0 || addingSubdeck) && (
+          <section className="subdecks-block" aria-label="Subdecks">
+            <div className="subdecks-block-head">
+              <div className="subdecks-block-title">
+                <h2>Subdecks</h2>
+                {directSubdecks.length > 0 && (
+                  <span className="today-decks-count">{directSubdecks.length}</span>
+                )}
+              </div>
               {!addingSubdeck && (
                 <button
                   type="button"
@@ -272,11 +431,11 @@ export function DeckDetailPage() {
               )}
             </div>
             {addingSubdeck && (
-              <>
+              <div className="subdeck-add-wrap">
                 <form className="subdeck-add-form" onSubmit={(e) => void createSubdeck(e)}>
                   <input
                     className="text-input"
-                    placeholder={`Subdeck inside ${deck.name}…`}
+                    placeholder={`Subdeck inside ${leafLabel}…`}
                     value={subdeckName}
                     onChange={(e) => {
                       setSubdeckName(e.target.value)
@@ -300,81 +459,141 @@ export function DeckDetailPage() {
                   </button>
                 </form>
                 {subdeckError && <p className="ds-row-sub ds-error" role="alert">{subdeckError}</p>}
-              </>
+              </div>
             )}
-            {subdecks.length > 0 && (
-              <div className="subdecks-list">
-                {subdecks.map(({ deck: child, due: childDue }) => {
-                  const prefix = `${deck.name}::`
-                  const relLabel = child.name.startsWith(prefix)
-                    ? child.name.slice(prefix.length)
-                    : child.name
+            {directSubdecks.length > 0 && (
+              <nav className="deck-list subdecks-rows" aria-label="Subdecks list">
+                {directSubdecks.map(({ node: child, deck: childDeck, displayLabel }) => {
+                  const childSummary = summarizeDeckSubtree(child)
+                  const hasNested = child.children.length > 0
+                  const pct = child.total > 0 ? Math.min(1, child.studied / child.total) : 0
+                  const ringCircumference = 2 * Math.PI * 7
+                  const ringOffset = ringCircumference * (1 - pct)
+                  const complete = child.total > 0 && child.studied >= child.total
+
+                  const childMeta = (
+                    <span className="deck-list-meta">
+                      {child.due > 0 && <span className="deck-list-due has-due">{child.due} due</span>}
+                      {child.total > 0 && child.studied > 0 ? (
+                        <span
+                          className={`deck-progress-ring${complete ? ' is-complete' : ''}`}
+                          title={`${child.studied} of ${child.total} studied`}
+                        >
+                          <svg viewBox="0 0 18 18" aria-hidden="true">
+                            <circle className="deck-progress-track" cx="9" cy="9" r="7" />
+                            <circle
+                              className="deck-progress-fill"
+                              cx="9"
+                              cy="9"
+                              r="7"
+                              strokeDasharray={ringCircumference}
+                              strokeDashoffset={ringOffset}
+                            />
+                          </svg>
+                          <span>
+                            {child.studied} / {child.total} studied
+                          </span>
+                        </span>
+                      ) : (
+                        <span>
+                          {child.total} {child.total === 1 ? 'card' : 'cards'}
+                        </span>
+                      )}
+                    </span>
+                  )
+
                   return (
-                    <Link key={child.id} to={`/decks/${child.id}`} className="subdeck-chip">
-                      <span>{relLabel}</span>
-                      {childDue > 0 && <span className="subdeck-chip-due">{childDue} due</span>}
-                    </Link>
+                    <div key={childDeck.id} className="deck-list-row subdeck-list-row">
+                      <Link to={`/decks/${childDeck.id}`} className="deck-list-link">
+                        {hasNested ? (
+                          <svg className="deck-icon deck-list-icon deck-folder-icon" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h2.6a1.5 1.5 0 0 1 1.15.54l.65.78a1 1 0 0 0 .77.36h3.83A1.5 1.5 0 0 1 14 6.18v5.32A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
+                          </svg>
+                        ) : (
+                          <svg className="deck-icon deck-list-icon" viewBox="0 0 16 16" aria-hidden="true">
+                            <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />
+                            <path d="M4.5 1.5h7a2 2 0 0 1 2 2v6" />
+                          </svg>
+                        )}
+                        <span className="subdeck-row-name-wrap">
+                          <span className="deck-list-name" title={childDeck.name}>{displayLabel}</span>
+                          {childSummary.subdeckCount > 0 && (
+                            <span className="subdeck-row-count">
+                              {childSummary.subdeckCount} {childSummary.subdeckCount === 1 ? 'subdeck' : 'subdecks'}
+                            </span>
+                          )}
+                        </span>
+                        {childMeta}
+                      </Link>
+                      <div className="deck-list-actions">
+                        {child.due > 0 ? (
+                          <Link
+                            to={`/decks/${childDeck.id}/study`}
+                            className="btn btn-ghost btn-sm deck-list-study"
+                            aria-label={`Study ${childDeck.name}`}
+                          >
+                            Study
+                          </Link>
+                        ) : (
+                          <Link
+                            to={`/decks/${childDeck.id}`}
+                            className="deck-list-arrow"
+                            aria-label={`Open ${childDeck.name}`}
+                          >
+                            ›
+                          </Link>
+                        )}
+                      </div>
+                    </div>
                   )
                 })}
-              </div>
+              </nav>
             )}
-          </section>
-        )}
-        {(cards.length > 0 || (subdecks.length > 0 && totalCount > 0)) && (
-          <section className="deck-summary-bar" aria-label="Deck overview">
-            <div className="deck-stats" aria-label="Deck summary">
-              <div className="deck-stat deck-stat-due">
-                <span className="deck-stat-num">{due ?? 0}</span>
-                <span className="deck-stat-label">Due now</span>
-              </div>
-              <div className="deck-stat">
-                <span className="deck-stat-num">{newCount}</span>
-                <span className="deck-stat-label">New</span>
-              </div>
-              <div className="deck-stat">
-                <span className="deck-stat-num">{totalCount}</span>
-                <span className="deck-stat-label">Total</span>
-              </div>
-            </div>
-            <div className="deck-summary-progress" title={`${studiedCount} of ${totalCount} cards studied`}>
-              <span>{studiedCount} / {totalCount} studied</span>
-              <span className="deck-summary-track" aria-hidden="true">
-                <span style={{ width: `${studiedPct}%` }} />
-              </span>
-              {subdecks.length === 0 && !addingSubdeck && (
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setAddingSubdeck(true)}
-                >
-                  + Subdeck
-                </button>
-              )}
-            </div>
           </section>
         )}
         {cards.length === 0 ? (
-          <div className="empty-state">
-            <EmptyIcon kind="cards" />
-            <h3>{subdecks.length > 0 ? 'No direct cards in this deck' : 'No cards yet'}</h3>
-            <p>
-              {subdecks.length > 0
-                ? 'Cards live in the subdecks above. You can still study them all together or add direct cards here.'
-                : 'Add your first card — front, back, done.'}
-            </p>
-            <div className="empty-state-actions">
-              <button className="btn btn-primary cta" onClick={() => navigate(`/decks/${deckId}/cards/new`)}>
-                {subdecks.length > 0 ? '+ Add card here' : '+ Add your first card'}
+          directSubdecks.length > 0 ? (
+            <div className="subdecks-direct-footer">
+              <span>
+                {totalCount > 0
+                  ? `All ${totalCount} ${totalCount === 1 ? 'card lives' : 'cards live'} in the subdecks above.`
+                  : 'No cards in this deck or its subdecks yet.'}
+              </span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => navigate(`/decks/${deckId}/cards/new`)}
+              >
+                + Add direct card
               </button>
-              {!addingSubdeck && (
-                <button className="btn btn-ghost cta" onClick={() => setAddingSubdeck(true)}>
-                  + Add subdeck
-                </button>
-              )}
             </div>
-          </div>
+          ) : (
+            <div className="empty-state">
+              <EmptyIcon kind="cards" />
+              <h3>No cards yet</h3>
+              <p>Add your first card — front, back, done.</p>
+              <div className="empty-state-actions">
+                <button className="btn btn-primary cta" onClick={() => navigate(`/decks/${deckId}/cards/new`)}>
+                  + Add your first card
+                </button>
+                {!addingSubdeck && (
+                  <button className="btn btn-ghost cta" onClick={() => setAddingSubdeck(true)}>
+                    + Add subdeck
+                  </button>
+                )}
+              </div>
+            </div>
+          )
         ) : (
           <>
+            {directSubdecks.length > 0 && (
+              <div className="direct-cards-head">
+                <h2>Cards in this deck</h2>
+                <span className="today-decks-count">
+                  {cards.length} {cards.length === 1 ? 'card' : 'cards'}
+                </span>
+              </div>
+            )}
 
             <div className="card-list-tools">
               <div className="card-search-wrap">

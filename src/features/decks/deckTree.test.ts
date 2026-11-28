@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_DECK_SETTINGS, type Deck } from '../../domain/models'
 import {
   buildDeckTree,
+  deckAncestorPaths,
   deckIsDescendantOrSelf,
+  deckIsDirectChild,
   deckIsStrictDescendant,
   describeDeckDelete,
   flattenVisibleDeckTree,
@@ -32,6 +34,11 @@ describe('deckTree', () => {
     expect(() => normalizeDeckName('CS::::Rust')).toThrow()
     expect(deckIsDescendantOrSelf('CS::Rust', 'CS')).toBe(true)
     expect(deckIsDescendantOrSelf('CSS', 'CS')).toBe(false)
+    expect(deckAncestorPaths('Rust')).toEqual([])
+    expect(deckAncestorPaths('CS::Systems::Rust')).toEqual(['CS', 'CS::Systems'])
+    expect(deckIsDirectChild('CS::Rust', 'CS')).toBe(true)
+    expect(deckIsDirectChild('CS::Rust::Async', 'CS')).toBe(false)
+    expect(deckIsDirectChild('CS', 'CS')).toBe(false)
   })
 
   it('preserves duplicate-named decks without overwriting them', () => {

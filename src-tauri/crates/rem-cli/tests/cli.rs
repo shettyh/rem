@@ -953,6 +953,7 @@ fn import_apkg_supports_dry_run_and_imports_cards_via_cli() {
     assert_eq!(real_json["data"]["importedCards"], 1);
 
     let decks = Collection::open(&db_path).unwrap().list_decks().unwrap();
-    assert_eq!(decks.len(), 1);
-    assert_eq!(decks[0].name, "CS::Networking");
+    assert_eq!(decks.len(), 2);
+    assert!(decks.iter().any(|d| d.name == "CS"));
+    assert!(decks.iter().any(|d| d.name == "CS::Networking"));
 }

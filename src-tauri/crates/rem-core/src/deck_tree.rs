@@ -16,6 +16,18 @@ pub fn deck_segments(name: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Return all strict ancestor deck paths from shallowest to deepest.
+/// E.g., `"Anatomy::Unit 01::Cells"` -> `["Anatomy", "Anatomy::Unit 01"]`.
+pub fn deck_ancestor_paths(name: &str) -> Vec<String> {
+    let segments = deck_segments(name);
+    if segments.len() <= 1 {
+        return Vec::new();
+    }
+    (1..segments.len())
+        .map(|len| segments[..len].join(DECK_SEPARATOR))
+        .collect()
+}
+
 /// Returns true if `candidate_name` is a strict nested subdeck of `root_name` (`root::...`).
 pub fn deck_is_strict_descendant(candidate_name: &str, root_name: &str) -> bool {
     candidate_name
@@ -127,5 +139,15 @@ mod tests {
         assert!(deck_is_strict_descendant("CS::Rust", "CS"));
         assert!(deck_is_strict_descendant("CS::Rust::Async", "CS"));
         assert!(!deck_is_strict_descendant("CSS", "CS"));
+    }
+
+    #[test]
+    fn computes_ancestor_paths_from_shallowest_to_deepest() {
+        assert!(deck_ancestor_paths("Rust").is_empty());
+        assert_eq!(deck_ancestor_paths("CS::Rust"), vec!["CS"]);
+        assert_eq!(
+            deck_ancestor_paths("Anatomy::Unit 01::Cells"),
+            vec!["Anatomy", "Anatomy::Unit 01"]
+        );
     }
 }

@@ -977,6 +977,16 @@ final class RemAppTests: XCTestCase {
         XCTAssertEqual(csDup.subdeckCount, 0)
         XCTAssertEqual(csDup.subtreeCardCount, 2)
 
+        // Ancestor paths & node lookup helpers
+        XCTAssertEqual(DeckTreeBuilder.ancestorPaths("Rust"), [])
+        XCTAssertEqual(
+            DeckTreeBuilder.ancestorPaths("Anatomy::Unit 01::Cells"),
+            ["Anatomy", "Anatomy::Unit 01"]
+        )
+        let foundCs = DeckTreeBuilder.findNode(deckId: "d3", in: roots)
+        XCTAssertEqual(foundCs?.label, "CS")
+        XCTAssertEqual(foundCs?.children.map(\.label), ["Rust"])
+
         // Collapsed path pruning
         let pruned = DeckTreeBuilder.pruneCollapsedPaths(
             ["Anatomy", "Anatomy::Unit 01", "Anatomy2", "CS"],
@@ -1011,11 +1021,16 @@ final class RemAppTests: XCTestCase {
         XCTAssertTrue(afterParentDelete.contains(dupSibling.id))
         XCTAssertTrue(afterParentDelete.contains(prefixCollision.id))
 
-        // deleteDeckTree removes virtual parent folder "JLPT" and all its subdecks
+        // deleteDeckTree removes parent "JLPT" and all its materialized ancestors + subdecks
         let deletedTreeIds = try await store.deleteDeckTree(path: "JLPT", nowMs: now + 30)
-        XCTAssertEqual(Set(deletedTreeIds), Set([v1.id, v2.id]))
-        let remainingIds = Set(try await store.listDecks().map(\.id))
-        XCTAssertEqual(remainingIds, Set([dupSibling.id, prefixCollision.id]))
+        XCTAssertEqual(deletedTreeIds.count, 5)
+        XCTAssertTrue(deletedTreeIds.contains(v1.id))
+        XCTAssertTrue(deletedTreeIds.contains(v2.id))
+        let remainingDecks = try await store.listDecks()
+        let remainingIds = Set(remainingDecks.map(\.id))
+        XCTAssertTrue(remainingIds.contains(dupSibling.id))
+        XCTAssertTrue(remainingIds.contains(prefixCollision.id))
+        XCTAssertEqual(Set(remainingDecks.map(\.name)), Set(["Bio", "Bio2", "Bio2::Lab"]))
 
         // Orphan asset sweep deletes asset from deleted JLPT card and preserves surviving asset
         let swept = try await store.sweepOrphanAssets()
@@ -1167,5 +1182,69 @@ final class RemAppTests: XCTestCase {
         XCTAssertEqual(SyncPokeClient.backoffDelayNanoseconds(attempt: 4), 16_000_000_000)
         XCTAssertEqual(SyncPokeClient.backoffDelayNanoseconds(attempt: 5), 30_000_000_000)
         XCTAssertEqual(SyncPokeClient.backoffDelayNanoseconds(attempt: 20), 30_000_000_000)
+    }
+
+    func testCardSearchResultMetaAndInDeckRationaleFilter() async throws {
+        let (dir, store) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let now: Int64 = 1_763_720_000_000
+        let deck = try await store.createDeck(name: "Rust::Memory", color: "#5a47e8", nowMs: now)
+        let card = try await store.createCard(
+            deckId: deck.id,
+            front: "What does `Drop` do?",
+            back: "Runs **cleanup** when a value leaves scope.",
+            tags: ["ownership", "raii", "lifetimes", "extra"],
+            nowMs: now + 10
+        )
+
+        let hit = CardSearchHitDto(card: card, deckName: deck.name, deckColor: deck.color)
+        let tagMeta = CardSearchResultMeta.build(hit: hit, query: "extra")
+        XCTAssertEqual(tagMeta.displayDeckName, "Rust / Memory")
+        XCTAssertEqual(tagMeta.backPreview, "Runs cleanup when a value leaves scope.")
+        XCTAssertEqual(tagMeta.visibleTags.first, "extra")
+        XCTAssertEqual(tagMeta.visibleTags.count, 3)
+        XCTAssertEqual(tagMeta.matchingTags, ["extra"])
+        XCTAssertNil(tagMeta.rationalePreview)
+
+        // Rationale-only match surfaces rationale preview and works in DeckDetailView filter.
+        let cardWithRationale = CardDto(
+            id: card.id,
+            deckId: card.deckId,
+            front: card.front,
+            back: card.back,
+            tags: card.tags,
+            suspended: false,
+            createdAt: card.createdAt,
+            updatedAt: card.updatedAt,
+            due: card.due,
+            state: card.state,
+            reps: card.reps,
+            lapses: card.lapses,
+            assetHashes: card.assetHashes,
+            rationale: "Hit an allocator destructor ordering bug during refactor.",
+            sources: [],
+            proposedBy: "agent",
+            siblingGroupId: nil,
+            clozeIndex: 2
+        )
+        let rationaleHit = CardSearchHitDto(card: cardWithRationale, deckName: deck.name, deckColor: deck.color)
+        let rationaleMeta = CardSearchResultMeta.build(hit: rationaleHit, query: "allocator")
+        XCTAssertEqual(rationaleMeta.clozeBadge, "c2")
+        XCTAssertEqual(rationaleMeta.rationalePreview, "Hit an allocator destructor ordering bug during refactor.")
+        XCTAssertEqual(
+            CardSearchResultMeta.rationaleOnlyPreview(card: cardWithRationale, query: "allocator"),
+            "Hit an allocator destructor ordering bug during refactor."
+        )
+        XCTAssertNil(CardSearchResultMeta.rationaleOnlyPreview(card: cardWithRationale, query: "Drop"))
+        XCTAssertTrue(CardSearchResultMeta.matchesInDeckFilter(card: cardWithRationale, query: "allocator"))
+        XCTAssertTrue(CardSearchResultMeta.matchesInDeckFilter(card: cardWithRationale, query: "Drop cleanup"))
+        XCTAssertFalse(CardSearchResultMeta.matchesInDeckFilter(card: cardWithRationale, query: "nonexistent"))
+
+        // Nested deck matching supports raw ::, formatted " / ", and multi-word tokens.
+        XCTAssertTrue(CardSearchResultMeta.matchesDeck(name: "Rust::Memory", query: "Rust::Memory"))
+        XCTAssertTrue(CardSearchResultMeta.matchesDeck(name: "Rust::Memory", query: "Rust / Memory"))
+        XCTAssertTrue(CardSearchResultMeta.matchesDeck(name: "Rust::Memory", query: "Rust Memory"))
+        XCTAssertFalse(CardSearchResultMeta.matchesDeck(name: "Rust::Memory", query: "SQL Memory"))
     }
 }

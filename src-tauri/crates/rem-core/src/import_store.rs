@@ -7,7 +7,9 @@ use crate::asset_store::put_asset_in_tx;
 use crate::collection::write_transaction;
 use crate::deck_tree::normalize_deck_name;
 use crate::review_store::grade_name;
-use crate::store::{bump_sync_revision, deck_color, insert_card_with_hlc};
+use crate::store::{
+    bump_sync_revision, deck_color, ensure_ancestor_decks_in_tx, insert_card_with_hlc,
+};
 use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc, put_tombstone_with_hlc};
 use crate::tags::normalize_card_tags;
 use crate::{
@@ -110,6 +112,10 @@ impl Collection {
             }
         }
 
+        let imported_meta: Vec<(String, i64)> = decks
+            .iter()
+            .map(|deck| (deck.name.clone(), deck.created_at))
+            .collect();
         let mut sibling_map: HashMap<String, String> = HashMap::new();
         for backup in decks {
             let deck_id = Uuid::new_v4().to_string();
@@ -326,6 +332,33 @@ impl Collection {
                     }
                 }
             }
+        }
+        // Materialize missing ancestor container decks without touching any existing parent decks.
+        let mut ancestor_created_at: HashMap<String, i64> = HashMap::new();
+        for (name, created_at) in &imported_meta {
+            for ancestor in crate::deck_tree::deck_ancestor_paths(name) {
+                ancestor_created_at
+                    .entry(ancestor)
+                    .and_modify(|ts| *ts = (*ts).min(*created_at))
+                    .or_insert(*created_at);
+            }
+        }
+        for (name, created_at) in &imported_meta {
+            ensure_ancestor_decks_in_tx(
+                &transaction,
+                name,
+                |ancestor| {
+                    ancestor_created_at
+                        .get(ancestor)
+                        .copied()
+                        .unwrap_or(*created_at)
+                        .saturating_sub(1)
+                        .max(0)
+                },
+                now,
+                cloud_enabled,
+                false,
+            )?;
         }
         if !incoming_names.is_empty() || imported_media > 0 {
             bump_sync_revision(&transaction)?;
