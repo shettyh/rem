@@ -163,6 +163,13 @@ test('deleting a parent folder from the sidebar redirects away from a deleted ch
   })
 
   await expect.element(page.getByText('Deck options')).toBeVisible()
+  await expect
+    .poll(() =>
+      [...document.querySelectorAll<HTMLElement>('.side-decks .side-deck-row')].some(
+        (row) => row.querySelector('.nav-grow')?.textContent?.trim() === 'Anatomy',
+      ),
+    )
+    .toBe(true)
   const sidebar = document.querySelector<HTMLElement>('.side-decks')!
   const anatomyRow = [...sidebar.querySelectorAll<HTMLElement>('.side-deck-row')].find(
     (row) => row.querySelector('.nav-grow')?.textContent?.trim() === 'Anatomy',

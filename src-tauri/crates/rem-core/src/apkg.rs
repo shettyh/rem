@@ -1513,7 +1513,7 @@ fn looks_like_cjk_reading(reading: &str) -> bool {
     }
     // 4. Tone-numbered pinyin syllables (e.g. `ni3 hao3`, `zhong1`)
     let tokens: Vec<&str> = trimmed.split_whitespace().collect();
-    if !tokens.is_empty()
+    !tokens.is_empty()
         && tokens.iter().all(|tok| {
             let mut chars = tok.chars();
             let Some(last) = chars.next_back() else {
@@ -1527,10 +1527,6 @@ fn looks_like_cjk_reading(reading: &str) -> bool {
                     .chars()
                     .all(|c| c.is_ascii_alphabetic() || matches!(c, 'ü' | 'Ü' | 'v' | 'V'))
         })
-    {
-        return true;
-    }
-    false
 }
 
 #[derive(Clone, Copy)]

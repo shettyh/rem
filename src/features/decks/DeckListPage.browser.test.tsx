@@ -88,6 +88,9 @@ test('formats nested decks with aligned chevrons, icons, typography, and progres
 
   await renderRoute({ storage, entry: '/', path: '/', element: <DeckListPage /> })
   await expect.element(page.getByText('3.1 Intro').first()).toBeVisible()
+  await expect
+    .poll(() => document.querySelectorAll('.side-decks .side-deck-row').length)
+    .toBe(6)
 
   const sidebar = document.querySelector<HTMLElement>('.side-decks')!
   const rows = [...sidebar.querySelectorAll<HTMLElement>('.side-deck-row')]
