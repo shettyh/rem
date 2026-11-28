@@ -1,6 +1,6 @@
 # rem — Current State & Future Vision
 
-_Last reviewed: 2026-11-28 · based on `v0.29.1` plus Image Occlusion and Cloud Sync v1.1 (compaction, `/v1/bootstrap`, and WebSocket pokes)_
+_Last reviewed: 2026-11-28 · based on `v0.32.1` (Image Occlusion, Cloud Sync v1.1 compaction / `/v1/bootstrap` / WebSocket pokes, and `#290` test hardening)_
 
 This document is the canonical product snapshot for future planning. Dated files under
 `docs/superpowers/` record the decisions and implementation history behind individual slices;
@@ -225,10 +225,11 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 - Installers build for Apple Silicon and Intel macOS (Developer ID signed & notarized), Linux, and Windows.
 - The `rem` CLI binary is bundled directly inside desktop packages (`rem.app/Contents/MacOS/rem` on macOS) so Homebrew (`brew install --cask shettyh/tap/rem`) and `install.sh` provide a single installation that stays updated in lockstep with the desktop app; standalone CLI archives are also published on GitHub Releases.
 - Signed in-app auto-updates (`tauri-plugin-updater`) check `latest.json` on GitHub Releases and update both desktop and linked CLI together.
-- CI covers TypeScript/unit tests, real-browser flows, `sync-server` Workers tests, Rust formatting,
-  Clippy, Rust workspace tests, frontend builds, iOS `RemCore.xcframework` + `RemAppTests` Simulator
-  tests, security auditing, cross-platform desktop/CLI release builds, automated `sync-server`
-  deploys, and cloud-signed iOS TestFlight uploads.
+- CI covers TypeScript/unit tests, real-browser flows, `sync-server` Workers tests, live `sync-e2e`
+  (`rem-sync` ↔ `wrangler`) tests, Rust formatting, Clippy, Rust workspace tests, frontend builds,
+  iOS `RemCore.xcframework` + `RemAppTests` Simulator tests, security auditing, cross-platform
+  desktop/CLI release builds, automated `sync-server` deploys, and cloud-signed iOS TestFlight
+  uploads.
 
 ## Completed milestones
 
@@ -387,7 +388,7 @@ As a solo-maintained project, `rem` already spans five moving surfaces (Tauri de
 ### 3. Architectural & test debt to pay down incrementally
 
 - **Single domain engine (retired TS shadow engine):** The legacy TypeScript/Dexie shadow engine (`DexieStorage`, `BrowserStudySession`, TS FSRS/stats) has been removed in favor of a lightweight in-memory `Storage` test double for React UI/browser tests, leaving `rem-core` as the sole persistence, scheduling, and stats engine.
-- **Thin native boundary test coverage:** `rem-core`, `rem-sync`, `rem-cli`, `rem-ffi`, `sync-server`, and React have strong tests, while `src-tauri/src/` command glue has minimal direct test coverage and `ios/` relies on a single test target (`RemAppTests.swift`) for SwiftUI flows.
+- **Remaining native & UI boundary test gaps:** Test hardening in `#290` substantially closed earlier core and seam gaps — adding Tauri IPC contract tests in `src-tauri/src/storage.rs` and `src-tauri/src/study.rs` (plus TypeScript `TauriStorage.test.ts`), expanded `rem-ffi` boundary tests, `proptest` property/fuzz suites (`prop_parsers.rs`, `prop_scheduler.rs`, `prop_storage_invariants.rs`, `prop_study_session.rs`, `sync_properties.rs`), expanded iOS Simulator unit/rendering tests in `ios/RemAppTests/RemAppTests.swift`, and an automated live `sync-e2e` CI job (`rem-sync` ↔ `wrangler`) in `.github/workflows/ci.yml`. Remaining thin areas are narrower: `src-tauri/src/sync.rs` command glue still has light direct coverage, `ios/` relies on a single `XCTest` target (`RemAppTests`) without XCUITest UI-driven flows (and the local `SKTestSession` purchase-sheet test is skipped in headless CI), and real-device / live-production smoke tests remain manual.
 - **Gravity-well files:** Decompose `src/ui/styles.css`, `src/features/settings/SettingsPage.tsx`, `src-tauri/crates/rem-core/src/sync_store.rs`, `src-tauri/crates/rem-ffi/src/lib.rs`, `ios/RemApp/Features/Settings/SettingsView.swift`, and `ios/RemApp/App/AppState.swift` into focused modules as those areas are touched.
 
 ## Future direction

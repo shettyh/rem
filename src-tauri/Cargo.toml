@@ -7,10 +7,10 @@ resolver = "2"
 name = "app"
 version = "0.32.1"
 default-run = "app"
-description = "A Tauri App"
-authors = ["you"]
+description = "Desktop application for rem spaced repetition"
+authors = ["Manjunatha Shetty H"]
 license = "Apache-2.0"
-repository = ""
+repository = "https://github.com/shettyh/rem"
 edition = "2021"
 rust-version = "1.88"
 

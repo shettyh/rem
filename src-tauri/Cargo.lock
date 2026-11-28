@@ -4501,7 +4501,7 @@ dependencies = [
 
 [[package]]
 name = "rem-sync-reduce"
-version = "0.31.0"
+version = "0.32.1"
 dependencies = [
  "serde",
  "serde_json",

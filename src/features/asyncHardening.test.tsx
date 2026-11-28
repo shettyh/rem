@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { StorageProvider } from '../data/StorageContext'
 import { SyncProvider } from '../data/SyncContext'
@@ -332,10 +332,18 @@ describe('deterministic async-interleaving guardrails', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: /Reveal proposal/i }))
       const rejectBtn = await screen.findByRole('button', { name: 'Reject draft' })
-      fireEvent.click(rejectBtn)
-      fireEvent.click(rejectBtn)
+      act(() => {
+        fireEvent.click(rejectBtn)
+        fireEvent.click(rejectBtn)
+      })
       expect(resolveSpy).toHaveBeenCalledTimes(1)
-      gate.resolve({ status: 'rejected' })
+      expect(rejectBtn).toBeDisabled()
+      await act(async () => {
+        gate.resolve({ status: 'rejected' })
+        await gate.promise
+      })
+      expect(screen.getByRole('status')).toHaveTextContent('Draft rejected.')
+      expect(screen.getByRole('button', { name: 'Reject draft' })).toBeEnabled()
     } finally {
       await cleanupDb()
     }
