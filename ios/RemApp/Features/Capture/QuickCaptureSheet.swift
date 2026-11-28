@@ -162,7 +162,8 @@ struct QuickCaptureSheet: View {
                     front = ImageOcclusionParser.composeDocument(
                         header: nextHeader,
                         block: nextBlock,
-                        footer: draft.footer
+                        footer: draft.footer,
+                        syncAltFromHeader: true
                     )
                     if let hash = nextBlock.assetHash, !attachedAssetHashes.contains(hash) {
                         attachedAssetHashes.append(hash)
@@ -281,7 +282,9 @@ struct QuickCaptureSheet: View {
 
                         if !isEditing {
                             Button("Text card") {
-                                front = doc.header
+                                let parts = [doc.header, "![](\(doc.block.image))", doc.footer]
+                                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                                front = parts.joined(separator: "\n\n")
                             }
                             .font(.footnote.weight(.medium))
                             .buttonStyle(.bordered)
@@ -614,7 +617,7 @@ struct QuickCaptureSheet: View {
                 .overlay(Capsule().strokeBorder(RemColor.border, lineWidth: 1))
             }
             .buttonStyle(.plain)
-        } else if activeEditorField == .back || isTagFieldFocused {
+        } else if (activeEditorField == .back || isTagFieldFocused) && !isOcclusionNote {
             Button {
                 frontController.focus()
             } label: {
@@ -749,9 +752,6 @@ struct QuickCaptureSheet: View {
             guard let data = try await item.loadTransferable(type: Data.self) else { return }
             let mime = item.supportedContentTypes.first?.preferredMIMEType ?? "image/jpeg"
             let hash = try await appState.store.putAsset(mime: mime, bytes: data)
-            if !attachedAssetHashes.contains(hash) {
-                attachedAssetHashes.append(hash)
-            }
             let plainTitle = front
                 .replacingOccurrences(of: #"!\[[^\]]*\]\([^)]*\)"#, with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespacesAndNewlines)

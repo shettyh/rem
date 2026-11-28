@@ -14,16 +14,18 @@ struct RemMarkdownView: View {
     var clozeRevealed: Bool = false
     var onTapAssetImage: ((CachedAssetImage) -> Void)?
 
-    private var preparedMarkdown: String {
+    private var blocks: [MarkdownBlock] {
+        // Parse blocks BEFORE applying ClozeRenderer so code fences and rem-occlusion JSON payloads
+        // are never mutated by cloze sentinel substitution.
         let normalized = LatexMathFormatter.normalizeDelimiters(markdown)
-        if let clozeIndex, clozeIndex >= 1 {
-            return ClozeRenderer.render(normalized, activeIndex: clozeIndex, revealed: clozeRevealed)
-        }
-        return normalized
+        return MarkdownBlockParser.parse(normalized)
     }
 
-    private var blocks: [MarkdownBlock] {
-        MarkdownBlockParser.parse(preparedMarkdown)
+    private func applyCloze(_ text: String) -> String {
+        if let clozeIndex, clozeIndex >= 1 {
+            return ClozeRenderer.render(text, activeIndex: clozeIndex, revealed: clozeRevealed)
+        }
+        return text
     }
 
     private var scaledBaseFontSize: CGFloat {
@@ -193,7 +195,9 @@ struct RemMarkdownView: View {
     }
 
     private func inlineMarkdown(_ raw: String, fontSize: CGFloat) -> AttributedString {
-        // Split out cloze highlight sentinels and inline $...$ math spans before markdown styling.
+        // Apply cloze substitution only inside inline text runs (never inside code or occlusion blocks),
+        // then split out cloze highlight sentinels and inline $...$ math spans.
+        let raw = applyCloze(raw)
         var result = AttributedString()
         var cursor = raw.startIndex
 

@@ -128,50 +128,92 @@ export function OcclusionEditor({
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const [interaction, setInteraction] = useState<InteractionState>({ kind: 'idle' })
-  const [undoStack, setUndoStack] = useState<OcclusionMask[][]>([])
-  const [redoStack, setRedoStack] = useState<OcclusionMask[][]>([])
+  const [, setHistoryTick] = useState(0)
 
+  const editorRootRef = useRef<HTMLDivElement>(null)
+  const viewportRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const blockRef = useRef(block)
   blockRef.current = block
+  const undoStackRef = useRef<OcclusionMask[][]>([])
+  const redoStackRef = useRef<OcclusionMask[][]>([])
 
   // Prune selection indices if masks shrink externally
   useEffect(() => {
     setSelected((prev) => prev.filter((idx) => idx >= 0 && idx < block.masks.length))
   }, [block.masks.length])
 
+  // Attach non-passive wheel listener so Ctrl/Cmd+Wheel zooms the canvas instead of the whole webview.
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        const delta = e.deltaY < 0 ? 0.15 : -0.15
+        setZoom((z) => clamp(Math.round((z + delta) * 100) / 100, 0.5, 3))
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
+  const pushUndoSnapshot = useCallback((snapshot: OcclusionMask[]) => {
+    undoStackRef.current = [...undoStackRef.current.slice(-(MAX_HISTORY - 1)), snapshot]
+    redoStackRef.current = []
+    setHistoryTick((t) => t + 1)
+  }, [])
+
   const commitMasks = useCallback(
     (nextMasks: OcclusionMask[], snapshotForUndo?: OcclusionMask[]) => {
-      const base = snapshotForUndo ?? blockRef.current.masks
-      setUndoStack((prev) => [...prev.slice(-(MAX_HISTORY - 1)), base])
-      setRedoStack([])
+      pushUndoSnapshot(snapshotForUndo ?? blockRef.current.masks)
       onBlockChange({ ...blockRef.current, masks: nextMasks })
     },
-    [onBlockChange],
+    [onBlockChange, pushUndoSnapshot],
   )
 
   const undo = useCallback(() => {
-    setUndoStack((prev) => {
-      if (prev.length === 0) return prev
-      const previous = prev[prev.length - 1]
-      setRedoStack((r) => [...r.slice(-(MAX_HISTORY - 1)), blockRef.current.masks])
-      onBlockChange({ ...blockRef.current, masks: previous })
-      setSelected([])
-      return prev.slice(0, -1)
-    })
+    const stack = undoStackRef.current
+    if (stack.length === 0) return
+    const previous = stack[stack.length - 1]
+    undoStackRef.current = stack.slice(0, -1)
+    redoStackRef.current = [...redoStackRef.current.slice(-(MAX_HISTORY - 1)), blockRef.current.masks]
+    setInteraction({ kind: 'idle' })
+    setSelected([])
+    setHistoryTick((t) => t + 1)
+    onBlockChange({ ...blockRef.current, masks: previous })
   }, [onBlockChange])
 
   const redo = useCallback(() => {
-    setRedoStack((prev) => {
-      if (prev.length === 0) return prev
-      const next = prev[prev.length - 1]
-      setUndoStack((u) => [...u.slice(-(MAX_HISTORY - 1)), blockRef.current.masks])
-      onBlockChange({ ...blockRef.current, masks: next })
-      setSelected([])
-      return prev.slice(0, -1)
+    const stack = redoStackRef.current
+    if (stack.length === 0) return
+    const next = stack[stack.length - 1]
+    redoStackRef.current = stack.slice(0, -1)
+    undoStackRef.current = [...undoStackRef.current.slice(-(MAX_HISTORY - 1)), blockRef.current.masks]
+    setInteraction({ kind: 'idle' })
+    setSelected([])
+    setHistoryTick((t) => t + 1)
+    onBlockChange({ ...blockRef.current, masks: next })
+  }, [onBlockChange])
+
+  const cancelInteraction = useCallback(() => {
+    setInteraction((current) => {
+      if (current.kind === 'move' || current.kind === 'resize') {
+        onBlockChange({ ...blockRef.current, masks: current.snapshot })
+      }
+      return { kind: 'idle' }
     })
   }, [onBlockChange])
+
+  const switchTool = useCallback(
+    (nextTool: EditorTool) => {
+      cancelInteraction()
+      setTool(nextTool)
+      editorRootRef.current?.focus({ preventScroll: true })
+    },
+    [cancelInteraction],
+  )
 
   const getNormalizedPoint = useCallback((clientX: number, clientY: number) => {
     const el = stageRef.current
@@ -186,6 +228,7 @@ export function OcclusionEditor({
 
   const deleteSelected = useCallback(() => {
     if (selected.length === 0) return
+    setInteraction({ kind: 'idle' })
     const drop = new Set(selected)
     const next = blockRef.current.masks.filter((_, idx) => !drop.has(idx))
     commitMasks(next)
@@ -244,6 +287,7 @@ export function OcclusionEditor({
 
   const onCanvasPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return
+    editorRootRef.current?.focus({ preventScroll: true })
     if (tool === 'pan') {
       trySetPointerCapture(e.currentTarget, e.pointerId)
       setInteraction({
@@ -383,10 +427,11 @@ export function OcclusionEditor({
       let top = origin.y
       let bottom = origin.y + origin.h
 
-      if (handle.includes('w')) left = clamp(pt.x, 0, right - MIN_RESIZE_EXTENT)
-      if (handle.includes('e')) right = clamp(pt.x, left + MIN_RESIZE_EXTENT, 1)
-      if (handle.includes('n')) top = clamp(pt.y, 0, bottom - MIN_RESIZE_EXTENT)
-      if (handle.includes('s')) bottom = clamp(pt.y, top + MIN_RESIZE_EXTENT, 1)
+      if (handle.includes('w')) left = clamp(pt.x, 0, Math.max(0, right - MIN_RESIZE_EXTENT))
+      if (handle.includes('e')) right = clamp(pt.x, Math.min(1, left + MIN_RESIZE_EXTENT), 1)
+      if (handle.includes('n')) top = clamp(pt.y, 0, Math.max(0, bottom - MIN_RESIZE_EXTENT))
+      if (handle.includes('s')) bottom = clamp(pt.y, Math.min(1, top + MIN_RESIZE_EXTENT), 1)
+      if (right - left < MIN_RESIZE_EXTENT || bottom - top < MIN_RESIZE_EXTENT) return
 
       const next = [...blockRef.current.masks]
       const existing = next[index]
@@ -423,8 +468,7 @@ export function OcclusionEditor({
       (interaction.kind === 'move' || interaction.kind === 'resize') &&
       interaction.moved
     ) {
-      setUndoStack((prev) => [...prev.slice(-(MAX_HISTORY - 1)), interaction.snapshot])
-      setRedoStack([])
+      pushUndoSnapshot(interaction.snapshot)
     }
     setInteraction({ kind: 'idle' })
   }
@@ -432,6 +476,22 @@ export function OcclusionEditor({
   const onCanvasKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     const tag = (e.target as HTMLElement | null)?.tagName ?? ''
     if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+    if (e.key === 'Escape') {
+      if (interaction.kind !== 'idle') {
+        e.preventDefault()
+        e.stopPropagation()
+        cancelInteraction()
+        return
+      }
+      if (selected.length > 0) {
+        e.preventDefault()
+        e.stopPropagation()
+        setSelected([])
+        return
+      }
+      return
+    }
 
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
       e.preventDefault()
@@ -451,16 +511,16 @@ export function OcclusionEditor({
     const lower = e.key.toLowerCase()
     if (lower === 'r') {
       e.preventDefault()
-      setTool('rect')
+      switchTool('rect')
     } else if (lower === 'e') {
       e.preventDefault()
-      setTool('ellipse')
+      switchTool('ellipse')
     } else if (lower === 'v') {
       e.preventDefault()
-      setTool('select')
+      switchTool('select')
     } else if (lower === 'h') {
       e.preventDefault()
-      setTool('pan')
+      switchTool('pan')
     } else if ((e.key === 'Delete' || e.key === 'Backspace') && selected.length > 0) {
       e.preventDefault()
       e.stopPropagation()
@@ -471,6 +531,7 @@ export function OcclusionEditor({
     ) {
       e.preventDefault()
       e.stopPropagation()
+      setInteraction({ kind: 'idle' })
       const step = e.shiftKey ? 0.0025 : 0.01
       const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0
       const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0
@@ -492,11 +553,15 @@ export function OcclusionEditor({
   const singleSelectedMask =
     singleSelectedIdx !== null ? block.masks[singleSelectedIdx] ?? null : null
   const draftBox = interaction.kind === 'draw' ? normalizeBox(interaction.draft) : null
-  const badgeFontSize = Math.max(12, Math.min(natSize.w, natSize.h) * 0.026)
-  const handleRadius = Math.max(5, Math.min(natSize.w, natSize.h) * 0.011) / zoom
+  const majorDim = Math.max(natSize.w, natSize.h)
+  const badgeFontSize = Math.max(12, majorDim * 0.024)
+  const handleRadius = Math.max(6, majorDim * 0.01) / zoom
+  const canUndo = undoStackRef.current.length > 0
+  const canRedo = redoStackRef.current.length > 0
 
   return (
     <div
+      ref={editorRootRef}
       className="io-editor"
       onKeyDown={onCanvasKeyDown}
       tabIndex={0}
@@ -507,7 +572,7 @@ export function OcclusionEditor({
           type="text"
           className="text-input io-header-input"
           value={header}
-          onChange={(e) => onHeaderChange(e.target.value)}
+          onChange={(e) => onHeaderChange(e.target.value.replace(/^[`~]{3,}/g, ''))}
           placeholder="Optional title or prompt above diagram (e.g. TCP Header)…"
           aria-label="Diagram title"
         />
@@ -520,7 +585,7 @@ export function OcclusionEditor({
             className={`io-tool-btn${tool === 'rect' ? ' is-active' : ''}`}
             aria-pressed={tool === 'rect'}
             title="Rectangle mask (R)"
-            onClick={() => setTool('rect')}
+            onClick={() => switchTool('rect')}
           >
             Rect
           </button>
@@ -529,7 +594,7 @@ export function OcclusionEditor({
             className={`io-tool-btn${tool === 'ellipse' ? ' is-active' : ''}`}
             aria-pressed={tool === 'ellipse'}
             title="Ellipse mask (E)"
-            onClick={() => setTool('ellipse')}
+            onClick={() => switchTool('ellipse')}
           >
             Ellipse
           </button>
@@ -538,7 +603,7 @@ export function OcclusionEditor({
             className={`io-tool-btn${tool === 'select' ? ' is-active' : ''}`}
             aria-pressed={tool === 'select'}
             title="Select, move & resize masks (V)"
-            onClick={() => setTool('select')}
+            onClick={() => switchTool('select')}
           >
             Select
           </button>
@@ -547,7 +612,7 @@ export function OcclusionEditor({
             className={`io-tool-btn${tool === 'pan' ? ' is-active' : ''}`}
             aria-pressed={tool === 'pan'}
             title="Pan canvas (H)"
-            onClick={() => setTool('pan')}
+            onClick={() => switchTool('pan')}
           >
             Pan
           </button>
@@ -591,7 +656,7 @@ export function OcclusionEditor({
           <button
             type="button"
             className="io-tool-btn"
-            disabled={undoStack.length === 0}
+            disabled={!canUndo}
             title="Undo mask edit (⌘Z)"
             onClick={undo}
           >
@@ -600,7 +665,7 @@ export function OcclusionEditor({
           <button
             type="button"
             className="io-tool-btn"
-            disabled={redoStack.length === 0}
+            disabled={!canRedo}
             title="Redo mask edit (⌘⇧Z)"
             onClick={redo}
           >
@@ -663,14 +728,8 @@ export function OcclusionEditor({
       </div>
 
       <div
+        ref={viewportRef}
         className={`io-canvas-viewport io-tool--${tool}`}
-        onWheel={(e) => {
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault()
-            const delta = e.deltaY < 0 ? 0.15 : -0.15
-            setZoom((z) => clamp(Math.round((z + delta) * 100) / 100, 0.5, 3))
-          }
-        }}
       >
         {loading ? (
           <div className="io-placeholder">Loading diagram…</div>
@@ -706,7 +765,7 @@ export function OcclusionEditor({
               onPointerDown={onCanvasPointerDown}
               onPointerMove={onCanvasPointerMove}
               onPointerUp={onCanvasPointerUp}
-              onPointerCancel={onCanvasPointerUp}
+              onPointerCancel={cancelInteraction}
             >
               {block.masks.map((mask, idx) => {
                 const isSelected = selected.includes(idx)

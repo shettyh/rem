@@ -87,7 +87,7 @@ export function OcclusionView({
     hasActive && revealed && block.mode === 'hide-all' && hasInactiveMasks,
   )
 
-  const badgeFontSize = Math.max(11, Math.min(natSize.w, natSize.h) * 0.028)
+  const badgeFontSize = Math.max(12, Math.max(natSize.w, natSize.h) * 0.024)
 
   return (
     <div className="io-view" data-occlusion-mode={block.mode}>

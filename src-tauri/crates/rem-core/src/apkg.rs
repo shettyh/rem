@@ -787,14 +787,19 @@ fn build_image_occlusion_card_content<R: Read + Seek>(
         return build_cloze_card_content(note, model, ord, media);
     }
 
-    // Find the Image field: prefer a field named "Image", else any field containing `<img src=...>`.
+    // Find the Image field: prefer a field named "Image" that actually contains an `<img>`,
+    // else fall back to any non-occlusion field containing `<img src=...>`.
     let image_field_idx = model
         .and_then(|m| {
             m.fields
                 .iter()
                 .position(|name| name.eq_ignore_ascii_case("image"))
         })
-        .filter(|&idx| idx != occ_field_idx && idx < note.fields.len())
+        .filter(|&idx| {
+            idx != occ_field_idx
+                && idx < note.fields.len()
+                && extract_first_img_src(&note.fields[idx]).is_some()
+        })
         .or_else(|| {
             note.fields
                 .iter()
@@ -823,7 +828,7 @@ fn build_image_occlusion_card_content<R: Read + Seek>(
         .filter(|&idx| idx != occ_field_idx && idx != image_idx && idx < note.fields.len());
 
     let header_md = match header_field_idx {
-        Some(idx) => html_to_markdown(&note.fields[idx], media)?,
+        Some(idx) => sanitize_header_before_occlusion(&html_to_markdown(&note.fields[idx], media)?),
         None => String::new(),
     };
 
@@ -871,6 +876,37 @@ fn build_image_occlusion_card_content<R: Read + Seek>(
     };
 
     Ok((front, back, cloze_index))
+}
+
+/// Ensure imported header text placed above ```` ```rem-occlusion ```` cannot leave an unclosed
+/// Markdown fence open (which would swallow the occlusion block).
+fn sanitize_header_before_occlusion(header: &str) -> String {
+    let mut open_fence: Option<(char, usize)> = None;
+    for line in header.lines() {
+        let trimmed = line.trim_start_matches(' ');
+        if line.len() - trimmed.len() <= 3 {
+            let mut chars = trimmed.chars();
+            if let Some(ch) = chars.next().filter(|&c| c == '`' || c == '~') {
+                let count = 1 + chars.take_while(|&c| c == ch).count();
+                if count >= 3 {
+                    let rest = trimmed[count..].trim();
+                    match open_fence {
+                        None if !(ch == '`' && rest.contains('`')) => {
+                            open_fence = Some((ch, count));
+                        }
+                        Some((och, olen)) if ch == och && count >= olen && rest.is_empty() => {
+                            open_fence = None;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    match open_fence {
+        Some((ch, count)) => format!("{}\n{}", header.trim_end(), ch.to_string().repeat(count)),
+        None => header.to_owned(),
+    }
 }
 
 fn build_cloze_card_content<R: Read + Seek>(

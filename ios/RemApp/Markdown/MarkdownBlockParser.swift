@@ -56,14 +56,13 @@ enum MarkdownBlockParser {
                 continue
             }
 
-            // Fenced code block ```lang
-            if trimmed.hasPrefix("```") {
-                let langRaw = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)
-                let language = langRaw.isEmpty ? nil : langRaw
+            // Fenced code or rem-occlusion block (``` or ~~~, 3+ chars, optional trailing info)
+            if let (fenceChar, fenceLen, info) = ImageOcclusionParser.parseFenceOpener(line) {
+                let language = info.isEmpty ? nil : info
                 i += 1
                 var codeLines: [String] = []
                 while i < lines.count {
-                    if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                    if ImageOcclusionParser.isFenceCloser(lines[i], ch: fenceChar, minLen: fenceLen) {
                         i += 1
                         break
                     }
@@ -186,7 +185,7 @@ enum MarkdownBlockParser {
                 let ct = current.trimmingCharacters(in: .whitespaces)
                 if !paraLines.isEmpty && (
                     ct.isEmpty
-                    || ct.hasPrefix("```")
+                    || ImageOcclusionParser.parseFenceOpener(current) != nil
                     || parseMathBlock(lines: lines, startingAt: i) != nil
                     || ct.hasPrefix(">")
                     || ct == "---" || ct == "***" || ct == "___"

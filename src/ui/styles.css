@@ -3537,6 +3537,9 @@ select:focus-visible {
   fill: color-mix(in srgb, var(--accent) 34%, transparent);
   stroke: var(--accent);
   stroke-width: 2;
+}
+
+.io-tool--select .io-mask--edit {
   cursor: move;
 }
 

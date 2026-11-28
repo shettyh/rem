@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { render } from 'vitest-browser-react'
-import { useState } from 'react'
+import { StrictMode, useState } from 'react'
 import Dexie from 'dexie'
 import { RemDB } from '../../data/dexie/db'
 import { DexieStorage } from '../../data/dexie/DexieStorage'
@@ -96,15 +96,17 @@ describe('Image Occlusion viewer & editor', () => {
         ],
       })
       return (
-        <StorageProvider storage={storage}>
-          <OcclusionEditor
-            header={header}
-            onHeaderChange={setHeader}
-            block={block}
-            onBlockChange={setBlock}
-            onReplaceImage={async () => {}}
-          />
-        </StorageProvider>
+        <StrictMode>
+          <StorageProvider storage={storage}>
+            <OcclusionEditor
+              header={header}
+              onHeaderChange={setHeader}
+              block={block}
+              onBlockChange={setBlock}
+              onReplaceImage={async () => {}}
+            />
+          </StorageProvider>
+        </StrictMode>
       )
     }
 

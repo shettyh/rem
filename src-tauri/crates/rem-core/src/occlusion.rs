@@ -122,23 +122,76 @@ fn sanitize_mask(mut mask: OcclusionMask) -> Option<OcclusionMask> {
 }
 
 /// Parse and sanitize a raw JSON payload from inside a ```` ```rem-occlusion ```` fence.
+///
+/// Matches the TypeScript and Swift parsers: unknown `mode`/`type` values fall back to
+/// `"hide-all"`/`"rect"`, and individual malformed masks are dropped without invalidating
+/// the rest of the block.
 pub fn parse_occlusion_json(raw: &str) -> Option<OcclusionBlock> {
-    let mut parsed: OcclusionBlock = serde_json::from_str(raw.trim()).ok()?;
-    if parsed.v != 1 || !is_valid_asset_ref(parsed.image.trim()) {
+    let value: serde_json::Value = serde_json::from_str(raw.trim()).ok()?;
+    let obj = value.as_object()?;
+    if obj.get("v").and_then(|v| v.as_u64()) != Some(1) {
         return None;
     }
-    parsed.image = parsed.image.trim().to_owned();
-    parsed.alt = parsed
-        .alt
+    let image = obj.get("image").and_then(|v| v.as_str())?.trim();
+    if !is_valid_asset_ref(image) {
+        return None;
+    }
+    let mode = match obj.get("mode").and_then(|v| v.as_str()) {
+        Some("hide-one") => OcclusionMode::HideOne,
+        _ => OcclusionMode::HideAll,
+    };
+    let alt = obj
+        .get("alt")
+        .and_then(|v| v.as_str())
         .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty());
-    parsed.masks = parsed
-        .masks
-        .into_iter()
-        .filter_map(sanitize_mask)
-        .take(MAX_OCCLUSION_MASKS)
-        .collect();
-    Some(parsed)
+
+    let mut masks = Vec::new();
+    if let Some(arr) = obj.get("masks").and_then(|v| v.as_array()) {
+        for item in arr {
+            if masks.len() >= MAX_OCCLUSION_MASKS {
+                break;
+            }
+            if let Some(mask) = parse_mask_value(item) {
+                masks.push(mask);
+            }
+        }
+    }
+
+    Some(OcclusionBlock {
+        v: 1,
+        image: image.to_owned(),
+        mode,
+        alt,
+        masks,
+    })
+}
+
+fn parse_mask_value(value: &serde_json::Value) -> Option<OcclusionMask> {
+    let obj = value.as_object()?;
+    let id_u64 = obj.get("id")?.as_u64()?;
+    let id = u32::try_from(id_u64).ok()?;
+    let shape_type = match obj.get("type").and_then(|v| v.as_str()) {
+        Some("ellipse") => OcclusionShapeType::Ellipse,
+        _ => OcclusionShapeType::Rect,
+    };
+    let x = obj.get("x")?.as_f64()?;
+    let y = obj.get("y")?.as_f64()?;
+    let w = obj.get("w")?.as_f64()?;
+    let h = obj.get("h")?.as_f64()?;
+    let label = obj
+        .get("label")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_owned());
+    sanitize_mask(OcclusionMask {
+        id,
+        shape_type,
+        x,
+        y,
+        w,
+        h,
+        label,
+    })
 }
 
 /// Serialize a sanitized [`OcclusionBlock`] into a canonical ```` ```rem-occlusion ```` fenced block.
@@ -311,55 +364,95 @@ pub fn strip_occlusion_markup(markdown: &str) -> String {
     out.trim().to_owned()
 }
 
+fn escape_tui_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\\' | '*' | '_' | '[' | ']' | '`' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            '\n' | '\r' => out.push(' '),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// Render `rem-occlusion` blocks into a concise terminal placeholder for `rem study` TUI.
 pub fn render_occlusion_tui_summary(
     markdown: &str,
     active_index: Option<u32>,
     revealed: bool,
 ) -> String {
+    render_occlusion_tui_with_text_transform(markdown, active_index, revealed, |s| s.to_owned())
+}
+
+/// Like [`render_occlusion_tui_summary`], applying `transform_text` only to non-occlusion
+/// Markdown segments so cloze rendering never mutates `rem-occlusion` JSON or placeholders.
+pub fn render_occlusion_tui_with_text_transform<F>(
+    markdown: &str,
+    active_index: Option<u32>,
+    revealed: bool,
+    mut transform_text: F,
+) -> String
+where
+    F: FnMut(&str) -> String,
+{
     let spans = parse_occlusion_blocks(markdown);
     if spans.is_empty() {
-        return markdown.to_owned();
+        return transform_text(markdown);
     }
     let mut out = String::with_capacity(markdown.len() + 64);
     let mut cursor = 0;
     for span in spans {
-        out.push_str(&markdown[cursor..span.start]);
-        let groups: BTreeSet<u32> = span.block.masks.iter().map(|m| m.id).collect();
+        out.push_str(&transform_text(&markdown[cursor..span.start]));
+        let groups: Vec<u32> = span
+            .block
+            .masks
+            .iter()
+            .map(|m| m.id)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
         let group_count = groups.len();
         let mode = span.block.mode.as_str();
-        let title = span
-            .block
-            .alt
-            .as_deref()
-            .unwrap_or(span.block.image.as_str());
+        let title = escape_tui_text(
+            span.block
+                .alt
+                .as_deref()
+                .unwrap_or(span.block.image.as_str()),
+        );
         let state = if revealed { "revealed" } else { "hidden" };
         let mask_detail = match active_index {
             Some(idx) => {
-                let labels: Vec<&str> = span
+                let ordinal = groups.iter().position(|&id| id == idx).map(|p| p + 1);
+                let position_str = match ordinal {
+                    Some(ord) => format!("mask #{idx} ({ord}/{group_count})"),
+                    None => format!("mask #{idx} ({group_count} masks)"),
+                };
+                let labels: Vec<String> = span
                     .block
                     .masks
                     .iter()
                     .filter(|m| m.id == idx)
                     .filter_map(|m| m.label.as_deref())
+                    .map(escape_tui_text)
                     .collect();
                 if revealed && !labels.is_empty() {
-                    format!(
-                        "mask #{idx} of {group_count} ({}) · {state}",
-                        labels.join(", ")
-                    )
+                    format!("{position_str} · {} · {state}", labels.join(", "))
                 } else {
-                    format!("mask #{idx} of {group_count} · {state}")
+                    format!("{position_str} · {state}")
                 }
             }
             None => format!("{group_count} masks"),
         };
         out.push_str(&format!(
-            "[Image Occlusion: {title} · {mask_detail} ({mode}) · study visually on Desktop or iPhone]\n"
+            "\\[Image Occlusion: {title} · {mask_detail} ({mode}) · study visually on Desktop or iPhone\\]\n"
         ));
         cursor = span.end;
     }
-    out.push_str(&markdown[cursor..]);
+    out.push_str(&transform_text(&markdown[cursor..]));
     out
 }
 

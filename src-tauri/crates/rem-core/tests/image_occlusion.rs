@@ -1,10 +1,11 @@
 use std::io::Write;
 
 use rem_core::{
-    extract_occlusion_indices, has_image_occlusion, parse_occlusion_blocks,
+    extract_occlusion_indices, has_image_occlusion, parse_occlusion_blocks, parse_occlusion_json,
     render_occlusion_tui_summary, serialize_occlusion_block, Collection, DeckPatch, DeckSettings,
-    Grade, OcclusionBlock, OcclusionMask, OcclusionMode, OcclusionShapeType, StudyGradeOutcome,
-    StudyRequest, StudySession,
+    DraftDecision, DraftResolution, Grade, NewCardInput, NewDraftInput, OcclusionBlock,
+    OcclusionMask, OcclusionMode, OcclusionShapeType, ProposalMetadata, ProposalMode,
+    StudyGradeOutcome, StudyRequest, StudySession,
 };
 use rusqlite::{params, Connection};
 use tempfile::{NamedTempFile, TempDir};
@@ -321,4 +322,136 @@ fn apkg_imports_anki_builtin_image_occlusion_notes_with_media_and_siblings() {
 
     let hash = block.image.strip_prefix("asset:").unwrap();
     assert_eq!(col.get_asset(hash).unwrap().unwrap().bytes, png_bytes);
+}
+
+#[test]
+fn adversarial_review_regressions_draft_siblings_reactivation_lossy_masks_and_fence_safety() {
+    let (_dir, col) = open_temp_collection();
+    let deck = col.create_deck("Diagrams", NOW).unwrap();
+    let png_bytes: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x03, 0x04];
+    let asset = col.put_asset(png_bytes, "image/png", NOW + 1).unwrap();
+
+    // 1. Lossy mask parsing: future/invalid mask elements do not drop valid masks
+    let mixed_json = format!(
+        "{{\"v\":1,\"image\":\"asset:{}\",\"mode\":\"unknown-future\",\"masks\":[\
+         {{\"id\":-1,\"x\":0.1,\"y\":0.1,\"w\":0.2,\"h\":0.2}},\
+         {{\"id\":1,\"type\":\"polygon\",\"x\":0.1,\"y\":0.1,\"w\":0.2,\"h\":0.2}},\
+         {{\"id\":2,\"x\":null,\"y\":0.1,\"w\":0.2,\"h\":0.2}},\
+         {{\"id\":3,\"type\":\"ellipse\",\"x\":0.5,\"y\":0.5,\"w\":0.2,\"h\":0.2}}\
+         ]}}",
+        asset.hash
+    );
+    let parsed = parse_occlusion_json(&mixed_json).expect("lossy parse should succeed");
+    assert_eq!(parsed.mode, OcclusionMode::HideAll);
+    assert_eq!(parsed.masks.len(), 2);
+    assert_eq!(parsed.masks[0].id, 1);
+    assert_eq!(parsed.masks[0].shape_type, OcclusionShapeType::Rect);
+    assert_eq!(parsed.masks[1].id, 3);
+    assert_eq!(parsed.masks[1].shape_type, OcclusionShapeType::Ellipse);
+
+    // Non-contiguous TUI summary shows ordinal (2/2), never "mask #3 of 2"
+    let fenced_non_contig = serialize_occlusion_block(&parsed).unwrap();
+    let tui = render_occlusion_tui_summary(&fenced_non_contig, Some(3), false);
+    assert!(
+        tui.contains("mask #3 (2/2)"),
+        "unexpected TUI summary: {tui}"
+    );
+    assert!(!tui.contains("of 2"));
+
+    // 2. Draft acceptance creates sibling occlusion cards with cloze_index and sibling_group_id
+    let draft_res = col
+        .propose_drafts(
+            &deck.id,
+            vec![NewDraftInput {
+                front: fenced_non_contig.clone(),
+                back: "Notes".into(),
+                tags: vec!["io".into()],
+                rationale: Some("Visual recall".into()),
+                sources: vec![],
+            }],
+            ProposalMetadata {
+                proposed_by: Some("agent".into()),
+            },
+            NOW + 2,
+            ProposalMode::Create,
+        )
+        .unwrap();
+    let draft = col.list_drafts().unwrap().into_iter().next().unwrap();
+    assert_eq!(draft_res.outcomes.len(), 1);
+    let resolution = col
+        .resolve_draft(
+            &draft.id,
+            draft.revision,
+            DraftDecision::Accept {
+                deck_id: deck.id.clone(),
+                card: NewCardInput {
+                    front: draft.front.clone(),
+                    back: draft.back.clone(),
+                    tags: draft.tags.clone(),
+                },
+            },
+            NOW + 5,
+        )
+        .unwrap();
+    assert!(matches!(resolution, DraftResolution::Accepted(_)));
+
+    let draft_cards = col.list_cards(&deck.id).unwrap();
+    assert_eq!(draft_cards.len(), 2);
+    assert!(draft_cards[0].sibling_group_id.is_some());
+    assert_eq!(
+        draft_cards[0].sibling_group_id,
+        draft_cards[1].sibling_group_id
+    );
+    let mut draft_indices: Vec<Option<u32>> = draft_cards.iter().map(|c| c.cloze_index).collect();
+    draft_indices.sort();
+    assert_eq!(draft_indices, vec![Some(1), Some(3)]);
+
+    // 3. Re-introducing a previously deleted + auto-suspended reviewed mask reactivates it
+    let card1 = draft_cards
+        .iter()
+        .find(|c| c.cloze_index == Some(1))
+        .unwrap();
+    let mut session = StudySession::start(
+        &col,
+        StudyRequest {
+            deck_id: Some(deck.id.clone()),
+            custom: None,
+        },
+        NOW + 10,
+    )
+    .unwrap();
+    session.reveal(NOW + 12).unwrap();
+    session.grade(&col, Grade::Easy, NOW + 15).unwrap();
+
+    // Remove mask #1 (now reviewed) -> auto-suspended
+    let only_3 = serialize_occlusion_block(&OcclusionBlock {
+        v: 1,
+        image: format!("asset:{}", asset.hash),
+        mode: OcclusionMode::HideAll,
+        alt: None,
+        masks: vec![OcclusionMask {
+            id: 3,
+            shape_type: OcclusionShapeType::Ellipse,
+            x: 0.5,
+            y: 0.5,
+            w: 0.2,
+            h: 0.2,
+            label: None,
+        }],
+    })
+    .unwrap();
+    col.update_cloze_note(&card1.id, &only_3, "Notes", vec!["io".into()], NOW + 20)
+        .unwrap();
+    assert!(col.get_card(&card1.id).unwrap().unwrap().suspended);
+
+    // Re-add mask #1 -> automatically unsuspended!
+    col.update_cloze_note(
+        &card1.id,
+        &fenced_non_contig,
+        "Notes",
+        vec!["io".into()],
+        NOW + 25,
+    )
+    .unwrap();
+    assert!(!col.get_card(&card1.id).unwrap().unwrap().suspended);
 }

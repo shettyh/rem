@@ -878,7 +878,9 @@ final class RemAppTests: XCTestCase {
             revealed: false,
             peekAll: false
         )
-        XCTAssertEqual(composite.size, img.size)
+        XCTAssertEqual(composite.size.width * composite.scale, img.size.width * img.scale)
+        XCTAssertEqual(composite.size.height * composite.scale, img.size.height * img.scale)
+        XCTAssertLessThanOrEqual(max(composite.size.width, composite.size.height), 2048)
 
         let created = try await store.createCardOrCloze(
             deckId: deck.id,
@@ -890,5 +892,30 @@ final class RemAppTests: XCTestCase {
         XCTAssertEqual(created.count, 2)
         XCTAssertEqual(created[0].siblingGroupId, created[1].siblingGroupId)
         XCTAssertEqual(created.compactMap(\.clozeIndex), [1, 2])
+
+        // Lossy JSON parsing preserves valid masks when invalid/future elements exist,
+        // and tilde fences (`~~~rem-occlusion`) parse into `.imageOcclusion`.
+        let mixedPayload = """
+        ~~~rem-occlusion extra-info
+        {"v":1,"image":"asset:\(hash)","mode":"future","masks":[{"id":-1,"x":0.1,"y":0.1,"w":0.2,"h":0.2},{"id":1,"type":"polygon","x":0.1,"y":0.1,"w":0.2,"h":0.2},{"id":2,"x":null,"y":0.1,"w":0.2,"h":0.2}]}
+        ~~~
+        """
+        let tildeBlocks = MarkdownBlockParser.parse(mixedPayload)
+        XCTAssertEqual(tildeBlocks.count, 1)
+        if case .imageOcclusion(let parsedMixed) = tildeBlocks[0] {
+            XCTAssertEqual(parsedMixed.masks.count, 1)
+            XCTAssertEqual(parsedMixed.masks[0].id, 1)
+            XCTAssertEqual(parsedMixed.masks[0].type, .rect)
+        } else {
+            XCTFail("Expected .imageOcclusion from tilde fence")
+        }
+
+        // Clearing header with syncAltFromHeader removes stale alt
+        let cleared = ImageOcclusionParser.composeDocument(
+            header: "",
+            block: block,
+            syncAltFromHeader: true
+        )
+        XCTAssertNil(ImageOcclusionParser.extractDocument(cleared)?.block.alt)
     }
 }

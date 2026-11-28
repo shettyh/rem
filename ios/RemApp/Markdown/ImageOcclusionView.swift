@@ -142,14 +142,64 @@ enum ImageOcclusionParser {
 
     static func parseJson(_ raw: String) -> OcclusionBlock? {
         guard let data = raw.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
-              var decoded = try? JSONDecoder().decode(OcclusionBlock.self, from: data)
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
-        decoded.image = decoded.image.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard decoded.v == 1, decoded.assetHash != nil else { return nil }
-        let trimmedAlt = decoded.alt?.trimmingCharacters(in: .whitespacesAndNewlines)
-        decoded.alt = (trimmedAlt?.isEmpty == false) ? trimmedAlt : nil
-        decoded.masks = Array(decoded.masks.compactMap(sanitizeMask).prefix(maxMasks))
-        return decoded
+        guard let versionNum = json["v"] as? NSNumber,
+              !isJSONBool(versionNum),
+              versionNum.intValue == 1,
+              versionNum.doubleValue == 1.0,
+              let rawImage = json["image"] as? String
+        else { return nil }
+        let image = rawImage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mode: OcclusionMode = (json["mode"] as? String) == "hide-one" ? .hideOne : .hideAll
+        let trimmedAlt = (json["alt"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let alt = (trimmedAlt?.isEmpty == false) ? trimmedAlt : nil
+
+        var masks: [OcclusionMask] = []
+        if let rawMasks = json["masks"] as? [Any] {
+            for item in rawMasks {
+                if masks.count >= maxMasks { break }
+                guard let dict = item as? [String: Any],
+                      let mask = parseMaskDictionary(dict)
+                else { continue }
+                masks.append(mask)
+            }
+        }
+
+        let block = OcclusionBlock(v: 1, image: image, mode: mode, alt: alt, masks: masks)
+        guard block.assetHash != nil else { return nil }
+        return block
+    }
+
+    private static func isJSONBool(_ num: NSNumber) -> Bool {
+        CFGetTypeID(num) == CFBooleanGetTypeID()
+    }
+
+    private static func parseMaskDictionary(_ dict: [String: Any]) -> OcclusionMask? {
+        guard let idNum = dict["id"] as? NSNumber, !isJSONBool(idNum) else { return nil }
+        let idDouble = idNum.doubleValue
+        guard idDouble.isFinite,
+              idDouble >= 1,
+              idDouble <= Double(UInt32.max),
+              idDouble.rounded() == idDouble
+        else { return nil }
+        guard let xNum = dict["x"] as? NSNumber, !isJSONBool(xNum),
+              let yNum = dict["y"] as? NSNumber, !isJSONBool(yNum),
+              let wNum = dict["w"] as? NSNumber, !isJSONBool(wNum),
+              let hNum = dict["h"] as? NSNumber, !isJSONBool(hNum)
+        else { return nil }
+
+        let shapeType: OcclusionShapeType = (dict["type"] as? String) == "ellipse" ? .ellipse : .rect
+        let label = dict["label"] as? String
+        return sanitizeMask(OcclusionMask(
+            id: UInt32(idDouble),
+            type: shapeType,
+            x: xNum.doubleValue,
+            y: yNum.doubleValue,
+            w: wNum.doubleValue,
+            h: hNum.doubleValue,
+            label: label
+        ))
     }
 
     static func serializeBlock(_ block: OcclusionBlock) -> String {
@@ -173,7 +223,7 @@ enum ImageOcclusionParser {
         let block: OcclusionBlock
     }
 
-    private static func parseFenceOpener(_ line: String) -> (Character, Int, String)? {
+    static func parseFenceOpener(_ line: String) -> (Character, Int, String)? {
         var idx = line.startIndex
         var spaces = 0
         while idx < line.endIndex && spaces < 3 && line[idx] == " " {
@@ -196,7 +246,7 @@ enum ImageOcclusionParser {
         return (ch, count, info)
     }
 
-    private static func isFenceCloser(_ line: String, ch: Character, minLen: Int) -> Bool {
+    static func isFenceCloser(_ line: String, ch: Character, minLen: Int) -> Bool {
         var idx = line.startIndex
         var spaces = 0
         while idx < line.endIndex && spaces < 3 && line[idx] == " " {
@@ -278,19 +328,47 @@ enum ImageOcclusionParser {
         return OcclusionDocument(header: header, block: first.block, footer: footer)
     }
 
-    static func composeDocument(header: String, block: OcclusionBlock, footer: String = "") -> String {
-        let trimmedHeader = header.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedFooter = footer.trimmingCharacters(in: .whitespacesAndNewlines)
-        var updatedBlock = block
-        if !trimmedHeader.isEmpty {
-            let firstLine = trimmedHeader.components(separatedBy: "\n").first ?? ""
-            let cleaned = firstLine.drop(while: { $0 == "#" || $0 == " " }).trimmingCharacters(in: .whitespaces)
-            if !cleaned.isEmpty {
-                updatedBlock.alt = cleaned
+    private static func sanitizeHeaderBeforeOcclusion(_ header: String) -> String {
+        let normalized = header
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        var openFence: (Character, Int)? = nil
+        for line in normalized.components(separatedBy: "\n") {
+            if let (ch, len) = openFence {
+                if isFenceCloser(line, ch: ch, minLen: len) {
+                    openFence = nil
+                }
+            } else if let (ch, len, _) = parseFenceOpener(line) {
+                openFence = (ch, len)
             }
         }
+        guard let (ch, len) = openFence else { return normalized }
+        return "\(normalized.trimmingCharacters(in: .whitespacesAndNewlines))\n\(String(repeating: ch, count: len))"
+    }
+
+    static func composeDocument(
+        header: String,
+        block: OcclusionBlock,
+        footer: String = "",
+        syncAltFromHeader: Bool = false
+    ) -> String {
+        let sanitizedHeader = sanitizeHeaderBeforeOcclusion(header)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedFooter = footer.trimmingCharacters(in: .whitespacesAndNewlines)
+        var updatedBlock = block
+        let derivedAlt: String? = {
+            guard !sanitizedHeader.isEmpty else { return nil }
+            let firstLine = sanitizedHeader.components(separatedBy: "\n").first ?? ""
+            let cleaned = firstLine.drop(while: { $0 == "#" || $0 == " " }).trimmingCharacters(in: .whitespaces)
+            return cleaned.isEmpty ? nil : cleaned
+        }()
+        if syncAltFromHeader {
+            updatedBlock.alt = derivedAlt
+        } else if let derivedAlt {
+            updatedBlock.alt = derivedAlt
+        }
         var parts: [String] = []
-        if !trimmedHeader.isEmpty { parts.append(trimmedHeader) }
+        if !sanitizedHeader.isEmpty { parts.append(sanitizedHeader) }
         parts.append(serializeBlock(updatedBlock))
         if !trimmedFooter.isEmpty { parts.append(trimmedFooter) }
         return parts.joined(separator: "\n\n")
@@ -331,8 +409,8 @@ enum ImageOcclusionParser {
         (masks.map(\.id).max() ?? 0) + 1
     }
 
-    /// Composite the occlusion masks onto a `UIImage` for safe zoomable lightbox inspection
-    /// without ever exposing unrevealed labels.
+    /// Composite the occlusion masks onto a bounded-resolution `UIImage` for safe zoomable
+    /// lightbox inspection without exposing unrevealed labels or allocating huge bitmaps.
     static func renderCompositeImage(
         base: UIImage,
         block: OcclusionBlock,
@@ -340,24 +418,37 @@ enum ImageOcclusionParser {
         revealed: Bool,
         peekAll: Bool
     ) -> UIImage {
-        let size = base.size
-        guard size.width > 0, size.height > 0 else { return base }
+        let rawSize = base.size
+        guard rawSize.width > 0, rawSize.height > 0 else { return base }
+        let maxDimension: CGFloat = 2048.0
+        let rawPixelW = rawSize.width * base.scale
+        let rawPixelH = rawSize.height * base.scale
+        let longest = max(rawPixelW, rawPixelH)
+        let downscale = longest > maxDimension ? (maxDimension / longest) : 1.0
+        let targetSize = CGSize(
+            width: max(1, (rawPixelW * downscale).rounded()),
+            height: max(1, (rawPixelH * downscale).rounded())
+        )
+
         let format = UIGraphicsImageRendererFormat()
-        format.scale = base.scale
-        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        format.scale = 1.0
+        format.opaque = false
+        let darkTraits = UITraitCollection(userInterfaceStyle: .dark)
+        let accent = UIColor(RemColor.accent).resolvedColor(with: darkTraits)
+        let muted = UIColor.systemGray2.resolvedColor(with: darkTraits)
+
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
         return renderer.image { ctx in
-            base.draw(in: CGRect(origin: .zero, size: size))
+            base.draw(in: CGRect(origin: .zero, size: targetSize))
             let cg = ctx.cgContext
-            let accent = UIColor(RemColor.accent)
-            let muted = UIColor.systemGray2
-            let strokeWidth = max(2.0, min(size.width, size.height) * 0.004)
+            let strokeWidth = max(2.0, min(targetSize.width, targetSize.height) * 0.004)
 
             for mask in block.masks {
                 let rect = CGRect(
-                    x: mask.x * size.width,
-                    y: mask.y * size.height,
-                    width: mask.w * size.width,
-                    height: mask.h * size.height
+                    x: mask.x * targetSize.width,
+                    y: mask.y * targetSize.height,
+                    width: mask.w * targetSize.width,
+                    height: mask.h * targetSize.height
                 )
                 let path: UIBezierPath = mask.type == .ellipse
                     ? UIBezierPath(ovalIn: rect)
@@ -381,7 +472,9 @@ enum ImageOcclusionParser {
                         if revealed && peekAll {
                             cg.setStrokeColor(muted.withAlphaComponent(0.75).cgColor)
                             path.lineWidth = strokeWidth
-                            path.setLineDash([6, 4], count: 2, phase: 0)
+                            let dashOn = strokeWidth * 3.0
+                            let dashOff = strokeWidth * 2.0
+                            path.setLineDash([dashOn, dashOff], count: 2, phase: 0)
                             path.stroke()
                         } else {
                             cg.setFillColor(muted.cgColor)
@@ -430,49 +523,59 @@ struct AssetOcclusionImageView: View {
                 let aspect = loaded.image.size.height > 0
                     ? loaded.image.size.width / loaded.image.size.height
                     : 1.0
-                VStack(alignment: .leading, spacing: 8) {
-                    Button {
-                        let composite = ImageOcclusionParser.renderCompositeImage(
-                            base: loaded.image,
-                            block: block,
-                            activeIndex: activeIndex,
-                            revealed: revealed,
-                            peekAll: peekAll
-                        )
-                        onTapAssetImage?(CachedAssetImage(
-                            hash: "\(loaded.hash)-\(activeIndex ?? 0)-\(revealed)-\(peekAll)",
-                            mime: loaded.mime,
-                            byteCount: loaded.byteCount,
-                            image: composite
-                        ))
-                    } label: {
-                        ZStack(alignment: .bottomTrailing) {
-                            Image(uiImage: loaded.image)
-                                .resizable()
-                                .aspectRatio(aspect, contentMode: .fit)
-                                .overlay {
-                                    GeometryReader { geo in
-                                        maskOverlay(in: geo.size)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, maxHeight: 340)
-                                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                        .strokeBorder(RemColor.border, lineWidth: 1)
-                                )
-
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Color.white)
-                                .padding(6)
-                                .background(Color.black.opacity(0.55))
-                                .clipShape(Circle())
-                                .padding(8)
+                let diagramContent = ZStack(alignment: .bottomTrailing) {
+                    Image(uiImage: loaded.image)
+                        .resizable()
+                        .aspectRatio(aspect, contentMode: .fit)
+                        .overlay {
+                            GeometryReader { geo in
+                                maskOverlay(in: geo.size)
+                            }
                         }
+                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .strokeBorder(RemColor.border, lineWidth: 1)
+                        )
+
+                    if onTapAssetImage != nil {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.white)
+                            .padding(6)
+                            .background(Color.black.opacity(0.55))
+                            .clipShape(Circle())
+                            .padding(8)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(block.alt ?? "Image occlusion diagram. Tap to zoom")
+                }
+                .frame(maxHeight: 340)
+                .frame(maxWidth: .infinity)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    if let onTapAssetImage {
+                        Button {
+                            let composite = ImageOcclusionParser.renderCompositeImage(
+                                base: loaded.image,
+                                block: block,
+                                activeIndex: activeIndex,
+                                revealed: revealed,
+                                peekAll: peekAll
+                            )
+                            onTapAssetImage(CachedAssetImage(
+                                hash: "\(loaded.hash)-\(activeIndex ?? 0)-\(revealed)-\(peekAll)",
+                                mime: loaded.mime,
+                                byteCount: loaded.byteCount,
+                                image: composite
+                            ))
+                        } label: {
+                            diagramContent
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(block.alt ?? "Image occlusion diagram. Tap to zoom")
+                    } else {
+                        diagramContent
+                            .accessibilityLabel(block.alt ?? "Image occlusion diagram")
+                    }
 
                     if showPeekToggle {
                         Button {
@@ -523,6 +626,9 @@ struct AssetOcclusionImageView: View {
             }
         }
         .task(id: block.image) {
+            self.loaded = nil
+            self.didAttemptLoad = false
+            self.peekAll = false
             if let hash = block.assetHash {
                 self.loaded = await AssetImageCache.shared.load(hash: hash, store: store)
             }
@@ -775,46 +881,6 @@ struct ImageOcclusionEditorSheet: View {
     @ViewBuilder
     private func interactiveOverlay(in size: CGSize) -> some View {
         ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 8, coordinateSpace: .local)
-                        .onChanged { value in
-                            guard size.width > 0, size.height > 0 else { return }
-                            let x1 = max(0, min(size.width, value.startLocation.x))
-                            let y1 = max(0, min(size.height, value.startLocation.y))
-                            let x2 = max(0, min(size.width, value.location.x))
-                            let y2 = max(0, min(size.height, value.location.y))
-                            draftRect = CGRect(
-                                x: min(x1, x2) / size.width,
-                                y: min(y1, y2) / size.height,
-                                width: abs(x2 - x1) / size.width,
-                                height: abs(y2 - y1) / size.height
-                            )
-                        }
-                        .onEnded { _ in
-                            defer { draftRect = nil }
-                            guard let rect = draftRect,
-                                  rect.width >= 0.02,
-                                  rect.height >= 0.02,
-                                  block.masks.count < ImageOcclusionParser.maxMasks
-                            else { return }
-                            let newMask = OcclusionMask(
-                                id: ImageOcclusionParser.nextMaskId(in: block.masks),
-                                type: tool,
-                                x: rect.origin.x,
-                                y: rect.origin.y,
-                                w: rect.width,
-                                h: rect.height
-                            )
-                            if let sanitized = ImageOcclusionParser.sanitizeMask(newMask) {
-                                pushUndo()
-                                block.masks.append(sanitized)
-                                selectedIndices = [block.masks.count - 1]
-                            }
-                        }
-                )
-
             ForEach(Array(block.masks.enumerated()), id: \.offset) { idx, mask in
                 let isSelected = selectedIndices.contains(idx)
                 let w = CGFloat(mask.w) * size.width
@@ -838,13 +904,7 @@ struct ImageOcclusionEditorSheet: View {
                     }
                     .frame(width: w, height: h)
                     .position(x: cx, y: cy)
-                    .onTapGesture {
-                        if selectedIndices.contains(idx) {
-                            selectedIndices.remove(idx)
-                        } else {
-                            selectedIndices.insert(idx)
-                        }
-                    }
+                    .allowsHitTesting(false)
             }
 
             if let rect = draftRect {
@@ -862,9 +922,78 @@ struct ImageOcclusionEditorSheet: View {
                     }
                     .frame(width: w, height: h)
                     .position(x: cx, y: cy)
+                    .allowsHitTesting(false)
             }
+
+            // Single unified gesture layer so dragging can start over existing masks AND
+            // tapping selects/toggles masks or clears selection on empty space.
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                        .onChanged { value in
+                            guard size.width > 0, size.height > 0 else { return }
+                            let dist = hypot(value.translation.width, value.translation.height)
+                            guard dist >= 8 else { return }
+                            let x1 = max(0, min(size.width, value.startLocation.x))
+                            let y1 = max(0, min(size.height, value.startLocation.y))
+                            let x2 = max(0, min(size.width, value.location.x))
+                            let y2 = max(0, min(size.height, value.location.y))
+                            draftRect = CGRect(
+                                x: min(x1, x2) / size.width,
+                                y: min(y1, y2) / size.height,
+                                width: abs(x2 - x1) / size.width,
+                                height: abs(y2 - y1) / size.height
+                            )
+                        }
+                        .onEnded { value in
+                            let dist = hypot(value.translation.width, value.translation.height)
+                            if dist < 8 {
+                                draftRect = nil
+                                handleCanvasTap(at: value.location, in: size)
+                                return
+                            }
+                            defer { draftRect = nil }
+                            guard let rect = draftRect,
+                                  rect.width >= 0.02,
+                                  rect.height >= 0.02,
+                                  block.masks.count < ImageOcclusionParser.maxMasks
+                            else { return }
+                            let newMask = OcclusionMask(
+                                id: ImageOcclusionParser.nextMaskId(in: block.masks),
+                                type: tool,
+                                x: rect.origin.x,
+                                y: rect.origin.y,
+                                w: rect.width,
+                                h: rect.height
+                            )
+                            if let sanitized = ImageOcclusionParser.sanitizeMask(newMask) {
+                                pushUndo()
+                                block.masks.append(sanitized)
+                                selectedIndices = [block.masks.count - 1]
+                            }
+                        }
+                )
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    private func handleCanvasTap(at point: CGPoint, in size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        let nx = Double(point.x / size.width)
+        let ny = Double(point.y / size.height)
+        for idx in block.masks.indices.reversed() {
+            let m = block.masks[idx]
+            if nx >= m.x && nx <= m.x + m.w && ny >= m.y && ny <= m.y + m.h {
+                if selectedIndices.contains(idx) {
+                    selectedIndices.remove(idx)
+                } else {
+                    selectedIndices.insert(idx)
+                }
+                return
+            }
+        }
+        selectedIndices.removeAll()
     }
 
     private func pushUndo() {

@@ -188,6 +188,7 @@ export class DexieStorage implements Storage {
       if (!target) throw new Error(`card not found: ${cardId}`)
       const out: Card[] = []
       if (target.siblingGroupId && target.clozeIndex) {
+        const previousSet = new Set(extractSiblingCardIndices(target.front))
         const activeIndices = extractSiblingCardIndices(front)
         const activeSet = new Set(activeIndices)
         const allCards = await this.db.cards.toArray()
@@ -211,6 +212,20 @@ export class DexieStorage implements Storage {
                 back,
                 tags: nextTags,
                 suspended: true,
+                updatedAt: now,
+              }
+              await this.db.cards.put(updated)
+              out.push(updated)
+              continue
+            }
+            if (sib.suspended && !previousSet.has(sib.clozeIndex) && activeSet.has(sib.clozeIndex)) {
+              const nextTags = sib.tags.includes('leech') ? ['leech', ...userTags] : userTags
+              const updated = {
+                ...sib,
+                front,
+                back,
+                tags: nextTags,
+                suspended: false,
                 updatedAt: now,
               }
               await this.db.cards.put(updated)
@@ -405,7 +420,28 @@ export class DexieStorage implements Storage {
           && sameTags(card.tags, tags))
         await this.db.cardDrafts.delete(id)
         if (existing) return { status: 'existingCard', value: existing }
-        const card: Card = {
+        const siblingIndices = extractSiblingCardIndices(decision.card.front)
+        if (siblingIndices.length === 0) {
+          const card: Card = {
+            id: crypto.randomUUID(),
+            deckId: decision.deckId,
+            front: decision.card.front,
+            back: decision.card.back,
+            createdAt: now,
+            updatedAt: now,
+            tags,
+            suspended: false,
+            lastAgainAt: null,
+            scheduling: getScheduler().initial(now),
+            rationale: draft.rationale,
+            sources: draft.sources,
+            proposedBy: draft.proposedBy,
+          }
+          await this.db.cards.add(card)
+          return { status: 'accepted', value: card }
+        }
+        const siblingGroupId = crypto.randomUUID()
+        const created: Card[] = siblingIndices.map((clozeIndex) => ({
           id: crypto.randomUUID(),
           deckId: decision.deckId,
           front: decision.card.front,
@@ -419,9 +455,11 @@ export class DexieStorage implements Storage {
           rationale: draft.rationale,
           sources: draft.sources,
           proposedBy: draft.proposedBy,
-        }
-        await this.db.cards.add(card)
-        return { status: 'accepted', value: card }
+          siblingGroupId,
+          clozeIndex,
+        }))
+        await this.db.cards.bulkAdd(created)
+        return { status: 'accepted', value: created[0] }
       },
     )
     this.notify()

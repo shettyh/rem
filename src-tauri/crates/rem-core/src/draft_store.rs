@@ -2,10 +2,10 @@ use rusqlite::types::Type;
 use rusqlite::{params, Connection, Row};
 use uuid::Uuid;
 
-use crate::cloze::extract_cloze_indices;
 use crate::collection::write_transaction;
 use crate::store::{
-    bump_sync_revision, deck_exists, find_exact_card, insert_card_with_hlc, prepare_cards,
+    bump_sync_revision, deck_exists, extract_sibling_card_indices, find_exact_card,
+    insert_card_with_hlc, prepare_cards,
 };
 use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc};
 use crate::{
@@ -124,7 +124,7 @@ impl Collection {
                     .next()
                     .expect("one accepted card prepared");
                 card.provenance = draft.provenance();
-                let cloze_indices = extract_cloze_indices(&card.front);
+                let cloze_indices = extract_sibling_card_indices(&card.front);
                 let tags_json = serde_json::to_string(&card.tags)?;
                 if let Some(existing) =
                     find_exact_card(&transaction, &deck_id, &card.front, &card.back, &tags_json)?

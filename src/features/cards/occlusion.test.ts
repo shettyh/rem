@@ -101,5 +101,11 @@ describe('image occlusion markdown helpers', () => {
     const withHeader = composeOcclusionDocument('## TCP State Machine', block)
     expect(cardSnippet(withHeader)).toEqual({ text: 'TCP State Machine', lang: null })
     expect(parseOcclusionBlocks(withHeader)).toHaveLength(1)
+
+    // Clearing header with syncAltFromHeader clears stale block.alt, and unclosed fences are closed
+    const cleared = composeOcclusionDocument('', { ...block, alt: 'Old Title' }, '', true)
+    expect(extractOcclusionDocument(cleared)?.block.alt).toBeUndefined()
+    const fencedHeader = composeOcclusionDocument('```ts\nconst x = 1', block)
+    expect(parseOcclusionBlocks(fencedHeader)).toHaveLength(1)
   })
 })

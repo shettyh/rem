@@ -10,8 +10,8 @@ use ratatui::{
 };
 use rem_core::{
     has_image_occlusion, render_cloze_answer, render_cloze_question, render_occlusion_tui_summary,
-    CardProvenance, Collection, CollectionError, Grade, LeechAction, StudyGradeOutcome,
-    StudyRequest, StudySession, StudyView,
+    render_occlusion_tui_with_text_transform, CardProvenance, Collection, CollectionError, Grade,
+    LeechAction, StudyGradeOutcome, StudyRequest, StudySession, StudyView,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -338,15 +338,23 @@ fn content_lines(app: &StudyApp) -> Vec<Line<'static>> {
         "QUESTION"
     })];
     if let Some(cloze_idx) = card.cloze_index {
-        let base_front = if has_image_occlusion(&card.front) {
-            render_occlusion_tui_summary(&card.front, Some(cloze_idx), app.view.revealed)
+        let prompt = if has_image_occlusion(&card.front) {
+            render_occlusion_tui_with_text_transform(
+                &card.front,
+                Some(cloze_idx),
+                app.view.revealed,
+                |segment| {
+                    if app.view.revealed {
+                        render_cloze_answer(segment, cloze_idx)
+                    } else {
+                        render_cloze_question(segment, cloze_idx)
+                    }
+                },
+            )
+        } else if app.view.revealed {
+            render_cloze_answer(&card.front, cloze_idx)
         } else {
-            card.front.clone()
-        };
-        let prompt = if app.view.revealed {
-            render_cloze_answer(&base_front, cloze_idx)
-        } else {
-            render_cloze_question(&base_front, cloze_idx)
+            render_cloze_question(&card.front, cloze_idx)
         };
         lines.extend(markdown_lines(&prompt));
         if app.view.revealed {

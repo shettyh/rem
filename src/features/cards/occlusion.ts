@@ -260,19 +260,41 @@ export function extractOcclusionDocument(
   return { header, block: first.block, footer }
 }
 
+/** Ensure header text placed above ```` ```rem-occlusion ```` cannot leave an unclosed fence open. */
+export function sanitizeHeaderBeforeOcclusion(header: string): string {
+  const lines = header.replace(/\r\n?/g, '\n').split('\n')
+  let openFence: { ch: string; len: number } | null = null
+  for (const line of lines) {
+    if (!openFence) {
+      const opener = parseFenceOpener(line)
+      if (opener) openFence = { ch: opener.ch, len: opener.len }
+    } else if (isFenceCloser(line, openFence.ch, openFence.len)) {
+      openFence = null
+    }
+  }
+  if (!openFence) return header
+  return `${header.trimEnd()}\n${openFence.ch.repeat(openFence.len)}`
+}
+
 export function composeOcclusionDocument(
   header: string,
   block: OcclusionBlock,
   footer = '',
+  syncAltFromHeader = false,
 ): string {
   const parts: string[] = []
-  const trimmedHeader = header.trim()
+  const sanitizedHeader = sanitizeHeaderBeforeOcclusion(header).trim()
   const trimmedFooter = footer.trim()
+  const derivedAlt = sanitizedHeader
+    ? sanitizedHeader.split('\n')[0].replace(/^#+\s*/, '').trim()
+    : ''
   const blockWithAlt: OcclusionBlock = {
     ...block,
-    alt: trimmedHeader ? trimmedHeader.split('\n')[0].replace(/^#+\s*/, '').trim() : block.alt,
+    alt: syncAltFromHeader
+      ? (derivedAlt || undefined)
+      : (derivedAlt || block.alt),
   }
-  if (trimmedHeader) parts.push(trimmedHeader)
+  if (sanitizedHeader) parts.push(sanitizedHeader)
   parts.push(serializeOcclusionBlock(blockWithAlt))
   if (trimmedFooter) parts.push(trimmedFooter)
   return parts.join('\n\n')

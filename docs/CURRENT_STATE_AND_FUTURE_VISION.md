@@ -314,8 +314,8 @@ Implemented in [`2026-11-28-image-occlusion-design.md`](superpowers/specs/2026-1
 3. **Native SwiftUI iOS viewer, lightbox & editor** — aspect-fitted overlay rendering, spoiler-safe
    composite lightbox zoom, and native `ImageOcclusionEditorSheet` inside Quick Capture.
 4. **Anki `.apkg` import & TUI fallback** — imports Anki 23.10+ built-in Image Occlusion notes
-   (`rect`, `ellipse`, `poly`, `oi=0/1`, `Image`, `Header`, `Back Extra`, `revlog`) and renders a
-   concise placeholder in `rem study` TUI.
+   (`rect`, `ellipse`, `poly` approximated as axis-aligned bounding boxes, `oi=0/1`, `Image`,
+   `Header`, `Back Extra`, `revlog`) and renders a concise placeholder in `rem study` TUI.
 
 ## Known gaps and incomplete behavior
 

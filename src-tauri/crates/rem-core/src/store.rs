@@ -20,7 +20,7 @@ const DECK_PALETTE: [&str; 5] = ["#7e6cff", "#e8638c", "#2fa86b", "#e8922e", "#3
 
 /// Extract sorted, deduplicated positive sibling indices (`1, 2, ...`) from either Anki text
 /// cloze deletions (`{{cN::...}}`) or Markdown-native Image Occlusion (`rem-occlusion`) blocks.
-fn extract_sibling_card_indices(front: &str) -> Vec<u32> {
+pub(crate) fn extract_sibling_card_indices(front: &str) -> Vec<u32> {
     let mut indices: BTreeSet<u32> = extract_cloze_indices(front).into_iter().collect();
     indices.extend(extract_occlusion_indices(front));
     indices.into_iter().collect()
@@ -308,6 +308,9 @@ impl Collection {
 
         let mut affected = Vec::new();
         if let (Some(group_id), Some(_)) = (&target.sibling_group_id, target.cloze_index) {
+            let previous_cloze_set: HashSet<u32> = extract_sibling_card_indices(&target.front)
+                .into_iter()
+                .collect();
             let active_cloze_set: HashSet<u32> = cloze_indices.iter().copied().collect();
             let siblings = list_cloze_siblings(&transaction, group_id)?;
             let mut existing_indices = HashSet::new();
@@ -361,6 +364,30 @@ impl Collection {
                                     now,
                                 )?;
                             }
+                        }
+                    } else if sibling.suspended
+                        && !previous_cloze_set.contains(&idx)
+                        && active_cloze_set.contains(&idx)
+                    {
+                        // Re-introducing a previously deleted (and auto-suspended) cloze/mask ID
+                        // reactivates the sibling card without touching manually suspended cards
+                        // whose index was already present in the note.
+                        sibling.suspended = false;
+                        if cloud_enabled {
+                            let susp_hlc = next_hlc(&transaction, now)?;
+                            transaction.execute(
+                                "UPDATE cards SET suspended_hlc = ?2 WHERE id = ?1",
+                                params![sibling.id, susp_hlc],
+                            )?;
+                            enqueue_new_op(
+                                &transaction,
+                                &SyncOp::CardSuspendPatch {
+                                    id: sibling.id.clone(),
+                                    suspended: false,
+                                    hlc: susp_hlc,
+                                },
+                                now,
+                            )?;
                         }
                     }
                 }

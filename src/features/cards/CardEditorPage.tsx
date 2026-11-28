@@ -17,7 +17,6 @@ import {
   type OcclusionBlock,
 } from './occlusion'
 import { OcclusionEditor } from './OcclusionEditor'
-import { assetRefs } from '../../data/assetRefs'
 import { cardStatus } from './DeckDetailPage'
 
 interface CardDraft {
@@ -249,45 +248,59 @@ export function CardEditorPage() {
       occlusionInputRef.current?.click()
       return
     }
-    // If the user already inserted an image in Front, promote it directly to Image Occlusion.
-    const hashes = assetRefs(front)
-    if (hashes.length > 0) {
-      const plainTitle = front
-        .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-        .trim()
-      const newBlock: OcclusionBlock = {
-        v: 1,
-        image: `asset:${hashes[0]}`,
-        mode: 'hide-all',
-        masks: [],
-      }
-      setFront(composeOcclusionDocument(plainTitle, newBlock))
+    // Only promote an existing Markdown image (`![...](asset:<hash>)`) whose stored MIME is `image/*`
+    // (never promote audio links like `[Audio: ...](asset:<hash>)`).
+    const imgMatch = front.match(/!\[[^\]]*\]\(asset:([0-9a-f]{64})[^)]*\)/)
+    if (imgMatch) {
+      const hash = imgMatch[1]
+      void storage.getAsset(hash).then((asset) => {
+        if (asset && asset.mime.startsWith('image/')) {
+          setFront((prev) => {
+            if (extractOcclusionDocument(prev)) return prev
+            const plainTitle = prev.replace(/!\[[^\]]*\]\([^)]*\)/g, '').trim()
+            const newBlock: OcclusionBlock = {
+              v: 1,
+              image: `asset:${hash}`,
+              mode: 'hide-all',
+              masks: [],
+            }
+            return composeOcclusionDocument(plainTitle, newBlock, '', true)
+          })
+        } else {
+          occlusionInputRef.current?.click()
+        }
+      })
       return
     }
     occlusionInputRef.current?.click()
-  }, [canStartOcclusion, isOcclusionMode, front])
+  }, [canStartOcclusion, isOcclusionMode, front, storage])
 
   const updateOcclusionHeader = useCallback((nextHeader: string) => {
-    const doc = extractOcclusionDocument(front)
-    if (!doc) return
-    setFront(composeOcclusionDocument(nextHeader, doc.block, doc.footer))
-  }, [front])
+    setFront((prev) => {
+      const doc = extractOcclusionDocument(prev)
+      if (!doc) return prev
+      return composeOcclusionDocument(nextHeader, doc.block, doc.footer, true)
+    })
+  }, [])
 
   const updateOcclusionBlock = useCallback((nextBlock: OcclusionBlock) => {
-    const doc = extractOcclusionDocument(front)
-    if (!doc) return
-    setFront(composeOcclusionDocument(doc.header, nextBlock, doc.footer))
-  }, [front])
+    setFront((prev) => {
+      const doc = extractOcclusionDocument(prev)
+      if (!doc) return prev
+      return composeOcclusionDocument(doc.header, nextBlock, doc.footer)
+    })
+  }, [])
 
   const exitOcclusionMode = useCallback(() => {
     if (editing) return
-    const doc = extractOcclusionDocument(front)
-    if (!doc) return
-    const restored = [doc.header, `![](${doc.block.image})`, doc.footer]
-      .filter((s) => s.trim().length > 0)
-      .join('\n\n')
-    setFront(restored)
-  }, [editing, front])
+    setFront((prev) => {
+      const doc = extractOcclusionDocument(prev)
+      if (!doc) return prev
+      return [doc.header, `![](${doc.block.image})`, doc.footer]
+        .filter((s) => s.trim().length > 0)
+        .join('\n\n')
+    })
+  }, [editing])
 
   const insertCloze = useCallback(() => {
     if (!canInsertCloze) return
@@ -340,7 +353,9 @@ export function CardEditorPage() {
         setTagDraft('')
         setBaseline(EMPTY_DRAFT)
         setSavedCount((n) => n + createdCount)
-        frontHandle.current?.editor.commands.focus('end')
+        if (frontHandle.current && !frontHandle.current.editor.isDestroyed) {
+          frontHandle.current.editor.commands.focus('end')
+        }
         return
       }
 
@@ -549,6 +564,7 @@ export function CardEditorPage() {
             <div className="editor-field-label">{isOcclusionMode ? 'Image Occlusion' : 'Front'}</div>
             {occlusionDoc ? (
               <OcclusionEditor
+                key={cardId ?? 'new-occlusion'}
                 header={occlusionDoc.header}
                 onHeaderChange={updateOcclusionHeader}
                 block={occlusionDoc.block}
