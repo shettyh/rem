@@ -425,10 +425,7 @@ fn cloze_furigana_template_and_back_skip_hidden_metadata_fields() {
     assert_eq!(res.imported_cards, 2);
 
     let decks = col.list_decks().unwrap();
-    let leaf = decks
-        .iter()
-        .find(|d| d.name == "Japanese::Cloze")
-        .unwrap();
+    let leaf = decks.iter().find(|d| d.name == "Japanese::Cloze").unwrap();
     let cards = col.list_cards(&leaf.id).unwrap();
     assert_eq!(cards[0].cloze_index, Some(1));
     assert_eq!(cards[1].cloze_index, Some(2));

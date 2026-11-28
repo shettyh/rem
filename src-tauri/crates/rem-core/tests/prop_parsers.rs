@@ -199,10 +199,7 @@ fn backup_export_parse_import_round_trip_preserves_full_collection() {
         imported_cards[1].sibling_group_id
     );
     assert_eq!(imported_cards[0].scheduling.reps, 1);
-    assert_eq!(
-        col2.list_review_logs(&imported_leaf.id).unwrap().len(),
-        1
-    );
+    assert_eq!(col2.list_review_logs(&imported_leaf.id).unwrap().len(), 1);
 }
 
 #[test]

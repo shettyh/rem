@@ -229,9 +229,7 @@ fn delete_deck_and_delete_deck_tree_sync_all_subdeck_deletes_to_remote_device() 
 #[test]
 fn create_and_rename_materialize_ancestors_and_allow_studying_parent_subtree() {
     let (_dir, col) = open_temp_collection();
-    let leaf = col
-        .create_deck("Anatomy::Unit 01::Cells", NOW)
-        .unwrap();
+    let leaf = col.create_deck("Anatomy::Unit 01::Cells", NOW).unwrap();
     col.create_card(&leaf.id, "Powerhouse?", "Mitochondria", vec![], NOW + 1)
         .unwrap();
 
@@ -258,8 +256,8 @@ fn create_and_rename_materialize_ancestors_and_allow_studying_parent_subtree() {
 
     // Studying the materialized root deck pulls cards from all nested subdecks.
     let anatomy = decks.iter().find(|d| d.name == "Anatomy").unwrap();
-    let session = StudySession::start(&col, StudyRequest::deck(anatomy.id.clone()), NOW + 10)
-        .unwrap();
+    let session =
+        StudySession::start(&col, StudyRequest::deck(anatomy.id.clone()), NOW + 10).unwrap();
     assert_eq!(session.view().remaining, 1);
     assert_eq!(
         session.view().current.as_ref().map(|c| c.front.as_str()),
