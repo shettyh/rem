@@ -174,8 +174,8 @@ export function Sidebar({
           {onOpenSearch && (
             <button
               type="button"
-              className="nav-item nav-item-btn"
-              title="Search cards (⌘K)"
+              className="nav-item side-search-btn"
+              title="Search decks and cards (⌘K)"
               onClick={onOpenSearch}
             >
               <svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true">
