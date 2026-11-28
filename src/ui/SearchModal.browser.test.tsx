@@ -55,6 +55,8 @@ test('global search opens via sidebar button, finds cards across decks, and navi
   await expect.element(input).toBeVisible()
   await userEvent.type(input.element(), 'Pin')
 
+  const results = page.getByRole('listbox', { name: 'Search results' })
+  await expect.element(results).toHaveAttribute('aria-busy', 'false')
   await expect.element(page.getByText('What does Pin<P> guarantee?')).toBeVisible()
   await expect.element(page.getByText('What is WAL mode?')).not.toBeInTheDocument()
 
@@ -96,8 +98,52 @@ test('Cmd+K opens search, arrow keys + Enter navigate, and Escape does not leak 
   window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))
   await expect.element(input).toBeVisible()
   await userEvent.type(input.element(), 'memory')
+  const results = page.getByRole('listbox', { name: 'Search results' })
+  await expect.element(results).toHaveAttribute('aria-busy', 'false')
   await expect.element(page.getByText('Alpha memory question')).toBeVisible()
   await expect.element(page.getByText('Beta memory question')).toBeVisible()
+
+  await userEvent.keyboard('{ArrowDown}')
+  await expect.element(page.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true')
+  await userEvent.keyboard('{Enter}')
+  const editorRoute = page.getByTestId('card-editor-route')
+  await expect.element(editorRoute).toBeVisible()
+  expect([`${rust.id}/${first.id}`, `${rust.id}/${second.id}`]).toContain(
+    editorRoute.element().textContent,
+  )
+})
+
+test('incremental typing waits for updated query to settle before keyboard navigation', async () => {
+  const storage = freshStorage()
+  const rust = await storage.createDeck('Rust')
+  const first = await storage.createCard(rust.id, 'Alpha memory question', 'A1')
+  const second = await storage.createCard(rust.id, 'Beta memory question', 'A2')
+
+  await renderRoute({
+    storage,
+    entry: '/',
+    path: '/',
+    element: <div>Today home</div>,
+    extraRoutes: [
+      {
+        path: '/decks/:deckId/cards/:cardId/edit',
+        element: <EditorRouteStub />,
+      },
+    ],
+  })
+
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))
+  const input = page.getByRole('searchbox', { name: 'Search all cards' })
+  await expect.element(input).toBeVisible()
+
+  // Let a prefix settle first, then continue typing to exercise the stale-results transition.
+  await userEvent.type(input.element(), 'memo')
+  const results = page.getByRole('listbox', { name: 'Search results' })
+  await expect.element(results).toHaveAttribute('aria-busy', 'false')
+
+  await userEvent.type(input.element(), 'ry')
+  await expect.element(input).toHaveValue('memory')
+  await expect.element(results).toHaveAttribute('aria-busy', 'false')
 
   await userEvent.keyboard('{ArrowDown}')
   await expect.element(page.getByRole('option').nth(1)).toHaveAttribute('aria-selected', 'true')

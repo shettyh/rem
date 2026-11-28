@@ -210,7 +210,12 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
           ) : hits.length === 0 ? (
             <p className="search-modal-empty">No cards match “{query.trim()}”.</p>
           ) : (
-            <ul className="search-modal-list" role="listbox" aria-label="Search results">
+            <ul
+              className="search-modal-list"
+              role="listbox"
+              aria-label="Search results"
+              aria-busy={!resultsCurrent}
+            >
               {hits.map((hit, index) => {
                 const isSelected = index === activeIndex
                 return (
