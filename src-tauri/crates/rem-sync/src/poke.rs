@@ -223,6 +223,7 @@ fn run_poke_loop<AuthFn, EventFn>(
         request.headers_mut().insert(AUTHORIZATION, auth_val);
         request.headers_mut().insert("X-Rem-Device-Id", device_val);
 
+        ensure_rustls_crypto_provider();
         let mut socket = match connect(request) {
             Ok((socket, _response)) => socket,
             Err(WsError::Http(resp)) => {
@@ -335,6 +336,18 @@ fn set_socket_read_timeout(
     }
 }
 
+/// Install a process-default `rustls` crypto provider if one has not been installed yet.
+///
+/// In the full workspace binary (`app`), Cargo feature unification enables both `aws_lc_rs`
+/// (via `reqwest`) and `ring` (via `tauri-plugin-updater`) on `rustls 0.23`. Calling
+/// `tungstenite::connect` on `wss://` without an explicit default provider would panic inside
+/// `rustls::ClientConfig::builder()`.
+fn ensure_rustls_crypto_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    }
+}
+
 fn sleep_interruptible(duration: Duration, shutdown: &AtomicBool) {
     let deadline = Instant::now() + duration;
     while !shutdown.load(Ordering::Acquire) {
@@ -344,5 +357,17 @@ fn sleep_interruptible(duration: Duration, shutdown: &AtomicBool) {
         }
         let step = (deadline - now).min(Duration::from_millis(100));
         thread::sleep(step);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn installs_rustls_default_crypto_provider_idempotently() {
+        ensure_rustls_crypto_provider();
+        ensure_rustls_crypto_provider();
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
     }
 }
