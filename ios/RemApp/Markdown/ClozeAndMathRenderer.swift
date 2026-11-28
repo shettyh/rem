@@ -193,7 +193,7 @@ enum ClozeRenderer {
                 if revealed {
                     let trimmed = span.answer.trimmingCharacters(in: .whitespacesAndNewlines)
                     if trimmed.isEmpty {
-                        out += "\(blankPrefix)[…]\(blankSuffix)"
+                        // Empty cloze reveals to empty text rather than a stuck blank.
                     } else if span.answer.contains("\n") {
                         // Avoid splitting PUA sentinel across multiple Markdown paragraphs.
                         out += span.answer

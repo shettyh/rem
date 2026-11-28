@@ -196,7 +196,7 @@ function renderClozeSegment(
       if (revealed) {
         const trimmed = span.answer.trim()
         if (!trimmed) {
-          out += `[…](${CLOZE_BLANK_HREF})`
+          // Empty cloze (e.g. Anki Cloze Overlapping placeholder) reveals to empty text rather than a stuck blank.
         } else if (isUnsafeForMarkdownLinkLabel(span.answer)) {
           out += `**${trimmed}**`
         } else {
