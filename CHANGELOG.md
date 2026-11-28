@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.29.0 (2026-11-28)
+
+## What's Changed
+* feat: Wave 1 Anki compatibility & migration (.apkg, cloze, LaTeX, nested decks, audio, timer) by @shettyh in https://github.com/shettyh/rem/pull/269
+* fix: harden Wave 1 Anki compatibility across Rust core, Desktop/Web, CLI, and iOS by @shettyh in https://github.com/shettyh/rem/pull/271
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.28.0...v0.29.0
+
 ## 0.28.0 (2026-11-27)
 
 ## What's Changed
