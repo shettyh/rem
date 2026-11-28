@@ -143,20 +143,16 @@ export function renderClozeMarkdown(
     out += text.slice(cursor, span.start)
     if (span.index === activeIndex) {
       if (revealed) {
-        // Avoid nesting markdown links inside link text; fall back to bold emphasis when needed.
-        const hasLink = /\]\(/.test(span.answer)
-        if (hasLink) {
+        // Avoid nesting markdown links or unescaped brackets inside link text; fall back to bold emphasis when needed.
+        const unsafeForLinkText = span.answer.includes('[') || span.answer.includes(']')
+        if (unsafeForLinkText) {
           out += `**${span.answer}**`
         } else {
-          const escaped = span.answer.replace(/\\/g, (m, offset, full) => {
-            // Preserve LaTeX escapes; only escape bracket delimiters below.
-            return full[offset + 1] === ']' ? m : m
-          }).replace(/\]/g, '\\]')
-          out += `[${escaped}](${CLOZE_ANSWER_HREF})`
+          out += `[${span.answer}](${CLOZE_ANSWER_HREF})`
         }
       } else {
-        const label = (span.hint ? span.hint : '…').replace(/\]/g, ')')
-        out += `[${label}](${CLOZE_BLANK_HREF})`
+        const label = (span.hint ? span.hint : '…').replace(/[[\]]/g, '')
+        out += `[${label || '…'}](${CLOZE_BLANK_HREF})`
       }
     } else {
       out += span.answer
