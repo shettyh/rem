@@ -1157,3 +1157,597 @@ fn adversarial_review_regressions_svg_arcs_hidden_defs_emphasis_hr_and_randomize
     assert_eq!(block.masks[2].w, 0.1);
     assert_eq!(block.masks[2].h, 0.1);
 }
+
+fn encode_pb_varint(mut v: u64, out: &mut Vec<u8>) {
+    loop {
+        let mut byte = (v & 0x7F) as u8;
+        v >>= 7;
+        if v != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if v == 0 {
+            break;
+        }
+    }
+}
+
+fn encode_pb_string_field(field_num: u64, value: &str, out: &mut Vec<u8>) {
+    encode_pb_varint((field_num << 3) | 2, out);
+    encode_pb_varint(value.len() as u64, out);
+    out.extend_from_slice(value.as_bytes());
+}
+
+fn encode_pb_bytes_field(field_num: u64, value: &[u8], out: &mut Vec<u8>) {
+    encode_pb_varint((field_num << 3) | 2, out);
+    encode_pb_varint(value.len() as u64, out);
+    out.extend_from_slice(value);
+}
+
+fn encode_anki21b_notetype_config(is_cloze: bool) -> Vec<u8> {
+    let mut out = Vec::new();
+    encode_pb_varint(1 << 3, &mut out);
+    encode_pb_varint(if is_cloze { 1 } else { 0 }, &mut out);
+    out
+}
+
+fn encode_anki21b_template_config(qfmt: &str, afmt: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    encode_pb_string_field(1, qfmt, &mut out);
+    encode_pb_string_field(2, afmt, &mut out);
+    out
+}
+
+fn encode_anki21b_media_manifest(names: &[&str]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for name in names {
+        let mut entry = Vec::new();
+        encode_pb_string_field(1, name, &mut entry);
+        encode_pb_bytes_field(1, &entry, &mut out);
+    }
+    out
+}
+
+fn build_combined_multi_variant_apkg(anki21b: bool) -> Vec<u8> {
+    let temp = NamedTempFile::new().unwrap();
+    let conn = Connection::open(temp.path()).unwrap();
+    let crt_secs = (NOW / 1000) - 30 * 86_400;
+
+    // 5 distinct note models:
+    // 100: Multi-template Basic & Reversed (2 templates: ord=0 & ord=1)
+    // 101: Cloze + LaTeX (cloze model)
+    // 102: Furigana + Audio (Japanese model)
+    // 103: Image Occlusion Enhanced (legacy SVG masks)
+    // 104: Built-in Anki 23.10+ Image Occlusion (cloze model)
+    let m100_q0 = "{{Front}}";
+    let m100_a0 = "{{FrontSide}}<hr id=answer>{{Back}}";
+    let m100_q1 = "{{Back}}";
+    let m100_a1 = "{{FrontSide}}<hr id=answer>{{Front}}";
+
+    let m101_q = "{{cloze:Text}}";
+    let m101_a = "{{cloze:Text}}<hr id=answer>{{Extra}}";
+
+    let m102_q = "{{kanji:Word}} {{Audio}}";
+    let m102_a = "{{furigana:Word}} ({{kana:Word}})<hr id=answer>{{Meaning}}";
+
+    let m103_q = "<div id=\"io-header\">{{Header}}</div><div id=\"io-wrapper\"><div id=\"io-overlay\">{{Question Mask}}</div><div id=\"io-original\">{{Image}}</div></div>";
+    let m103_a = "<div id=\"io-wrapper\"><div id=\"io-overlay\">{{Answer Mask}}</div><div id=\"io-original\">{{Image}}</div></div>{{#Remarks}}<hr>{{Remarks}}{{/Remarks}}";
+
+    let m104_q = "{{Header}}{{Image}}{{cloze:Occlusion}}";
+    let m104_a =
+        "{{Header}}{{Image}}{{cloze:Occlusion}}{{#Back Extra}}<hr>{{Back Extra}}{{/Back Extra}}";
+
+    if anki21b {
+        conn.execute_batch(
+            "
+            CREATE TABLE col (id INTEGER PRIMARY KEY, crt INTEGER NOT NULL, models TEXT NOT NULL, decks TEXT NOT NULL);
+            CREATE TABLE decks (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE notetypes (id INTEGER PRIMARY KEY, name TEXT NOT NULL, config BLOB NOT NULL);
+            CREATE TABLE fields (ntid INTEGER NOT NULL, ord INTEGER NOT NULL, name TEXT NOT NULL);
+            CREATE TABLE templates (ntid INTEGER NOT NULL, ord INTEGER NOT NULL, name TEXT NOT NULL, config BLOB NOT NULL);
+            CREATE TABLE notes (id INTEGER PRIMARY KEY, mid INTEGER NOT NULL, tags TEXT NOT NULL, flds TEXT NOT NULL);
+            CREATE TABLE cards (
+                id INTEGER PRIMARY KEY, nid INTEGER NOT NULL, did INTEGER NOT NULL, ord INTEGER NOT NULL,
+                type INTEGER NOT NULL, queue INTEGER NOT NULL, due INTEGER NOT NULL, ivl INTEGER NOT NULL,
+                factor INTEGER NOT NULL, reps INTEGER NOT NULL, lapses INTEGER NOT NULL, data TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE revlog (
+                id INTEGER PRIMARY KEY, cid INTEGER NOT NULL, ease INTEGER NOT NULL,
+                ivl INTEGER NOT NULL, lastIvl INTEGER NOT NULL, factor INTEGER NOT NULL,
+                time INTEGER NOT NULL, type INTEGER NOT NULL
+            );
+            ",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO col(id, crt, models, decks) VALUES (1, ?1, '{}', '{}')",
+            params![crt_secs],
+        )
+        .unwrap();
+        for (did, name) in [
+            (10, "Combined::Languages"),
+            (11, "Combined::Physics"),
+            (12, "Combined::Anatomy"),
+        ] {
+            conn.execute(
+                "INSERT INTO decks(id, name) VALUES (?1, ?2)",
+                params![did, name],
+            )
+            .unwrap();
+        }
+        for (ntid, name, is_cloze) in [
+            (100, "Basic (and reversed)", false),
+            (101, "Cloze", true),
+            (102, "Japanese Audio", false),
+            (103, "Image Occlusion Enhanced", false),
+            (104, "Image Occlusion", true),
+        ] {
+            conn.execute(
+                "INSERT INTO notetypes(id, name, config) VALUES (?1, ?2, ?3)",
+                params![ntid, name, encode_anki21b_notetype_config(is_cloze)],
+            )
+            .unwrap();
+        }
+        let field_defs: &[(i64, &[&str])] = &[
+            (100, &["Front", "Back"]),
+            (101, &["Text", "Extra"]),
+            (102, &["Word", "Audio", "Meaning"]),
+            (
+                103,
+                &[
+                    "ID (hidden)",
+                    "Header",
+                    "Image",
+                    "Question Mask",
+                    "Answer Mask",
+                    "Remarks",
+                ],
+            ),
+            (104, &["Occlusion", "Image", "Header", "Back Extra"]),
+        ];
+        for (ntid, names) in field_defs {
+            for (ord, name) in names.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO fields(ntid, ord, name) VALUES (?1, ?2, ?3)",
+                    params![ntid, ord as i64, name],
+                )
+                .unwrap();
+            }
+        }
+        for (ntid, ord, name, qfmt, afmt) in [
+            (100, 0, "Card 1", m100_q0, m100_a0),
+            (100, 1, "Card 2", m100_q1, m100_a1),
+            (101, 0, "Cloze", m101_q, m101_a),
+            (102, 0, "Vocab", m102_q, m102_a),
+            (103, 0, "IO Enhanced", m103_q, m103_a),
+            (104, 0, "Image Occlusion", m104_q, m104_a),
+        ] {
+            conn.execute(
+                "INSERT INTO templates(ntid, ord, name, config) VALUES (?1, ?2, ?3, ?4)",
+                params![ntid, ord, name, encode_anki21b_template_config(qfmt, afmt)],
+            )
+            .unwrap();
+        }
+    } else {
+        let decks_json = serde_json::json!({
+            "10": { "id": 10, "name": "Combined::Languages" },
+            "11": { "id": 11, "name": "Combined::Physics" },
+            "12": { "id": 12, "name": "Combined::Anatomy" }
+        })
+        .to_string();
+        let models_json = serde_json::json!({
+            "100": {
+                "id": 100,
+                "name": "Basic (and reversed)",
+                "type": 0,
+                "flds": [{"name": "Front"}, {"name": "Back"}],
+                "tmpls": [
+                    { "name": "Card 1", "ord": 0, "qfmt": m100_q0, "afmt": m100_a0 },
+                    { "name": "Card 2", "ord": 1, "qfmt": m100_q1, "afmt": m100_a1 }
+                ]
+            },
+            "101": {
+                "id": 101,
+                "name": "Cloze",
+                "type": 1,
+                "flds": [{"name": "Text"}, {"name": "Extra"}],
+                "tmpls": [{ "name": "Cloze", "ord": 0, "qfmt": m101_q, "afmt": m101_a }]
+            },
+            "102": {
+                "id": 102,
+                "name": "Japanese Audio",
+                "type": 0,
+                "flds": [{"name": "Word"}, {"name": "Audio"}, {"name": "Meaning"}],
+                "tmpls": [{ "name": "Vocab", "ord": 0, "qfmt": m102_q, "afmt": m102_a }]
+            },
+            "103": {
+                "id": 103,
+                "name": "Image Occlusion Enhanced",
+                "type": 0,
+                "flds": [
+                    {"name": "ID (hidden)"},
+                    {"name": "Header"},
+                    {"name": "Image"},
+                    {"name": "Question Mask"},
+                    {"name": "Answer Mask"},
+                    {"name": "Remarks"}
+                ],
+                "tmpls": [{ "name": "IO Enhanced", "ord": 0, "qfmt": m103_q, "afmt": m103_a }]
+            },
+            "104": {
+                "id": 104,
+                "name": "Image Occlusion",
+                "type": 1,
+                "flds": [
+                    {"name": "Occlusion"},
+                    {"name": "Image"},
+                    {"name": "Header"},
+                    {"name": "Back Extra"}
+                ],
+                "tmpls": [{ "name": "Image Occlusion", "ord": 0, "qfmt": m104_q, "afmt": m104_a }]
+            }
+        })
+        .to_string();
+        conn.execute_batch(
+            "
+            CREATE TABLE col (id INTEGER PRIMARY KEY, crt INTEGER NOT NULL, models TEXT NOT NULL, decks TEXT NOT NULL);
+            CREATE TABLE notes (id INTEGER PRIMARY KEY, mid INTEGER NOT NULL, tags TEXT NOT NULL, flds TEXT NOT NULL);
+            CREATE TABLE cards (
+                id INTEGER PRIMARY KEY, nid INTEGER NOT NULL, did INTEGER NOT NULL, ord INTEGER NOT NULL,
+                type INTEGER NOT NULL, queue INTEGER NOT NULL, due INTEGER NOT NULL, ivl INTEGER NOT NULL,
+                factor INTEGER NOT NULL, reps INTEGER NOT NULL, lapses INTEGER NOT NULL, data TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE revlog (
+                id INTEGER PRIMARY KEY, cid INTEGER NOT NULL, ease INTEGER NOT NULL,
+                ivl INTEGER NOT NULL, lastIvl INTEGER NOT NULL, factor INTEGER NOT NULL,
+                time INTEGER NOT NULL, type INTEGER NOT NULL
+            );
+            ",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO col(id, crt, models, decks) VALUES (1, ?1, ?2, ?3)",
+            params![crt_secs, models_json, decks_json],
+        )
+        .unwrap();
+    }
+
+    // Note 1: Multi-template reversed pair (2 cards)
+    conn.execute(
+        "INSERT INTO notes(id, mid, tags, flds) VALUES (1, 100, ' pair ', ?1)",
+        ["Bonjour\x1fHello"],
+    )
+    .unwrap();
+    // Note 2: Cloze + LaTeX (2 cards) with revlog on card 1
+    conn.execute(
+        "INSERT INTO notes(id, mid, tags, flds) VALUES (2, 101, ' math physics ', ?1)",
+        [
+            "Energy is {{c1::\\(E = mc^2\\)}} and identity is {{c2::\\[a^2 + b^2 = c^2\\]}}\x1fInequality [$]x < y[/$]",
+        ],
+    )
+    .unwrap();
+    // Note 3: Furigana + Audio (1 card)
+    conn.execute(
+        "INSERT INTO notes(id, mid, tags, flds) VALUES (3, 102, ' jlpt audio ', ?1)",
+        ["食[た]べる\x1f[sound:taberu.mp3]\x1fto eat"],
+    )
+    .unwrap();
+    // Note 4: Legacy Image Occlusion Enhanced (1 card)
+    conn.execute(
+        "INSERT INTO notes(id, mid, tags, flds) VALUES (4, 103, ' io-enhanced ', ?1)",
+        [[
+            "io-enh-1",
+            "Heart Chambers",
+            "<img src=\"heart.png\"/>",
+            "<img src=\"heart-Q.svg\"/>",
+            "<img src=\"heart-A.svg\"/>",
+            "Left ventricle pumps oxygenated blood.",
+        ]
+        .join("\x1f")],
+    )
+    .unwrap();
+    // Note 5: Built-in Anki 23.10+ Image Occlusion (2 sibling cards)
+    conn.execute(
+        "INSERT INTO notes(id, mid, tags, flds) VALUES (5, 104, ' io-builtin ', ?1)",
+        [[
+            "{{c1::image-occlusion:rect:left=.10:top=.15:width=.25:height=.20:oi=1}} {{c2::image-occlusion:ellipse:left=.55:top=.40:width=.20:height=.20:oi=1}}",
+            "<img src=\"heart.png\"/>",
+            "Heart Valves",
+            "Tricuspid and mitral valves",
+        ]
+        .join("\x1f")],
+    )
+    .unwrap();
+
+    // Cards: 2 reversed + 2 cloze + 1 furigana/audio + 1 IO Enhanced + 2 Built-in IO = 8 cards
+    let card_rows = [
+        (1001, 1, 10, 0, 0, 0, 1, 0, 0, 0, 0),
+        (1002, 1, 10, 1, 0, 0, 2, 0, 0, 0, 0),
+        (1003, 2, 11, 0, 2, 2, 35, 10, 2500, 2, 0),
+        (1004, 2, 11, 1, 0, 0, 3, 0, 0, 0, 0),
+        (1005, 3, 10, 0, 0, 0, 4, 0, 0, 0, 0),
+        (1006, 4, 12, 0, 0, 0, 5, 0, 0, 0, 0),
+        (1007, 5, 12, 0, 0, 0, 6, 0, 0, 0, 0),
+        (1008, 5, 12, 1, 0, 0, 7, 0, 0, 0, 0),
+    ];
+    for (cid, nid, did, ord, ctype, queue, due, ivl, factor, reps, lapses) in card_rows {
+        conn.execute(
+            "INSERT INTO cards(id, nid, did, ord, type, queue, due, ivl, factor, reps, lapses)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![cid, nid, did, ord, ctype, queue, due, ivl, factor, reps, lapses],
+        )
+        .unwrap();
+    }
+    // Two historical reviews for card 1003
+    conn.execute(
+        "INSERT INTO revlog(id, cid, ease, ivl, lastIvl, factor, time, type)
+         VALUES (?1, 1003, 3, 1, 0, 2500, 4200, 0), (?2, 1003, 3, 10, 1, 2500, 3100, 1)",
+        params![NOW - 12 * 86_400_000, NOW - 2 * 86_400_000],
+    )
+    .unwrap();
+    drop(conn);
+
+    let db_bytes = std::fs::read(temp.path()).unwrap();
+    let mp3_bytes: &[u8] = b"ID3\x03\x00\x00\x00\x00\x00\x0fFAKE_MP3_AUDIO";
+    let png_bytes: &[u8] = &[
+        0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x01, 0x02, 0x03,
+    ];
+    let q_svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500">
+        <rect x="100" y="50" width="200" height="100" fill="#ff7e7e" class="qshape"/>
+        <rect x="600" y="250" width="200" height="100" fill="#ffeba2"/>
+    </svg>"##;
+    let a_svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500">
+        <rect x="600" y="250" width="200" height="100" fill="#ffeba2"/>
+    </svg>"##;
+
+    let mut apkg = Vec::new();
+    {
+        let mut zip = ZipWriter::new(std::io::Cursor::new(&mut apkg));
+        let opts = SimpleFileOptions::default();
+        if anki21b {
+            let zstd_db = ruzstd::encoding::compress_to_vec(
+                db_bytes.as_slice(),
+                ruzstd::encoding::CompressionLevel::Fastest,
+            );
+            let media_pb = encode_anki21b_media_manifest(&[
+                "taberu.mp3",
+                "heart.png",
+                "heart-Q.svg",
+                "heart-A.svg",
+            ]);
+            let zstd_media = ruzstd::encoding::compress_to_vec(
+                media_pb.as_slice(),
+                ruzstd::encoding::CompressionLevel::Fastest,
+            );
+            zip.start_file("collection.anki21b", opts).unwrap();
+            zip.write_all(&zstd_db).unwrap();
+            zip.start_file("media", opts).unwrap();
+            zip.write_all(&zstd_media).unwrap();
+            for (k, raw) in [
+                ("0", mp3_bytes),
+                ("1", png_bytes),
+                ("2", q_svg.as_bytes()),
+                ("3", a_svg.as_bytes()),
+            ] {
+                let compressed = ruzstd::encoding::compress_to_vec(
+                    raw,
+                    ruzstd::encoding::CompressionLevel::Fastest,
+                );
+                zip.start_file(k, opts).unwrap();
+                zip.write_all(&compressed).unwrap();
+            }
+        } else {
+            let media_json = serde_json::json!({
+                "0": "taberu.mp3",
+                "1": "heart.png",
+                "2": "heart-Q.svg",
+                "3": "heart-A.svg",
+            })
+            .to_string();
+            zip.start_file("collection.anki21", opts).unwrap();
+            zip.write_all(&db_bytes).unwrap();
+            zip.start_file("media", opts).unwrap();
+            zip.write_all(media_json.as_bytes()).unwrap();
+            for (k, raw) in [
+                ("0", mp3_bytes),
+                ("1", png_bytes),
+                ("2", q_svg.as_bytes()),
+                ("3", a_svg.as_bytes()),
+            ] {
+                zip.start_file(k, opts).unwrap();
+                zip.write_all(raw).unwrap();
+            }
+        }
+        zip.finish().unwrap();
+    }
+    apkg
+}
+
+#[test]
+fn multi_variant_anki21_and_anki21b_combined_deck_round_trips_cleanly() {
+    let apkg_21 = build_combined_multi_variant_apkg(false);
+    let apkg_21b = build_combined_multi_variant_apkg(true);
+
+    let (_dir_21, col_21) = open_temp_collection();
+    let (_dir_21b, col_21b) = open_temp_collection();
+
+    // Preview does not mutate either collection and matches import counts.
+    let preview_21 = col_21.preview_apkg_bytes(&apkg_21, NOW).unwrap();
+    let preview_21b = col_21b.preview_apkg_bytes(&apkg_21b, NOW).unwrap();
+    assert!(col_21.list_decks().unwrap().is_empty());
+    assert!(col_21b.list_decks().unwrap().is_empty());
+    assert_eq!(preview_21.total_cards, 8);
+    assert_eq!(preview_21.review_logs, 2);
+    // Only taberu.mp3 and heart.png are stored as assets; IO Enhanced mask SVGs are converted.
+    assert_eq!(preview_21.media_count, 2);
+    assert_eq!(preview_21.total_cards, preview_21b.total_cards);
+    assert_eq!(preview_21.review_logs, preview_21b.review_logs);
+    assert_eq!(preview_21.media_count, preview_21b.media_count);
+    assert_eq!(preview_21.added, preview_21b.added);
+
+    let res_21 = col_21.import_apkg_bytes(&apkg_21, NOW).unwrap();
+    let res_21b = col_21b.import_apkg_bytes(&apkg_21b, NOW).unwrap();
+    assert_eq!(res_21.imported_cards, 8);
+    assert_eq!(res_21.imported_reviews, 2);
+    assert_eq!(res_21.imported_media, 2);
+    assert_eq!(res_21b.imported_cards, 8);
+    assert_eq!(res_21b.imported_reviews, 2);
+    assert_eq!(res_21b.imported_media, 2);
+
+    // Snapshot normalized cards from both collections and verify Anki 2.1 == Anki 2.1b.
+    type CardSnapshot = (String, String, String, Vec<String>, Option<u32>, bool);
+    let snapshot = |col: &Collection| -> Vec<CardSnapshot> {
+        let mut rows = Vec::new();
+        for deck in col.list_decks().unwrap() {
+            for card in col.list_cards(&deck.id).unwrap() {
+                rows.push((
+                    deck.name.clone(),
+                    card.front,
+                    card.back,
+                    card.tags,
+                    card.cloze_index,
+                    card.sibling_group_id.is_some(),
+                ));
+            }
+        }
+        rows.sort();
+        rows
+    };
+    let snap_21 = snapshot(&col_21);
+    let snap_21b = snapshot(&col_21b);
+    assert_eq!(snap_21, snap_21b, "Anki 2.1 and 2.1b imports diverged");
+
+    // Verify each card variant in detail on col_21b:
+    let decks = col_21b.list_decks().unwrap();
+    let deck_by_name = |name: &str| decks.iter().find(|d| d.name == name).unwrap().id.clone();
+
+    // 1. Multi-template reversed note + Furigana/Audio in Combined::Languages
+    let lang_cards = col_21b
+        .list_cards(&deck_by_name("Combined::Languages"))
+        .unwrap();
+    assert_eq!(lang_cards.len(), 3);
+    let rev_pair: Vec<_> = lang_cards
+        .iter()
+        .filter(|c| c.tags.contains(&"pair".to_string()))
+        .collect();
+    assert_eq!(rev_pair.len(), 2);
+    assert!(rev_pair[0].sibling_group_id.is_some());
+    assert_eq!(rev_pair[0].sibling_group_id, rev_pair[1].sibling_group_id);
+    assert!(rev_pair
+        .iter()
+        .any(|c| c.front == "Bonjour" && c.back == "Hello"));
+    assert!(rev_pair
+        .iter()
+        .any(|c| c.front == "Hello" && c.back == "Bonjour"));
+
+    let audio_card = lang_cards
+        .iter()
+        .find(|c| c.tags.contains(&"audio".to_string()))
+        .unwrap();
+    assert!(
+        audio_card.front.contains("食べる"),
+        "kanji filter failed: {}",
+        audio_card.front
+    );
+    assert!(
+        !audio_card.front.contains("[た]"),
+        "reading leaked on front: {}",
+        audio_card.front
+    );
+    assert!(
+        audio_card.front.contains("[Audio: taberu.mp3](asset:"),
+        "audio asset link missing: {}",
+        audio_card.front
+    );
+    assert!(
+        audio_card.back.contains("{食|た}べる"),
+        "furigana missing: {}",
+        audio_card.back
+    );
+    assert!(
+        audio_card.back.contains("(たべる)"),
+        "kana missing: {}",
+        audio_card.back
+    );
+    assert!(
+        audio_card.back.contains("to eat"),
+        "meaning missing: {}",
+        audio_card.back
+    );
+
+    // 2. Cloze + LaTeX + revlogs in Combined::Physics
+    let physics_id = deck_by_name("Combined::Physics");
+    let physics_cards = col_21b.list_cards(&physics_id).unwrap();
+    assert_eq!(physics_cards.len(), 2);
+    assert_eq!(
+        physics_cards[0].sibling_group_id,
+        physics_cards[1].sibling_group_id
+    );
+    assert!(physics_cards[0].front.contains("{{c1::$E = mc^2$}}"));
+    assert!(physics_cards[0]
+        .front
+        .contains("{{c2::$$a^2 + b^2 = c^2$$}}"));
+    assert!(physics_cards[0].back.contains("$x < y$"));
+    assert_eq!(col_21b.list_review_logs(&physics_id).unwrap().len(), 2);
+
+    // 3. IO Enhanced + Built-in IO in Combined::Anatomy
+    let anatomy_cards = col_21b
+        .list_cards(&deck_by_name("Combined::Anatomy"))
+        .unwrap();
+    assert_eq!(anatomy_cards.len(), 3);
+    let io_enh = anatomy_cards
+        .iter()
+        .find(|c| c.tags.contains(&"io-enhanced".to_string()))
+        .unwrap();
+    let enh_block = &parse_occlusion_blocks(&io_enh.front)[0].block;
+    assert_eq!(enh_block.mode, OcclusionMode::HideAll);
+    assert_eq!(enh_block.masks.len(), 2);
+    assert_eq!(enh_block.masks[0].id, 1);
+    assert_eq!(enh_block.masks[1].id, 2);
+    assert_eq!(io_enh.back, "Left ventricle pumps oxygenated blood.");
+
+    let io_builtin: Vec<_> = anatomy_cards
+        .iter()
+        .filter(|c| c.tags.contains(&"io-builtin".to_string()))
+        .collect();
+    assert_eq!(io_builtin.len(), 2);
+    assert_eq!(
+        io_builtin[0].sibling_group_id,
+        io_builtin[1].sibling_group_id
+    );
+    let builtin_block = &parse_occlusion_blocks(&io_builtin[0].front)[0].block;
+    assert_eq!(builtin_block.masks.len(), 2);
+    assert_eq!(builtin_block.masks[0].shape_type, OcclusionShapeType::Rect);
+    assert_eq!(
+        builtin_block.masks[1].shape_type,
+        OcclusionShapeType::Ellipse
+    );
+    assert_eq!(io_builtin[0].back, "Tricuspid and mitral valves");
+
+    // 4. Round-trip stability: backup JSON export -> import into a fresh collection preserves all decks/cards/reviews.
+    let backup_json = col_21b.export_backup_json(NOW + 1_000).unwrap();
+    let (_dir_rt, col_rt) = open_temp_collection();
+    col_rt
+        .import_backup_json(&backup_json, NOW + 2_000)
+        .unwrap();
+    assert_eq!(
+        snapshot(&col_rt),
+        snap_21b,
+        "backup JSON round-trip altered imported cards"
+    );
+    let rt_physics_id = col_rt
+        .list_decks()
+        .unwrap()
+        .into_iter()
+        .find(|d| d.name == "Combined::Physics")
+        .unwrap()
+        .id;
+    assert_eq!(col_rt.list_review_logs(&rt_physics_id).unwrap().len(), 2);
+
+    // 5. Re-importing the same .apkg replaces decks cleanly with identical content.
+    let reimport = col_21b.import_apkg_bytes(&apkg_21b, NOW + 3_000).unwrap();
+    assert_eq!(reimport.replaced.len(), 3);
+    assert!(reimport.added.is_empty());
+    assert_eq!(reimport.imported_cards, 8);
+    assert_eq!(snapshot(&col_21b), snap_21b);
+}

@@ -2648,32 +2648,34 @@ fn substitute_template_fields(
     out
 }
 
-fn find_matching_conditional_end(body: &str, field_name_lower: &str) -> Option<(usize, usize)> {
-    let mut depth = 1usize;
-    let mut search = 0usize;
-    while let Some(rel) = body[search..].find("{{") {
-        let pos = search + rel;
-        let after = &body[pos + 2..];
-        let Some(rel_close) = after.find("}}") else {
+/// Pre-match Mustache conditional open/close pairs (`{{#Field}}`/`{{^Field}}` -> `{{/Field}}`)
+/// in a single O(N) pass so unclosed/adversarial conditionals never degrade to O(N^2).
+fn match_template_conditionals(template: &str) -> HashMap<usize, (usize, usize)> {
+    let mut open_stacks: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut matches: HashMap<usize, (usize, usize)> = HashMap::new();
+    let mut pos = 0usize;
+    while let Some(rel_open) = template[pos..].find("{{") {
+        let open = pos + rel_open;
+        let after_open = open + 2;
+        let Some(rel_close) = template[after_open..].find("}}") else {
             break;
         };
-        let token = after[..rel_close].trim();
-        let token_end = pos + 2 + rel_close + 2;
-        if let Some(name) = token.strip_prefix('#').or_else(|| token.strip_prefix('^')) {
-            if name.trim().eq_ignore_ascii_case(field_name_lower) {
-                depth += 1;
-            }
-        } else if let Some(name) = token.strip_prefix('/') {
-            if name.trim().eq_ignore_ascii_case(field_name_lower) {
-                depth -= 1;
-                if depth == 0 {
-                    return Some((pos, token_end));
-                }
+        let token_end = after_open + rel_close + 2;
+        let tag = template[after_open..after_open + rel_close].trim();
+        if let Some(name) = tag.strip_prefix('#').or_else(|| tag.strip_prefix('^')) {
+            open_stacks
+                .entry(name.trim().to_ascii_lowercase())
+                .or_default()
+                .push(open);
+        } else if let Some(name) = tag.strip_prefix('/') {
+            let key = name.trim().to_ascii_lowercase();
+            if let Some(open_pos) = open_stacks.get_mut(&key).and_then(Vec::pop) {
+                matches.insert(open_pos, (open, token_end));
             }
         }
-        search = token_end;
+        pos = token_end;
     }
-    None
+    matches
 }
 
 fn resolve_template_conditionals(
@@ -2681,25 +2683,28 @@ fn resolve_template_conditionals(
     fields: &HashMap<String, &str>,
     _tags: &[String],
 ) -> String {
+    let matched_ends = match_template_conditionals(template);
+    if matched_ends.is_empty() {
+        return template.to_owned();
+    }
     let mut out = String::with_capacity(template.len());
-    let mut rest = template;
-    while let Some(open) = rest.find("{{") {
-        out.push_str(&rest[..open]);
-        let after_open = &rest[open + 2..];
-        let Some(close) = after_open.find("}}") else {
-            out.push_str(&rest[open..]);
+    let mut pos = 0usize;
+    while let Some(rel_open) = template[pos..].find("{{") {
+        let open = pos + rel_open;
+        out.push_str(&template[pos..open]);
+        let after_open = open + 2;
+        let Some(rel_close) = template[after_open..].find("}}") else {
+            out.push_str(&template[open..]);
             return out;
         };
-        let tag = after_open[..close].trim();
+        let tag = template[after_open..after_open + rel_close].trim();
+        let token_end = after_open + rel_close + 2;
         if let Some(field_name) = tag.strip_prefix('#').or_else(|| tag.strip_prefix('^')) {
-            let inverted = tag.starts_with('^');
-            let field_name = field_name.trim();
-            let field_lower = field_name.to_ascii_lowercase();
-            let body_start = &after_open[close + 2..];
-            if let Some((end_pos, end_after)) =
-                find_matching_conditional_end(body_start, &field_lower)
-            {
-                let body = &body_start[..end_pos];
+            if let Some(&(close_start, close_end)) = matched_ends.get(&open) {
+                let inverted = tag.starts_with('^');
+                let field_name = field_name.trim();
+                let field_lower = field_name.to_ascii_lowercase();
+                let body = &template[token_end..close_start];
                 // Drop metadata conditional wrappers (`{{#Tags}}...{{/Tags}}`, `{{^Tags}}...{{/Tags}}`,
                 // `{{#Deck}}...`, etc.) completely so template tag bars / chrome never leak into cards.
                 if !is_anki_metadata_token(field_name) {
@@ -2710,14 +2715,14 @@ fn resolve_template_conditionals(
                         out.push_str(body);
                     }
                 }
-                rest = &body_start[end_after..];
+                pos = close_end;
                 continue;
             }
         }
-        out.push_str(&rest[open..open + 2 + close + 2]);
-        rest = &after_open[close + 2..];
+        out.push_str(&template[open..token_end]);
+        pos = token_end;
     }
-    out.push_str(rest);
+    out.push_str(&template[pos..]);
     out
 }
 
@@ -5974,6 +5979,7 @@ fn parse_template_config_formats(buf: &[u8]) -> (String, String) {
 mod prop_tests {
     use super::*;
     use proptest::prelude::*;
+    use std::time::Instant;
     use zip::ZipWriter;
 
     fn empty_zip_bytes() -> Vec<u8> {
@@ -5987,21 +5993,113 @@ mod prop_tests {
         prop::collection::vec(
             prop_oneof![
                 Just("<script>alert(1)</script>".to_string()),
+                Just("<SCRIPT type=\"text/javascript\">evil()</SCRIPT>".to_string()),
+                Just("<script>unclosed_evil_payload".to_string()),
                 Just("<style>body{display:none}</style>".to_string()),
                 Just("<a href=\"javascript:alert(1)\">x</a>".to_string()),
+                Just("<a href=\"JaVaScRiPt:alert(1)\">mixed</a>".to_string()),
+                Just("<a href=\"&#106;avascript:alert(1)\">entity</a>".to_string()),
+                Just("<a href=\"  javascript:alert(1)\">spaced</a>".to_string()),
                 Just("<a href=\"data:text/html,hi\">y</a>".to_string()),
                 Just("<a href=\"https://example.com/a(b)\">ok</a>".to_string()),
                 Just("<img src=\"vbscript:foo\">".to_string()),
                 Just("<!-- comment > -->".to_string()),
                 Just("\\(x < y\\)".to_string()),
+                Just("\\[a + b\\]".to_string()),
                 Just("[sound:a.mp3]".to_string()),
                 Just("<a href=\"https://ok.com&amp;#41;[pwn]&amp;#40;javascript:alert&amp;#40;1&amp;#41;&amp;#41;\">foo](javascript:alert(1))</a>".to_string()),
                 Just("<div><b>hello</b></div>".to_string()),
+                Just("<ruby>漢<rt>かん</rt></ruby>".to_string()),
                 "[a-zA-Z0-9 <>/=\"'&;:-]{0,20}",
             ],
             0..=16,
         )
         .prop_map(|parts| parts.concat())
+    }
+
+    fn arb_mustache_template() -> impl Strategy<Value = String> {
+        prop::collection::vec(
+            prop_oneof![
+                Just("{{#Front}}".to_string()),
+                Just("{{^Front}}".to_string()),
+                Just("{{/Front}}".to_string()),
+                Just("{{#Back}}".to_string()),
+                Just("{{^Back}}".to_string()),
+                Just("{{/Back}}".to_string()),
+                Just("{{#Tags}}TAG_CHROME{{/Tags}}".to_string()),
+                Just("{{Front}}".to_string()),
+                Just("{{Back}}".to_string()),
+                Just("{{FrontSide}}".to_string()),
+                Just("<hr id=answer>".to_string()),
+                Just("{{kanji:Front}}".to_string()),
+                Just("{{kana:Front}}".to_string()),
+                Just("{{furigana:Front}}".to_string()),
+                Just("{{text:Back}}".to_string()),
+                Just("{{hint:Back}}".to_string()),
+                Just("{{type:Back}}".to_string()),
+                Just("{{tts en_US:Front}}".to_string()),
+                Just("{{cloze:Front}}".to_string()),
+                Just("{{".to_string()),
+                Just("}}".to_string()),
+                Just("<script>alert(1)</script>".to_string()),
+                Just("<a href=\"javascript:alert(1)\">click</a>".to_string()),
+                "[a-zA-Z0-9 <>/=\"'{}:#^\\-]{0,16}",
+            ],
+            0..=18,
+        )
+        .prop_map(|parts| parts.concat())
+    }
+
+    fn arb_svg_like() -> impl Strategy<Value = String> {
+        let header = prop_oneof![
+            Just(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1000\" height=\"500\">"
+                    .to_string()
+            ),
+            Just("<svg viewBox=\"0 0 800 600\">".to_string()),
+            Just("<svg viewBox=\"-100 -50 400 200\">".to_string()),
+            Just("<svg width=\"0\" height=\"0\">".to_string()),
+            Just("<svg width=\"-10\" height=\"100\">".to_string()),
+            Just("<svg width=\"NaN\" height=\"inf\">".to_string()),
+            Just("<svg>".to_string()),
+            Just("".to_string()),
+        ];
+        let body = prop::collection::vec(
+            prop_oneof![
+                Just("<rect x=\"10\" y=\"20\" width=\"100\" height=\"50\" fill=\"#ff7e7e\" class=\"qshape\"/>".to_string()),
+                Just("<rect x=\"200\" y=\"100\" width=\"150\" height=\"80\" fill=\"#ffeba2\"/>".to_string()),
+                Just("<rect x=\"-5000\" y=\"-5000\" width=\"10\" height=\"10\" fill=\"#ffeba2\"/>".to_string()),
+                Just("<rect x=\"1e308\" y=\"0\" width=\"1e308\" height=\"1e308\" fill=\"#ffeba2\"/>".to_string()),
+                Just("<rect x=\"10\" y=\"10\" width=\"-50\" height=\"0\" fill=\"#ff7e7e\"/>".to_string()),
+                Just("<ellipse cx=\"250\" cy=\"200\" rx=\"80\" ry=\"40\" fill=\"#ff7e7e\"/>".to_string()),
+                Just("<circle cx=\"400\" cy=\"250\" r=\"60\" fill=\"#ffeba2\"/>".to_string()),
+                Just("<polygon points=\"10,10 120,10 120,90 10,90\" fill=\"#ffeba2\"/>".to_string()),
+                Just("<polygon points=\"nan,inf 10,-1e309\" fill=\"#ffeba2\"/>".to_string()),
+                Just("<path d=\"M100 50h120v60h-120z\" fill=\"#ff7e7e\"/>".to_string()),
+                Just("<path d=\"M50 50a25 25 0 1050 0 25 25 0 10-50 0\" fill=\"#ffeba2\"/>".to_string()),
+                Just("<path d=\"M0 0 C 10 20 30 40 50 60 Q 70 80 90 100 A 0 0 0 11 10 10 Z\" fill=\"#ffeba2\"/>".to_string()),
+                Just("<g transform=\"translate(50,-25) scale(1.5)\" fill=\"#ff7e7e\">".to_string()),
+                Just("<g transform=\"matrix(0,1,-1,0,200,100)\" class=\"qshape\">".to_string()),
+                Just("<g transform=\"rotate(45 100 100)\">".to_string()),
+                Just("<g display=\"none\">".to_string()),
+                Just("<g opacity=\"0\">".to_string()),
+                Just("<g fill=\"none\">".to_string()),
+                Just("<g><title>Labels</title>".to_string()),
+                Just("<g><title>Masks</title>".to_string()),
+                Just("</g>".to_string()),
+                Just("<defs><rect x=\"0\" y=\"0\" width=\"100\" height=\"100\" fill=\"#ff7e7e\"/></defs>".to_string()),
+                Just("<clipPath><rect x=\"0\" y=\"0\" width=\"50\" height=\"50\" fill=\"#ff7e7e\"/></clipPath>".to_string()),
+                Just("<!-- <rect x=\"0\" y=\"0\" width=\"99\" height=\"99\"/> -->".to_string()),
+                Just("<".to_string()),
+                Just("</svg>".to_string()),
+                "[a-zA-Z0-9 <>/=\"'.,()#:\\-;+%]{0,24}",
+                "[^\\x00]{0,16}",
+            ],
+            0..=20,
+        )
+        .prop_map(|parts| parts.concat());
+
+        (header, body).prop_map(|(h, b)| format!("{h}{b}</svg>"))
     }
 
     fn has_unescaped_markdown_link_scheme(lower_md: &str, scheme: &str) -> bool {
@@ -6065,6 +6163,55 @@ mod prop_tests {
     }
 
     #[test]
+    fn regression_adversarial_template_and_html_stay_linear_and_strip_scripts() {
+        let zip_bytes = empty_zip_bytes();
+        let mut archive = ZipArchive::new(Cursor::new(zip_bytes.as_slice())).unwrap();
+        let mut media = MediaLoader::new(&mut archive, HashMap::new(), false);
+
+        let mut fields = HashMap::new();
+        fields.insert("a".to_string(), "value");
+
+        // Adversarial unclosed/nested Mustache conditionals + unclosed `<script>` + `<` spam.
+        let adversarial_tmpl = format!(
+            "{}{}{}{}",
+            "{{#A}}".repeat(4_000),
+            "{{A}}",
+            "<script>evil();".repeat(1_000),
+            "<a href=\"javascript:alert(1)\">x</a>".repeat(500)
+        );
+        let start = Instant::now();
+        let rendered = render_anki_template(&adversarial_tmpl, &fields, &["t".into()]);
+        let md = html_to_markdown(&rendered, &mut media).unwrap();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed.as_millis() < 500,
+            "adversarial template + HTML conversion took too long: {elapsed:?}"
+        );
+        let lower = md.to_ascii_lowercase();
+        assert!(!lower.contains("evil()"), "script body leaked: {md}");
+        assert!(
+            !has_unescaped_markdown_link_scheme(&lower, "javascript:"),
+            "javascript link leaked: {md}"
+        );
+
+        // Unclosed HTML tags, comments, math delimiters, and sound tags stay O(N).
+        let adversarial_html = format!(
+            "{}{}{}{}",
+            "<div ".repeat(5_000),
+            "<!-- ".repeat(2_000),
+            "\\(".repeat(2_000),
+            "[sound:foo".repeat(2_000)
+        );
+        let start2 = Instant::now();
+        let _ = html_to_markdown(&adversarial_html, &mut media).unwrap();
+        assert!(
+            start2.elapsed().as_millis() < 500,
+            "adversarial unclosed HTML took too long: {:?}",
+            start2.elapsed()
+        );
+    }
+
+    #[test]
     fn regression_closed_link_before_plain_bracket_scheme_text_is_not_flagged() {
         let html = r#"<a href="https://example.com/a(b)">ok</a><A<a href="https://ok.com&amp;#41;[pwn]&amp;#40;javascript:alert&amp;#40;1&amp;#41;&amp;#41;">foo](javascript:alert(1))</a>"#;
         let zip_bytes = empty_zip_bytes();
@@ -6101,29 +6248,109 @@ mod prop_tests {
         }
 
         #[test]
+        fn zstd_decompressor_never_panics_or_exceeds_limit_on_arbitrary_payloads(
+            tail in prop::collection::vec(any::<u8>(), 0..=256),
+        ) {
+            let mut raw = Vec::with_capacity(4 + tail.len());
+            raw.extend_from_slice(&ZSTD_MAGIC);
+            raw.extend_from_slice(&tail);
+            const MAX_TEST_BYTES: usize = 64 * 1024;
+            if let Ok(decompressed) = maybe_decompress_zstd(raw, MAX_TEST_BYTES) {
+                prop_assert!(decompressed.len() <= MAX_TEST_BYTES);
+            }
+        }
+
+        #[test]
         fn html_and_template_converters_never_panic_and_block_unsafe_schemes(
             html in arb_html_like(),
-            field_val in "[^\\x00]{0,40}",
+            tmpl in arb_mustache_template(),
+            safe_field_val in "[a-zA-Z0-9 <>/=\"'&;:-]{0,32}",
+            arb_field_val in "[^\\x00]{0,40}",
         ) {
             let zip_bytes = empty_zip_bytes();
             let mut archive = ZipArchive::new(Cursor::new(zip_bytes.as_slice())).unwrap();
             let mut media = MediaLoader::new(&mut archive, HashMap::new(), false);
 
+            let start = Instant::now();
             let md = html_to_markdown(&html, &mut media).unwrap();
             let lower = md.to_ascii_lowercase();
-            assert!(!has_unescaped_markdown_link_scheme(&lower, "javascript:"), "leaked javascript link: {md}");
-            assert!(!has_unescaped_markdown_link_scheme(&lower, "data:"), "leaked data link: {md}");
-            assert!(!has_unescaped_markdown_link_scheme(&lower, "vbscript:"), "leaked vbscript link: {md}");
-            assert!(!lower.contains("alert(1)</script>"), "leaked script body: {md}");
+            prop_assert!(!has_unescaped_markdown_link_scheme(&lower, "javascript:"), "leaked javascript link: {}", md);
+            prop_assert!(!has_unescaped_markdown_link_scheme(&lower, "data:"), "leaked data link: {}", md);
+            prop_assert!(!has_unescaped_markdown_link_scheme(&lower, "vbscript:"), "leaked vbscript link: {}", md);
+            prop_assert!(!lower.contains("alert(1)</script>"), "leaked script body: {}", md);
+            prop_assert!(!lower.contains("unclosed_evil_payload"), "leaked unclosed script body: {}", md);
 
+            // Template + HTML sanitization invariant: HTML `<a href="javascript:...">` / `<script>`
+            // in templates or fields must never produce unsafe Markdown links or script bodies.
             let mut fields = HashMap::new();
-            fields.insert("front".to_string(), field_val.as_str());
+            fields.insert("front".to_string(), safe_field_val.as_str());
             fields.insert("back".to_string(), html.as_str());
-            let _ = render_anki_template("{{#Front}}{{Front}}{{/Front}}{{^Front}}{{Back}}{{/Front}}", &fields, &["t".into()]);
-            let _ = render_anki_back_template("{{FrontSide}}<hr id=answer>{{Back}}", &fields, &["t".into()]);
-            let _ = parse_anki_io_mask(1, &field_val);
-            let _ = parse_io_enhanced_svg(&html, Some(&field_val));
-            let _ = unwrap_cloze_overlapping_randomizers(&field_val);
+
+            let rendered_q = render_anki_template(&tmpl, &fields, &["t".into()]);
+            let md_q = html_to_markdown(&rendered_q, &mut media).unwrap();
+            let lower_q = md_q.to_ascii_lowercase();
+            prop_assert!(!has_unescaped_markdown_link_scheme(&lower_q, "javascript:"), "template leaked javascript link: {}", md_q);
+            prop_assert!(!has_unescaped_markdown_link_scheme(&lower_q, "data:"), "template leaked data link: {}", md_q);
+            prop_assert!(!has_unescaped_markdown_link_scheme(&lower_q, "vbscript:"), "template leaked vbscript link: {}", md_q);
+            prop_assert!(!lower_q.contains("alert(1)</script>"), "template leaked script body: {}", md_q);
+
+            let rendered_a = render_anki_back_template(&tmpl, &fields, &["t".into()]);
+            let md_a = html_to_markdown(&rendered_a, &mut media).unwrap();
+            let lower_a = md_a.to_ascii_lowercase();
+            prop_assert!(!has_unescaped_markdown_link_scheme(&lower_a, "javascript:"), "back template leaked javascript link: {}", md_a);
+            prop_assert!(!lower_a.contains("alert(1)</script>"), "back template leaked script body: {}", md_a);
+
+            // Unrestricted UTF-8 fields through templates + HTML conversion never panic.
+            let mut arb_fields = HashMap::new();
+            arb_fields.insert("front".to_string(), arb_field_val.as_str());
+            arb_fields.insert("back".to_string(), html.as_str());
+            let arb_q = render_anki_template(&tmpl, &arb_fields, &["t".into()]);
+            let _ = html_to_markdown(&arb_q, &mut media).unwrap();
+            let arb_a = render_anki_back_template(&tmpl, &arb_fields, &["t".into()]);
+            let _ = html_to_markdown(&arb_a, &mut media).unwrap();
+
+            prop_assert!(start.elapsed().as_millis() < 500, "template+HTML conversion exceeded time bound");
+
+            let _ = parse_anki_io_mask(1, &arb_field_val);
+            let _ = unwrap_cloze_overlapping_randomizers(&arb_field_val);
+        }
+
+        #[test]
+        fn io_enhanced_svg_parser_never_panics_and_emits_only_normalized_unit_bboxes(
+            q_svg in arb_svg_like(),
+            a_svg in prop::option::of(arb_svg_like()),
+        ) {
+            if let Some(shapes) = parse_svg_shapes(&q_svg) {
+                prop_assert!(shapes.len() <= MAX_OCCLUSION_MASKS);
+                for s in &shapes {
+                    prop_assert!(s.x.is_finite() && s.y.is_finite() && s.w.is_finite() && s.h.is_finite());
+                    prop_assert!(s.x >= 0.0 && s.x <= 1.0, "x out of [0,1]: {}", s.x);
+                    prop_assert!(s.y >= 0.0 && s.y <= 1.0, "y out of [0,1]: {}", s.y);
+                    prop_assert!(s.w > 0.0 && s.h > 0.0, "non-positive size: w={} h={}", s.w, s.h);
+                    prop_assert!(s.x + s.w <= 1.0 + 1e-9, "x+w > 1: {} + {}", s.x, s.w);
+                    prop_assert!(s.y + s.h <= 1.0 + 1e-9, "y+h > 1: {} + {}", s.y, s.h);
+                }
+            }
+
+            if let Some((masks, mode)) = parse_io_enhanced_svg(&q_svg, a_svg.as_deref()) {
+                prop_assert!(!masks.is_empty());
+                prop_assert!(masks.len() <= MAX_OCCLUSION_MASKS);
+                prop_assert!(masks.iter().any(|m| m.id == 1), "must have at least one active mask");
+                let has_inactive = masks.iter().any(|m| m.id == 2);
+                prop_assert_eq!(
+                    mode,
+                    if has_inactive { OcclusionMode::HideAll } else { OcclusionMode::HideOne }
+                );
+                for m in &masks {
+                    prop_assert!(m.id == 1 || m.id == 2);
+                    prop_assert!(m.x.is_finite() && m.y.is_finite() && m.w.is_finite() && m.h.is_finite());
+                    prop_assert!(m.x >= 0.0 && m.x <= 1.0);
+                    prop_assert!(m.y >= 0.0 && m.y <= 1.0);
+                    prop_assert!(m.w > 0.0 && m.h > 0.0);
+                    prop_assert!(m.x + m.w <= 1.0 + 1e-9);
+                    prop_assert!(m.y + m.h <= 1.0 + 1e-9);
+                }
+            }
         }
     }
 }
