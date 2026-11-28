@@ -20,6 +20,13 @@ function formatDuration(ms: number): string {
   return sec === 0 ? `${min}m` : `${min}m ${sec}s`
 }
 
+function formatTimer(seconds: number): string {
+  const clamped = Math.max(0, Math.floor(seconds))
+  const min = Math.floor(clamped / 60)
+  const sec = clamped % 60
+  return `${min}:${sec.toString().padStart(2, '0')}`
+}
+
 export function ReviewPage() {
   const { deckId } = useParams()
   const storage = useStorage()
@@ -37,6 +44,7 @@ export function ReviewPage() {
   const [view, setView] = useState<StudyView | null>(null)
   const [ready, setReady] = useState(false)
   const [revealedAt, setRevealedAt] = useState(0)
+  const [cardElapsedSec, setCardElapsedSec] = useState(0)
   const [schedError, setSchedError] = useState(false)
   const [conflictNotice, setConflictNotice] = useState(false)
   const [actionNotice, setActionNotice] = useState<string | null>(null)
@@ -254,6 +262,23 @@ export function ReviewPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [view, isPreview, schedError, reveal, advancePreview, grade, editCurrent, undoLastGrade, suspendCurrent])
 
+  const currentCardId = view?.current?.id ?? null
+  const isCardRevealed = Boolean(view?.revealed || schedError)
+  const showCardTimer = Boolean(view?.showTimer && currentCardId)
+
+  useEffect(() => {
+    setCardElapsedSec(0)
+  }, [currentCardId])
+
+  useEffect(() => {
+    if (!showCardTimer || isCardRevealed) return
+    const startedAt = Date.now()
+    const timer = window.setInterval(() => {
+      setCardElapsedSec(Math.floor((Date.now() - startedAt) / 1000))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [showCardTimer, isCardRevealed, currentCardId])
+
   if (!ready || !view) return null
 
   const current = view.current
@@ -438,27 +463,53 @@ export function ReviewPage() {
             {!displayedRevealed ? (
               <div className="review-card">
                 <section className="review-question" aria-label="Question">
-                  <p className="review-label">Question</p>
+                  <div className="review-label-row">
+                    <p className="review-label">{current.clozeIndex ? `Cloze · c${current.clozeIndex}` : 'Question'}</p>
+                    {view.showTimer && (
+                      <span className="review-timer" aria-label="Answer timer">
+                        {formatTimer(cardElapsedSec)}
+                      </span>
+                    )}
+                  </div>
                   <div className="review-q">
-                    <MarkdownView source={current.front} />
+                    <MarkdownView
+                      source={current.front}
+                      clozeIndex={current.clozeIndex}
+                      clozeRevealed={false}
+                    />
                   </div>
                 </section>
               </div>
             ) : (
               <div className="review-card revealed">
                 <section className="review-question" aria-label="Question">
-                  <p className="review-label">Question</p>
+                  <div className="review-label-row">
+                    <p className="review-label">{current.clozeIndex ? `Cloze · c${current.clozeIndex}` : 'Question'}</p>
+                    {view.showTimer && (
+                      <span className="review-timer is-paused" aria-label="Answer timer">
+                        {formatTimer(cardElapsedSec)}
+                      </span>
+                    )}
+                  </div>
                   <div className="review-q">
-                    <MarkdownView source={current.front} />
+                    <MarkdownView
+                      source={current.front}
+                      clozeIndex={current.clozeIndex}
+                      clozeRevealed={true}
+                    />
                   </div>
                 </section>
-                <hr className="review-rule" />
-                <section className="review-answer" aria-label="Answer">
-                  <p className="review-label">Answer</p>
-                  <div className="review-a">
-                    <MarkdownView source={current.back} />
-                  </div>
-                </section>
+                {(!current.clozeIndex || current.back.trim().length > 0) && (
+                  <>
+                    <hr className="review-rule" />
+                    <section className="review-answer" aria-label={current.clozeIndex ? 'Extra' : 'Answer'}>
+                      <p className="review-label">{current.clozeIndex ? 'Extra' : 'Answer'}</p>
+                      <div className="review-a">
+                        <MarkdownView source={current.back} />
+                      </div>
+                    </section>
+                  </>
+                )}
                 {(current.rationale || (current.sources && current.sources.length > 0) || current.proposedBy) && (
                   <details key={current.id} className="review-provenance">
                     <summary>Source &amp; rationale</summary>

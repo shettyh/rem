@@ -37,6 +37,14 @@ struct QuickCaptureSheet: View {
 
     private var isEditing: Bool { editingCard != nil }
 
+    private var clozeIndices: [UInt32] {
+        ClozeRenderer.extractIndices(front)
+    }
+
+    private var isClozeNote: Bool {
+        (!isEditing && !clozeIndices.isEmpty) || editingCard?.clozeIndex != nil
+    }
+
     private var canSave: Bool {
         !front.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !selectedDeckId.isEmpty
@@ -184,7 +192,7 @@ struct QuickCaptureSheet: View {
     private var paperCanvas: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("QUESTION")
+                Text(isClozeNote ? "CLOZE TEXT" : "QUESTION")
                     .font(.system(size: 10.5, weight: .bold))
                     .tracking(0.8)
                     .foregroundStyle(RemColor.faint)
@@ -195,7 +203,7 @@ struct QuickCaptureSheet: View {
 
             AutoSizingMarkdownTextView(
                 text: $front,
-                placeholder: "What do you want to remember?",
+                placeholder: "What do you want to remember? Use {{c1::...}} for cloze.",
                 font: .systemFont(ofSize: 19, weight: .semibold),
                 minHeight: 54,
                 controller: frontController,
@@ -215,11 +223,35 @@ struct QuickCaptureSheet: View {
                 }
             )
 
+            if isClozeNote && (!clozeIndices.isEmpty || editingCard?.clozeIndex != nil) {
+                HStack(spacing: 6) {
+                    Image(systemName: "rectangle.and.text.magnifyingglass")
+                        .font(.caption)
+                        .foregroundStyle(RemColor.accent)
+                    let listText = clozeIndices.map { "c\($0)" }.joined(separator: ", ")
+                    if isEditing {
+                        Text(listText.isEmpty ? "Updates all siblings in this cloze note" : "Updates all siblings in this cloze note (\(listText))")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(RemColor.muted)
+                    } else {
+                        let cardWord = clozeIndices.count == 1 ? "card" : "cards"
+                        Text("Creates \(clozeIndices.count) cloze \(cardWord) (\(listText))")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(RemColor.muted)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(RemColor.accentTint)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .padding(.top, 10)
+            }
+
             Divider()
                 .overlay(RemColor.border)
                 .padding(.vertical, 16)
 
-            Text("ANSWER")
+            Text(isClozeNote ? "EXTRA (OPTIONAL)" : "ANSWER")
                 .font(.system(size: 10.5, weight: .bold))
                 .tracking(0.8)
                 .foregroundStyle(RemColor.faint)
@@ -227,7 +259,7 @@ struct QuickCaptureSheet: View {
 
             AutoSizingMarkdownTextView(
                 text: $back,
-                placeholder: "Write a concise recall answer…",
+                placeholder: isClozeNote ? "Optional extra context shown after reveal…" : "Write a concise recall answer…",
                 font: .systemFont(ofSize: 15.5, weight: .regular),
                 minHeight: 110,
                 controller: backController,
@@ -348,9 +380,10 @@ struct QuickCaptureSheet: View {
     }
 
     private var previewCanvas: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let previewCloze = editingCard?.clozeIndex ?? clozeIndices.first
+        return VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("QUESTION")
+                Text(previewCloze != nil ? "CLOZE PREVIEW · c\(previewCloze!)" : "QUESTION")
                     .font(.system(size: 10.5, weight: .bold))
                     .tracking(0.8)
                     .foregroundStyle(RemColor.faint)
@@ -365,26 +398,30 @@ struct QuickCaptureSheet: View {
                 baseFontSize: appState.cardTextSize.revealedQuestionSize,
                 codeFontSize: appState.cardTextSize.codeSize,
                 textColor: RemColor.text,
-                baseWeight: .semibold
+                baseWeight: .semibold,
+                clozeIndex: previewCloze,
+                clozeRevealed: false
             )
 
-            Divider()
-                .overlay(RemColor.border)
-                .padding(.vertical, 16)
+            if previewCloze == nil || !back.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Divider()
+                    .overlay(RemColor.border)
+                    .padding(.vertical, 16)
 
-            Text("ANSWER")
-                .font(.system(size: 10.5, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(RemColor.faint)
-                .padding(.bottom, 10)
+                Text(previewCloze != nil ? "EXTRA" : "ANSWER")
+                    .font(.system(size: 10.5, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(RemColor.faint)
+                    .padding(.bottom, 10)
 
-            RemMarkdownView(
-                markdown: back.isEmpty ? "_No answer yet_" : back,
-                store: appState.store,
-                baseFontSize: appState.cardTextSize.answerSize,
-                codeFontSize: appState.cardTextSize.codeSize,
-                textColor: RemColor.text
-            )
+                RemMarkdownView(
+                    markdown: back.isEmpty ? "_No answer yet_" : back,
+                    store: appState.store,
+                    baseFontSize: appState.cardTextSize.answerSize,
+                    codeFontSize: appState.cardTextSize.codeSize,
+                    textColor: RemColor.text
+                )
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -429,6 +466,18 @@ struct QuickCaptureSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .accessibilityLabel("Add tag")
+
+        if activeEditorField == .front {
+            Button {
+                applyFormat(.cloze(index: ClozeRenderer.nextIndex(in: front)))
+            } label: {
+                Text("[…]")
+                    .font(.system(size: 13.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(RemColor.accent)
+                    .frame(width: 38, height: 34)
+            }
+            .accessibilityLabel("Insert cloze deletion")
+        }
 
         if activeEditorField != nil {
             Button {
@@ -509,6 +558,19 @@ struct QuickCaptureSheet: View {
         }
         formatIconButton(systemName: "list.bullet", label: "Bullet list") {
             applyFormat(.bulletList)
+        }
+        if activeEditorField == .front {
+            Button {
+                applyFormat(.cloze(index: ClozeRenderer.nextIndex(in: front)))
+            } label: {
+                Text("[…]")
+                    .font(.system(size: 13.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(RemColor.accent)
+                    .frame(width: 38, height: 34)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Cloze deletion")
         }
 
         Spacer()
@@ -609,19 +671,34 @@ struct QuickCaptureSheet: View {
         commitTag()
         isSaving = true
         do {
+            let isCloud = appState.syncStatus?.signedIn == true && !appState.syncAccessRestricted
             if let existing = editingCard {
-                try await appState.store.updateCard(
-                    id: existing.id,
-                    front: front,
-                    back: back,
-                    tags: tags,
-                    suspended: nil
-                )
-                await appState.refreshAll()
-                onSaved?()
-                appState.showToast("Card updated")
+                if existing.clozeIndex != nil {
+                    let updated = try await appState.store.updateClozeNote(
+                        cardId: existing.id,
+                        front: front,
+                        back: back,
+                        tags: tags
+                    )
+                    await appState.refreshAll()
+                    onSaved?()
+                    appState.showToast(
+                        updated.count > 1 ? "Updated \(updated.count) cloze cards" : "Card updated"
+                    )
+                } else {
+                    try await appState.store.updateCard(
+                        id: existing.id,
+                        front: front,
+                        back: back,
+                        tags: tags,
+                        suspended: nil
+                    )
+                    await appState.refreshAll()
+                    onSaved?()
+                    appState.showToast("Card updated")
+                }
             } else {
-                _ = try await appState.store.createCard(
+                let created = try await appState.store.createCardOrCloze(
                     deckId: selectedDeckId,
                     front: front,
                     back: back,
@@ -629,8 +706,11 @@ struct QuickCaptureSheet: View {
                 )
                 await appState.refreshAll()
                 onSaved?()
-                let isCloud = appState.syncStatus?.signedIn == true && !appState.syncAccessRestricted
-                appState.showToast(isCloud ? "Card saved · syncing" : "Card saved")
+                if created.count > 1 {
+                    appState.showToast(isCloud ? "\(created.count) cloze cards saved · syncing" : "\(created.count) cloze cards saved")
+                } else {
+                    appState.showToast(isCloud ? "Card saved · syncing" : "Card saved")
+                }
             }
             Task { await appState.syncNow(silent: true) }
             dismiss()

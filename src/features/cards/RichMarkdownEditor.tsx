@@ -8,6 +8,7 @@ import 'highlight.js/styles/github-dark.css'
 export interface EditorHandle {
   editor: Editor
   openImagePicker: () => void
+  openAudioPicker: () => void
 }
 
 /** A single inline WYSIWYG-markdown editor. Markdown is the value in and out.
@@ -44,7 +45,9 @@ export function RichMarkdownEditor({
   })
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const audioInputRef = useRef<HTMLInputElement>(null)
   const insertImageRef = useRef<(file: File) => void>(() => {})
+  const insertAudioRef = useRef<(file: File) => void>(() => {})
 
   const editor = useEditor({
     extensions: createEditorExtensions(placeholder, resolveAsset),
@@ -86,12 +89,25 @@ export function RichMarkdownEditor({
     })
   }
 
-  // Hand the live editor (plus its image picker) up to the shared toolbar, and
+  insertAudioRef.current = (file: File) => {
+    if (!editor || !ingestImage || !file.type.startsWith('audio/')) return
+    void ingestImage(file).then(({ hash }) => {
+      const label = file.name.replace(/[\[\]()]/g, '').trim() || 'Audio'
+      editor
+        .chain()
+        .focus()
+        .insertContent(`[Audio: ${label}](asset:${hash}) `)
+        .run()
+    })
+  }
+
+  // Hand the live editor (plus its media pickers) up to the shared toolbar, and
   // report focus so the toolbar retargets to the field the user is editing.
   useEffect(() => {
     if (!editor) return
     const openImagePicker = () => fileInputRef.current?.click()
-    onReadyRef.current?.({ editor, openImagePicker })
+    const openAudioPicker = () => audioInputRef.current?.click()
+    onReadyRef.current?.({ editor, openImagePicker, openAudioPicker })
     const handleFocus = () => onFocusRef.current?.()
     editor.on('focus', handleFocus)
     return () => {
@@ -119,6 +135,17 @@ export function RichMarkdownEditor({
         onChange={(e) => {
           const file = e.target.files?.[0]
           if (file) insertImageRef.current(file)
+          e.target.value = ''
+        }}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) insertAudioRef.current(file)
           e.target.value = ''
         }}
       />

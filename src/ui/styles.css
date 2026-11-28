@@ -3238,3 +3238,210 @@ select:focus-visible {
 .rich-editor-content:focus-visible {
   outline: none;
 }
+
+/* ─── Wave 1 Anki compatibility: Cloze, Math, Audio, Timer, Nested Decks ── */
+.cloze-blank {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--accent-soft, rgba(90, 71, 232, 0.12));
+  color: var(--accent);
+  font-weight: 600;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.cloze-reveal {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--accent-soft, rgba(90, 71, 232, 0.14));
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.markdown .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 0;
+  margin: 10px 0;
+}
+
+.card-audio-player {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-inset);
+  max-width: 100%;
+}
+
+.card-audio-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.card-audio-el {
+  height: 30px;
+  max-width: 240px;
+}
+
+.card-audio-missing {
+  font-size: 12.5px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.review-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-timer {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.review-timer.is-paused {
+  color: var(--faint);
+}
+
+.deck-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+
+.deck-tree-toggle:hover {
+  background: var(--surface-inset);
+  color: var(--text);
+}
+
+.deck-tree-toggle.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.deck-list-folder-btn {
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav-item-folder {
+  color: var(--muted);
+  cursor: default;
+}
+
+.subdecks-section {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.subdecks-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.subdecks-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.subdecks-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.subdeck-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.subdeck-chip:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-inset);
+}
+
+.subdeck-chip-due {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.subdeck-add-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.empty-state-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.card-cloze-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--accent-soft, rgba(90, 71, 232, 0.12));
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: baseline;
+}
+
+.editor-cloze-hint {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--accent);
+}

@@ -691,4 +691,124 @@ final class RemAppTests: XCTestCase {
         let legacyImported = try await store.importBackupJson(json: legacyBackup, nowMs: now + 40)
         XCTAssertEqual(legacyImported.added, ["Legacy"])
     }
+
+    func testWave1DeckTreeClozeMathAndMarkdownAudio() {
+        // DeckTreeBuilder: nested hierarchy, virtual folders, rolled-up counts, prefix safety
+        XCTAssertTrue(DeckTreeBuilder.isDescendantOrSelf("CS::OS", of: "CS"))
+        XCTAssertFalse(DeckTreeBuilder.isDescendantOrSelf("CSS", of: "CS"))
+
+        let summaries: [DeckSummaryDto] = [
+            DeckSummaryDto(id: "d1", name: "Languages::Spanish::Verbs", color: "#5a47e8", totalCards: 10, dueCount: 3, newDueCount: 1, masteredRatio: 0.5, desiredRetention: 0.9),
+            DeckSummaryDto(id: "d2", name: "Languages::Spanish::Vocab", color: "#1e9b5e", totalCards: 5, dueCount: 2, newDueCount: 2, masteredRatio: 0.2, desiredRetention: 0.9),
+            DeckSummaryDto(id: "d3", name: "Languages", color: "#d97914", totalCards: 4, dueCount: 1, newDueCount: 0, masteredRatio: 0.75, desiredRetention: 0.9),
+        ]
+        let roots = DeckTreeBuilder.build(from: summaries)
+        XCTAssertEqual(roots.count, 1)
+        XCTAssertEqual(roots[0].path, "Languages")
+        XCTAssertEqual(roots[0].dueCount, 6)
+        XCTAssertEqual(roots[0].newDueCount, 3)
+        XCTAssertEqual(roots[0].totalCards, 19)
+        XCTAssertEqual(roots[0].children.count, 1)
+        XCTAssertNil(roots[0].children[0].deck) // Virtual folder "Languages::Spanish"
+        XCTAssertEqual(roots[0].children[0].dueCount, 5)
+
+        let collapsed = DeckTreeBuilder.flatten(roots, collapsed: ["Languages::Spanish"])
+        XCTAssertEqual(collapsed.map(\.path), ["Languages", "Languages::Spanish"])
+
+        // ClozeRenderer: nested LaTeX braces, hints, rendering & formatter
+        let clozeText = "Euler: {{c1::$e^{i\\pi} + 1 = 0$::identity}} and {{c2::42}}"
+        XCTAssertEqual(ClozeRenderer.extractIndices(clozeText), [1, 2])
+        XCTAssertEqual(ClozeRenderer.nextIndex(in: clozeText), 3)
+        XCTAssertEqual(ClozeRenderer.stripMarkup(clozeText), "Euler: $e^{i\\pi} + 1 = 0$ and 42")
+
+        let q1 = ClozeRenderer.render(clozeText, activeIndex: 1, revealed: false)
+        XCTAssertTrue(q1.contains("[identity]"))
+        XCTAssertTrue(q1.contains("42"))
+        XCTAssertFalse(q1.contains("{{c1"))
+
+        let formattedCloze = MarkdownFormatter.apply(
+            .cloze(index: 2),
+            to: "Capital of France is Paris.",
+            selectedRange: NSRange(location: 21, length: 5)
+        )
+        XCTAssertEqual(formattedCloze.text, "Capital of France is {{c2::Paris}}.")
+
+        // LatexMathFormatter + MarkdownBlockParser
+        let normalized = LatexMathFormatter.normalizeDelimiters("Inline \\(x^2\\) and `\\(code\\)`\n\\[\\frac{a}{b}\\]")
+        XCTAssertEqual(normalized, "Inline $x^2$ and `\\(code\\)`\n$$\\frac{a}{b}$$")
+        XCTAssertEqual(LatexMathFormatter.formatUnicode("\\alpha + x^2 \\leq \\infty"), "α + x² ≤ ∞")
+        let frac = LatexMathFormatter.parseTopLevelFraction("\\frac{1}{2}")
+        XCTAssertEqual(frac?.0, "1")
+        XCTAssertEqual(frac?.1, "2")
+
+        let audioHash = String(repeating: "c", count: 64)
+        let blocks = MarkdownBlockParser.parse("$$\nE = mc^2\n$$\n\n[Audio: pron.mp3](asset:\(audioHash))")
+        XCTAssertEqual(blocks, [
+            .mathBlock(latex: "E = mc^2"),
+            .audio(label: "pron.mp3", hash: audioHash),
+        ])
+    }
+
+    func testWave1StoreClozeSiblingsTimerAndNestedDecks() async throws {
+        let (dir, store) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let now: Int64 = 1_764_200_000_000
+        let parent = try await store.createDeck(name: "Bio", color: "#5a47e8", nowMs: now)
+        let child = try await store.createDeck(name: "Bio::Cells", color: "#1e9b5e", nowMs: now + 1)
+
+        // Enable showTimer and buryRelated on child deck
+        _ = try await store.updateDeck(
+            id: child.id,
+            name: nil,
+            color: nil,
+            settings: DeckSettingsPatchDto(
+                newPerDay: 20,
+                maxReviews: 200,
+                learnSteps: "",
+                insertionOrder: .sequential,
+                relearnSteps: "",
+                minimumInterval: 1,
+                leechThreshold: 8,
+                leechAction: .tag,
+                buryRelated: true,
+                showTimer: true,
+                desiredRetention: 0.9,
+                maximumInterval: 36_500
+            ),
+            nowMs: now + 2
+        )
+
+        let clozeCards = try await store.createCardOrCloze(
+            deckId: child.id,
+            front: "{{c1::Mitochondria}} make {{c2::ATP}}.",
+            back: "Cell bio",
+            tags: ["bio"],
+            nowMs: now + 5
+        )
+        XCTAssertEqual(clozeCards.count, 2)
+        XCTAssertEqual(clozeCards[0].siblingGroupId, clozeCards[1].siblingGroupId)
+        XCTAssertEqual(clozeCards.compactMap(\.clozeIndex), [1, 2])
+
+        // Updating cloze note propagates to siblings and creates c3
+        let updated = try await store.updateClozeNote(
+            cardId: clozeCards[0].id,
+            front: "{{c1::Mitochondria}} make {{c2::ATP}} via {{c3::respiration}}.",
+            back: "Updated extra",
+            tags: ["bio", "cells"],
+            nowMs: now + 10
+        )
+        XCTAssertEqual(updated.count, 3)
+
+        // Studying parent includes child cards, surfaces showTimer, and buries siblings after grading c1
+        let session = try await store.startStudy(deckId: parent.id, nowMs: now + 20)
+        let initial = try await store.studyCurrentView(session: session, nowMs: now + 20)
+        XCTAssertTrue(initial.showTimer)
+        XCTAssertEqual(initial.current?.clozeIndex, 1)
+
+        _ = try await store.studyReveal(session: session, nowMs: now + 25)
+        let graded = try await store.studyGrade(session: session, grade: .easy, nowMs: now + 30)
+        // Siblings c2 & c3 buried for today!
+        XCTAssertNil(graded.view.current)
+    }
 }

@@ -40,10 +40,11 @@ intervals, leech handling, review logs, and stale-card protection remain identic
 | <kbd>q</kbd> | End the session cleanly. |
 
 The header shows deck scope and progress, and grade choices show their next intervals. Markdown
-headings, lists, emphasis, links, inline code, and fenced code use terminal styles. Images and GIFs
-are represented by an explicit placeholder containing the asset hash. If another desktop or
-terminal session changes the current card first, the stale grade is skipped and explained instead
-of being recorded twice.
+headings, lists, emphasis, links, inline code, fenced code, and cloze deletions (`{{cN::...}}`) use
+terminal styles. Images, GIFs, and audio clips are represented by explicit placeholders containing
+the asset hash. Studying a parent deck (`Parent`) automatically includes all nested subdecks
+(`Parent::Child`). If another desktop or terminal session changes the current card first, the stale
+grade is skipped and explained instead of being recorded twice.
 
 ## Draft proposals
 
@@ -157,6 +158,27 @@ support `--dry-run`.
 
 Directly created cards are due immediately and reach the sync server on the next `rem sync` or desktop sync.
 
+## Importing Anki decks (`.apkg`)
+
+Import Anki deck packages (`.apkg` — legacy `anki2`, `anki21`, and modern zstd-compressed `anki21b`
+formats) directly into your local SQLite collection:
+
+```sh
+# Preview decks, card counts, media, and review logs without writing
+rem import biology.apkg --dry-run
+rem import biology.apkg --dry-run --output json
+
+# Import decks, cloze/reversed siblings, math, images/audio, and FSRS-7 review history
+rem import biology.apkg
+rem import biology.apkg --output json
+```
+
+The importer converts Anki HTML to clean Markdown, strips `<script>` and `<style>` blocks, preserves
+nested `Parent::Child` deck hierarchies, maps cloze and multi-template notes into `rem` sibling
+groups (respecting `bury_related`), converts `<img>` and `[sound:...]` references to content-addressed
+`asset:<hash>` blobs, normalizes `\(...\)` / `\[...\]` math delimiters, and replays `revlog` history
+into FSRS-7 scheduling state. Existing decks with the exact same name are replaced.
+
 ## Cloud sync
 
 Sign in to hosted `rem Cloud` (default) or a self-hosted `rem-sync-server` using browser OAuth
@@ -232,6 +254,24 @@ Card-add success:
 
 Results follow input order. Dry-run inputs that would be inserted have status `wouldCreate` and no
 `id`.
+
+Anki `.apkg` import success (`--dry-run` omits writes and reports preview counts):
+
+```json
+{
+  "version": 1,
+  "command": "import",
+  "data": {
+    "dryRun": false,
+    "added": ["Languages::Spanish"],
+    "replaced": [],
+    "importedCards": 120,
+    "importedReviews": 480,
+    "importedMedia": 64,
+    "warnings": []
+  }
+}
+```
 
 Error:
 

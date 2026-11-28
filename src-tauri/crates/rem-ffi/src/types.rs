@@ -368,6 +368,8 @@ pub struct CardDto {
     pub rationale: Option<String>,
     pub sources: Vec<DraftSourceDto>,
     pub proposed_by: Option<String>,
+    pub sibling_group_id: Option<String>,
+    pub cloze_index: Option<u32>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -421,7 +423,28 @@ pub struct StudyViewDto {
     pub remaining: u32,
     pub preview: bool,
     pub can_undo: bool,
+    pub show_timer: bool,
     pub leech_notice: Option<LeechNoticeDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ApkgImportPreviewDto {
+    pub added: Vec<String>,
+    pub replaced: Vec<String>,
+    pub total_cards: u32,
+    pub media_count: u32,
+    pub review_logs: u32,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ApkgImportResultDto {
+    pub added: Vec<String>,
+    pub replaced: Vec<String>,
+    pub imported_cards: u32,
+    pub imported_reviews: u32,
+    pub imported_media: u32,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]

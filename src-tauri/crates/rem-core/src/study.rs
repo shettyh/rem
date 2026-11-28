@@ -1,8 +1,11 @@
+use std::collections::{HashMap, HashSet};
+
 use chrono::{Local, TimeZone};
 use rand::seq::SliceRandom;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
+use crate::deck_tree::deck_and_descendants;
 use crate::review_store::ReviewUndo;
 use crate::store::{card_from_row, CARD_COLUMNS};
 use crate::{
@@ -72,6 +75,7 @@ pub struct StudyView {
     pub remaining: u32,
     pub preview: bool,
     pub can_undo: bool,
+    pub show_timer: bool,
     pub notice: Option<LeechAction>,
 }
 
@@ -105,6 +109,7 @@ struct LastGradeUndo {
     previous_suspended_hlc: String,
     previous_scheduling_hlc: String,
     previous_leech_hlc: String,
+    buried_siblings: Vec<StudyItem>,
 }
 
 #[derive(Debug)]
@@ -115,6 +120,7 @@ pub struct StudySession {
     next_states: Option<StudyNextStates>,
     reviewed: u32,
     preview: bool,
+    custom_study: bool,
     notice: Option<LeechAction>,
     last_grade: Option<LastGradeUndo>,
 }
@@ -139,16 +145,27 @@ impl StudySession {
                 "custom study amount must be between 1 and 999".into(),
             ));
         }
-        let all_decks = request.deck_id.is_none();
-        let decks = match request.deck_id {
-            Some(deck_id) => collection.get_deck(&deck_id)?.into_iter().collect(),
-            None => collection.list_decks()?,
+        let all_decks_mode = request.deck_id.is_none();
+        let all_decks = collection.list_decks()?;
+        let decks: Vec<Deck> = match request.deck_id {
+            Some(deck_id) => deck_and_descendants(&all_decks, &deck_id)
+                .into_iter()
+                .cloned()
+                .collect(),
+            None => all_decks,
         };
         let day = local_day(now)?;
+        let day_start_ms = local_day_start_ms(now)?;
+        let custom_study = request.custom.is_some();
         let preview = request
             .custom
             .as_ref()
             .is_some_and(|custom| custom.mode == CustomStudyMode::PreviewNew);
+        let reviewed_today_by_group = if custom_study {
+            HashMap::new()
+        } else {
+            load_reviewed_today_sibling_groups(collection, day_start_ms, now)?
+        };
         let mut queue = Vec::new();
         for deck in decks {
             let (new_introduced, reviews_done) = collection.get_daily_stat(&deck.id, &day)?;
@@ -166,7 +183,14 @@ impl StudySession {
                 queue.extend(build_deck_queue(
                     items
                         .into_iter()
-                        .filter(|item| item.card.scheduling.due <= now)
+                        .filter(|item| {
+                            item.card.scheduling.due <= now
+                                && (!deck.settings.bury_related
+                                    || !is_sibling_buried_today(
+                                        &item.card,
+                                        &reviewed_today_by_group,
+                                    ))
+                        })
                         .collect(),
                     &deck.settings,
                     new_slots,
@@ -174,7 +198,7 @@ impl StudySession {
                 ));
             }
         }
-        if all_decks {
+        if all_decks_mode {
             queue.shuffle(&mut rand::rng());
         }
 
@@ -185,6 +209,7 @@ impl StudySession {
             next_states: None,
             reviewed: 0,
             preview,
+            custom_study,
             notice: None,
             last_grade: None,
         };
@@ -205,6 +230,10 @@ impl StudySession {
             remaining: (self.queue.len() + usize::from(self.current.is_some())) as u32,
             preview: self.preview,
             can_undo: self.can_undo(),
+            show_timer: self
+                .current
+                .as_ref()
+                .is_some_and(|item| item.settings.show_timer),
             notice: self.notice,
         }
     }
@@ -340,6 +369,27 @@ impl StudySession {
         self.reviewed += 1;
         self.revealed = false;
         self.next_states = None;
+
+        // Bury remaining siblings from the same sibling group for the rest of the day when
+        // `bury_related` is enabled on a normal study session.
+        let mut buried_siblings = Vec::new();
+        if !self.custom_study && graded.settings.bury_related {
+            if let Some(group_id) = graded.card.sibling_group_id.as_deref() {
+                let mut kept = Vec::with_capacity(self.queue.len());
+                for item in self.queue.drain(..) {
+                    if item.card.id != graded.card.id
+                        && item.card.sibling_group_id.as_deref() == Some(group_id)
+                        && item.settings.bury_related
+                    {
+                        buried_siblings.push(item);
+                    } else {
+                        kept.push(item);
+                    }
+                }
+                self.queue = kept;
+            }
+        }
+
         self.last_grade = Some(LastGradeUndo {
             previous_item,
             expected_revision: graded.local_revision,
@@ -350,6 +400,7 @@ impl StudySession {
             previous_suspended_hlc: receipt.previous_suspended_hlc,
             previous_scheduling_hlc: receipt.previous_scheduling_hlc,
             previous_leech_hlc: receipt.previous_leech_hlc,
+            buried_siblings,
         });
 
         let still_stepping = !graded.card.suspended
@@ -409,6 +460,16 @@ impl StudySession {
         if let Some(current) = self.current.take() {
             if current.card.id != reloaded_card.id {
                 self.queue.insert(0, current);
+            }
+        }
+        for sibling in undo.buried_siblings {
+            if !self
+                .queue
+                .iter()
+                .any(|item| item.card.id == sibling.card.id)
+                && sibling.card.id != reloaded_card.id
+            {
+                self.queue.push(sibling);
             }
         }
         self.queue.retain(|item| item.card.id != reloaded_card.id);
@@ -846,4 +907,93 @@ fn local_day(now: i64) -> Result<String, CollectionError> {
         .ok_or_else(|| {
             CollectionError::InvalidInput("study time is outside the supported range".into())
         })
+}
+
+fn local_day_start_ms(now: i64) -> Result<i64, CollectionError> {
+    let date = Local
+        .timestamp_millis_opt(now)
+        .single()
+        .map(|dt| dt.date_naive())
+        .ok_or_else(|| {
+            CollectionError::InvalidInput("study time is outside the supported range".into())
+        })?;
+    for hour in [0, 1, 2, 3, 12] {
+        let naive = date.and_hms_opt(hour, 0, 0).expect("valid local hour");
+        if let Some(dt) = Local
+            .from_local_datetime(&naive)
+            .earliest()
+            .or_else(|| Local.from_local_datetime(&naive).latest())
+        {
+            return Ok(dt.timestamp_millis());
+        }
+    }
+    Ok(date
+        .and_hms_opt(12, 0, 0)
+        .expect("valid noon")
+        .and_utc()
+        .timestamp_millis())
+}
+
+fn load_reviewed_today_sibling_groups(
+    collection: &Collection,
+    day_start_ms: i64,
+    now: i64,
+) -> Result<HashMap<String, HashSet<String>>, CollectionError> {
+    let connection = collection
+        .connection
+        .lock()
+        .map_err(|_| CollectionError::Poisoned)?;
+    let mut reviewed: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut card_stmt = connection.prepare(
+        "SELECT id, sibling_group_id, scheduling_json
+         FROM cards
+         WHERE sibling_group_id IS NOT NULL",
+    )?;
+    let rows = card_stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+    for row in rows {
+        let (card_id, group_id, scheduling_json) = row?;
+        if let Ok(state) = serde_json::from_str::<FsrsState>(&scheduling_json) {
+            if state
+                .last_review
+                .is_some_and(|ts| ts >= day_start_ms && ts <= now)
+            {
+                reviewed.entry(group_id).or_default().insert(card_id);
+            }
+        }
+    }
+    let mut log_stmt = connection.prepare(
+        "SELECT DISTINCT c.sibling_group_id, rl.card_id
+         FROM review_logs rl
+         JOIN cards c ON c.id = rl.card_id
+         WHERE c.sibling_group_id IS NOT NULL
+           AND rl.reviewed_at >= ?1
+           AND rl.reviewed_at <= ?2",
+    )?;
+    let log_rows = log_stmt.query_map(params![day_start_ms, now], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    for row in log_rows {
+        let (group_id, card_id) = row?;
+        reviewed.entry(group_id).or_default().insert(card_id);
+    }
+    Ok(reviewed)
+}
+
+fn is_sibling_buried_today(
+    card: &Card,
+    reviewed_today_by_group: &HashMap<String, HashSet<String>>,
+) -> bool {
+    let Some(group_id) = card.sibling_group_id.as_deref() else {
+        return false;
+    };
+    let Some(reviewed_cards) = reviewed_today_by_group.get(group_id) else {
+        return false;
+    };
+    reviewed_cards.iter().any(|other_id| other_id != &card.id)
 }

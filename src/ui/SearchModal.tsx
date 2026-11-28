@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useStorage } from '../data/StorageContext'
 import type { CardSearchHit } from '../domain/models'
+import { stripClozeMarkup } from '../features/cards/cloze'
 
 interface SearchModalProps {
   open: boolean
@@ -9,7 +10,7 @@ interface SearchModalProps {
 }
 
 function snippet(markdown: string, maxLen = 110): string {
-  const plain = markdown
+  const plain = stripClozeMarkup(markdown)
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '[image]')
     .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[^\n]*\n?|```/g, ' '))
     .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?)/gm, '')

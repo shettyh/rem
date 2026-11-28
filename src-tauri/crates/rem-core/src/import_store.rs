@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::params;
 use uuid::Uuid;
@@ -74,6 +74,7 @@ impl Collection {
             }
         }
 
+        let mut sibling_map: HashMap<String, String> = HashMap::new();
         for backup in decks {
             let deck_id = Uuid::new_v4().to_string();
             let color = backup.color.unwrap_or_else(|| deck_color(&deck_id));
@@ -113,6 +114,17 @@ impl Collection {
             }
             for backup_card in backup.cards {
                 let card_id = Uuid::new_v4().to_string();
+                let remapped_sibling = backup_card
+                    .sibling_group_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(|raw_id| {
+                        sibling_map
+                            .entry(raw_id.to_owned())
+                            .or_insert_with(|| Uuid::new_v4().to_string())
+                            .clone()
+                    });
                 let card = Card {
                     id: card_id.clone(),
                     deck_id: deck_id.clone(),
@@ -125,6 +137,8 @@ impl Collection {
                     last_again_at: backup_card.last_again_at,
                     scheduling: backup_card.scheduling,
                     provenance: backup_card.provenance.normalize(),
+                    sibling_group_id: remapped_sibling,
+                    cloze_index: backup_card.cloze_index.filter(|&idx| idx >= 1),
                 };
                 let has_non_initial_sched = card.scheduling.reps > 0
                     || card.scheduling.lapses > 0
@@ -183,6 +197,8 @@ impl Collection {
                             created_at: card.created_at,
                             initial_due,
                             provenance: card.provenance.clone(),
+                            sibling_group_id: card.sibling_group_id.clone(),
+                            cloze_index: card.cloze_index,
                             hlc: content_hlc,
                         },
                         now,

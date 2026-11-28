@@ -845,3 +845,114 @@ fn draft_review_requires_an_interactive_terminal() {
         .contains("rem draft review requires an interactive terminal"));
     assert!(output.stdout.is_empty());
 }
+
+#[test]
+fn import_apkg_supports_dry_run_and_imports_cards_via_cli() {
+    use rusqlite::{params, Connection};
+    use zip::write::SimpleFileOptions;
+    use zip::ZipWriter;
+
+    let temp = TempDir::new().unwrap();
+    let db_path = database(&temp);
+    let apkg_path = temp.path().join("sample.apkg");
+
+    // Build a minimal valid collection.anki21 .apkg
+    let anki_db = temp.path().join("collection.anki21");
+    {
+        let conn = Connection::open(&anki_db).unwrap();
+        let decks_json = json!({
+            "10": { "id": 10, "name": "CS::Networking" }
+        })
+        .to_string();
+        let models_json = json!({
+            "100": {
+                "id": 100,
+                "name": "Basic",
+                "type": 0,
+                "flds": [{"name": "Front"}, {"name": "Back"}],
+                "tmpls": [{ "name": "Card 1", "qfmt": "{{Front}}", "afmt": "{{FrontSide}}<hr id=answer>{{Back}}" }]
+            }
+        })
+        .to_string();
+        conn.execute_batch(
+            "
+            CREATE TABLE col (id INTEGER PRIMARY KEY, crt INTEGER NOT NULL, models TEXT NOT NULL, decks TEXT NOT NULL);
+            CREATE TABLE notes (id INTEGER PRIMARY KEY, mid INTEGER NOT NULL, tags TEXT NOT NULL, flds TEXT NOT NULL);
+            CREATE TABLE cards (
+                id INTEGER PRIMARY KEY, nid INTEGER NOT NULL, did INTEGER NOT NULL, ord INTEGER NOT NULL,
+                type INTEGER NOT NULL, queue INTEGER NOT NULL, due INTEGER NOT NULL, ivl INTEGER NOT NULL,
+                factor INTEGER NOT NULL, reps INTEGER NOT NULL, lapses INTEGER NOT NULL, data TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE revlog (id INTEGER PRIMARY KEY, cid INTEGER NOT NULL, ease INTEGER NOT NULL, ivl INTEGER NOT NULL, lastIvl INTEGER NOT NULL, factor INTEGER NOT NULL, time INTEGER NOT NULL, type INTEGER NOT NULL);
+            ",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO col(id, crt, models, decks) VALUES (1, 1700000000, ?1, ?2)",
+            params![models_json, decks_json],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO notes(id, mid, tags, flds) VALUES (1001, 100, 'net', ?1)",
+            ["What is TCP?\x1fTransmission Control Protocol"],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO cards(id, nid, did, ord, type, queue, due, ivl, factor, reps, lapses)
+             VALUES (2001, 1001, 10, 0, 0, 0, 1, 0, 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+    }
+    let db_bytes = fs::read(&anki_db).unwrap();
+    {
+        let file = fs::File::create(&apkg_path).unwrap();
+        let mut zip = ZipWriter::new(file);
+        let opts = SimpleFileOptions::default();
+        zip.start_file("collection.anki21", opts).unwrap();
+        zip.write_all(&db_bytes).unwrap();
+        zip.start_file("media", opts).unwrap();
+        zip.write_all(b"{}").unwrap();
+        zip.finish().unwrap();
+    }
+
+    // Dry-run reports preview without writing
+    let dry = run(rem(&db_path).args([
+        "import",
+        apkg_path.to_str().unwrap(),
+        "--dry-run",
+        "--output",
+        "json",
+    ]));
+    assert!(
+        dry.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
+    let dry_json = stdout_json(&dry);
+    assert_eq!(dry_json["command"], "import");
+    assert_eq!(dry_json["data"]["dryRun"], true);
+    assert_eq!(dry_json["data"]["added"], json!(["CS::Networking"]));
+    assert_eq!(dry_json["data"]["totalCards"], 1);
+    assert!(Collection::open(&db_path)
+        .unwrap()
+        .list_decks()
+        .unwrap()
+        .is_empty());
+
+    // Actual import persists deck & card
+    let real = run(rem(&db_path).args(["import", apkg_path.to_str().unwrap(), "--output", "json"]));
+    assert!(
+        real.status.success(),
+        "{}",
+        String::from_utf8_lossy(&real.stderr)
+    );
+    let real_json = stdout_json(&real);
+    assert_eq!(real_json["command"], "import");
+    assert_eq!(real_json["data"]["dryRun"], false);
+    assert_eq!(real_json["data"]["importedCards"], 1);
+
+    let decks = Collection::open(&db_path).unwrap().list_decks().unwrap();
+    assert_eq!(decks.len(), 1);
+    assert_eq!(decks[0].name, "CS::Networking");
+}

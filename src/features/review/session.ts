@@ -118,10 +118,37 @@ export class ReviewSession {
     this.current = null
   }
 
+  /** Remove other queued cards sharing `siblingGroupId` and return them for undo restoration. */
+  burySiblings(cardId: string, siblingGroupId: string): SessionCard[] {
+    const buried: SessionCard[] = []
+    const kept: SessionCard[] = []
+    for (const item of this.queue) {
+      if (
+        item.card.id !== cardId
+        && item.card.siblingGroupId === siblingGroupId
+        && item.settings.buryRelated
+      ) {
+        buried.push(item)
+      } else {
+        kept.push(item)
+      }
+    }
+    this.queue = kept
+    return buried
+  }
+
   /** Restore a previously graded card as current and push any displaced card back to the front. */
-  restoreGraded(previous: SessionCard): void {
+  restoreGraded(previous: SessionCard, buriedSiblings: SessionCard[] = []): void {
     if (this.current && this.current.card.id !== previous.card.id) {
       this.queue.unshift(this.current)
+    }
+    for (const sibling of buriedSiblings) {
+      if (
+        sibling.card.id !== previous.card.id
+        && !this.queue.some((item) => item.card.id === sibling.card.id)
+      ) {
+        this.queue.push(sibling)
+      }
     }
     this.queue = this.queue.filter((item) => item.card.id !== previous.card.id)
     this.current = { ...previous, forceDue: true }

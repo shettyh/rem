@@ -30,6 +30,11 @@ struct PendingBackupImport {
     let preview: BackupPreviewDto
 }
 
+struct PendingApkgImport {
+    let data: Data
+    let preview: ApkgImportPreviewDto
+}
+
 struct CaptureSheetRequest: Identifiable {
     let id = UUID()
     let deckId: String?
@@ -64,6 +69,7 @@ final class AppState {
     var isCheckingEntitlement: Bool = false
     var isStartingTrial: Bool = false
     var isImportingBackup: Bool = false
+    var isImportingApkg: Bool = false
     var lastSyncedAt: Date?
     var lastSyncError: String?
     var entitlement: EntitlementInfoDto?
@@ -780,6 +786,47 @@ final class AppState {
             Task { await syncNow(silent: true) }
         } catch {
             showToast("Import failed: \(error.remDisplayMessage)")
+        }
+    }
+
+    func prepareApkgImport(from url: URL) async -> PendingApkgImport? {
+        guard !isImportingApkg else { return nil }
+        isImportingApkg = true
+        defer { isImportingApkg = false }
+        do {
+            let data = try await Task.detached(priority: .userInitiated) {
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+                if let size = values?.fileSize, size > 250 * 1024 * 1024 {
+                    throw RemFfiError.InvalidInput(message: "Anki archive exceeds the 250 MB iOS import limit.")
+                }
+                return try Data(contentsOf: url)
+            }.value
+            let preview = try await store.previewApkg(data: data)
+            if preview.added.isEmpty && preview.replaced.isEmpty {
+                showToast("No importable cards found in this .apkg file.")
+                return nil
+            }
+            return PendingApkgImport(data: data, preview: preview)
+        } catch {
+            showToast("Anki import failed: \(error.remDisplayMessage)")
+            return nil
+        }
+    }
+
+    func commitApkgImport(data: Data) async {
+        guard !isImportingApkg else { return }
+        isImportingApkg = true
+        defer { isImportingApkg = false }
+        do {
+            let result = try await store.importApkg(data: data)
+            await refreshAll()
+            let decksCount = result.added.count + result.replaced.count
+            showToast("Imported \(result.importedCards) cards across \(decksCount) \(decksCount == 1 ? "deck" : "decks")")
+            Task { await syncNow(silent: true) }
+        } catch {
+            showToast("Anki import failed: \(error.remDisplayMessage)")
         }
     }
 

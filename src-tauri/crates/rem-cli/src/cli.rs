@@ -25,6 +25,8 @@ pub enum Command {
     Draft(DraftArgs),
     /// Study due cards in an interactive terminal.
     Study(StudyArgs),
+    /// Import an Anki deck archive (.apkg) into the local collection.
+    Import(ImportArgs),
     /// Synchronize the local collection with a cloud sync server.
     Sync(SyncArgs),
 }
@@ -51,6 +53,7 @@ impl Command {
                 command: DraftCommand::Review(_),
             }) => ("draft.review", OutputFormat::Text),
             Self::Study(_) => ("study", OutputFormat::Text),
+            Self::Import(args) => ("import", args.output),
             Self::Sync(args) => match &args.command {
                 None => ("sync.run", args.output),
                 Some(SyncCommand::Run(inner)) => ("sync.run", inner.output),
@@ -89,6 +92,7 @@ pub fn requested_command(args: &[OsString]) -> &'static str {
         (Some(group), Some(command)) if group == "sync" && command == "logout" => "sync.logout",
         (Some(group), _) if group == "sync" => "sync.run",
         (Some(group), _) if group == "study" => "study",
+        (Some(group), _) if group == "import" => "import",
         _ => "unknown",
     }
 }
@@ -186,6 +190,18 @@ pub struct StudyArgs {
     /// Study one deck by ID or exact unique name; defaults to all decks.
     #[arg(long)]
     pub deck: Option<String>,
+}
+
+#[derive(Args)]
+pub struct ImportArgs {
+    /// Path to an Anki .apkg archive.
+    pub file: PathBuf,
+    /// Preview decks, cards, media, and warnings without modifying the collection.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Select human-readable or versioned machine output.
+    #[arg(long, value_enum, default_value_t)]
+    pub output: OutputFormat,
 }
 
 #[derive(Args)]

@@ -9,11 +9,13 @@ enum MarkdownImageSource: Equatable {
 enum MarkdownBlock: Equatable, Identifiable {
     case heading(level: Int, text: String)
     case codeBlock(language: String?, code: String)
+    case mathBlock(latex: String)
     case blockquote(text: String)
     case bulletList(items: [String])
     case orderedList(items: [String])
     case table(headers: [String], rows: [[String]])
     case image(alt: String, source: MarkdownImageSource)
+    case audio(label: String, hash: String)
     case divider
     case paragraph(text: String)
 
@@ -21,11 +23,13 @@ enum MarkdownBlock: Equatable, Identifiable {
         switch self {
         case .heading(let level, let text): return "h\(level)-\(text.hashValue)"
         case .codeBlock(let lang, let code): return "code-\(lang ?? "")-\(code.hashValue)"
+        case .mathBlock(let latex): return "math-\(latex.hashValue)"
         case .blockquote(let text): return "quote-\(text.hashValue)"
         case .bulletList(let items): return "ul-\(items.joined().hashValue)"
         case .orderedList(let items): return "ol-\(items.joined().hashValue)"
         case .table(let headers, let rows): return "tbl-\(headers.joined().hashValue)-\(rows.count)"
         case .image(let alt, let src): return "img-\(alt)-\(String(describing: src).hashValue)"
+        case .audio(let label, let hash): return "audio-\(label)-\(hash)"
         case .divider: return "hr"
         case .paragraph(let text): return "p-\(text.hashValue)"
         }
@@ -68,6 +72,33 @@ enum MarkdownBlockParser {
                 continue
             }
 
+            // Display math block $$...$$ (single-line or multi-line)
+            if trimmed.hasPrefix("$$") {
+                if trimmed.count > 4 && trimmed.hasSuffix("$$") {
+                    let inner = String(trimmed.dropFirst(2).dropLast(2)).trimmingCharacters(in: .whitespaces)
+                    blocks.append(.mathBlock(latex: inner))
+                    i += 1
+                    continue
+                }
+                i += 1
+                var mathLines: [String] = []
+                let restFirst = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                if !restFirst.isEmpty { mathLines.append(restFirst) }
+                while i < lines.count {
+                    let ml = lines[i].trimmingCharacters(in: .whitespaces)
+                    if ml.hasSuffix("$$") {
+                        let before = String(ml.dropLast(2)).trimmingCharacters(in: .whitespaces)
+                        if !before.isEmpty { mathLines.append(before) }
+                        i += 1
+                        break
+                    }
+                    mathLines.append(lines[i])
+                    i += 1
+                }
+                blocks.append(.mathBlock(latex: mathLines.joined(separator: "\n")))
+                continue
+            }
+
             // Horizontal rule
             if trimmed == "---" || trimmed == "***" || trimmed == "___" {
                 blocks.append(.divider)
@@ -78,6 +109,13 @@ enum MarkdownBlockParser {
             // Standalone image ![alt](src)
             if let img = parseStandaloneImage(trimmed) {
                 blocks.append(img)
+                i += 1
+                continue
+            }
+
+            // Standalone audio link [label](asset:<hash>)
+            if let audio = parseStandaloneAudio(trimmed) {
+                blocks.append(audio)
                 i += 1
                 continue
             }
@@ -158,10 +196,12 @@ enum MarkdownBlockParser {
                 let ct = current.trimmingCharacters(in: .whitespaces)
                 if ct.isEmpty
                     || ct.hasPrefix("```")
+                    || ct.hasPrefix("$$")
                     || ct.hasPrefix(">")
                     || ct == "---" || ct == "***" || ct == "___"
                     || parseHeading(ct) != nil
                     || parseStandaloneImage(ct) != nil
+                    || parseStandaloneAudio(ct) != nil
                     || isBulletLine(ct)
                     || orderedListContent(ct) != nil
                     || (i + 1 < lines.count
@@ -233,7 +273,7 @@ enum MarkdownBlockParser {
     /// Produces a clean single-paragraph plain-text snippet for compact list rows (stripping
     /// headings, bold/italic/code delimiters, image links, and code fence markers).
     static func plainTextPreview(_ markdown: String) -> String {
-        let normalized = markdown
+        let normalized = ClozeRenderer.stripMarkup(markdown)
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
         var cleanedLines: [String] = []
@@ -299,6 +339,27 @@ enum MarkdownBlockParser {
         return .image(alt: alt, source: source)
     }
 
+    private static func cleanAudioLabel(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.lowercased().hasPrefix("audio:") {
+            return String(trimmed.dropFirst("audio:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed
+    }
+
+    private static func parseStandaloneAudio(_ line: String) -> MarkdownBlock? {
+        guard line.hasPrefix("["), !line.hasPrefix("!["), line.hasSuffix(")"),
+              let mid = line.range(of: "](")
+        else { return nil }
+        let label = cleanAudioLabel(String(line[line.index(after: line.startIndex)..<mid.lowerBound]))
+        let rawSrc = String(line[mid.upperBound..<line.index(before: line.endIndex)])
+            .trimmingCharacters(in: .whitespaces)
+        guard !rawSrc.contains(")"), let source = parseImageSource(rawSrc),
+              case .asset(let hash) = source
+        else { return nil }
+        return .audio(label: label, hash: hash)
+    }
+
     private static func parseImageSource(_ raw: String) -> MarkdownImageSource? {
         if raw.hasPrefix("asset:") {
             let hash = String(raw.dropFirst("asset:".count))
@@ -315,19 +376,26 @@ enum MarkdownBlockParser {
     }
 
     private static func appendParagraphOrInlineImages(_ text: String, into blocks: inout [MarkdownBlock]) {
-        guard let regex = try? NSRegularExpression(pattern: #"!\[([^\]]*)\]\(([^)\s]+)\)"#) else {
+        guard let regex = try? NSRegularExpression(pattern: #"(!?)\[([^\]]*)\]\(([^)\s]+)\)"#) else {
             blocks.append(.paragraph(text: text))
             return
         }
         let ns = text as NSString
         let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
-        if matches.isEmpty {
+        let mediaMatches = matches.filter { match in
+            let isImage = ns.substring(with: match.range(at: 1)) == "!"
+            let srcRaw = ns.substring(with: match.range(at: 3))
+            if isImage { return parseImageSource(srcRaw) != nil }
+            if case .asset = parseImageSource(srcRaw) { return true }
+            return false
+        }
+        if mediaMatches.isEmpty {
             blocks.append(.paragraph(text: text))
             return
         }
 
         var cursor = 0
-        for match in matches {
+        for match in mediaMatches {
             if match.range.location > cursor {
                 let before = ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
                     .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -335,10 +403,13 @@ enum MarkdownBlockParser {
                     blocks.append(.paragraph(text: before))
                 }
             }
-            let alt = ns.substring(with: match.range(at: 1))
-            let srcRaw = ns.substring(with: match.range(at: 2))
-            if let source = parseImageSource(srcRaw) {
-                blocks.append(.image(alt: alt, source: source))
+            let isImage = ns.substring(with: match.range(at: 1)) == "!"
+            let label = ns.substring(with: match.range(at: 2))
+            let srcRaw = ns.substring(with: match.range(at: 3))
+            if isImage, let source = parseImageSource(srcRaw) {
+                blocks.append(.image(alt: label, source: source))
+            } else if !isImage, case .asset(let hash) = parseImageSource(srcRaw) {
+                blocks.append(.audio(label: cleanAudioLabel(label), hash: hash))
             } else {
                 blocks.append(.paragraph(text: ns.substring(with: match.range)))
             }

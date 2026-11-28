@@ -4,6 +4,7 @@ import { useStorage } from '../data/StorageContext'
 import { useSyncOptional } from '../data/SyncContext'
 import { useUpdaterOptional } from '../data/UpdaterContext'
 import { useStorageQuery } from '../data/useStorageQuery'
+import { buildDeckTree, flattenVisibleDeckTree } from '../features/decks/deckTree'
 import { ThemeToggle } from './ThemeToggle'
 
 const HOVER_INTENT_MS = 160
@@ -174,16 +175,41 @@ export function Sidebar({
         </div>
 
         <div className="side-decks">
-          {(navigation?.decks ?? []).map(({ deck, due }) => (
-            <NavLink key={deck.id} to={`/decks/${deck.id}`} className={navClass} title={deck.name}>
-              <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
-                <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />
-                <path d="M4.5 1.5h7a2 2 0 0 1 2 2v6" />
-              </svg>
-              <span className="nav-grow">{deck.name}</span>
-              {due > 0 && <span className="side-badge">{due}</span>}
-            </NavLink>
-          ))}
+          {flattenVisibleDeckTree(buildDeckTree(navigation?.decks ?? []), new Set()).map((node) => {
+            const deck = node.item?.deck
+            if (!deck) {
+              return (
+                <div
+                  key={`group:${node.path}`}
+                  className="nav-item nav-item-folder"
+                  style={node.depth > 0 ? { paddingLeft: `${10 + node.depth * 14}px` } : undefined}
+                  title={node.path}
+                >
+                  <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M2 4.5a1.5 1.5 0 0 1 1.5-1.5h3l1.3 1.5h4.7A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7Z" />
+                  </svg>
+                  <span className="nav-grow">{node.label}</span>
+                  {node.due > 0 && <span className="side-badge">{node.due}</span>}
+                </div>
+              )
+            }
+            return (
+              <NavLink
+                key={deck.id}
+                to={`/decks/${deck.id}`}
+                className={navClass}
+                style={node.depth > 0 ? { paddingLeft: `${10 + node.depth * 14}px` } : undefined}
+                title={deck.name}
+              >
+                <svg className="deck-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="2.5" y="3.5" width="10" height="8" rx="1.5" />
+                  <path d="M4.5 1.5h7a2 2 0 0 1 2 2v6" />
+                </svg>
+                <span className="nav-grow">{node.label}</span>
+                {node.due > 0 && <span className="side-badge">{node.due}</span>}
+              </NavLink>
+            )
+          })}
         </div>
 
         {updater?.state.status === 'ready' && (

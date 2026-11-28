@@ -222,6 +222,10 @@ pub struct Card {
     pub scheduling: SchedulingState,
     #[serde(flatten, default)]
     pub provenance: CardProvenance,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sibling_group_id: Option<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloze_index: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -429,6 +433,10 @@ pub struct CardBackup {
     pub reviews: Vec<ReviewBackup>,
     #[serde(flatten, default)]
     pub provenance: CardProvenance,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sibling_group_id: Option<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloze_index: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

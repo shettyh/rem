@@ -451,6 +451,8 @@ fn apply_one_remote_op(
             created_at,
             initial_due,
             provenance,
+            sibling_group_id,
+            cloze_index,
             hlc,
         } => {
             if is_tombstoned(transaction, id)? || is_tombstoned(transaction, deck_id)? {
@@ -474,13 +476,14 @@ fn apply_one_remote_op(
             let normalized_provenance = provenance.clone().normalize();
             let sources_json = serde_json::to_string(&normalized_provenance.sources)?;
             let updated_at = (*created_at).max(wall_ms);
+            let sanitized_cloze = cloze_index.filter(|&idx| idx >= 1);
             transaction.execute(
                 "INSERT INTO cards(
                     id, deck_id, front, back, created_at, updated_at, tags_json,
                     suspended, last_again_at, scheduling_json, due,
                     content_hlc, suspended_hlc, scheduling_hlc,
-                    rationale, sources_json, proposed_by
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, NULL, ?8, ?9, ?10, '', '', ?11, ?12, ?13)",
+                    rationale, sources_json, proposed_by, sibling_group_id, cloze_index
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, NULL, ?8, ?9, ?10, '', '', ?11, ?12, ?13, ?14, ?15)",
                 params![
                     id,
                     deck_id,
@@ -495,6 +498,8 @@ fn apply_one_remote_op(
                     normalized_provenance.rationale,
                     sources_json,
                     normalized_provenance.proposed_by,
+                    sibling_group_id,
+                    sanitized_cloze,
                 ],
             )?;
             Ok(true)
@@ -917,6 +922,8 @@ fn enqueue_bootstrap_for_collection(
                 created_at: card.created_at,
                 initial_due,
                 provenance: card.provenance.clone(),
+                sibling_group_id: card.sibling_group_id.clone(),
+                cloze_index: card.cloze_index,
                 hlc: create_hlc,
             },
             now,

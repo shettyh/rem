@@ -28,6 +28,8 @@ const Icon = {
   quote: svg(<><path d="M5.5 7v10" /><path d="M10 9h9" /><path d="M10 14h6" /></>),
   link: svg(<><path d="M9.5 13.5a3.5 3.5 0 0 1 0-5l2-2a3.5 3.5 0 0 1 5 5l-1 1" /><path d="M14.5 10.5a3.5 3.5 0 0 1 0 5l-2 2a3.5 3.5 0 0 1-5-5l1-1" /></>),
   image: svg(<><rect x="3" y="5" width="18" height="14" rx="2" /><circle cx="8.5" cy="10" r="1.5" /><path d="M21 16l-5-5L6 19" /></>),
+  audio: svg(<><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></>),
+  cloze: svg(<><path d="M7 6H4v12h3" /><path d="M17 6h3v12h-3" /><circle cx="9.5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="14.5" cy="12" r="1" fill="currentColor" stroke="none" /></>),
   alignLeft: svg(<><path d="M4 7h16" /><path d="M4 12h10" /><path d="M4 17h13" /></>),
   alignCenter: svg(<><path d="M4 7h16" /><path d="M7 12h10" /><path d="M5 17h14" /></>),
   alignRight: svg(<><path d="M4 7h16" /><path d="M10 12h10" /><path d="M7 17h13" /></>),
@@ -268,7 +270,17 @@ function LinkMenu({ editor }: { editor: Editor | null }) {
  * editor is currently focused (passed in as `editor`) and re-renders on that
  * editor's selection/transaction changes so its active states stay accurate.
  */
-export function EditorToolbar({ editor, onImage }: { editor: Editor | null; onImage?: () => void }) {
+export function EditorToolbar({
+  editor,
+  onImage,
+  onAudio,
+  onCloze,
+}: {
+  editor: Editor | null
+  onImage?: () => void
+  onAudio?: () => void
+  onCloze?: () => void
+}) {
   const [, force] = useReducer((n: number) => n + 1, 0)
   useEffect(() => {
     if (!editor) return
@@ -337,6 +349,16 @@ export function EditorToolbar({ editor, onImage }: { editor: Editor | null; onIm
       {onImage && (
         <Tool label="Image" onRun={onImage}>
           {Icon.image}
+        </Tool>
+      )}
+      {onAudio && (
+        <Tool label="Audio clip" onRun={onAudio}>
+          {Icon.audio}
+        </Tool>
+      )}
+      {onCloze && (
+        <Tool label="Cloze deletion (⌘⇧C)" onRun={onCloze}>
+          {Icon.cloze}
         </Tool>
       )}
       {imageActive && (

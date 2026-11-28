@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import type {
+  ApkgImportPreview,
+  ApkgImportResult,
   Asset,
   Card,
   CardDraft,
@@ -93,6 +95,40 @@ export class TauriStorage implements Storage {
     })
     this.notify()
     return card
+  }
+
+  async createCardOrCloze(
+    deckId: ID,
+    front: string,
+    back: string,
+    tags: string[] = [],
+  ): Promise<Card[]> {
+    const cards = await this.call<Card[]>('storage_create_card_or_cloze', {
+      deckId,
+      front,
+      back,
+      tags,
+      now: this.now(),
+    })
+    this.notify()
+    return cards
+  }
+
+  async updateClozeNote(
+    cardId: ID,
+    front: string,
+    back: string,
+    tags: string[] = [],
+  ): Promise<Card[]> {
+    const cards = await this.call<Card[]>('storage_update_cloze_note', {
+      cardId,
+      front,
+      back,
+      tags,
+      now: this.now(),
+    })
+    this.notify()
+    return cards
   }
 
   async getCard(id: ID): Promise<Card | undefined> {
@@ -240,6 +276,22 @@ export class TauriStorage implements Storage {
   async importDecks(decks: DeckBackup[]): Promise<ImportResult> {
     const result = await this.call<ImportResult>('storage_import_decks', {
       decks,
+      now: this.now(),
+    })
+    this.notify()
+    return result
+  }
+
+  previewApkg(bytes: Uint8Array): Promise<ApkgImportPreview> {
+    return this.call<ApkgImportPreview>('storage_preview_apkg', {
+      bytes: Array.from(bytes),
+      now: this.now(),
+    })
+  }
+
+  async importApkg(bytes: Uint8Array): Promise<ApkgImportResult> {
+    const result = await this.call<ApkgImportResult>('storage_import_apkg', {
+      bytes: Array.from(bytes),
       now: this.now(),
     })
     this.notify()

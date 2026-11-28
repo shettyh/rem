@@ -121,6 +121,10 @@ export interface Card {
   rationale?: string | null
   sources?: DraftSource[]
   proposedBy?: string | null
+  /** Shared identifier linking sibling cards (cloze deletions or reversed pairs). */
+  siblingGroupId?: ID | null
+  /** 1-based Anki cloze ordinal (`c1` = 1, `c2` = 2) when this card is a cloze deletion. */
+  clozeIndex?: number | null
 }
 
 export interface CardSearchHit {
@@ -249,7 +253,26 @@ export interface StudyView {
   remaining: number
   preview: boolean
   canUndo: boolean
+  showTimer: boolean
   notice: LeechAction | null
+}
+
+export interface ApkgImportPreview {
+  added: string[]
+  replaced: string[]
+  totalCards: number
+  mediaCount: number
+  reviewLogs: number
+  warnings: string[]
+}
+
+export interface ApkgImportResult {
+  added: string[]
+  replaced: string[]
+  importedCards: number
+  importedReviews: number
+  importedMedia: number
+  warnings: string[]
 }
 
 export interface StartedStudy {

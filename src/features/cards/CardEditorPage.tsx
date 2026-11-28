@@ -9,6 +9,7 @@ import { RichMarkdownEditor, type EditorHandle } from './RichMarkdownEditor'
 import { EditorToolbar } from './EditorToolbar'
 import { loadAssetUrl } from './assetUrl'
 import { isSystemTag, mergeUserTags, parseUserTags, userTags } from './cardTags'
+import { extractClozeIndices, nextClozeIndex } from './cloze'
 import { cardStatus } from './DeckDetailPage'
 
 interface CardDraft {
@@ -36,6 +37,7 @@ export function CardEditorPage() {
   const [userTagChips, setUserTagChips] = useState<string[]>([])
   const [tagDraft, setTagDraft] = useState('')
   const [suspended, setSuspended] = useState(false)
+  const [isClozeCard, setIsClozeCard] = useState(false)
   const [reviewMeta, setReviewMeta] = useState<{ reps: number; nextLabel: string } | null>(null)
   const [baseline, setBaseline] = useState<CardDraft | null>(editing ? null : EMPTY_DRAFT)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -94,6 +96,7 @@ export function CardEditorPage() {
       setUserTagChips(currentUserTags)
       setTagDraft('')
       setSuspended(card.suspended)
+      setIsClozeCard(Boolean(card.clozeIndex))
       if (card.scheduling.reps > 0) {
         const st = cardStatus(card, Date.now())
         setReviewMeta({
@@ -182,11 +185,30 @@ export function CardEditorPage() {
     }
   }
 
+  const insertCloze = useCallback(() => {
+    const target = frontHandle.current ?? active
+    if (!target) return
+    const ed = target.editor
+    const { from, to } = ed.state.selection
+    const selectedText = ed.state.doc.textBetween(from, to, ' ')
+    const idx = nextClozeIndex(front)
+    const snippet = selectedText ? `{{c${idx}::${selectedText}}}` : `{{c${idx}::}}`
+    ed.chain().focus().insertContent(snippet).run()
+  }, [active, front])
+
   const save = useCallback(async (addAnother = false) => {
     if (!front.trim() || !deckId) return
     const nextTags = mergeUserTags(tags, combinedTagInput)
+    let createdCount = 1
     if (editing && cardId) {
-      await storage.updateCard(cardId, { front, back, tags: nextTags })
+      if (isClozeCard && storage.updateClozeNote) {
+        await storage.updateClozeNote(cardId, front, back, nextTags)
+      } else {
+        await storage.updateCard(cardId, { front, back, tags: nextTags })
+      }
+    } else if (storage.createCardOrCloze) {
+      const created = await storage.createCardOrCloze(deckId, front, back, nextTags)
+      createdCount = Math.max(1, created.length)
     } else {
       await storage.createCard(deckId, front, back, nextTags)
     }
@@ -199,7 +221,7 @@ export function CardEditorPage() {
       setUserTagChips([])
       setTagDraft('')
       setBaseline(EMPTY_DRAFT)
-      setSavedCount((n) => n + 1)
+      setSavedCount((n) => n + createdCount)
       frontHandle.current?.editor.commands.focus('end')
       return
     }
@@ -207,7 +229,7 @@ export function CardEditorPage() {
     allowNavigationRef.current = true
     leaveEditor()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [front, back, tags, combinedTagInput, deckId, cardId, editing, storage, returnTo])
+  }, [front, back, tags, combinedTagInput, deckId, cardId, editing, isClozeCard, storage, returnTo])
 
   async function remove() {
     if (!cardId) return
@@ -237,6 +259,10 @@ export function CardEditorPage() {
         if (cardMissing) return
         e.preventDefault()
         void save(e.shiftKey && !editing)
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
+        if (cardMissing) return
+        e.preventDefault()
+        insertCloze()
       } else if (e.key === 'Escape') {
         e.preventDefault()
         leaveEditor()
@@ -245,7 +271,9 @@ export function CardEditorPage() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [save, editing, cardMissing])
+  }, [save, insertCloze, editing, cardMissing])
+
+  const clozeIndices = extractClozeIndices(front)
 
   const systemTags = tags.filter(isSystemTag)
   const existingKeys = new Set(userTagChips.map((t) => t.toLocaleLowerCase()))
@@ -316,8 +344,21 @@ export function CardEditorPage() {
         )}
 
         <div className="md-toolbar-bar">
-          <EditorToolbar editor={active?.editor ?? null} onImage={() => active?.openImagePicker()} />
+          <EditorToolbar
+            editor={active?.editor ?? null}
+            onImage={() => active?.openImagePicker()}
+            onAudio={() => active?.openAudioPicker()}
+            onCloze={insertCloze}
+          />
         </div>
+
+        {((!editing && clozeIndices.length > 0) || isClozeCard) && (
+          <p className="editor-cloze-hint" role="status">
+            {editing && isClozeCard
+              ? `Cloze note (${clozeIndices.map((n) => `c${n}`).join(', ') || 'cloze'}) · edits update sibling cards.`
+              : `Cloze note · creates ${clozeIndices.length} ${clozeIndices.length === 1 ? 'card' : 'cards'} (${clozeIndices.map((n) => `c${n}`).join(', ')}).`}
+          </p>
+        )}
 
         <section className="card-editor-surface" aria-label="Card content">
           <div className="editor-field editor-field--front">

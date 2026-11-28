@@ -11,9 +11,29 @@ struct SettingsView: View {
     @State private var customServerUrl: String = ""
     @State private var pendingAppleNonce: String = ""
     @State private var showPremiumPaywall: Bool = false
+    private enum DataImportKind {
+        case backupJson
+        case ankiApkg
+    }
+
     @State private var shareBackupURL: URL?
-    @State private var showBackupImporter: Bool = false
+    @State private var showFileImporter: Bool = false
+    @State private var importKind: DataImportKind = .backupJson
     @State private var pendingBackupImport: PendingBackupImport?
+    @State private var pendingApkgImport: PendingApkgImport?
+
+    private var allowedImportContentTypes: [UTType] {
+        switch importKind {
+        case .backupJson:
+            return [.json]
+        case .ankiApkg:
+            var types: [UTType] = [.zip, .data]
+            if let apkg = UTType(filenameExtension: "apkg") {
+                types.insert(apkg, at: 0)
+            }
+            return types
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -82,24 +102,34 @@ struct SettingsView: View {
                 }
             }
             .fileImporter(
-                isPresented: $showBackupImporter,
-                allowedContentTypes: [.json],
+                isPresented: $showFileImporter,
+                allowedContentTypes: allowedImportContentTypes,
                 allowsMultipleSelection: false
             ) { result in
-                switch result {
-                case .success(let urls):
-                    guard let url = urls.first else { return }
-                    Task {
-                        if let pending = await appState.prepareBackupImport(from: url) {
-                            if pending.preview.replaced.isEmpty {
-                                await appState.commitBackupImport(json: pending.json)
-                            } else {
-                                pendingBackupImport = pending
-                            }
-                        }
+                handleFileImportResult(result)
+            }
+            .alert(
+                "Import Anki deck?",
+                isPresented: Binding(
+                    get: { pendingApkgImport != nil },
+                    set: { if !$0 { pendingApkgImport = nil } }
+                )
+            ) {
+                if let pending = pendingApkgImport {
+                    Button(
+                        pending.preview.replaced.isEmpty ? "Import" : "Import & replace",
+                        role: pending.preview.replaced.isEmpty ? nil : .destructive
+                    ) {
+                        pendingApkgImport = nil
+                        Task { await appState.commitApkgImport(data: pending.data) }
                     }
-                case .failure(let error):
-                    appState.showToast("Could not open file: \(error.localizedDescription)")
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingApkgImport = nil
+                }
+            } message: {
+                if let preview = pendingApkgImport?.preview {
+                    Text(apkgImportAlertMessage(preview))
                 }
             }
             .alert(
@@ -550,7 +580,8 @@ struct SettingsView: View {
             }
 
             Button {
-                showBackupImporter = true
+                importKind = .backupJson
+                showFileImporter = true
             } label: {
                 HStack {
                     Text(appState.isImportingBackup ? "Importing backup…" : "Import backup (JSON)")
@@ -564,7 +595,25 @@ struct SettingsView: View {
                     }
                 }
             }
-            .disabled(appState.isImportingBackup)
+            .disabled(appState.isImportingBackup || appState.isImportingApkg)
+
+            Button {
+                importKind = .ankiApkg
+                showFileImporter = true
+            } label: {
+                HStack {
+                    Text(appState.isImportingApkg ? "Importing Anki deck…" : "Import Anki deck (.apkg)")
+                        .foregroundStyle(appState.isImportingApkg ? RemColor.muted : RemColor.text)
+                    Spacer()
+                    if appState.isImportingApkg {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "tray.and.arrow.down")
+                            .foregroundStyle(RemColor.muted)
+                    }
+                }
+            }
+            .disabled(appState.isImportingBackup || appState.isImportingApkg)
         }
         .listRowBackground(RemColor.surface)
         .listRowSeparatorTint(RemColor.border)
@@ -599,6 +648,45 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
+
+    private func handleFileImportResult(_ result: Result<[URL], Error>) {
+        let kind = importKind
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            Task {
+                switch kind {
+                case .backupJson:
+                    if let pending = await appState.prepareBackupImport(from: url) {
+                        if pending.preview.replaced.isEmpty {
+                            await appState.commitBackupImport(json: pending.json)
+                        } else {
+                            pendingBackupImport = pending
+                        }
+                    }
+                case .ankiApkg:
+                    if let pending = await appState.prepareApkgImport(from: url) {
+                        pendingApkgImport = pending
+                    }
+                }
+            }
+        case .failure(let error):
+            appState.showToast("Could not open file: \(error.localizedDescription)")
+        }
+    }
+
+    private func apkgImportAlertMessage(_ preview: ApkgImportPreviewDto) -> String {
+        let deckCount = preview.added.count + preview.replaced.count
+        let deckWord = deckCount == 1 ? "deck" : "decks"
+        let cardWord = preview.totalCards == 1 ? "card" : "cards"
+        let mediaPart = preview.mediaCount > 0 ? ", \(preview.mediaCount) media" : ""
+        let revPart = preview.reviewLogs > 0 ? ", \(preview.reviewLogs) review logs" : ""
+        if preview.replaced.isEmpty {
+            return "Found \(deckCount) \(deckWord), \(preview.totalCards) \(cardWord)\(mediaPart)\(revPart)."
+        }
+        let names = preview.replaced.joined(separator: ", ")
+        return "Found \(deckCount) \(deckWord), \(preview.totalCards) \(cardWord)\(mediaPart)\(revPart). Existing deck(s) will be replaced: \(names)."
+    }
 
     private var appVersionLabel: String? {
         let info = Bundle.main.infoDictionary

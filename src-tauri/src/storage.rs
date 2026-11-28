@@ -1,7 +1,8 @@
 use rem_core::{
-    Asset, Card, CardDraft, CardPatch, CardSearchHit, Collection, CollectionStats, Deck,
-    DeckBackup, DeckPatch, DraftDecision, DraftResolution, ImportResult, NewDraftInput,
-    ProposalMetadata, ProposalMode, ProposeDraftsResult, ReviewCommit, ReviewLog,
+    ApkgImportPreview, ApkgImportResult, Asset, Card, CardDraft, CardPatch, CardSearchHit,
+    Collection, CollectionStats, Deck, DeckBackup, DeckPatch, DraftDecision, DraftResolution,
+    ImportResult, NewDraftInput, ProposalMetadata, ProposalMode, ProposeDraftsResult, ReviewCommit,
+    ReviewLog,
 };
 use serde::Serialize;
 use tauri::State;
@@ -69,6 +70,34 @@ pub fn storage_create_card(
 ) -> Result<Card, String> {
     collection
         .create_card(&deck_id, &front, &back, tags, now)
+        .map_err(message)
+}
+
+#[tauri::command]
+pub fn storage_create_card_or_cloze(
+    collection: State<'_, Collection>,
+    deck_id: String,
+    front: String,
+    back: String,
+    tags: Vec<String>,
+    now: i64,
+) -> Result<Vec<Card>, String> {
+    collection
+        .create_card_or_cloze(&deck_id, &front, &back, tags, now)
+        .map_err(message)
+}
+
+#[tauri::command]
+pub fn storage_update_cloze_note(
+    collection: State<'_, Collection>,
+    card_id: String,
+    front: String,
+    back: String,
+    tags: Vec<String>,
+    now: i64,
+) -> Result<Vec<Card>, String> {
+    collection
+        .update_cloze_note(&card_id, &front, &back, tags, now)
         .map_err(message)
 }
 
@@ -229,6 +258,24 @@ pub fn storage_import_decks(
     now: i64,
 ) -> Result<ImportResult, String> {
     collection.import_decks(decks, now).map_err(message)
+}
+
+#[tauri::command]
+pub fn storage_preview_apkg(
+    collection: State<'_, Collection>,
+    bytes: Vec<u8>,
+    now: i64,
+) -> Result<ApkgImportPreview, String> {
+    collection.preview_apkg_bytes(&bytes, now).map_err(message)
+}
+
+#[tauri::command]
+pub fn storage_import_apkg(
+    collection: State<'_, Collection>,
+    bytes: Vec<u8>,
+    now: i64,
+) -> Result<ApkgImportResult, String> {
+    collection.import_apkg_bytes(&bytes, now).map_err(message)
 }
 
 #[tauri::command]

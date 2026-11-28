@@ -447,6 +447,10 @@ JSON
 <span class="c-prompt">$</span> rem card add --deck Systems --input-json notes.json --dry-run --output json
 <span class="c-prompt">$</span> rem card add --deck Systems --input-json notes.json --output json
 
+<span class="c-muted"># Import existing Anki .apkg decks with cloze, math, audio &amp; FSRS-7 history</span>
+<span class="c-prompt">$</span> rem import biology.apkg --dry-run
+<span class="c-prompt">$</span> rem import biology.apkg
+
 <span class="c-muted"># Study due cards right in the terminal (shared Rust FSRS-7 StudySession)</span>
 <span class="c-prompt">$</span> rem study --deck Systems
 
@@ -668,9 +672,9 @@ JSON
                     interval previews.
                   </p>
                   <ul class="check-list">
-                    <li><span>✓</span> Syntax-highlighted code blocks, quotes, and zoomable images</li>
-                    <li><span>✓</span> Keyboard 1–4 on desktop, haptic 4-button dock on iPhone</li>
-                    <li><span>✓</span> Edit cards mid-session, with atomic grade undo on iPhone</li>
+                    <li><span>✓</span> Cloze deletions, LaTeX math, audio clips, code blocks, and zoomable images</li>
+                    <li><span>✓</span> Keyboard 1–4 on desktop, haptic 4-button dock on iPhone, optional answer timer</li>
+                    <li><span>✓</span> Edit cards mid-session, suspend, and atomic grade undo everywhere</li>
                   </ul>
                   <div class="surface-badges">
                     <span class="surface-badge is-dark">Dark mode</span>
@@ -1000,10 +1004,11 @@ JSON
             <span class="feature-icon">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13H5zM8 9h8M8 13h8M8 17h5" /></svg>
             </span>
-            <h3>Rich Markdown &amp; backups</h3>
+            <h3>Anki import, Cloze &amp; LaTeX</h3>
             <p>
-              WYSIWYG desktop editor and paper-canvas iPhone editor with syntax-highlighted code,
-              offline images and GIFs, tags, and full-fidelity portable JSON backups.
+              Import Anki <code>.apkg</code> decks on desktop, CLI, or iPhone with review history
+              replayed into FSRS-7. Write cloze deletions with sibling burying, LaTeX math, audio
+              clips, nested <code>::</code> decks, syntax-highlighted code, and portable JSON backups.
             </p>
           </article>
         </div>

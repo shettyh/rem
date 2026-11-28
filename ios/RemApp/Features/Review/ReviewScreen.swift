@@ -27,6 +27,15 @@ struct ReviewScreen: View {
     @State private var editingCard: CardDto?
     @State private var lightboxAsset: CachedAssetImage?
     @State private var completeBounceTrigger: Int = 0
+    @State private var cardElapsedSeconds: Int = 0
+    @State private var timerCardId: String?
+
+    private var timerTaskId: String {
+        let cardId = viewState?.current?.id ?? ""
+        let revealed = viewState?.revealed ?? false
+        let showTimer = viewState?.showTimer ?? false
+        return "\(cardId):\(revealed):\(showTimer)"
+    }
 
     private var sessionProgress: (currentIndex: Int, total: Int, fraction: Double) {
         let total = max(1, Int((viewState?.reviewed ?? 0) + (viewState?.remaining ?? 0)))
@@ -164,6 +173,23 @@ struct ReviewScreen: View {
         .tint(RemColor.accent)
         .remToastOverlay(appState: appState, enabled: editingCard == nil && !showCardInfo)
         .task { await startSession() }
+        .task(id: timerTaskId) {
+            guard let viewState, let card = viewState.current else {
+                timerCardId = nil
+                cardElapsedSeconds = 0
+                return
+            }
+            if timerCardId != card.id {
+                timerCardId = card.id
+                cardElapsedSeconds = 0
+            }
+            guard viewState.showTimer && !viewState.revealed else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { break }
+                cardElapsedSeconds += 1
+            }
+        }
         .sheet(isPresented: $showCardInfo) {
             if let card = viewState?.current {
                 ReviewCardInfoSheet(card: card, deckName: viewState?.deckName)
@@ -236,17 +262,22 @@ struct ReviewScreen: View {
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
 
-                        questionEyebrow(card: card)
+                        let isCloze = card.clozeIndex != nil
+                        let hasBack = !card.back.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+                        questionEyebrow(card: card, viewState: viewState)
 
                         RemMarkdownView(
                             markdown: card.front,
                             store: appState.store,
-                            baseFontSize: viewState.revealed
+                            baseFontSize: (!isCloze && viewState.revealed)
                                 ? appState.cardTextSize.revealedQuestionSize
                                 : appState.cardTextSize.questionSize,
                             codeFontSize: appState.cardTextSize.codeSize,
-                            textColor: viewState.revealed ? RemColor.muted : RemColor.text,
-                            baseWeight: viewState.revealed ? .regular : .medium,
+                            textColor: (!isCloze && viewState.revealed) ? RemColor.muted : RemColor.text,
+                            baseWeight: (!isCloze && viewState.revealed) ? .regular : .medium,
+                            clozeIndex: card.clozeIndex,
+                            clozeRevealed: viewState.revealed,
                             onTapAssetImage: { asset in
                                 lightboxAsset = asset
                             }
@@ -254,27 +285,33 @@ struct ReviewScreen: View {
 
                         if viewState.revealed {
                             VStack(alignment: .leading, spacing: 14) {
-                                Divider()
-                                    .overlay(RemColor.border)
-                                    .padding(.vertical, 6)
-                                    .id("answer-section")
+                                if !isCloze || hasBack {
+                                    Divider()
+                                        .overlay(RemColor.border)
+                                        .padding(.vertical, 6)
+                                        .id("answer-section")
 
-                                Text("ANSWER")
-                                    .font(.caption2.weight(.bold))
-                                    .tracking(0.9)
-                                    .foregroundStyle(RemColor.faint)
+                                    Text(isCloze ? "EXTRA" : "ANSWER")
+                                        .font(.caption2.weight(.bold))
+                                        .tracking(0.9)
+                                        .foregroundStyle(RemColor.faint)
 
-                                RemMarkdownView(
-                                    markdown: card.back.isEmpty ? "_No answer recorded_" : card.back,
-                                    store: appState.store,
-                                    baseFontSize: appState.cardTextSize.answerSize,
-                                    codeFontSize: appState.cardTextSize.codeSize,
-                                    textColor: RemColor.text,
-                                    baseWeight: .regular,
-                                    onTapAssetImage: { asset in
-                                        lightboxAsset = asset
-                                    }
-                                )
+                                    RemMarkdownView(
+                                        markdown: card.back.isEmpty ? "_No answer recorded_" : card.back,
+                                        store: appState.store,
+                                        baseFontSize: appState.cardTextSize.answerSize,
+                                        codeFontSize: appState.cardTextSize.codeSize,
+                                        textColor: RemColor.text,
+                                        baseWeight: .regular,
+                                        onTapAssetImage: { asset in
+                                            lightboxAsset = asset
+                                        }
+                                    )
+                                } else {
+                                    Color.clear
+                                        .frame(height: 0)
+                                        .id("answer-section")
+                                }
 
                                 if !card.tags.isEmpty {
                                     ScrollView(.horizontal, showsIndicators: false) {
@@ -335,12 +372,18 @@ struct ReviewScreen: View {
     }
 
     @ViewBuilder
-    private func questionEyebrow(card: CardDto) -> some View {
+    private func questionEyebrow(card: CardDto, viewState: StudyViewDto) -> some View {
         HStack(spacing: 6) {
-            Text("QUESTION")
+            Text(card.clozeIndex != nil ? "CLOZE" : "QUESTION")
                 .font(.caption2.weight(.bold))
                 .tracking(0.9)
                 .foregroundStyle(RemColor.faint)
+
+            if let clozeIdx = card.clozeIndex {
+                Text("· c\(clozeIdx)")
+                    .font(.caption2.weight(.bold).monospaced())
+                    .foregroundStyle(RemColor.accent)
+            }
 
             if card.state == 0 {
                 Text("· NEW")
@@ -352,6 +395,15 @@ struct ReviewScreen: View {
                     .font(.caption2.weight(.bold))
                     .tracking(0.7)
                     .foregroundStyle(RemColor.hard)
+            }
+
+            Spacer(minLength: 8)
+
+            if viewState.showTimer {
+                Text(String(format: "%d:%02d", cardElapsedSeconds / 60, cardElapsedSeconds % 60))
+                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(RemColor.muted)
+                    .accessibilityLabel("Elapsed answer time")
             }
         }
     }

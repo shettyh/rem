@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::scheduler::{build_fsrs_for_migration, migrate_card_scheduling_to_fsrs7};
 use crate::{DeckSettings, FsrsState, Grade};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 5;
+pub const CURRENT_SCHEMA_VERSION: u32 = 6;
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
@@ -237,10 +237,13 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
             leech_hlc TEXT NOT NULL DEFAULT '',
             rationale TEXT,
             sources_json TEXT NOT NULL DEFAULT '[]',
-            proposed_by TEXT
+            proposed_by TEXT,
+            sibling_group_id TEXT,
+            cloze_index INTEGER CHECK (cloze_index IS NULL OR cloze_index >= 1)
         );
         CREATE INDEX cards_deck_created ON cards(deck_id, created_at);
         CREATE INDEX cards_deck_due ON cards(deck_id, due);
+        CREATE INDEX cards_sibling_group ON cards(sibling_group_id) WHERE sibling_group_id IS NOT NULL;
 
         CREATE TABLE review_logs (
             id TEXT PRIMARY KEY,
@@ -310,7 +313,7 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), rusqlite::Error>
         );
 
         INSERT INTO metadata(key, value) VALUES ('sync_revision', 0);
-        PRAGMA user_version = 5;
+        PRAGMA user_version = 6;
         ",
     )?;
     transaction.execute_batch(CARDS_FTS_DDL)?;
@@ -384,6 +387,10 @@ fn migrate_schema(connection: &mut Connection) -> Result<(), rusqlite::Error> {
     if version < 5 {
         migrate_v4_to_v5_provenance_and_fts(&transaction)?;
         transaction.execute_batch("PRAGMA user_version = 5;")?;
+    }
+    if version < 6 {
+        migrate_v5_to_v6_siblings_and_cloze(&transaction)?;
+        transaction.execute_batch("PRAGMA user_version = 6;")?;
     }
     transaction.commit()
 }
@@ -526,6 +533,32 @@ fn migrate_v4_to_v5_provenance_and_fts(
         transaction.execute_batch("ALTER TABLE cards ADD COLUMN proposed_by TEXT;")?;
     }
     rebuild_cards_fts(transaction)?;
+    Ok(())
+}
+
+fn migrate_v5_to_v6_siblings_and_cloze(
+    transaction: &Transaction<'_>,
+) -> Result<(), rusqlite::Error> {
+    let existing_columns: std::collections::HashSet<String> = {
+        let mut statement = transaction.prepare("PRAGMA table_info(cards)")?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter().collect()
+    };
+    if !existing_columns.contains("sibling_group_id") {
+        transaction.execute_batch("ALTER TABLE cards ADD COLUMN sibling_group_id TEXT;")?;
+    }
+    if !existing_columns.contains("cloze_index") {
+        transaction.execute_batch(
+            "ALTER TABLE cards ADD COLUMN cloze_index INTEGER CHECK (cloze_index IS NULL OR cloze_index >= 1);",
+        )?;
+    }
+    transaction.execute_batch(
+        "CREATE INDEX IF NOT EXISTS cards_sibling_group
+         ON cards(sibling_group_id)
+         WHERE sibling_group_id IS NOT NULL;",
+    )?;
     Ok(())
 }
 
