@@ -157,3 +157,46 @@ test('shows caught-up pill beside title, code snippet preview, and status filter
   await page.getByRole('button', { name: 'Suspended', exact: true }).click()
   await expect.element(page.getByText('Main program')).toBeVisible()
 })
+
+test('renders breadcrumb path and structured direct subdeck rows with Study actions', async () => {
+  const storage = freshStorage()
+  const leaf1 = await storage.createDeck('Anatomy::Unit 03::3.1 Intro')
+  const leaf2 = await storage.createDeck('Anatomy::Unit 03::3.2 Epithelial Tissue')
+  await storage.createCard(leaf1.id, 'Cell?', 'Yes')
+  await storage.createCard(leaf2.id, 'Tissue?', 'Epithelial')
+
+  const allDecks = await storage.listDecks()
+  const root = allDecks.find((d) => d.name === 'Anatomy')!
+  const unit03 = allDecks.find((d) => d.name === 'Anatomy::Unit 03')!
+
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId',
+    entry: `/decks/${unit03.id}`,
+    element: <DeckDetailPage />,
+  })
+
+  // Header shows clean breadcrumb instead of raw "::" string, with clickable parent link.
+  const crumbLink = page.getByLabelText('Deck path').getByRole('link', { name: 'Anatomy' })
+  await expect.element(crumbLink).toBeVisible()
+  expect(crumbLink.element().getAttribute('href')).toBe(`/decks/${root.id}`)
+  await expect.element(page.getByLabelText('Deck path').getByText('Unit 03', { exact: true })).toBeVisible()
+
+  // Direct subdecks render as structured rows with Study actions instead of pill chips.
+  const subdeckList = page.getByLabelText('Subdecks list')
+  await expect.element(subdeckList).toBeVisible()
+  await expect.element(subdeckList.getByText('3.1 Intro')).toBeVisible()
+  await expect.element(subdeckList.getByText('3.2 Epithelial Tissue')).toBeVisible()
+  await expect.element(subdeckList.getByRole('link', { name: 'Study Anatomy::Unit 03::3.1 Intro' })).toBeVisible()
+  expect(document.querySelector('.subdeck-chip')).toBeNull()
+
+  // Container deck without direct cards shows compact footer instead of empty-state illustration.
+  await expect.element(page.getByText(/All 2 cards live in the subdecks above/)).toBeVisible()
+  expect(document.querySelector('.empty-state')).toBeNull()
+
+  // Clicking the breadcrumb navigates up to the root deck showing only direct child "Unit 03" (not flattened grandchildren).
+  await crumbLink.click()
+  await expect.element(page.getByText('2 subdecks')).toBeVisible()
+  await expect.element(subdeckList.getByText('Unit 03')).toBeVisible()
+  await expect.element(subdeckList.getByText('3.1 Intro')).not.toBeInTheDocument()
+})

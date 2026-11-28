@@ -3,6 +3,7 @@ import SwiftUI
 struct DeckDetailView: View {
     @Bindable var appState: AppState
     let deckId: String
+    var onNavigateToDeck: ((String) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var cards: [CardDto] = []
@@ -13,49 +14,73 @@ struct DeckDetailView: View {
     @State private var pendingCustomStudy: CustomStudySpec?
     @State private var showDeleteConfirm: Bool = false
     @State private var cardPendingDelete: CardDto?
+    @State private var showAddSubdeckAlert: Bool = false
+    @State private var newSubdeckName: String = ""
 
-    private var deckSummary: DeckSummaryDto? {
-        appState.todaySummary?.decks.first { $0.id == deckId }
+    private var allSummaries: [DeckSummaryDto] {
+        appState.todaySummary?.decks ?? []
     }
 
-    private var subdecks: [DeckSummaryDto] {
-        guard let rootName = deckSummary?.name else { return [] }
-        return (appState.todaySummary?.decks ?? []).filter {
-            $0.id != deckId && DeckTreeBuilder.isStrictDescendant($0.name, of: rootName)
+    private var deckSummary: DeckSummaryDto? {
+        allSummaries.first { $0.id == deckId }
+    }
+
+    private var treeNode: DeckTreeNode? {
+        let roots = DeckTreeBuilder.build(from: allSummaries)
+        return DeckTreeBuilder.findNode(deckId: deckId, in: roots)
+    }
+
+    private var directSubdecks: [DeckTreeBuilder.NavigableSubdeck] {
+        guard let node = treeNode else { return [] }
+        return DeckTreeBuilder.navigableChildren(of: node)
+    }
+
+    private var ancestors: [(path: String, label: String, deckId: String?)] {
+        guard let name = deckSummary?.name else { return [] }
+        let byName = Dictionary(
+            allSummaries.map { ($0.name, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return DeckTreeBuilder.ancestorPaths(name).map { path in
+            (path: path, label: DeckTreeBuilder.leafName(path), deckId: byName[path])
         }
     }
 
+    private var leafTitle: String {
+        DeckTreeBuilder.leafName(deckSummary?.name ?? "Deck")
+    }
+
+    private var hasSubdecks: Bool {
+        !directSubdecks.isEmpty
+    }
+
     private var deleteCopy: DeckDeleteCopy {
-        DeckTreeBuilder.describeDelete(
+        if let node = treeNode {
+            return DeckTreeBuilder.describeDelete(node: node)
+        }
+        return DeckTreeBuilder.describeDelete(
             deckId: deckId,
             deckName: deckSummary?.name ?? "Deck",
-            allSummaries: appState.todaySummary?.decks ?? []
+            allSummaries: allSummaries
         )
     }
 
     private var rolledUpDueCount: UInt32 {
-        (deckSummary?.dueCount ?? 0) + subdecks.reduce(0) { $0 + $1.dueCount }
+        treeNode?.dueCount ?? deckSummary?.dueCount ?? 0
     }
 
     private var rolledUpNewDueCount: UInt32 {
-        (deckSummary?.newDueCount ?? 0) + subdecks.reduce(0) { $0 + $1.newDueCount }
+        treeNode?.newDueCount ?? deckSummary?.newDueCount ?? 0
     }
 
     private var rolledUpTotalCards: Int {
-        let direct = hasLoadedCards ? cards.count : Int(deckSummary?.totalCards ?? 0)
-        return direct + subdecks.reduce(0) { $0 + Int($1.totalCards) }
-    }
-
-    private func rolledUpCounts(for sub: DeckSummaryDto) -> (due: UInt32, newDue: UInt32, total: UInt32) {
-        let all = appState.todaySummary?.decks ?? []
-        let group = all.filter {
-            $0.id == sub.id || DeckTreeBuilder.isStrictDescendant($0.name, of: sub.name)
+        if let node = treeNode {
+            let directDelta = hasLoadedCards
+                ? cards.count - Int(deckSummary?.totalCards ?? 0)
+                : 0
+            return max(0, Int(node.totalCards) + directDelta)
         }
-        return (
-            due: group.reduce(0) { $0 + $1.dueCount },
-            newDue: group.reduce(0) { $0 + $1.newDueCount },
-            total: group.reduce(0) { $0 + $1.totalCards }
-        )
+        return hasLoadedCards ? cards.count : Int(deckSummary?.totalCards ?? 0)
     }
 
     private var allTags: [String] {
@@ -82,8 +107,40 @@ struct DeckDetailView: View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 12) {
+                    if !ancestors.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 5) {
+                                ForEach(Array(ancestors.enumerated()), id: \.element.path) { idx, crumb in
+                                    if idx > 0 {
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 9, weight: .semibold))
+                                            .foregroundStyle(RemColor.faint)
+                                    }
+                                    if let parentId = crumb.deckId, let onNavigateToDeck {
+                                        Button {
+                                            onNavigateToDeck(parentId)
+                                        } label: {
+                                            Text(crumb.label)
+                                                .font(.caption.weight(.medium))
+                                                .foregroundStyle(RemColor.muted)
+                                        }
+                                        .buttonStyle(.borderless)
+                                    } else {
+                                        Text(crumb.label)
+                                            .font(.caption.weight(.medium))
+                                            .foregroundStyle(RemColor.muted)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     HStack(alignment: .center, spacing: 10) {
-                        if let colorHex = deckSummary?.color {
+                        if hasSubdecks {
+                            Image(systemName: "folder")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(RemColor.muted)
+                        } else if let colorHex = deckSummary?.color {
                             Circle()
                                 .fill(Color(hexString: colorHex))
                                 .frame(width: 9, height: 9)
@@ -140,23 +197,47 @@ struct DeckDetailView: View {
                 .listRowBackground(Color.clear)
             }
 
-            if !subdecks.isEmpty {
-                Section("Subdecks") {
-                    ForEach(subdecks, id: \.id) { sub in
-                        let prefix = (deckSummary?.name ?? "") + DeckTreeBuilder.separator
-                        let relativeName = sub.name.hasPrefix(prefix)
-                            ? String(sub.name.dropFirst(prefix.count))
-                            : sub.name
-                        let totals = rolledUpCounts(for: sub)
+            if !directSubdecks.isEmpty {
+                Section("Subdecks (\(directSubdecks.count))") {
+                    ForEach(directSubdecks) { entry in
+                        let child = entry.node
+                        let sub = entry.deck
                         NavigationLink(value: sub.id) {
                             DeckSummaryRow(
                                 deck: sub,
                                 showChevron: false,
-                                displayName: relativeName,
-                                dueOverride: totals.due,
-                                newDueOverride: totals.newDue,
-                                totalOverride: totals.total
+                                displayName: entry.displayLabel,
+                                hasSubdecks: !child.children.isEmpty,
+                                subdeckCount: child.subdeckCount,
+                                dueOverride: child.dueCount,
+                                newDueOverride: child.newDueCount,
+                                totalOverride: child.totalCards,
+                                iconSlotWidth: 16
                             )
+                        }
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            if child.dueCount > 0 {
+                                Button {
+                                    appState.startStudy(deckId: sub.id)
+                                } label: {
+                                    Label("Study", systemImage: "play.fill")
+                                }
+                                .tint(RemColor.accent)
+                            }
+                        }
+                        .contextMenu {
+                            if child.dueCount > 0 {
+                                Button {
+                                    appState.startStudy(deckId: sub.id)
+                                } label: {
+                                    Label("Study due cards (\(child.dueCount))", systemImage: "play.fill")
+                                }
+                            }
+                            Button {
+                                appState.openEditDeck(deckId: sub.id)
+                            } label: {
+                                Label("Edit deck", systemImage: "slider.horizontal.3")
+                            }
                         }
                     }
                 }
@@ -169,24 +250,24 @@ struct DeckDetailView: View {
                     Group {
                         if !searchText.isEmpty {
                             ContentUnavailableView.search(text: searchText)
-                        } else if cards.isEmpty && !subdecks.isEmpty {
-                            VStack(spacing: 10) {
-                                Text("No direct cards in this deck")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(RemColor.text)
-                                Text("Cards live in the subdecks above. Tap Study above to review them together, or add a card directly here.")
-                                    .font(.footnote)
-                                    .foregroundStyle(RemColor.muted)
-                                    .multilineTextAlignment(.center)
-                                Button("Add direct card") {
+                        } else if cards.isEmpty && hasSubdecks {
+                            HStack(spacing: 12) {
+                                Text(
+                                    rolledUpTotalCards > 0
+                                        ? "All \(rolledUpTotalCards) \(rolledUpTotalCards == 1 ? "card lives" : "cards live") in the subdecks above."
+                                        : "No cards in this deck or its subdecks yet."
+                                )
+                                .font(.footnote)
+                                .foregroundStyle(RemColor.muted)
+                                Spacer(minLength: 8)
+                                Button("Add card") {
                                     appState.openQuickCapture(deckId: deckId) {
                                         Task { await loadCards() }
                                     }
                                 }
-                                .buttonStyle(.bordered)
+                                .font(.footnote.weight(.semibold))
                                 .tint(RemColor.accent)
                             }
-                            .padding(.horizontal, 12)
                         } else if cards.isEmpty {
                             ContentUnavailableView {
                                 Label("No cards in this deck", systemImage: "rectangle.on.rectangle")
@@ -215,7 +296,7 @@ struct DeckDetailView: View {
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, cards.isEmpty && hasSubdecks && searchText.isEmpty ? 2 : 12)
                 }
                 .listRowBackground(RemColor.surface)
             } else {
@@ -244,6 +325,10 @@ struct DeckDetailView: View {
                             .tint(card.suspended ? RemColor.good : RemColor.hard)
                         }
                     }
+                } header: {
+                    if hasSubdecks {
+                        Text("Cards in this deck (\(cards.count))")
+                    }
                 }
                 .listRowBackground(RemColor.surface)
                 .listRowSeparatorTint(RemColor.border)
@@ -252,12 +337,19 @@ struct DeckDetailView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(RemColor.groupedBg)
-        .navigationTitle(deckSummary?.name ?? "Deck")
+        .navigationTitle(leafTitle)
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $searchText, prompt: "Filter cards in deck")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
+                    Button {
+                        newSubdeckName = ""
+                        showAddSubdeckAlert = true
+                    } label: {
+                        Label("New subdeck", systemImage: "folder.badge.plus")
+                    }
+
                     Button {
                         showCustomStudy = true
                     } label: {
@@ -276,7 +368,7 @@ struct DeckDetailView: View {
                         showDeleteConfirm = true
                     } label: {
                         Label(
-                            subdecks.isEmpty ? "Delete deck" : "Delete deck & subdecks",
+                            hasSubdecks ? "Delete deck & subdecks" : "Delete deck",
                             systemImage: "trash"
                         )
                     }
@@ -293,6 +385,29 @@ struct DeckDetailView: View {
                     Image(systemName: "plus")
                 }
                 .accessibilityLabel("New card")
+            }
+        }
+        .alert("New subdeck", isPresented: $showAddSubdeckAlert) {
+            TextField("Subdeck name", text: $newSubdeckName)
+            Button("Create") {
+                let child = newSubdeckName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !child.isEmpty, let parentName = deckSummary?.name else { return }
+                let color = deckSummary?.color ?? RemColor.deckPalette[0]
+                Task {
+                    _ = await appState.createDeck(
+                        name: "\(parentName)\(DeckTreeBuilder.separator)\(child)",
+                        color: color
+                    )
+                }
+            }
+            .disabled(newSubdeckName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Creates a subdeck inside \"\(leafTitle)\".")
+        }
+        .onChange(of: deckSummary?.id) { _, newValue in
+            if newValue == nil && appState.todaySummary != nil {
+                dismiss()
             }
         }
         .onAppear {

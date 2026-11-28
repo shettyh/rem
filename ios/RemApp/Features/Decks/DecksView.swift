@@ -14,6 +14,7 @@ struct DecksView: View {
     }
 
     @Bindable var appState: AppState
+    @State private var navPath: [String] = []
     @State private var searchText: String = ""
     @State private var cardHits: [CardSearchHitDto] = []
     @State private var isSearching: Bool = false
@@ -68,7 +69,7 @@ struct DecksView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navPath) {
             Group {
                 if filteredDecks.isEmpty && cardHits.isEmpty && !trimmedSearch.isEmpty && !isSearching {
                     ContentUnavailableView.search(text: searchText)
@@ -131,6 +132,8 @@ struct DecksView: View {
                                                     showChevron: false,
                                                     displayName: node.label,
                                                     depth: 0,
+                                                    hasSubdecks: !node.children.isEmpty,
+                                                    subdeckCount: node.subdeckCount,
                                                     dueOverride: node.dueCount,
                                                     newDueOverride: node.newDueCount,
                                                     totalOverride: node.totalCards,
@@ -210,6 +213,7 @@ struct DecksView: View {
                             Section("Decks") {
                                 ForEach(filteredDecks, id: \.id) { deck in
                                     let totals = rolledUpTotals(for: deck)
+                                    let matchedNode = DeckTreeBuilder.findNode(deckId: deck.id, in: deckTreeRoots)
                                     let deleteCopy = DeckTreeBuilder.describeDelete(
                                         deckId: deck.id,
                                         deckName: deck.name,
@@ -219,6 +223,8 @@ struct DecksView: View {
                                         DeckSummaryRow(
                                             deck: deck,
                                             showChevron: false,
+                                            hasSubdecks: !(matchedNode?.children.isEmpty ?? true),
+                                            subdeckCount: matchedNode?.subdeckCount ?? 0,
                                             dueOverride: totals.due,
                                             newDueOverride: totals.newDue,
                                             totalOverride: totals.total
@@ -360,7 +366,13 @@ struct DecksView: View {
                 }
             }
             .navigationDestination(for: String.self) { deckId in
-                DeckDetailView(appState: appState, deckId: deckId)
+                DeckDetailView(appState: appState, deckId: deckId) { targetId in
+                    if let existingIndex = navPath.firstIndex(of: targetId) {
+                        navPath.removeSubrange((existingIndex + 1)..<navPath.count)
+                    } else {
+                        navPath.append(targetId)
+                    }
+                }
             }
             .alert(
                 pendingDelete?.copy.title ?? "Delete deck?",

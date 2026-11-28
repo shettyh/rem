@@ -178,17 +178,21 @@ fn backup_export_parse_import_round_trip_preserves_full_collection() {
 
     let exported = col1.export_backup_json(NOW + 30).unwrap();
     let parsed = parse_backup_json(&exported, NOW + 40).unwrap();
-    assert_eq!(parsed.len(), 1);
-    assert_eq!(parsed[0].cards.len(), 2);
+    assert_eq!(parsed.len(), 2);
+    let parsed_leaf = parsed.iter().find(|d| d.name == "Systems::Rust").unwrap();
+    assert_eq!(parsed_leaf.cards.len(), 2);
 
     let dir2 = TempDir::new().unwrap();
     let col2 = Collection::open(dir2.path().join("c2.sqlite3")).unwrap();
     col2.import_backup_json(&exported, NOW + 50).unwrap();
 
     let imported_decks = col2.list_decks().unwrap();
-    assert_eq!(imported_decks.len(), 1);
-    assert_eq!(imported_decks[0].name, "Systems::Rust");
-    let imported_cards = col2.list_cards(&imported_decks[0].id).unwrap();
+    assert_eq!(imported_decks.len(), 2);
+    let imported_leaf = imported_decks
+        .iter()
+        .find(|d| d.name == "Systems::Rust")
+        .unwrap();
+    let imported_cards = col2.list_cards(&imported_leaf.id).unwrap();
     assert_eq!(imported_cards.len(), 2);
     assert_eq!(
         imported_cards[0].sibling_group_id,
@@ -196,7 +200,7 @@ fn backup_export_parse_import_round_trip_preserves_full_collection() {
     );
     assert_eq!(imported_cards[0].scheduling.reps, 1);
     assert_eq!(
-        col2.list_review_logs(&imported_decks[0].id).unwrap().len(),
+        col2.list_review_logs(&imported_leaf.id).unwrap().len(),
         1
     );
 }

@@ -1294,7 +1294,7 @@ fn find_card_with_hlcs(
         .transpose()
 }
 
-fn is_tombstoned(transaction: &Transaction<'_>, id: &str) -> rusqlite::Result<bool> {
+pub(crate) fn is_tombstoned(transaction: &Transaction<'_>, id: &str) -> rusqlite::Result<bool> {
     transaction.query_row(
         "SELECT EXISTS(SELECT 1 FROM tombstones WHERE id = ?1)",
         [id],

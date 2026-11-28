@@ -977,6 +977,16 @@ final class RemAppTests: XCTestCase {
         XCTAssertEqual(csDup.subdeckCount, 0)
         XCTAssertEqual(csDup.subtreeCardCount, 2)
 
+        // Ancestor paths & node lookup helpers
+        XCTAssertEqual(DeckTreeBuilder.ancestorPaths("Rust"), [])
+        XCTAssertEqual(
+            DeckTreeBuilder.ancestorPaths("Anatomy::Unit 01::Cells"),
+            ["Anatomy", "Anatomy::Unit 01"]
+        )
+        let foundCs = DeckTreeBuilder.findNode(deckId: "d3", in: roots)
+        XCTAssertEqual(foundCs?.label, "CS")
+        XCTAssertEqual(foundCs?.children.map(\.label), ["Rust"])
+
         // Collapsed path pruning
         let pruned = DeckTreeBuilder.pruneCollapsedPaths(
             ["Anatomy", "Anatomy::Unit 01", "Anatomy2", "CS"],
@@ -1011,11 +1021,16 @@ final class RemAppTests: XCTestCase {
         XCTAssertTrue(afterParentDelete.contains(dupSibling.id))
         XCTAssertTrue(afterParentDelete.contains(prefixCollision.id))
 
-        // deleteDeckTree removes virtual parent folder "JLPT" and all its subdecks
+        // deleteDeckTree removes parent "JLPT" and all its materialized ancestors + subdecks
         let deletedTreeIds = try await store.deleteDeckTree(path: "JLPT", nowMs: now + 30)
-        XCTAssertEqual(Set(deletedTreeIds), Set([v1.id, v2.id]))
-        let remainingIds = Set(try await store.listDecks().map(\.id))
-        XCTAssertEqual(remainingIds, Set([dupSibling.id, prefixCollision.id]))
+        XCTAssertEqual(deletedTreeIds.count, 5)
+        XCTAssertTrue(deletedTreeIds.contains(v1.id))
+        XCTAssertTrue(deletedTreeIds.contains(v2.id))
+        let remainingDecks = try await store.listDecks()
+        let remainingIds = Set(remainingDecks.map(\.id))
+        XCTAssertTrue(remainingIds.contains(dupSibling.id))
+        XCTAssertTrue(remainingIds.contains(prefixCollision.id))
+        XCTAssertEqual(Set(remainingDecks.map(\.name)), Set(["Bio", "Bio2", "Bio2::Lab"]))
 
         // Orphan asset sweep deletes asset from deleted JLPT card and preserves surviving asset
         let swept = try await store.sweepOrphanAssets()

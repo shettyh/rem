@@ -2,13 +2,17 @@ use std::collections::{BTreeSet, HashSet};
 
 use rusqlite::types::Type;
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::cloze::extract_cloze_indices;
 use crate::collection::write_transaction;
-use crate::deck_tree::normalize_deck_name;
+use crate::deck_tree::{deck_ancestor_paths, normalize_deck_name};
+use crate::hlc::Hlc;
 use crate::occlusion::extract_occlusion_indices;
-use crate::sync_store::{enqueue_new_op, is_cloud_sync_enabled, next_hlc, put_tombstone_with_hlc};
+use crate::sync_store::{
+    enqueue_new_op, is_cloud_sync_enabled, is_tombstoned, next_hlc, put_tombstone_with_hlc,
+};
 use crate::tags::normalize_card_tags;
 use crate::{
     normalize_user_tags, Card, CardPatch, Collection, CollectionError, CreateCardsResult, Deck,
@@ -57,7 +61,9 @@ impl Collection {
             .lock()
             .map_err(|_| CollectionError::Poisoned)?;
         let transaction = write_transaction(&mut connection)?;
-        let hlc = if is_cloud_sync_enabled(&transaction)? {
+        let cloud_enabled = is_cloud_sync_enabled(&transaction)?;
+        ensure_ancestor_decks_in_tx(&transaction, &deck.name, |_| now, now, cloud_enabled, false)?;
+        let hlc = if cloud_enabled {
             next_hlc(&transaction, now)?
         } else {
             String::new()
@@ -134,8 +140,10 @@ impl Collection {
             params![id, name, patch.color, settings, now],
         )?;
 
-        // If the deck was renamed, cascade the prefix rename to any `OldName::...` subdecks
-        // so subdecks remain attached to their renamed parent.
+        // If the deck was renamed, cascade the prefix rename to any existing `OldName::...`
+        // subdecks first, then materialize any missing ancestor containers for `new_name` so
+        // newly created ancestors are never caught by the cascade loop (e.g., `A` -> `A::B::C`).
+        let cloud_enabled = is_cloud_sync_enabled(&transaction)?;
         let mut cascaded_ids: Vec<String> = Vec::new();
         if let Some(ref new_name) = name {
             if new_name != &old_name {
@@ -160,10 +168,18 @@ impl Collection {
                         cascaded_ids.push(child_id);
                     }
                 }
+                ensure_ancestor_decks_in_tx(
+                    &transaction,
+                    new_name,
+                    |_| now,
+                    now,
+                    cloud_enabled,
+                    false,
+                )?;
             }
         }
 
-        if is_cloud_sync_enabled(&transaction)? {
+        if cloud_enabled {
             for deck_id in std::iter::once(id.to_owned()).chain(cascaded_ids) {
                 let hlc = next_hlc(&transaction, now)?;
                 transaction.execute(
@@ -1172,4 +1188,110 @@ pub(crate) fn deck_color(id: &str) -> String {
         hash.wrapping_mul(31).wrapping_add(byte as u32)
     });
     DECK_PALETTE[hash as usize % DECK_PALETTE.len()].to_owned()
+}
+
+/// Deterministic UUID (RFC 4122 v5-shaped from SHA-256) used solely by the one-time v7→v8
+/// migration so independent devices migrating the same pre-existing hierarchy converge to
+/// identical ancestor deck IDs upon cloud sync.
+fn deterministic_v8_ancestor_id(path: &str) -> String {
+    let digest = Sha256::digest(format!("rem:ancestor-v8:{path}").as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes).to_string()
+}
+
+/// Materialize any missing ancestor container decks for a `Parent::Child` path.
+/// Existing ancestor rows are left untouched (preserving their IDs, settings, and direct cards).
+pub(crate) fn ensure_ancestor_decks_in_tx(
+    transaction: &Transaction<'_>,
+    deck_name: &str,
+    created_at_for: impl Fn(&str) -> i64,
+    now: i64,
+    cloud_enabled: bool,
+    deterministic_v8_id: bool,
+) -> Result<Vec<Deck>, CollectionError> {
+    let ancestors = deck_ancestor_paths(deck_name);
+    if ancestors.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut created = Vec::new();
+    for ancestor_name in ancestors {
+        let exists: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM decks WHERE name = ?1)",
+            [&ancestor_name],
+            |row| row.get(0),
+        )?;
+        if exists {
+            continue;
+        }
+        let (id, used_deterministic) = if deterministic_v8_id {
+            let candidate = deterministic_v8_ancestor_id(&ancestor_name);
+            if is_tombstoned(transaction, &candidate)? || deck_exists(transaction, &candidate)? {
+                (Uuid::new_v4().to_string(), false)
+            } else {
+                (candidate, true)
+            }
+        } else {
+            (Uuid::new_v4().to_string(), false)
+        };
+        let ancestor_created_at = created_at_for(&ancestor_name).max(0);
+        let deck = Deck {
+            id: id.clone(),
+            name: ancestor_name,
+            created_at: ancestor_created_at,
+            updated_at: if used_deterministic {
+                ancestor_created_at
+            } else {
+                now
+            },
+            color: deck_color(&id),
+            scheduler_kind: SchedulerKind::Fsrs,
+            settings: DeckSettings::default(),
+        };
+        let settings = serde_json::to_string(&deck.settings)?;
+        // Deterministic v8 migration rows use a floor HLC (epoch 0) so any real user edit or
+        // rename made earlier on another synced device strictly wins LWW, while two unedited
+        // migrating devices converge with identical HLCs and zero churn.
+        let hlc = if cloud_enabled {
+            if used_deterministic {
+                Hlc::new(0, 0, "00000000")?.to_string()
+            } else {
+                next_hlc(transaction, now)?
+            }
+        } else {
+            String::new()
+        };
+        transaction.execute(
+            "INSERT INTO decks(
+                id, name, created_at, updated_at, color, scheduler_kind, settings_json, hlc
+             ) VALUES (?1, ?2, ?3, ?4, ?5, 'fsrs', ?6, ?7)",
+            params![
+                deck.id,
+                deck.name,
+                deck.created_at,
+                deck.updated_at,
+                deck.color,
+                settings,
+                hlc,
+            ],
+        )?;
+        if !hlc.is_empty() {
+            enqueue_new_op(
+                transaction,
+                &SyncOp::DeckUpsert {
+                    id: deck.id.clone(),
+                    name: deck.name.clone(),
+                    color: deck.color.clone(),
+                    settings: deck.settings.clone(),
+                    created_at: deck.created_at,
+                    hlc,
+                },
+                now,
+            )?;
+        }
+        created.push(deck);
+    }
+    Ok(created)
 }
