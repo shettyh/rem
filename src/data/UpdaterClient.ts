@@ -76,8 +76,13 @@ class UnsupportedUpdaterClient implements UpdaterClient {
   }
 }
 
-class TauriUpdaterClient implements UpdaterClient {
+export class TauriUpdaterClient implements UpdaterClient {
   readonly supported = true
+  private readonly invokeCommand: typeof invoke
+
+  constructor(invokeCommand: typeof invoke = invoke) {
+    this.invokeCommand = invokeCommand
+  }
 
   async check(): Promise<PendingUpdateHandle | null> {
     const { check } = await import('@tauri-apps/plugin-updater')
@@ -143,16 +148,15 @@ class TauriUpdaterClient implements UpdaterClient {
   }
 
   async relaunch(): Promise<void> {
-    const { relaunch } = await import('@tauri-apps/plugin-process')
-    await relaunch()
+    await this.invokeCommand('app_relaunch')
   }
 
   async getCliStatus(): Promise<CliStatus> {
-    return invoke<CliStatus>('cli_status')
+    return this.invokeCommand<CliStatus>('cli_status')
   }
 
   async installCli(): Promise<CliStatus> {
-    return invoke<CliStatus>('cli_install')
+    return this.invokeCommand<CliStatus>('cli_install')
   }
 }
 
