@@ -108,10 +108,13 @@ jobs:
 
   ios:
     name: iOS (xcframework · test)
-    runs-on: macos-latest
+    runs-on: xcode-27
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
+
+      - name: Select latest stable Xcode
+        run: bash tools/select-latest-xcode.sh
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -120,7 +123,7 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
-          key: ios-sim-debug
+          key: ios-sim-debug-xcode27
 
       - name: Build RemCore.xcframework (simulator) & Swift bindings
         run: bash tools/build-ios-xcframework.sh --debug --sim-only
@@ -129,7 +132,7 @@ jobs:
         id: simulator
         run: |
           set -euo pipefail
-          sim_udid=$(xcrun simctl list devices available -j | python3 -c '
+          sim_info=$(xcrun simctl list devices available -j | python3 -c '
           import json, re, sys
           data = json.load(sys.stdin)["devices"]
           runtimes = sorted(
@@ -140,11 +143,14 @@ jobs:
           for rt in runtimes:
               iphones = [d for d in data[rt] if d.get("isAvailable") and "iPhone" in d.get("name", "")]
               if iphones:
-                  print(iphones[0]["udid"])
+                  iphones.sort(key=lambda d: ("Duo" in d.get("name", ""), d.get("name", "")))
+                  chosen = iphones[0]
+                  print("\t".join((chosen["udid"], chosen["name"], rt)))
                   sys.exit(0)
           sys.exit(1)
           ')
-          echo "Selected simulator UDID: $sim_udid"
+          IFS=$'\t' read -r sim_udid sim_name sim_runtime <<< "$sim_info"
+          echo "Selected simulator: $sim_name ($sim_runtime, UDID: $sim_udid)"
           echo "udid=$sim_udid" >> "$GITHUB_OUTPUT"
 
       - name: Build and test iOS app
