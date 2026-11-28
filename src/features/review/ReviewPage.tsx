@@ -39,11 +39,13 @@ export function ReviewPage() {
   const isPreview = customMode === 'preview-new'
 
   const sessionIdRef = useRef<string | null>(null)
-  const gradingRef = useRef(false)
+  const inFlightRef = useRef(false)
+  const opGenRef = useRef(0)
   const sessionStartRef = useRef(Date.now())
   const lastGradedGradeRef = useRef<Grade | null>(null)
   const [view, setView] = useState<StudyView | null>(null)
   const [ready, setReady] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
   const [revealedAt, setRevealedAt] = useState(0)
   const [cardElapsedSec, setCardElapsedSec] = useState(0)
   const [timerAttempt, setTimerAttempt] = useState(0)
@@ -61,27 +63,45 @@ export function ReviewPage() {
   useEffect(() => {
     let active = true
     let startedId: string | null = null
+    sessionIdRef.current = null
+    inFlightRef.current = false
+    opGenRef.current += 1
     sessionStartRef.current = Date.now()
     lastGradedGradeRef.current = null
+    setReady(false)
+    setView(null)
+    setStartError(null)
+    setSchedError(false)
+    setConflictNotice(false)
     setActionNotice(null)
     setSessionStats({ total: 0, recalled: 0, elapsedMs: 0 })
     const request: StudyRequest = {
       deckId: deckId ?? null,
       custom: customRequest,
     }
-    void storage.startStudy(request).then((started) => {
-      startedId = started.sessionId
-      if (!active) {
-        void storage.endStudy(started.sessionId)
-        return
-      }
-      sessionIdRef.current = started.sessionId
-      setView(started.view)
-      setTimerAttempt((n) => n + 1)
-      setReady(true)
-    })
+    void storage
+      .startStudy(request)
+      .then((started) => {
+        startedId = started.sessionId
+        if (!active) {
+          void storage.endStudy(started.sessionId)
+          return
+        }
+        sessionIdRef.current = started.sessionId
+        setView(started.view)
+        setTimerAttempt((n) => n + 1)
+        setReady(true)
+      })
+      .catch((err: unknown) => {
+        if (!active) return
+        console.error('study start failed', err)
+        setStartError(err instanceof Error ? err.message : 'Could not start study session.')
+        setReady(true)
+      })
     return () => {
       active = false
+      opGenRef.current += 1
+      inFlightRef.current = false
       if (startedId) void storage.endStudy(startedId)
       if (sessionIdRef.current === startedId) sessionIdRef.current = null
     }
@@ -89,27 +109,37 @@ export function ReviewPage() {
 
   const reveal = useCallback(() => {
     const sessionId = sessionIdRef.current
-    if (!sessionId || !view?.current || (view.revealed && !schedError)) return
+    if (!sessionId || !view?.current || (view.revealed && !schedError) || inFlightRef.current) return
+    inFlightRef.current = true
+    const gen = ++opGenRef.current
     const now = Date.now()
     setRevealedAt(now)
     setActionNotice(null)
-    void storage.revealStudy(sessionId)
+    void storage
+      .revealStudy(sessionId)
       .then((nextView) => {
+        if (opGenRef.current !== gen || sessionIdRef.current !== sessionId) return
         setView(nextView)
         setSchedError(false)
       })
       .catch((err: unknown) => {
+        if (opGenRef.current !== gen || sessionIdRef.current !== sessionId) return
         console.error('study reveal failed', err)
         setSchedError(true)
+      })
+      .finally(() => {
+        if (opGenRef.current === gen) inFlightRef.current = false
       })
   }, [storage, view, schedError])
 
   const advancePreview = useCallback(async () => {
     const sessionId = sessionIdRef.current
-    if (!isPreview || !sessionId || gradingRef.current) return
-    gradingRef.current = true
+    if (!isPreview || !sessionId || inFlightRef.current) return
+    inFlightRef.current = true
+    const gen = ++opGenRef.current
     try {
       const next = await storage.advanceStudyPreview(sessionId)
+      if (opGenRef.current !== gen || sessionIdRef.current !== sessionId) return
       setView(next)
       setTimerAttempt((n) => n + 1)
       setActionNotice(null)
@@ -117,20 +147,23 @@ export function ReviewPage() {
         setSessionStats((prev) => ({ ...prev, elapsedMs: Date.now() - sessionStartRef.current }))
       }
     } catch (err: unknown) {
+      if (opGenRef.current !== gen || sessionIdRef.current !== sessionId) return
       console.error('advance preview failed', err)
       setActionNotice('Could not advance preview.')
     } finally {
-      gradingRef.current = false
+      if (opGenRef.current === gen) inFlightRef.current = false
     }
   }, [isPreview, storage])
 
   const grade = useCallback(
     async (grade: Grade) => {
       const sessionId = sessionIdRef.current
-      if (!sessionId || !view?.current || !view.nextStates || gradingRef.current) return
-      gradingRef.current = true
+      if (!sessionId || !view?.current || !view.nextStates || inFlightRef.current) return
+      inFlightRef.current = true
+      const gen = ++opGenRef.current
       try {
         const outcome = await storage.gradeStudy(sessionId, grade)
+        if (opGenRef.current !== gen || sessionIdRef.current !== sessionId) return
         setView(outcome.view)
         setTimerAttempt((n) => n + 1)
         setSchedError(false)
@@ -145,10 +178,11 @@ export function ReviewPage() {
           }))
         }
       } catch (err: unknown) {
+        if (opGenRef.current !== gen || sessionIdRef.current !== sessionId) return
         console.error('study grade failed', err)
         setActionNotice('Could not record grade.')
       } finally {
-        gradingRef.current = false
+        if (opGenRef.current === gen) inFlightRef.current = false
       }
     },
     [storage, view],
@@ -156,10 +190,12 @@ export function ReviewPage() {
 
   const undoLastGrade = useCallback(async () => {
     const sessionId = sessionIdRef.current
-    if (!sessionId || !view?.canUndo || gradingRef.current) return
-    gradingRef.current = true
+    if (!sessionId || !view?.canUndo || inFlightRef.current) return
+    inFlightRef.current = true
+    const gen = ++opGenRef.current
     try {
       const nextView = await storage.undoStudyGrade(sessionId)
+      if (opGenRef.current !== gen || sessionIdRef.current !== sessionId) return
       const undoneGrade = lastGradedGradeRef.current
       lastGradedGradeRef.current = null
       setView(nextView)
@@ -175,21 +211,27 @@ export function ReviewPage() {
         }))
       }
     } catch (err: unknown) {
+      if (opGenRef.current !== gen || sessionIdRef.current !== sessionId) return
       console.error('study undo failed', err)
-      lastGradedGradeRef.current = null
-      setView((prev) => (prev ? { ...prev, canUndo: false } : prev))
+      const msg = err instanceof Error ? err.message : String(err)
+      if (/conflict|not found/i.test(msg)) {
+        lastGradedGradeRef.current = null
+        setView((prev) => (prev ? { ...prev, canUndo: false } : prev))
+      }
       setActionNotice('Could not undo last grade.')
     } finally {
-      gradingRef.current = false
+      if (opGenRef.current === gen) inFlightRef.current = false
     }
   }, [storage, view?.canUndo])
 
   const suspendCurrent = useCallback(async () => {
     const sessionId = sessionIdRef.current
-    if (!sessionId || !view?.current || isPreview || gradingRef.current) return
-    gradingRef.current = true
+    if (!sessionId || !view?.current || isPreview || inFlightRef.current) return
+    inFlightRef.current = true
+    const gen = ++opGenRef.current
     try {
       const nextView = await storage.suspendStudyCard(sessionId)
+      if (opGenRef.current !== gen || sessionIdRef.current !== sessionId) return
       lastGradedGradeRef.current = null
       setView(nextView)
       setTimerAttempt((n) => n + 1)
@@ -200,10 +242,11 @@ export function ReviewPage() {
         setSessionStats((prev) => ({ ...prev, elapsedMs: Date.now() - sessionStartRef.current }))
       }
     } catch (err: unknown) {
+      if (opGenRef.current !== gen || sessionIdRef.current !== sessionId) return
       console.error('study suspend failed', err)
       setActionNotice('Could not suspend card.')
     } finally {
-      gradingRef.current = false
+      if (opGenRef.current === gen) inFlightRef.current = false
     }
   }, [storage, view?.current, isPreview])
 
@@ -304,15 +347,8 @@ export function ReviewPage() {
     }
   }, [showCardTimer, isCardRevealed, currentCardId, timerAttempt])
 
-  if (!ready || !view) return null
+  if (!ready) return null
 
-  const current = view.current
-  const leechMessage = view.notice === 'suspend'
-    ? 'Leech suspended. Edit the card to restore it.'
-    : view.notice === 'tag'
-      ? 'Leech tagged.'
-      : null
-  const statusMessage = actionNotice ?? leechMessage
   const contextLabel = customTitle ? `${deckName} · ${customTitle}` : deckName
   const terminalTitle = (
     <>
@@ -321,6 +357,30 @@ export function ReviewPage() {
     </>
   )
   const terminalAction = <Link to={backTo} className="btn btn-ghost">Close</Link>
+
+  if (startError || !view) {
+    return (
+      <>
+        <PageHeader title={terminalTitle} actions={terminalAction} />
+        <div className="review-terminal">
+          <div className="empty-state">
+            <EmptyIcon kind="skip" />
+            <h3>Couldn&#39;t start session</h3>
+            <p role="alert">{startError ?? 'Could not start study session.'}</p>
+            <Link to={backTo} className="btn btn-ghost cta">{backLabel}</Link>
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  const current = view.current
+  const leechMessage = view.notice === 'suspend'
+    ? 'Leech suspended. Edit the card to restore it.'
+    : view.notice === 'tag'
+      ? 'Leech tagged.'
+      : null
+  const statusMessage = actionNotice ?? leechMessage
 
   if (current === null) {
     if (conflictNotice && view.reviewed === 0) {

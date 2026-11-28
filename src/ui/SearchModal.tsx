@@ -42,6 +42,7 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
       setQuery('')
       setSettledQuery('')
       setHits([])
+      setLoading(false)
       setSearchError(null)
       setActiveIndex(0)
       const previous = restoreFocusRef.current
@@ -129,7 +130,7 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
   }, [open, query, storage])
 
   useEffect(() => {
-    activeRowRef.current?.scrollIntoView({ block: 'nearest' })
+    activeRowRef.current?.scrollIntoView?.({ block: 'nearest' })
   }, [activeIndex, hits])
 
   if (!open) return null
@@ -206,7 +207,7 @@ export function SearchModal({ open, onClose }: SearchModalProps) {
             </p>
           ) : searchError ? (
             <p className="search-modal-empty" role="alert">{searchError}</p>
-          ) : loading && hits.length === 0 ? (
+          ) : !resultsCurrent && hits.length === 0 ? (
             <p className="search-modal-empty">Searching…</p>
           ) : hits.length === 0 ? (
             <p className="search-modal-empty">No cards match “{query.trim()}”.</p>

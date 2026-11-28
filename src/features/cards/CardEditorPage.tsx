@@ -50,7 +50,10 @@ export function CardEditorPage() {
   const [baseline, setBaseline] = useState<CardDraft | null>(editing ? null : EMPTY_DRAFT)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [savedCount, setSavedCount] = useState(0)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [mediaError, setMediaError] = useState<string | null>(null)
+  const savingRef = useRef(false)
   const allowNavigationRef = useRef(false)
   const tagInputRef = useRef<HTMLInputElement>(null)
   const occlusionInputRef = useRef<HTMLInputElement>(null)
@@ -310,56 +313,94 @@ export function CardEditorPage() {
     && (!isOcclusionMode || occlusionIndices.length > 0)
 
   const save = useCallback(async (addAnother = false) => {
-    if (!canSave || !deckId) return
-    const nextTags = mergeUserTags(tags, combinedTagInput)
-    let createdCount = 1
-    if (editing && cardId) {
-      if (isClozeCard) {
-        await storage.updateClozeNote(cardId, front, back, nextTags)
+    if (savingRef.current || !canSave || !deckId) return
+    savingRef.current = true
+    setSaving(true)
+    setSaveError(null)
+    try {
+      const nextTags = mergeUserTags(tags, combinedTagInput)
+      let createdCount = 1
+      if (editing && cardId) {
+        if (isClozeCard) {
+          await storage.updateClozeNote(cardId, front, back, nextTags)
+        } else {
+          await storage.updateCard(cardId, { front, back, tags: nextTags })
+        }
       } else {
-        await storage.updateCard(cardId, { front, back, tags: nextTags })
+        const created = await storage.createCardOrCloze(deckId, front, back, nextTags)
+        createdCount = Math.max(1, created.length)
       }
-    } else {
-      const created = await storage.createCardOrCloze(deckId, front, back, nextTags)
-      createdCount = Math.max(1, created.length)
-    }
-    await storage.sweepOrphanAssets()
+      await storage.sweepOrphanAssets()
 
-    if (addAnother && !editing) {
-      setFront('')
-      setBack('')
-      setTags([])
-      setUserTagChips([])
-      setTagDraft('')
-      setBaseline(EMPTY_DRAFT)
-      setSavedCount((n) => n + createdCount)
-      frontHandle.current?.editor.commands.focus('end')
-      return
-    }
+      if (addAnother && !editing) {
+        setFront('')
+        setBack('')
+        setTags([])
+        setUserTagChips([])
+        setTagDraft('')
+        setBaseline(EMPTY_DRAFT)
+        setSavedCount((n) => n + createdCount)
+        frontHandle.current?.editor.commands.focus('end')
+        return
+      }
 
-    allowNavigationRef.current = true
-    leaveEditor()
+      allowNavigationRef.current = true
+      leaveEditor()
+    } catch (err) {
+      console.error('card save failed', err)
+      setSaveError(err instanceof Error ? err.message : 'Could not save card.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canSave, front, back, tags, combinedTagInput, deckId, cardId, editing, isClozeCard, storage, returnTo])
 
   async function remove() {
-    if (!cardId) return
-    await storage.deleteCard(cardId)
-    await storage.sweepOrphanAssets()
-    allowNavigationRef.current = true
-    leaveEditor()
+    if (savingRef.current || !cardId) return
+    savingRef.current = true
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await storage.deleteCard(cardId)
+      await storage.sweepOrphanAssets()
+      allowNavigationRef.current = true
+      leaveEditor()
+    } catch (err) {
+      console.error('card delete failed', err)
+      setConfirmDelete(false)
+      setSaveError(err instanceof Error ? err.message : 'Could not delete card.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
   }
 
   async function discardAndLeave() {
     allowNavigationRef.current = true
-    await storage.sweepOrphanAssets()
+    try {
+      await storage.sweepOrphanAssets()
+    } catch {
+      // Best-effort cleanup on discard.
+    }
     if (blocker.state === 'blocked') blocker.proceed()
   }
 
   async function unsuspend() {
-    if (!cardId) return
-    await storage.updateCard(cardId, { suspended: false })
-    setSuspended(false)
+    if (savingRef.current || !cardId) return
+    savingRef.current = true
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await storage.updateCard(cardId, { suspended: false })
+      setSuspended(false)
+    } catch (err) {
+      console.error('card unsuspend failed', err)
+      setSaveError(err instanceof Error ? err.message : 'Could not unsuspend card.')
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
   }
 
   // ⌘⏎ / Ctrl+⏎ saves, ⌘⇧⏎ saves & starts another new card, Esc cancels.
@@ -409,15 +450,15 @@ export function CardEditorPage() {
 
   const actions = (
     <>
-      <button className="btn btn-ghost" onClick={leaveEditor}>
+      <button className="btn btn-ghost" onClick={leaveEditor} disabled={saving}>
         Cancel
       </button>
       {!editing && (
-        <button className="btn btn-ghost" onClick={() => void save(true)} disabled={!canSave}>
+        <button className="btn btn-ghost" onClick={() => void save(true)} disabled={saving || !canSave}>
           Save &amp; add another
         </button>
       )}
-      <button className="btn btn-primary" onClick={() => void save(false)} disabled={!canSave}>
+      <button className="btn btn-primary" onClick={() => void save(false)} disabled={saving || !canSave}>
         Save card
       </button>
     </>
@@ -479,9 +520,9 @@ export function CardEditorPage() {
           />
         </div>
 
-        {mediaError && (
+        {(saveError || mediaError) && (
           <p className="editor-cloze-hint" role="alert">
-            {mediaError}
+            {saveError ?? mediaError}
           </p>
         )}
 

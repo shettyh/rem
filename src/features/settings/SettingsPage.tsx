@@ -471,15 +471,28 @@ export function SettingsPage() {
   }
 
   async function exportDecks(ids: string[]) {
-    const payload = await collectBackup(storage, ids)
-    downloadJson(serializeBackup(payload, Date.now()), `rem-backup-${todayStamp()}.json`)
+    setError(null)
+    try {
+      const payload = await collectBackup(storage, ids)
+      downloadJson(serializeBackup(payload, Date.now()), `rem-backup-${todayStamp()}.json`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not export backup.')
+    }
   }
 
   async function runImport(toImport: DeckBackup[]) {
-    const result = await storage.importDecks(toImport)
-    setPending(null)
-    const replacedNote = result.replaced.length ? ` (replaced ${result.replaced.length})` : ''
-    setMessage(`Imported ${toImport.length} deck${toImport.length === 1 ? '' : 's'}${replacedNote}.`)
+    setError(null)
+    try {
+      const result = await storage.importDecks(toImport)
+      if (result.replaced.length > 0) {
+        await storage.sweepOrphanAssets()
+      }
+      setPending(null)
+      const replacedNote = result.replaced.length ? ` (replaced ${result.replaced.length})` : ''
+      setMessage(`Imported ${toImport.length} deck${toImport.length === 1 ? '' : 's'}${replacedNote}.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not import backup.')
+    }
   }
 
   async function onFile(e: ChangeEvent<HTMLInputElement>) {

@@ -42,6 +42,7 @@ export function DraftInboxPage() {
   const [edit, setEdit] = useState<DraftEdit>(EMPTY_EDIT)
   const [revealed, setRevealed] = useState(false)
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const [message, setMessage] = useState<string>()
   const [error, setError] = useState<string>()
   const [active, setActive] = useState<EditorHandle | null>(null)
@@ -71,6 +72,8 @@ export function DraftInboxPage() {
   }, [])
 
   const resolve = useCallback(async (draft: CardDraft, action: 'accept' | 'reject') => {
+    if (busyRef.current) return
+    busyRef.current = true
     setBusy(true)
     setError(undefined)
     try {
@@ -94,6 +97,7 @@ export function DraftInboxPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not resolve this draft.')
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }, [storage, edit])

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useStorage } from '../../data/StorageContext'
 import { useStorageQuery } from '../../data/useStorageQuery'
@@ -34,6 +34,8 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
   const [name, setName] = useState(deck.name)
   const [nameError, setNameError] = useState<string | null>(null)
   const [settings, setSettings] = useState<DeckSettings>(deck.settings)
+  const settingsRef = useRef<DeckSettings>(deck.settings)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [customMode, setCustomMode] = useState<CustomStudyMode | null>(null)
   const [customAmount, setCustomAmount] = useState(1)
@@ -56,20 +58,33 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
     setCustomAmount(preset.defaultAmount)
   }
 
+  async function persistSettings(next: DeckSettings) {
+    try {
+      await storage.updateDeck(deck.id, { settings: next })
+      setSaveError(null)
+    } catch (err) {
+      console.error('deck settings update failed', err)
+      setSaveError(err instanceof Error ? err.message : 'Could not save deck options.')
+    }
+  }
+
   /** Update one setting and persist immediately (steppers, toggles, segmented).
    *  The `as DeckSettings` cast is required: TS can't narrow a generic
    *  computed-key spread under strict mode. */
   function set<K extends keyof DeckSettings>(key: K, value: DeckSettings[K]) {
-    const next = { ...settings, [key]: value } as DeckSettings
+    const next = { ...settingsRef.current, [key]: value } as DeckSettings
+    settingsRef.current = next
     setSettings(next)
-    void storage.updateDeck(deck.id, { settings: next })
+    void persistSettings(next)
   }
   /** Update one setting locally only (text inputs persist on blur via commit). */
   function setLocal<K extends keyof DeckSettings>(key: K, value: DeckSettings[K]) {
-    setSettings((s) => ({ ...s, [key]: value }) as DeckSettings)
+    const next = { ...settingsRef.current, [key]: value } as DeckSettings
+    settingsRef.current = next
+    setSettings(next)
   }
   function commit() {
-    void storage.updateDeck(deck.id, { settings })
+    void persistSettings(settingsRef.current)
   }
   async function optimizeParameters() {
     if (!canOptimize || optimizing) return
@@ -78,11 +93,12 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
     try {
       const weights = await getFsrsOptimizer().optimize(
         reviewHistories,
-        parseStepsMs(settings.relearnSteps).length,
+        parseStepsMs(settingsRef.current.relearnSteps).length,
       )
-      const next = { ...settings, fsrsWeights: weights }
+      const next: DeckSettings = { ...settingsRef.current, fsrsWeights: weights }
+      settingsRef.current = next
       setSettings(next)
-      await storage.updateDeck(deck.id, { settings: next })
+      await persistSettings(next)
     } catch (error) {
       console.error('FSRS optimization failed', error)
       setOptimizerError(true)
@@ -91,10 +107,11 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
     }
   }
   async function resetParameters() {
-    const next = { ...settings, fsrsWeights: null }
+    const next: DeckSettings = { ...settingsRef.current, fsrsWeights: null }
+    settingsRef.current = next
     setSettings(next)
     setOptimizerError(false)
-    await storage.updateDeck(deck.id, { settings: next })
+    await persistSettings(next)
   }
 
   const title = (
@@ -111,6 +128,7 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
       <PageHeader title={title} />
       <div className="page-body">
         <div className="deck-settings">
+          {saveError && <div className="ds-row-sub ds-error" role="alert">{saveError}</div>}
           {/* GENERAL */}
           <div className="ds-label">General</div>
           <div className="ds-card">
@@ -367,8 +385,14 @@ function DeckSettingsForm({ deck, storage }: { deck: Deck; storage: Storage }) {
                     type="button"
                     className="btn btn-danger"
                     onClick={async () => {
-                      await storage.deleteDeck(deck.id)
-                      navigate('/')
+                      try {
+                        await storage.deleteDeck(deck.id)
+                        await storage.sweepOrphanAssets()
+                        navigate('/')
+                      } catch (err) {
+                        console.error('deck delete failed', err)
+                        setSaveError(err instanceof Error ? err.message : 'Could not delete deck.')
+                      }
                     }}
                   >
                     Confirm delete
