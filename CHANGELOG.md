@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.30.0 (2026-11-28)
+
+## What's Changed
+* feat: Markdown-native Image Occlusion across core, Desktop, iOS, TUI, and .apkg import by @shettyh in https://github.com/shettyh/rem/pull/274
+* fix: harden Rust core, sync client, and add property/simulation tests by @shettyh in https://github.com/shettyh/rem/pull/276
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.29.1...v0.30.0
+
 ## 0.29.1 (2026-11-28)
 
 ## What's Changed
