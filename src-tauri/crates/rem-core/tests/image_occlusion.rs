@@ -179,8 +179,12 @@ fn image_occlusion_sibling_lifecycle_burying_orphan_assets_and_backup_roundtrip(
     let (_dir2, col2) = open_temp_collection();
     col2.import_backup_json(&backup_json, NOW + 60).unwrap();
     let imported_decks = col2.list_decks().unwrap();
-    assert_eq!(imported_decks.len(), 1);
-    let imported_cards = col2.list_cards(&imported_decks[0].id).unwrap();
+    assert_eq!(imported_decks.len(), 2);
+    let imported_leaf = imported_decks
+        .iter()
+        .find(|d| d.name == "Systems::Networking")
+        .unwrap();
+    let imported_cards = col2.list_cards(&imported_leaf.id).unwrap();
     assert_eq!(imported_cards.len(), 2);
     assert!(has_image_occlusion(&imported_cards[0].front));
 }
@@ -296,8 +300,9 @@ fn apkg_imports_anki_builtin_image_occlusion_notes_with_media_and_siblings() {
     assert_eq!(result.imported_media, 1);
 
     let decks = col.list_decks().unwrap();
-    assert_eq!(decks[0].name, "Anatomy::Heart");
-    let cards = col.list_cards(&decks[0].id).unwrap();
+    assert_eq!(decks.len(), 2);
+    let heart = decks.iter().find(|d| d.name == "Anatomy::Heart").unwrap();
+    let cards = col.list_cards(&heart.id).unwrap();
     assert_eq!(cards.len(), 2);
     assert_eq!(cards[0].sibling_group_id, cards[1].sibling_group_id);
     assert!(cards[0].sibling_group_id.is_some());

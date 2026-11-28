@@ -669,8 +669,13 @@ mod tests {
         assert_eq!(summary_json["reviewedToday"], 1);
         assert_eq!(summary_json["recallTodayPercent"], 100);
         assert!(summary_json["currentStreakDays"].is_number());
-        assert_eq!(summary_json["decks"].as_array().unwrap().len(), 1);
-        let deck_summary = &summary_json["decks"][0];
+        let summary_decks = summary_json["decks"].as_array().unwrap();
+        // Materialized ancestor "Systems" + leaf "Systems::Rust"
+        assert_eq!(summary_decks.len(), 2);
+        let deck_summary = summary_decks
+            .iter()
+            .find(|d| d["id"] == deck.id)
+            .expect("Systems::Rust must appear in TodaySummary.decks");
         assert_eq!(deck_summary["id"], deck.id);
         assert_eq!(deck_summary["name"], "Systems::Rust");
         assert_eq!(deck_summary["totalCards"], 2);

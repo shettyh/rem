@@ -29,6 +29,7 @@ import type { CardPatch, DeckPatch, ImportResult, Storage } from '../data/Storag
 import { planImport, type DeckBackup } from '../data/backup'
 import { extractSiblingCardIndices } from '../features/cards/occlusion'
 import {
+  deckAncestorPaths,
   deckIsDescendantOrSelf,
   deckIsStrictDescendant,
   normalizeDeckName,
@@ -135,12 +136,31 @@ export class MemoryStorage implements Storage {
     this.nextGradeNotice = notice
   }
 
+  private ensureAncestorDecks(name: string, kind: SchedulerKind, createdAt: number, now: number): void {
+    for (const ancestorName of deckAncestorPaths(name)) {
+      const exists = [...this.decks.values()].some((d) => d.name === ancestorName)
+      if (exists) continue
+      const ancestorId = this.nextId('deck')
+      this.decks.set(ancestorId, {
+        id: ancestorId,
+        name: ancestorName,
+        createdAt,
+        updatedAt: now,
+        color: deckColor(ancestorId),
+        schedulerKind: kind,
+        settings: { ...DEFAULT_DECK_SETTINGS },
+      })
+    }
+  }
+
   async createDeck(name: string, kind: SchedulerKind = 'fsrs'): Promise<Deck> {
     const now = Date.now()
+    const normalized = normalizeDeckName(name)
+    this.ensureAncestorDecks(normalized, kind, now, now)
     const id = this.nextId('deck')
     const deck: Deck = {
       id,
-      name: normalizeDeckName(name),
+      name: normalized,
       createdAt: now,
       updatedAt: now,
       color: deckColor(id),
@@ -177,6 +197,7 @@ export class MemoryStorage implements Storage {
           })
         }
       }
+      this.ensureAncestorDecks(nextName, existing.schedulerKind, now, now)
     }
     this.notify()
   }
@@ -601,6 +622,9 @@ export class MemoryStorage implements Storage {
           this.reviewLogs.set(logId, { id: logId, deckId, cardId, reviewedAt: r.reviewedAt, grade: r.grade })
         }
       }
+    }
+    for (const d of normalized) {
+      this.ensureAncestorDecks(d.name, d.schedulerKind, Math.max(0, d.createdAt - 1), now)
     }
     this.notify()
     return result

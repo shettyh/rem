@@ -1704,9 +1704,20 @@ mod tests {
         assert_eq!(imported.replaced, vec!["Languages::Spanish"]);
 
         let decks = client.list_decks().unwrap();
-        assert_eq!(decks.len(), 3);
+        // 3 imported leaf decks + 3 materialized ancestor container decks (Languages, STEM, Anatomy)
+        assert_eq!(decks.len(), 6);
         let by_name: HashMap<String, DeckDto> =
             decks.into_iter().map(|d| (d.name.clone(), d)).collect();
+        for expected in [
+            "Languages",
+            "Languages::Spanish",
+            "STEM",
+            "STEM::Physics",
+            "Anatomy",
+            "Anatomy::Heart",
+        ] {
+            assert!(by_name.contains_key(expected), "missing deck {expected}");
+        }
 
         // 1. Spanish deck: replaced old card, imported audio + image assets and 2 review logs
         let spanish = &by_name["Languages::Spanish"];
@@ -1775,7 +1786,7 @@ mod tests {
         let stats = client.get_stats(None, 30, now).unwrap();
         assert_eq!(stats.reviews, 3);
         let storage = client.get_storage_summary().unwrap();
-        assert_eq!(storage.total_decks, 3);
+        assert_eq!(storage.total_decks, 6);
         assert_eq!(storage.total_cards, 5);
         assert_eq!(storage.asset_count, 3);
 
@@ -1852,15 +1863,17 @@ mod tests {
             )
             .unwrap();
 
-        let mut deleted_ids = client.delete_deck_tree("JLPT".into(), now + 10).unwrap();
-        deleted_ids.sort();
-        let mut expected_deleted = vec![n5.id, n4.id];
-        expected_deleted.sort();
-        assert_eq!(deleted_ids, expected_deleted);
+        // Deletes JLPT, materialized ancestors JLPT::N5 & JLPT::N4, and both leaf subdecks (5 total)
+        let deleted_ids = client.delete_deck_tree("JLPT".into(), now + 10).unwrap();
+        assert_eq!(deleted_ids.len(), 5);
+        assert!(deleted_ids.contains(&n5.id));
+        assert!(deleted_ids.contains(&n4.id));
 
         let remaining = client.list_decks().unwrap();
-        assert_eq!(remaining.len(), 1);
-        assert_eq!(remaining[0].id, unrelated.id);
+        let mut remaining_names: Vec<String> = remaining.iter().map(|d| d.name.clone()).collect();
+        remaining_names.sort();
+        assert_eq!(remaining_names, vec!["JLPT2", "JLPT2::Grammar"]);
+        assert!(remaining.iter().any(|d| d.id == unrelated.id));
 
         // Sweeping orphan assets removes only the asset belonging to the deleted subtree
         let swept = client.sweep_orphan_assets().unwrap();

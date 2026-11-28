@@ -62,6 +62,58 @@ enum DeckTreeBuilder {
         segments(name).last ?? name
     }
 
+    static func ancestorPaths(_ name: String) -> [String] {
+        let parts = segments(name)
+        guard parts.count > 1 else { return [] }
+        return (1..<parts.count).map { len in
+            parts[0..<len].joined(separator: separator)
+        }
+    }
+
+    static func findNode(deckId: String, in roots: [DeckTreeNode]) -> DeckTreeNode? {
+        for node in roots {
+            if node.deck?.id == deckId {
+                return node
+            }
+            if let found = findNode(deckId: deckId, in: node.children) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    struct NavigableSubdeck: Identifiable {
+        let node: DeckTreeNode
+        let deck: DeckSummaryDto
+        let displayLabel: String
+
+        var id: String { deck.id }
+    }
+
+    /// Promote real decks through any virtual intermediate folders (e.g. synced from older v7 peers)
+    /// so every descendant remains reachable from its parent detail screen.
+    static func navigableChildren(of parent: DeckTreeNode) -> [NavigableSubdeck] {
+        var out: [NavigableSubdeck] = []
+        let prefix = "\(parent.path)\(separator)"
+        func visit(_ nodes: [DeckTreeNode], viaVirtual: Bool) {
+            for child in nodes {
+                if let deck = child.deck {
+                    let displayLabel: String
+                    if viaVirtual && child.path.hasPrefix(prefix) {
+                        displayLabel = String(child.path.dropFirst(prefix.count))
+                    } else {
+                        displayLabel = child.label
+                    }
+                    out.append(NavigableSubdeck(node: child, deck: deck, displayLabel: displayLabel))
+                } else {
+                    visit(child.children, viaVirtual: true)
+                }
+            }
+        }
+        visit(parent.children, viaVirtual: false)
+        return out
+    }
+
     static func isStrictDescendant(_ candidate: String, of root: String) -> Bool {
         candidate.hasPrefix("\(root)\(separator)")
     }

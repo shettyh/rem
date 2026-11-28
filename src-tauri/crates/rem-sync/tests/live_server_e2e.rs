@@ -411,7 +411,7 @@ fn two_collections_sync_nested_decks_and_subtree_deletion_against_live_server() 
     };
     let (_temp_a, _temp_b, dev_a, dev_b) = open_synced_pair(&env);
 
-    // Real parent hierarchy, virtual parent folder (no root deck row), prefix collision, and unrelated.
+    // Explicit parent hierarchy, auto-materialized ancestor hierarchy, prefix collision, and unrelated.
     let parent = dev_a.create_deck("Parent", 1_010).unwrap();
     let child = dev_a.create_deck("Parent::Child", 1_011).unwrap();
     let grandchild = dev_a.create_deck("Parent::Child::Leaf", 1_012).unwrap();
@@ -419,6 +419,12 @@ fn two_collections_sync_nested_decks_and_subtree_deletion_against_live_server() 
     let virtual_b = dev_a.create_deck("VirtualRoot::BranchB", 1_014).unwrap();
     let prefix_sibling = dev_a.create_deck("Parent2::Keep", 1_015).unwrap();
     let unrelated = dev_a.create_deck("Unrelated", 1_016).unwrap();
+    let virtual_root = dev_a
+        .list_decks()
+        .unwrap()
+        .into_iter()
+        .find(|d| d.name == "VirtualRoot")
+        .expect("VirtualRoot ancestor deck must be materialized");
 
     let parent_card = dev_a
         .create_card(&parent.id, "Parent Q", "Parent A", vec![], 1_020)
@@ -462,8 +468,10 @@ fn two_collections_sync_nested_decks_and_subtree_deletion_against_live_server() 
             "Parent".into(),
             "Parent::Child".into(),
             "Parent::Child::Leaf".into(),
+            "Parent2".into(),
             "Parent2::Keep".into(),
             "Unrelated".into(),
+            "VirtualRoot".into(),
             "VirtualRoot::BranchA".into(),
             "VirtualRoot::BranchB".into(),
         ])
@@ -477,7 +485,7 @@ fn two_collections_sync_nested_decks_and_subtree_deletion_against_live_server() 
         "Leaf Q"
     );
 
-    // Delete both real ("Parent") and virtual ("VirtualRoot") deck subtrees on Device A.
+    // Delete both explicit ("Parent") and auto-materialized ("VirtualRoot") deck subtrees on Device A.
     let deleted_parent_ids: BTreeSet<String> = dev_a
         .delete_deck_tree("Parent", 3_000)
         .unwrap()
@@ -495,16 +503,20 @@ fn two_collections_sync_nested_decks_and_subtree_deletion_against_live_server() 
         .collect();
     assert_eq!(
         deleted_virtual_ids,
-        BTreeSet::from([virtual_a.id.clone(), virtual_b.id.clone()])
+        BTreeSet::from([
+            virtual_root.id.clone(),
+            virtual_a.id.clone(),
+            virtual_b.id.clone()
+        ])
     );
 
     // Propagate subtree deletions through live server to Device B.
     let push_del = sync_with_http(&dev_a, &env.token, 4_000).unwrap();
-    assert!(push_del.pushed_ops >= 5);
+    assert!(push_del.pushed_ops >= 6);
     assert_eq!(dev_a.pending_outbox_count().unwrap(), 0);
 
     let pull_del = sync_with_http(&dev_b, &env.token, 4_100).unwrap();
-    assert!(pull_del.pulled_ops >= 5);
+    assert!(pull_del.pulled_ops >= 6);
 
     for col in [&dev_a, &dev_b] {
         let remaining_names: BTreeSet<String> = col
@@ -515,13 +527,14 @@ fn two_collections_sync_nested_decks_and_subtree_deletion_against_live_server() 
             .collect();
         assert_eq!(
             remaining_names,
-            BTreeSet::from(["Parent2::Keep".into(), "Unrelated".into()])
+            BTreeSet::from(["Parent2".into(), "Parent2::Keep".into(), "Unrelated".into()])
         );
 
         for deleted_deck_id in [
             &parent.id,
             &child.id,
             &grandchild.id,
+            &virtual_root.id,
             &virtual_a.id,
             &virtual_b.id,
         ] {

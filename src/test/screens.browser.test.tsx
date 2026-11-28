@@ -465,6 +465,41 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
     run: async () => {
       const storage = freshStorage()
       const rust = await storage.createDeck('Rust')
+      const sql = await storage.createDeck('SQL::Internals')
+      await storage.createCard(rust.id, 'Ownership Rules', 'Each value in Rust has an owner.', ['ownership'])
+      await storage.createCard(rust.id, 'Cargo basics', 'cargo build', ['cargo'])
+      await storage.createCard(sql.id, 'What is WAL mode?', 'Write-Ahead Logging.', ['sqlite'])
+      await renderRoute({ storage, entry: `/decks/${rust.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
+      await expect.element(page.getByText('Ownership Rules')).toBeVisible()
+      await page.getByRole('button', { name: 'Search', exact: false }).click()
+      await expect.element(page.getByText('Jump to deck')).toBeVisible()
+    },
+  },
+  {
+    name: 'search-modal-results',
+    run: async () => {
+      const storage = freshStorage()
+      const rust = await storage.createDeck('Rust')
+      const sql = await storage.createDeck('SQL::Internals')
+      await storage.createCard(rust.id, 'Ownership Rules', 'Each value in Rust has an owner.', ['ownership'])
+      await storage.createCard(rust.id, 'Rust Pin<P> guarantee', 'The pointee cannot be moved in memory.', ['async', 'rust'])
+      await storage.createCard(sql.id, 'What is WAL mode?', 'Write-Ahead Logging.', ['sqlite'])
+      await renderRoute({ storage, entry: `/decks/${rust.id}`, path: '/decks/:deckId', element: <DeckDetailPage /> })
+      await expect.element(page.getByText('Ownership Rules')).toBeVisible()
+      await page.getByRole('button', { name: 'Search', exact: false }).click()
+      const input = page.getByRole('combobox', { name: 'Search all cards' })
+      await expect.element(input).toBeVisible()
+      await userEvent.type(input.element(), 'Rust')
+      const results = page.getByRole('listbox', { name: 'Search results' })
+      await expect.element(results).toHaveAttribute('aria-busy', 'false')
+      await expect.element(results.getByText('Rust Pin<P> guarantee')).toBeVisible()
+    },
+  },
+  {
+    name: 'search-modal-shortcut',
+    run: async () => {
+      const storage = freshStorage()
+      const rust = await storage.createDeck('Rust')
       const os = await storage.createDeck('Systems::Memory')
       const sql = await storage.createDeck('SQL')
       await storage.createCard(
@@ -485,13 +520,13 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       await expect.element(page.getByLabelText('Review summary')).toBeVisible()
 
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))
-      const searchbox = page.getByRole('searchbox', { name: 'Search all cards' })
+      const searchbox = page.getByRole('combobox', { name: 'Search all cards' })
       await expect.element(searchbox).toBeVisible()
       await userEvent.type(searchbox.element(), 'memory')
 
       const results = page.getByRole('listbox', { name: 'Search results' })
       await expect.element(results).toHaveAttribute('aria-busy', 'false')
-      await expect.element(page.getByText('How does a TLB accelerate virtual memory translation?')).toBeVisible()
+      await expect.element(results.getByText('How does a TLB accelerate virtual memory translation?')).toBeVisible()
     },
   },
 ]
