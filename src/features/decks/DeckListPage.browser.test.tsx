@@ -2,6 +2,7 @@ import { afterEach, test, expect, vi } from 'vitest'
 import { page, userEvent } from 'vitest/browser'
 import { DeckListPage } from './DeckListPage'
 import { serializeBackup, type DeckBackup } from '../../data/backup'
+import type { Storage } from '../../data/Storage'
 import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
@@ -200,7 +201,7 @@ function makeSampleDeckBackup(name: string): DeckBackup {
 }
 
 test('offers Anki and JSON import from the add-deck row and empty state', async () => {
-  const storage = freshStorage()
+  const storage: Storage = freshStorage()
   storage.previewApkg = vi.fn(async () => ({
     added: ['Japanese'],
     replaced: [],
@@ -267,7 +268,7 @@ test('imports JSON backup from Today and confirms before replacing same-named de
 })
 
 test('confirms Anki .apkg replacement and rejects empty JSON backups on Today', async () => {
-  const storage = freshStorage()
+  const storage: Storage = freshStorage()
   await storage.createDeck('Spanish')
   storage.previewApkg = vi.fn(async () => ({
     added: ['Spanish::Verbs'],
@@ -309,7 +310,7 @@ test('confirms Anki .apkg replacement and rejects empty JSON backups on Today', 
 })
 
 test('closes replace confirmation modal and surfaces error if replacement import fails', async () => {
-  const storage = freshStorage()
+  const storage: Storage = freshStorage()
   await storage.createDeck('Spanish')
   storage.previewApkg = vi.fn(async () => ({
     added: [],
