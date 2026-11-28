@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.2 (2026-11-28)
+
+## What's Changed
+* fix(sync-server): track asset quota in O(1) SQLite row reads and handle DO/R2 storage errors by @shettyh in https://github.com/shettyh/rem/pull/279
+
+
+**Full Changelog**: https://github.com/shettyh/rem/compare/v0.30.1...v0.30.2
+
 ## 0.30.1 (2026-11-28)
 
 ## What's Changed
