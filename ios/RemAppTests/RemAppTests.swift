@@ -1564,19 +1564,42 @@ final class RemAppTests: XCTestCase {
         XCTAssertFalse(appState.isImportingApkg)
         XCTAssertTrue(appState.toastMessage?.hasPrefix("Anki import failed:") == true)
 
-        // 5. 250 MB iOS import guard rejects oversized files cleanly without crashing
+        // 5. 250 MB iOS import guard rejects oversized files upfront via fileSize without copying 250 MB
         let oversizedURL = dir.appendingPathComponent("oversized.apkg")
         FileManager.default.createFile(atPath: oversizedURL.path, contents: nil)
         let handle = try FileHandle(forWritingTo: oversizedURL)
         try handle.truncate(atOffset: UInt64(250 * 1024 * 1024 + 4096))
         try handle.close()
 
+        let oversizedStart = CFAbsoluteTimeGetCurrent()
         let oversizedPending = await appState.prepareApkgImport(from: oversizedURL)
+        let oversizedElapsed = CFAbsoluteTimeGetCurrent() - oversizedStart
         XCTAssertNil(oversizedPending)
         XCTAssertFalse(appState.isImportingApkg)
+        XCTAssertLessThan(
+            oversizedElapsed,
+            5.0,
+            "Oversized .apkg pre-check should fail fast without copying 250 MB (took \(oversizedElapsed)s)"
+        )
         XCTAssertTrue(
             appState.toastMessage?.contains("250 MB iOS import limit") == true,
             "Unexpected toast for oversized apkg: \(appState.toastMessage ?? "nil")"
+        )
+
+        // 6. Streaming byte-counter guard (defense-in-depth when reported fileSize is unavailable)
+        appState.toastMessage = nil
+        let streamingURL = dir.appendingPathComponent("streaming-oversized.apkg")
+        try Data(repeating: 0x50, count: 8 * 1024).write(to: streamingURL)
+        let streamingPending = await appState.prepareApkgImport(
+            from: streamingURL,
+            maxBytes: 4 * 1024,
+            checkReportedSize: false
+        )
+        XCTAssertNil(streamingPending)
+        XCTAssertFalse(appState.isImportingApkg)
+        XCTAssertTrue(
+            appState.toastMessage?.contains("250 MB iOS import limit") == true,
+            "Unexpected toast for streaming oversized apkg: \(appState.toastMessage ?? "nil")"
         )
     }
 

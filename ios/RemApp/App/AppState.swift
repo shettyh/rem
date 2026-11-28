@@ -959,7 +959,8 @@ final class AppState {
         }
     }
 
-    private static let maxIosApkgBytes: Int64 = 250 * 1024 * 1024
+    static let maxIosApkgBytes: Int64 = 250 * 1024 * 1024
+    private static let apkgSizeLimitErrorMessage = "Anki archive exceeds the 250 MB iOS import limit."
 
     func discardPendingApkgImport(_ pending: PendingApkgImport?) {
         guard let url = pending?.tempFileURL else { return }
@@ -967,12 +968,20 @@ final class AppState {
     }
 
     func prepareApkgImport(from url: URL) async -> PendingApkgImport? {
+        await prepareApkgImport(from: url, maxBytes: Self.maxIosApkgBytes, checkReportedSize: true)
+    }
+
+    func prepareApkgImport(
+        from url: URL,
+        maxBytes: Int64,
+        checkReportedSize: Bool = true
+    ) async -> PendingApkgImport? {
         guard !isImporting else { return nil }
         isImportingApkg = true
         defer { isImportingApkg = false }
         var stagedURL: URL?
         do {
-            let maxBytes = Self.maxIosApkgBytes
+            let sizeLimitMessage = Self.apkgSizeLimitErrorMessage
             let tempURL = try await Task.detached(priority: .userInitiated) { () throws -> URL in
                 let accessed = url.startAccessingSecurityScopedResource()
                 defer { if accessed { url.stopAccessingSecurityScopedResource() } }
@@ -982,36 +991,44 @@ final class AppState {
                 let coordinator = NSFileCoordinator()
                 coordinator.coordinate(readingItemAt: url, options: [], error: &coordError) { readableURL in
                     innerResult = Result {
+                        if checkReportedSize,
+                           let reportedSize = try? readableURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+                           Int64(reportedSize) > maxBytes {
+                            throw RemFfiError.InvalidInput(message: sizeLimitMessage)
+                        }
                         let destURL = FileManager.default.temporaryDirectory
                             .appendingPathComponent("rem-import-\(UUID().uuidString).apkg")
                         guard let input = InputStream(url: readableURL) else {
                             throw RemFfiError.InvalidInput(message: "Could not open the selected .apkg file.")
                         }
                         FileManager.default.createFile(atPath: destURL.path, contents: nil)
-                        let outHandle = try FileHandle(forWritingTo: destURL)
-                        defer {
-                            input.close()
-                            try? outHandle.close()
-                        }
-                        input.open()
-                        let chunkSize = 1024 * 1024
-                        var buffer = [UInt8](repeating: 0, count: chunkSize)
-                        var totalBytes: Int64 = 0
-                        while true {
-                            let readCount = input.read(&buffer, maxLength: chunkSize)
-                            if readCount < 0 {
-                                try? FileManager.default.removeItem(at: destURL)
-                                throw input.streamError ?? RemFfiError.InvalidInput(message: "Failed reading .apkg archive.")
+                        do {
+                            let outHandle = try FileHandle(forWritingTo: destURL)
+                            defer {
+                                input.close()
+                                try? outHandle.close()
                             }
-                            if readCount == 0 { break }
-                            totalBytes += Int64(readCount)
-                            if totalBytes > maxBytes {
-                                try? FileManager.default.removeItem(at: destURL)
-                                throw RemFfiError.InvalidInput(message: "Anki archive exceeds the 250 MB iOS import limit.")
+                            input.open()
+                            let chunkSize = 1024 * 1024
+                            var buffer = [UInt8](repeating: 0, count: chunkSize)
+                            var totalBytes: Int64 = 0
+                            while true {
+                                let readCount = input.read(&buffer, maxLength: chunkSize)
+                                if readCount < 0 {
+                                    throw input.streamError ?? RemFfiError.InvalidInput(message: "Failed reading .apkg archive.")
+                                }
+                                if readCount == 0 { break }
+                                totalBytes += Int64(readCount)
+                                if totalBytes > maxBytes {
+                                    throw RemFfiError.InvalidInput(message: sizeLimitMessage)
+                                }
+                                try outHandle.write(contentsOf: buffer[0..<readCount])
                             }
-                            try outHandle.write(contentsOf: buffer[0..<readCount])
+                            return destURL
+                        } catch {
+                            try? FileManager.default.removeItem(at: destURL)
+                            throw error
                         }
-                        return destURL
                     }
                 }
                 if let coordError {
