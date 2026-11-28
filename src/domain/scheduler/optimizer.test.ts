@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ReviewLog } from '../models'
-import { MS_PER_DAY } from './index'
+import { MS_PER_DAY, type ReviewLog } from '../models'
 import {
   DEFAULT_FSRS_WEIGHTS,
   buildReviewHistories,

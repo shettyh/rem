@@ -55,8 +55,9 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 - **Desktop app:** Tauri v2 desktop application with React, TypeScript, and Vite rendering the
   webview; Rust owns native persistence, scheduling, study sessions, and cloud sync. The browser
   build is an internal webview/test adapter, not a supported browser product.
-- **Terminal CLI:** Companion `rem` CLI for agent/script capture, draft ingestion, cloud sync, and
-  interactive terminal study (`rem study`).
+- **Terminal CLI:** Companion `rem` CLI for agent/script capture, draft ingestion and triage
+  (`rem draft review`), `.apkg` import, cloud sync, and lightweight, scope-frozen terminal study
+  (`rem study`).
 - **iOS companion:** Native SwiftUI iPhone app (`ios/`) backed by `rem-core` and `rem-sync` via
   UniFFI (`src-tauri/crates/rem-ffi` packaged as `RemCore.xcframework`).
 
@@ -119,15 +120,17 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
   review persistence, atomic undo (restoring card state, removing the undone review log and
   daily-cap increment, unburying siblings, and retracting unsent sync outbox ops), counters,
   requeueing, and stale-card conflicts.
-- The desktop review page, `rem study` TUI, and iOS `ReviewScreen` are all thin adapters over the
-  same `StudySession` implementation, with full parity for atomic Undo (`⌘Z`/`u` on Desktop,
+- The desktop review page, iOS `ReviewScreen`, and `rem study` TUI are all thin adapters over the
+  same `StudySession` implementation, with parity for atomic Undo (`⌘Z`/`u` on Desktop,
   `u`/`Ctrl+Z` in TUI, toolbar Undo on iOS), in-review Suspend (`s` on Desktop and TUI, menu on
-  iOS), cloze display, and optional answer timer on Desktop and iOS.
-- `rem study` reviews all decks; `rem study --deck <id-or-exact-name>` reviews one deck. The
-  interactive TUI supports Space/Enter reveal, 1–4 grading, `u`/`Ctrl+Z` undo, `s` suspend,
-  arrow/j/k scrolling, resize, clean `q` exit, interval previews, progress, completion counts,
-  retained provenance inspection, leech notices, stale-card messages, and explicit image/GIF
-  placeholders containing asset hashes.
+  iOS), and cloze display. Desktop and iOS are the primary full-fidelity study surfaces (supporting
+  optional answer timer, rich media/audio playback, interactive Image Occlusion, LaTeX typesetting,
+  custom study, and mid-session editing).
+- `rem study` is intentionally **frozen** to lightweight terminal review of due text/Markdown cards:
+  all decks or `--deck <id-or-exact-name>`, Space/Enter reveal, 1–4 grading with interval previews,
+  `u`/`Ctrl+Z` undo, `s` suspend, arrow/j/k scrolling, resize, clean `q` exit, progress, completion
+  counts, retained provenance inspection, leech/stale-card notices, and graceful placeholders for
+  images, audio, and Image Occlusion (directing visual cards to Desktop/iOS).
 - Custom study modes (`study-ahead`, `increase-new`, `review-forgotten`, and non-rescheduling
   `preview-new`) are supported on both desktop and iOS.
 - Global cross-deck search backed by a trigger-maintained SQLite FTS5 index (with substring fallback
@@ -176,7 +179,8 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
 ### Data, backup, sync, and billing
 
 - Native desktop, CLI, and iOS operations use SQLite through `rem-core`; the TypeScript `Storage`
-  interface keeps React independent of native commands, and Dexie remains a browser-test adapter.
+  interface keeps React independent of native commands, and desktop UI/browser tests use a
+  lightweight in-memory test double (the legacy Dexie/TypeScript shadow engine has been removed).
 - SQLite schema v6 contains FSRS-7 scheduling state, retained card provenance (`rationale`,
   `sources_json`, `proposed_by`), optional cloze/sibling metadata (`sibling_group_id`,
   `cloze_index`), a trigger-maintained FTS5 `cards_fts` search index, local-only drafts, per-card
@@ -299,7 +303,7 @@ are implemented:
    (`anki2` / `anki21` / zstd `anki21b`, HTML→Markdown, math, media, `revlog`→FSRS-7 replay) on
    Desktop, CLI (`rem import`), and iOS.
 5. **Show answer timer** — persisted `DeckSettings.show_timer` wired through `StudyView` and
-   rendered during review on Desktop, iOS, and the `rem study` TUI.
+   rendered during review on Desktop and iOS.
 
 ### 6. Markdown-Native Image Occlusion
 
@@ -315,7 +319,8 @@ Implemented in [`2026-11-28-image-occlusion-design.md`](superpowers/specs/2026-1
    composite lightbox zoom, and native `ImageOcclusionEditorSheet` inside Quick Capture.
 4. **Anki `.apkg` import & TUI fallback** — imports Anki 23.10+ built-in Image Occlusion notes
    (`rect`, `ellipse`, `poly` approximated as axis-aligned bounding boxes, `oi=0/1`, `Image`,
-   `Header`, `Back Extra`, `revlog`) and renders a concise placeholder in `rem study` TUI.
+   `Header`, `Back Extra`, `revlog`) and renders a graceful fallback placeholder in `rem study`
+   pointing to Desktop or iPhone.
 
 ## Known gaps and incomplete behavior
 
@@ -348,10 +353,11 @@ Honest constraints that should govern prioritization going forward:
 As a solo-maintained project, `rem` already spans five moving surfaces (Tauri desktop, CLI/TUI, native SwiftUI iOS, Cloudflare Workers backend, and marketing site) plus dual-provider billing (Polar + StoreKit 2), where auth/billing/web-page code in `sync-server/` dwarfs the core sync Durable Object itself.
 
 - **Operating rule:** freeze new infrastructure, billing, and platform expansion until iOS 1.0 ships publicly and real daily usage reveals what actually breaks or creates friction. Every new cross-cutting control carries a multiplier across `sync-server`, `rem-sync`, `rem-ffi`, Desktop, and iOS.
+- **`rem study` feature freeze:** Desktop and iOS are the primary study surfaces; `rem study` is frozen at its lightweight text/Markdown review boundary (`--deck`, reveal, 1–4 grade, undo, suspend, scroll, provenance, and graceful placeholders). Future rich card/study features target Desktop and iOS only and must not add TUI-specific helpers to `rem-core` or custom renderers to `rem-cli`. Non-study CLI commands (`deck`, `card`, `draft`, `import`, `sync`) remain a first-class core pillar.
 
 ### 3. Architectural & test debt to pay down incrementally
 
-- **Shadow TypeScript engine:** Desktop browser/unit tests still run against a parallel TypeScript reimplementation (`DexieStorage`, `BrowserStudySession`, `reviewScheduler.ts`, `stats.ts`) rather than `rem-core` over Tauri IPC. This creates scheduling/behavior drift risk whenever `rem-core` evolves; avoid adding new domain logic to the TS test adapter and look for ways to collapse or thin it over time.
+- **Single domain engine (retired TS shadow engine):** The legacy TypeScript/Dexie shadow engine (`DexieStorage`, `BrowserStudySession`, TS FSRS/stats) has been removed in favor of a lightweight in-memory `Storage` test double for React UI/browser tests, leaving `rem-core` as the sole persistence, scheduling, and stats engine.
 - **Thin native boundary test coverage:** `rem-core`, `rem-sync`, `rem-cli`, `rem-ffi`, `sync-server`, and React have strong tests, while `src-tauri/src/` command glue has minimal direct test coverage and `ios/` relies on a single test target (`RemAppTests.swift`) for SwiftUI flows.
 - **Gravity-well files:** Decompose `src/ui/styles.css`, `src/features/settings/SettingsPage.tsx`, `src-tauri/crates/rem-core/src/sync_store.rs`, `src-tauri/crates/rem-ffi/src/lib.rs`, `ios/RemApp/Features/Settings/SettingsView.swift`, and `ios/RemApp/App/AppState.swift` into focused modules as those areas are touched.
 
@@ -443,6 +449,7 @@ prompts faster without weakening human control.
 - Supporting the browser as a reduced product while core behavior depends on Rust and local SQLite.
 - Building multiple storage/sync abstractions before a second real implementation exists.
 - Supporting arbitrary Anki HTML/CSS/JS card templates or add-on scripting (import converts to clean Markdown instead).
+- Expanding `rem study` beyond lightweight text/Markdown terminal review (no custom study modes, answer timer, inline media/audio/occlusion rendering, LaTeX typesetting, or mid-session editing in the terminal TUI; Desktop and iOS are the primary study surfaces).
 - Adding new billing, platform, or cloud infrastructure surface area before public iOS 1.0 launch and sustained daily-driver validation.
 
 ## Planning rule

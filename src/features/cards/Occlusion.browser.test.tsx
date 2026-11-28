@@ -1,10 +1,8 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { StrictMode, useState } from 'react'
-import Dexie from 'dexie'
-import { RemDB } from '../../data/dexie/db'
-import { DexieStorage } from '../../data/dexie/DexieStorage'
 import { StorageProvider } from '../../data/StorageContext'
+import { freshStorage } from '../../test/seed'
 import { MarkdownView } from './MarkdownView'
 import { OcclusionEditor } from './OcclusionEditor'
 import { serializeOcclusionBlock, type OcclusionBlock } from './occlusion'
@@ -19,13 +17,9 @@ const TINY_PNG = new Uint8Array([
   0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ])
 
-beforeEach(async () => {
-  await Dexie.delete('rem-io-browser')
-})
-
 describe('Image Occlusion viewer & editor', () => {
   it('renders hide-all and hide-one masks accurately across unrevealed, revealed, and peek-all states', async () => {
-    const storage = new DexieStorage(new RemDB('rem-io-browser'))
+    const storage = freshStorage()
     const asset = await storage.putAsset(TINY_PNG, 'image/png')
 
     const hideAllSource = serializeOcclusionBlock({
@@ -81,7 +75,7 @@ describe('Image Occlusion viewer & editor', () => {
   })
 
   it('supports grouping, ungrouping, mode switching, delete, and undo/redo in OcclusionEditor', async () => {
-    const storage = new DexieStorage(new RemDB('rem-io-browser'))
+    const storage = freshStorage()
     const asset = await storage.putAsset(TINY_PNG, 'image/png')
 
     function Harness() {

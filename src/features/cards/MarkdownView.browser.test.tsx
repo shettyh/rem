@@ -1,19 +1,13 @@
 // src/features/cards/MarkdownView.browser.test.tsx
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { render } from 'vitest-browser-react'
-import Dexie from 'dexie'
-import { RemDB } from '../../data/dexie/db'
-import { DexieStorage } from '../../data/dexie/DexieStorage'
 import { StorageProvider } from '../../data/StorageContext'
+import { freshStorage } from '../../test/seed'
 import { MarkdownView } from './MarkdownView'
-
-beforeEach(async () => {
-  await Dexie.delete('rem-mdview')
-})
 
 describe('MarkdownView assets', () => {
   it('renders an asset image as a blob-backed <img>', async () => {
-    const storage = new DexieStorage(new RemDB('rem-mdview'))
+    const storage = freshStorage()
     const asset = await storage.putAsset(new Uint8Array([137, 80, 78, 71]), 'image/png')
     const { container } = await render(
       <StorageProvider storage={storage}>
@@ -24,7 +18,7 @@ describe('MarkdownView assets', () => {
   })
 
   it('renders an audio asset link as a blob-backed <audio> player', async () => {
-    const storage = new DexieStorage(new RemDB('rem-mdview'))
+    const storage = freshStorage()
     const asset = await storage.putAsset(new Uint8Array([0x49, 0x44, 0x33]), 'audio/mpeg')
     const { container } = await render(
       <StorageProvider storage={storage}>
@@ -35,7 +29,7 @@ describe('MarkdownView assets', () => {
   })
 
   it('renders KaTeX math and cloze blank/revealed states safely', async () => {
-    const storage = new DexieStorage(new RemDB('rem-mdview'))
+    const storage = freshStorage()
     const source = 'Formula {{c1::$E = mc^2$::Einstein}} and \\(a^2 + b^2\\).'
 
     const unrevealed = await render(
@@ -57,7 +51,7 @@ describe('MarkdownView assets', () => {
   })
 
   it('keeps currency like $5 and $10 as plain text while rendering multiline display math', async () => {
-    const storage = new DexieStorage(new RemDB('rem-mdview'))
+    const storage = freshStorage()
     const currency = await render(
       <StorageProvider storage={storage}>
         <MarkdownView source="Costs $5 and $10 today (between $5-$10)." />
@@ -75,7 +69,7 @@ describe('MarkdownView assets', () => {
   })
 
   it('renders {base|reading} furigana as semantic <ruby>/<rt> outside code and keeps untagged code unhighlighted', async () => {
-    const storage = new DexieStorage(new RemDB('rem-mdview'))
+    const storage = freshStorage()
     const source = [
       '{答|こた}えに **{丸|まる}** をつける and `{残|のこ}` in code.',
       '',

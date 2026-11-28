@@ -1,18 +1,11 @@
-import { DexieStorage } from '../data/dexie/DexieStorage'
-import { RemDB } from '../data/dexie/db'
-import { MS_PER_DAY } from '../domain/scheduler'
-import type { Storage } from '../data/Storage'
-
-let counter = 0
+import { MS_PER_DAY } from '../domain/models'
+import { MemoryStorage } from './memoryStorage'
 
 /**
- * A fresh, isolated IndexedDB-backed Storage for a single test. Each call uses a
- * unique database name so tests never share state.
+ * A fresh, isolated in-memory Storage stub for a single test.
  */
-export function freshStorage(): Storage {
-  counter += 1
-  const name = `rem-test-${Date.now()}-${counter}`
-  return new DexieStorage(new RemDB(name))
+export function freshStorage(): MemoryStorage {
+  return new MemoryStorage()
 }
 
-export { MS_PER_DAY }
+export { MemoryStorage, MS_PER_DAY }

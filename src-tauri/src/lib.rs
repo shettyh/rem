@@ -14,7 +14,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             cli::cli_status,
             cli::cli_install,
-            fsrs_sched::fsrs_next_states,
             fsrs_sched::fsrs_optimize,
             study::study_start,
             study::study_reveal,

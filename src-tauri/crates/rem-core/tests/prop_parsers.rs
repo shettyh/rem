@@ -4,9 +4,9 @@ use std::time::Instant;
 use proptest::prelude::*;
 use rem_core::{
     extract_cloze_indices, parse_backup_json, parse_occlusion_blocks, render_cloze_answer,
-    render_cloze_question, render_occlusion_tui_summary, serialize_occlusion_block,
-    strip_cloze_markup, strip_occlusion_markup, Collection, FsrsState, Grade, OcclusionBlock,
-    OcclusionMask, OcclusionMode, OcclusionShapeType, ReviewCommit,
+    render_cloze_question, serialize_occlusion_block, strip_cloze_markup, strip_occlusion_markup,
+    Collection, FsrsState, Grade, OcclusionBlock, OcclusionMask, OcclusionMode, OcclusionShapeType,
+    ReviewCommit,
 };
 use rusqlite::{params, Connection};
 use tempfile::{NamedTempFile, TempDir};
@@ -71,8 +71,6 @@ proptest! {
             prev_occ_end = span.end;
         }
         let _ = strip_occlusion_markup(&input);
-        let _ = render_occlusion_tui_summary(&input, Some(1), false);
-        let _ = render_occlusion_tui_summary(&input, Some(1), true);
     }
 
     #[test]

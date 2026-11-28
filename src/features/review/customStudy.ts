@@ -1,10 +1,4 @@
-import type {
-  Card,
-  CustomStudyMode,
-  CustomStudyRequest,
-  InsertionOrder,
-} from '../../domain/models'
-import { MS_PER_DAY } from '../../domain/scheduler'
+import type { CustomStudyMode, CustomStudyRequest } from '../../domain/models'
 
 export type { CustomStudyMode, CustomStudyRequest } from '../../domain/models'
 
@@ -62,60 +56,8 @@ export function parseCustomStudyRequest(params: URLSearchParams): CustomStudyReq
   if (!preset) return null
 
   const parsed = Number(params.get('amount') ?? preset.defaultAmount)
-  const amount = Number.isFinite(parsed) ? Math.min(999, Math.max(1, Math.floor(parsed))) : preset.defaultAmount
+  const amount = Number.isFinite(parsed)
+    ? Math.min(999, Math.max(1, Math.floor(parsed)))
+    : preset.defaultAmount
   return { mode: preset.mode, amount }
-}
-
-interface SelectionOptions {
-  insertionOrder: InsertionOrder
-  normalNewSlots: number
-  rng?: () => number
-}
-
-/** Select the initial cards for one temporary custom-study session. */
-export function selectCustomStudyCards(
-  cards: Card[],
-  request: CustomStudyRequest,
-  now: number,
-  options: SelectionOptions,
-): Card[] {
-  const active = cards.filter((card) => !card.suspended)
-
-  switch (request.mode) {
-    case 'study-ahead': {
-      const through = now + request.amount * MS_PER_DAY
-      return active
-        .filter((card) => card.scheduling.state === 2 && card.scheduling.due > now && card.scheduling.due <= through)
-        .sort((a, b) => a.scheduling.due - b.scheduling.due)
-    }
-    case 'increase-new': {
-      const dueNew = active.filter((card) => card.scheduling.state === 0 && card.scheduling.due <= now)
-      const ordered = options.insertionOrder === 'random'
-        ? shuffle(dueNew, options.rng)
-        : dueNew.sort((a, b) => a.createdAt - b.createdAt)
-      const skip = Math.max(0, Math.floor(options.normalNewSlots))
-      return ordered.slice(skip, skip + request.amount)
-    }
-    case 'review-forgotten': {
-      const since = now - request.amount * MS_PER_DAY
-      return active
-        .filter((card) => card.lastAgainAt !== null && card.lastAgainAt >= since && card.lastAgainAt <= now)
-        .sort((a, b) => b.lastAgainAt! - a.lastAgainAt!)
-    }
-    case 'preview-new': {
-      const since = now - request.amount * MS_PER_DAY
-      return active
-        .filter((card) => card.scheduling.state === 0 && card.createdAt >= since && card.createdAt <= now)
-        .sort((a, b) => b.createdAt - a.createdAt)
-    }
-  }
-}
-
-function shuffle<T>(items: T[], rng: () => number = Math.random): T[] {
-  const result = items.slice()
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1))
-    ;[result[i], result[j]] = [result[j], result[i]]
-  }
-  return result
 }

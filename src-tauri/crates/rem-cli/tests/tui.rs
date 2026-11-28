@@ -336,3 +336,30 @@ fn study_app_undo_and_suspend_restore_and_skip_cards() {
     assert_eq!(app.view().current.as_ref().unwrap().id, second.id);
     assert!(collection.get_card(&first.id).unwrap().unwrap().suspended);
 }
+
+#[test]
+fn image_occlusion_card_renders_graceful_fallback_without_raw_json() {
+    let front = format!(
+        "CPU Pipeline\n\n```rem-occlusion\n{{\"v\":1,\"image\":\"asset:{ASSET_HASH}\",\"mode\":\"hide-all\",\"alt\":\"CPU Pipeline\",\"masks\":[{{\"id\":1,\"type\":\"rect\",\"x\":0.1,\"y\":0.2,\"w\":0.3,\"h\":0.1}}]}}\n```"
+    );
+    let (_temp, collection, mut app) = app_with_card(&front, "Pipeline stages reference");
+
+    let before = rendered(&app, 96, 20);
+    assert!(before.contains("IMAGE OCCLUSION"), "{before}");
+    assert!(
+        before.contains("open in the rem desktop or iPhone app to study visually"),
+        "{before}"
+    );
+    assert!(
+        before.contains("[Image occlusion: CPU Pipeline]"),
+        "{before}"
+    );
+    assert!(!before.contains("\"masks\""), "{before}");
+    assert!(!before.contains("Pipeline stages reference"), "{before}");
+
+    app.handle(&collection, StudyInput::Reveal, NOW + 1)
+        .unwrap();
+    let after = rendered(&app, 96, 20);
+    assert!(after.contains("Pipeline stages reference"), "{after}");
+    assert!(!after.contains("\"masks\""), "{after}");
+}

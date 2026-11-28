@@ -105,7 +105,7 @@ See the full [`rem-card-capture` skill](skills/rem-card-capture/SKILL.md) and [C
 - **Anki `.apkg` import & migration** — pure-Rust importer (`anki2`, `anki21`, and zstd `anki21b`) on desktop, CLI (`rem import`), and iOS that converts HTML to clean Markdown while preserving nested `::` decks, cloze/reversed and Image Occlusion siblings, LaTeX math, image & audio assets, and FSRS-7 review history.
 - **Agent Skill + CLI capture** — installable [`rem-card-capture`](skills/rem-card-capture/SKILL.md) skill and versioned JSON CLI for atomic dry-run draft batches, retry-safe deduplication, and front-first approval in the desktop **Drafts** inbox or `rem draft review` TUI.
 - **Rich Markdown, Cloze, Image Occlusion, LaTeX & Audio** — WYSIWYG TipTap desktop editor, custom-SVG Image Occlusion canvas (rectangles, ellipses, grouping, Hide All / Hide One), and paper-canvas iOS editor supporting `{{c1::cloze::hint}}` deletions, LaTeX math (KaTeX on desktop, native SwiftUI math on iOS), syntax-highlighted code, offline images/GIFs, inline audio clips, nested `Parent::Child` decks, and tags.
-- **Shared study engine across every surface** — review in the desktop app, terminal (`rem study`), or iPhone with keyboard shortcuts or haptic touch grading, live interval previews, optimistic concurrency (`local_revision`), mid-session editing, in-review suspend, and atomic grade undo.
+- **Shared study engine across every surface** — study with full rich-media fidelity on desktop and iPhone (keyboard shortcuts or haptic touch grading, live interval previews, optimistic concurrency via `local_revision`, mid-session editing, in-review suspend, and atomic grade undo), or do quick text/Markdown review in the lightweight, scope-frozen terminal companion (`rem study`).
 - **Native iOS companion** — SwiftUI iPhone app (`ios/`) backed by `rem-core` and `rem-sync` via UniFFI, featuring native `TabView`/`Form`/`List`, collapsible nested deck trees, top-right Quick Capture with Photos & cloze button, native math & audio playback, pinch-to-zoom image lightbox, full deck editing & per-deck FSRS-7 options, 7D/30D/90D Swift Charts stats, native Sign in with Apple, local daily reminders, and JSON / `.apkg` import.
 - **Actionable statistics** — review activity, recall rate, streaks, grade distribution, and per-deck breakdowns across desktop and iOS.
 - **Optional Cloud sync** — incremental HLC-based sync for decks, reviews, and media across desktop, CLI, and iPhone using hosted [rem Premium](https://rem-sync.shettyh.fyi/premium) (30-day no-card free trial, $5/year on desktop/web or $4.99/year on iOS) or your own free self-hosted Apache-2.0 [Cloudflare Worker](sync-server/README.md).
@@ -243,8 +243,8 @@ rem keeps domain logic and infrastructure behind small interfaces so that produc
 ```text
 src/
   app/         application entry point and routes
-  domain/      card/deck models and the Scheduler interface
-  data/        Storage interface, native adapter, test persistence, backup, and Cloud sync client
+  domain/      card/deck models and FSRS step/optimizer helpers
+  data/        Storage interface, native Tauri adapter, backup, updater, and Cloud sync client
   features/    decks, cards, drafts, review, settings, and statistics
   ui/          app shell, shared components, themes, and design tokens
 src-tauri/     native shell, rem-core (SQLite + FSRS-7 + sync engine), rem-sync, rem-ffi (UniFFI), and rem-cli

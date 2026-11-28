@@ -1,23 +1,15 @@
 import { render, screen, waitFor } from '@testing-library/react'
-import Dexie from 'dexie'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { DEFAULT_DECK_SETTINGS } from '../domain/models'
-import { DexieStorage } from './dexie/DexieStorage'
-import { RemDB } from './dexie/db'
+import { freshStorage, type MemoryStorage } from '../test/seed'
 import { StorageProvider, useStorage } from './StorageContext'
 import { useStorageQuery } from './useStorageQuery'
 
-const DB = 'storage-query-test'
-let db: RemDB
-let storage: DexieStorage
+let storage: MemoryStorage
 
-beforeEach(async () => {
-  await Dexie.delete(DB)
-  db = new RemDB(DB)
-  storage = new DexieStorage(db)
+beforeEach(() => {
+  storage = freshStorage()
 })
-
-afterEach(() => db.close())
 
 function DeckCount() {
   const current = useStorage()

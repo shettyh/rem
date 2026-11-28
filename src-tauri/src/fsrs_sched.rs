@@ -1,7 +1,4 @@
-use rem_core::{
-    calculate_fsrs_next_states, optimize_fsrs_histories, DeckFsrsParams, FsrsNextStates,
-    FsrsReviewHistory, FsrsState,
-};
+use rem_core::{optimize_fsrs_histories, FsrsReviewHistory};
 
 #[tauri::command]
 pub async fn fsrs_optimize(
@@ -13,13 +10,4 @@ pub async fn fsrs_optimize(
     })
     .await
     .map_err(|error| error.to_string())?
-}
-
-#[tauri::command]
-pub fn fsrs_next_states(
-    state: FsrsState,
-    now: i64,
-    params: DeckFsrsParams,
-) -> Result<FsrsNextStates, String> {
-    calculate_fsrs_next_states(&state, now, &params)
 }

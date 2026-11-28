@@ -1,12 +1,9 @@
 import { test, expect, vi, afterEach } from 'vitest'
 import { page } from 'vitest/browser'
-import { Link } from 'react-router-dom'
 import { ReviewPage } from './ReviewPage'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
-import { getScheduler, MS_PER_DAY } from '../../domain/scheduler'
-import { DEFAULT_DECK_SETTINGS } from '../../domain/models'
-import { localDay } from './day'
+import { MS_PER_DAY } from '../../domain/models'
 
 test('revealing shows the answer and grade buttons', async () => {
   const storage = freshStorage()
@@ -192,10 +189,9 @@ test('progress advances through a multi-card session', async () => {
 })
 
 test('scheduling rejection shows recoverable error and no grade buttons', async () => {
-  const sched = getScheduler()
-  vi.spyOn(sched, 'previewNextStates').mockRejectedValueOnce(new Error('boom'))
-
   const storage = freshStorage()
+  vi.spyOn(storage, 'revealStudy').mockRejectedValueOnce(new Error('boom'))
+
   const deck = await storage.createDeck('TypeScript')
   await storage.createCard(deck.id, 'Q?', 'A — the answer.')
   await renderRoute({
@@ -212,10 +208,9 @@ test('scheduling rejection shows recoverable error and no grade buttons', async 
 })
 
 test('retry after scheduling failure resolves grade buttons', async () => {
-  const sched = getScheduler()
-  vi.spyOn(sched, 'previewNextStates').mockRejectedValueOnce(new Error('boom'))
-
   const storage = freshStorage()
+  vi.spyOn(storage, 'revealStudy').mockRejectedValueOnce(new Error('boom'))
+
   const deck = await storage.createDeck('TypeScript')
   await storage.createCard(deck.id, 'Q?', 'A — the answer.')
   await renderRoute({
@@ -238,7 +233,7 @@ test('grading twice before the first persist resolves applies only one grade', a
   const storage = freshStorage()
   const deck = await storage.createDeck('TypeScript')
   await storage.createCard(deck.id, 'Q?', 'A — the answer.')
-  const spy = vi.spyOn(storage, 'commitReview')
+  const spy = vi.spyOn(storage, 'gradeStudy')
 
   await renderRoute({
     storage,
@@ -280,7 +275,6 @@ test('a stale native grade conflict is explained and not counted as a review', a
       notice: null,
     },
   })
-  const commit = vi.spyOn(storage, 'commitReview')
   await renderRoute({
     storage,
     entry: `/decks/${deck.id}/study`,
@@ -295,7 +289,7 @@ test('a stale native grade conflict is explained and not counted as a review', a
   await expect.element(page.getByRole('alert')).toMatchTextContent(
     'skipped without recording a review',
   )
-  expect(commit).not.toHaveBeenCalled()
+  expect((await storage.getCard(card.id))?.scheduling.reps).toBe(0)
 })
 
 test('a long question remains reachable from its opening through its closing line', async () => {
@@ -420,100 +414,9 @@ test('grading controls stay available while a long plain answer scrolls', async 
   expect(grades.element().getBoundingClientRect().top).toBe(dockTop)
 })
 
-test('enforces newPerDay: only the day\'s new allowance enters the session', async () => {
+test('custom study passes query params to startStudy and returns to options on completion', async () => {
   const storage = freshStorage()
-  const deck = await storage.createDeck('Caps')
-  await storage.updateDeck(deck.id, {
-    settings: { ...DEFAULT_DECK_SETTINGS, newPerDay: 1, learnSteps: '1m' },
-  })
-  await storage.createCard(deck.id, 'Q1', 'A1')
-  await storage.createCard(deck.id, 'Q2', 'A2')
-  await renderRoute({
-    storage,
-    entry: `/decks/${deck.id}/study`,
-    path: '/decks/:deckId/study',
-    element: <ReviewPage />,
-    extraRoutes: [{
-      path: '/decks/:deckId',
-      element: <Link to={`/decks/${deck.id}/study`}>Reopen study</Link>,
-    }],
-  })
-
-  // Two new cards are due, but only one enters: position reads "1 / 1", not "1 / 2".
-  await expect.element(page.getByText('1 / 1', { exact: false })).toBeVisible()
-
-  // Grading it out of New bumps newIntroduced and exhausts this session.
-  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
-  await page.getByRole('button', { name: 'Good', exact: false }).click()
-  await vi.waitFor(async () => {
-    const stat = await storage.getDailyStat(deck.id, localDay(Date.now()))
-    expect(stat.newIntroduced).toBe(1)
-  })
-  await expect.element(page.getByText('Review complete')).toBeVisible()
-  await expect.element(page.getByRole('heading', { level: 1 })).toMatchTextContent('Review')
-  await expect.element(page.getByRole('link', { name: 'Close' })).toBeVisible()
-
-  // Reopening on the same day does not grant allowance for the second new card.
-  await page.getByRole('link', { name: 'Back to deck' }).click()
-  await page.getByRole('link', { name: 'Reopen study' }).click()
-  await expect.element(page.getByRole('heading', { name: 'Nothing due' })).toBeVisible()
-  await expect.element(page.getByRole('heading', { level: 1 })).toMatchTextContent('Review')
-  await expect.element(page.getByRole('link', { name: 'Close' })).toBeVisible()
-})
-
-test('grading a Review-state card bumps reviewsDone, not newIntroduced', async () => {
-  const storage = freshStorage()
-  const deck = await storage.createDeck('Reviews')
-  const c = await storage.createCard(deck.id, 'Q?', 'A.')
-  await storage.updateCard(c.id, {
-    scheduling: { kind: 'fsrs', stability: 10, difficulty: 5, reps: 3, lapses: 0, state: 2, step: 0, lastReview: null, due: 0 },
-  })
-  await renderRoute({
-    storage,
-    entry: `/decks/${deck.id}/study`,
-    path: '/decks/:deckId/study',
-    element: <ReviewPage />,
-  })
-
-  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
-  await page.getByRole('button', { name: 'Good', exact: false }).click()
-
-  await vi.waitFor(async () => {
-    const stat = await storage.getDailyStat(deck.id, localDay(Date.now()))
-    expect(stat.reviewsDone).toBe(1)
-  })
-  const stat = await storage.getDailyStat(deck.id, localDay(Date.now()))
-  expect(stat.newIntroduced).toBe(0)
-  expect(await storage.listReviewLogs(deck.id)).toEqual([
-    expect.objectContaining({ cardId: c.id, deckId: deck.id, grade: 'good' }),
-  ])
-})
-
-test('an Again grade records when the card was forgotten', async () => {
-  const storage = freshStorage()
-  const deck = await storage.createDeck('Forgotten')
-  const card = await storage.createCard(deck.id, 'Q?', 'A.')
-  await storage.updateCard(card.id, {
-    scheduling: { kind: 'fsrs', stability: 10, difficulty: 5, reps: 3, lapses: 0, state: 2, step: 0, lastReview: 1, due: 0 },
-  })
-  const before = Date.now()
-  await renderRoute({
-    storage,
-    entry: `/decks/${deck.id}/study`,
-    path: '/decks/:deckId/study',
-    element: <ReviewPage />,
-  })
-
-  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
-  await page.getByRole('button', { name: 'Again', exact: false }).click()
-
-  await vi.waitFor(async () => {
-    expect((await storage.getCard(card.id))?.lastAgainAt).toBeGreaterThanOrEqual(before)
-  })
-})
-
-test('custom study can grade a future review card', async () => {
-  const storage = freshStorage()
+  const startSpy = vi.spyOn(storage, 'startStudy')
   const deck = await storage.createDeck('Ahead')
   const card = await storage.createCard(deck.id, 'Future question', 'Future answer')
   const originalDue = Date.now() + MS_PER_DAY
@@ -528,23 +431,23 @@ test('custom study can grade a future review card', async () => {
   })
 
   await expect.element(page.getByText('Future question')).toBeVisible()
+  expect(startSpy).toHaveBeenCalledWith({
+    deckId: deck.id,
+    custom: { mode: 'study-ahead', amount: 1 },
+  })
   await page.getByRole('button', { name: 'Show answer', exact: false }).click()
   await page.getByRole('button', { name: 'Good', exact: false }).click()
 
-  await vi.waitFor(async () => {
-    expect((await storage.getCard(card.id))?.scheduling.due).not.toBe(originalDue)
-  })
   await expect.element(page.getByText('Review complete')).toBeVisible()
   await expect.element(page.getByRole('link', { name: 'Back to options' })).toBeVisible()
 })
 
-test('preview new reveals cards without scheduling or persistence', async () => {
+test('preview new reveals cards without grading or persistence', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Preview')
   const card = await storage.createCard(deck.id, 'Preview question', 'Preview answer')
   const update = vi.spyOn(storage, 'updateCard')
-  const commit = vi.spyOn(storage, 'commitReview')
-  const schedule = vi.spyOn(getScheduler(), 'previewNextStates')
+  const gradeSpy = vi.spyOn(storage, 'gradeStudy')
   await renderRoute({
     storage,
     entry: `/decks/${deck.id}/study?custom=preview-new&amount=1`,
@@ -560,31 +463,20 @@ test('preview new reveals cards without scheduling or persistence', async () => 
 
   await expect.element(page.getByText('Preview complete')).toBeVisible()
   expect(update).not.toHaveBeenCalled()
-  expect(commit).not.toHaveBeenCalled()
-  expect(schedule).not.toHaveBeenCalled()
+  expect(gradeSpy).not.toHaveBeenCalled()
   expect((await storage.getCard(card.id))?.scheduling.state).toBe(0)
-  expect(await storage.getDailyStat(deck.id, localDay(Date.now()))).toEqual({ newIntroduced: 0, reviewsDone: 0 })
 })
 
-test('suspend leech action removes the lapsed card from this and later sessions', async () => {
+test('renders leech suspended notice from study view', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Leeches')
-  await storage.updateDeck(deck.id, {
-    settings: { ...DEFAULT_DECK_SETTINGS, leechThreshold: 1, leechAction: 'suspend', relearnSteps: '1m' },
-  })
-  const card = await storage.createCard(deck.id, 'Hard question', 'Answer')
-  await storage.updateCard(card.id, {
-    scheduling: { kind: 'fsrs', stability: 10, difficulty: 8, reps: 3, lapses: 0, state: 2, step: 0, lastReview: 1, due: 0 },
-  })
+  await storage.createCard(deck.id, 'Hard question', 'Answer')
+  storage.setNextGradeNotice('suspend')
   await renderRoute({
     storage,
     entry: `/decks/${deck.id}/study`,
     path: '/decks/:deckId/study',
     element: <ReviewPage />,
-    extraRoutes: [{
-      path: '/decks/:deckId',
-      element: <Link to={`/decks/${deck.id}/study`}>Reopen study</Link>,
-    }],
   })
 
   await page.getByRole('button', { name: 'Show answer', exact: false }).click()
@@ -592,26 +484,14 @@ test('suspend leech action removes the lapsed card from this and later sessions'
 
   await expect.element(page.getByRole('status')).toMatchTextContent('Leech suspended')
   await expect.element(page.getByText('Review complete')).toBeVisible()
-  await vi.waitFor(async () => {
-    expect(await storage.getCard(card.id)).toMatchObject({ tags: ['leech'], suspended: true })
-    expect(await storage.getDailyStat(deck.id, localDay(Date.now()))).toMatchObject({ reviewsDone: 1 })
-  })
-
-  await page.getByRole('link', { name: 'Back to deck' }).click()
-  await page.getByRole('link', { name: 'Reopen study' }).click()
-  await expect.element(page.getByRole('heading', { name: 'Nothing due' })).toBeVisible()
 })
 
-test('tag leech action keeps the card active for relearning', async () => {
+test('renders leech tagged notice while continuing the session', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Tagged leeches')
-  await storage.updateDeck(deck.id, {
-    settings: { ...DEFAULT_DECK_SETTINGS, leechThreshold: 1, leechAction: 'tag', relearnSteps: '1m' },
-  })
-  const card = await storage.createCard(deck.id, 'Hard question', 'Answer')
-  await storage.updateCard(card.id, {
-    scheduling: { kind: 'fsrs', stability: 10, difficulty: 8, reps: 3, lapses: 0, state: 2, step: 0, lastReview: 1, due: 0 },
-  })
+  await storage.createCard(deck.id, 'Hard question', 'Answer')
+  await storage.createCard(deck.id, 'Next question', 'Next answer')
+  storage.setNextGradeNotice('tag')
   await renderRoute({
     storage,
     entry: `/decks/${deck.id}/study`,
@@ -624,39 +504,9 @@ test('tag leech action keeps the card active for relearning', async () => {
 
   await expect.element(page.getByRole('status')).toMatchTextContent('Leech tagged')
   await expect.element(page.getByRole('button', { name: 'Show answer', exact: false })).toBeVisible()
-  expect(await storage.getCard(card.id)).toMatchObject({ tags: ['leech'], suspended: false })
 })
 
-test('grading a learning-step card persists but bumps no counter', async () => {
-  const storage = freshStorage()
-  const deck = await storage.createDeck('Learning')
-  const c = await storage.createCard(deck.id, 'Q?', 'A.')
-  await storage.updateCard(c.id, {
-    scheduling: { kind: 'fsrs', stability: 0, difficulty: 0, reps: 0, lapses: 0, state: 1, step: 0, lastReview: null, due: 0 },
-  })
-  // Spy AFTER the state-setup update so only the grade's persist is counted.
-  const commitSpy = vi.spyOn(storage, 'commitReview')
-  await renderRoute({
-    storage,
-    entry: `/decks/${deck.id}/study`,
-    path: '/decks/:deckId/study',
-    element: <ReviewPage />,
-  })
-
-  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
-  await page.getByRole('button', { name: 'Good', exact: false }).click()
-
-  // The fixed-step grade persists, but carries no optimizer event or daily counter.
-  await vi.waitFor(() => expect(commitSpy).toHaveBeenCalled())
-  expect(commitSpy).toHaveBeenCalledWith(expect.objectContaining({
-    cardId: c.id,
-    fsrsGrade: undefined,
-    daily: undefined,
-  }))
-  expect(await storage.listReviewLogs(deck.id)).toEqual([])
-})
-
-test('undo restores the last graded card, review log, and daily stat (including from completion)', async () => {
+test('undo restores the last graded card (including from completion)', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Undo deck')
   const card = await storage.createCard(deck.id, 'What is RAII?', 'Resource Acquisition Is Initialization.')
@@ -675,13 +525,10 @@ test('undo restores the last graded card, review log, and daily stat (including 
   await page.getByRole('button', { name: 'Good', exact: false }).click()
 
   await expect.element(page.getByText('Review complete')).toBeVisible()
-  expect(await storage.listReviewLogs(deck.id)).toHaveLength(1)
 
   await page.getByRole('button', { name: 'Undo last grade' }).click()
   await expect.element(page.getByText('What is RAII?')).toBeVisible()
   await expect.element(page.getByRole('status')).toMatchTextContent('Last grade undone.')
-  expect(await storage.listReviewLogs(deck.id)).toHaveLength(0)
-  expect(await storage.getDailyStat(deck.id, localDay(Date.now()))).toMatchObject({ reviewsDone: 0 })
   expect((await storage.getCard(card.id))?.scheduling.reps).toBe(3)
 })
 

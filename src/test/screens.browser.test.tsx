@@ -119,13 +119,25 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       const storage = freshStorage()
       const typescript = await storage.createDeck('TypeScript')
       const spanish = await storage.createDeck('Spanish vocabulary')
-      const tsCard = await storage.createCard(typescript.id, 'q', 'a')
-      const esCard = await storage.createCard(spanish.id, 'q', 'a')
-      const yesterday = new Date()
-      yesterday.setDate(yesterday.getDate() - 1)
-      await storage.commitReview({ cardId: tsCard.id, deckId: typescript.id, patch: {}, reviewedAt: yesterday.getTime(), fsrsGrade: 'again' })
-      await storage.commitReview({ cardId: tsCard.id, deckId: typescript.id, patch: {}, reviewedAt: Date.now() - 1000, fsrsGrade: 'good' })
-      await storage.commitReview({ cardId: esCard.id, deckId: spanish.id, patch: {}, reviewedAt: Date.now(), fsrsGrade: 'easy' })
+      const now = Date.now()
+      storage.setStats({
+        historyCount: 3,
+        totalReviews: 3,
+        recallRate: 2 / 3,
+        currentStreakDays: 2,
+        activeDays: 2,
+        grades: { again: 1, hard: 0, good: 1, easy: 1 },
+        daily: Array.from({ length: 30 }, (_, idx) => ({
+          day: `day-${idx}`,
+          timestampMs: now - (29 - idx) * MS_PER_DAY,
+          count: idx === 29 ? 2 : idx === 28 ? 1 : 0,
+        })),
+        byDeck: [
+          { deckId: typescript.id, deckName: typescript.name, deckColor: typescript.color, reviews: 2, recallRate: 0.5 },
+          { deckId: spanish.id, deckName: spanish.name, deckColor: spanish.color, reviews: 1, recallRate: 1 },
+        ],
+        upcoming7d: [],
+      })
       await renderRoute({ storage, entry: '/stats', path: '/stats', element: <StatsPage /> })
       await expect.element(page.getByLabelText('FSRS reviews')).toMatchTextContent('3')
     },
@@ -261,9 +273,6 @@ const scenarios: { name: string; run: () => Promise<void> }[] = [
       const deck = await storage.createDeck('TypeScript')
       await storage.createCard(deck.id, 'Only card', 'Done')
       await renderRoute({ storage, entry: `/decks/${deck.id}/study`, path: '/decks/:deckId/study', element: <ReviewPage /> })
-      // Default learnSteps ('1m 10m') means a new card needs both learning steps graded before it graduates.
-      await page.getByRole('button', { name: 'Show answer', exact: false }).click()
-      await page.getByRole('button', { name: 'Good', exact: false }).click()
       await page.getByRole('button', { name: 'Show answer', exact: false }).click()
       await page.getByRole('button', { name: 'Good', exact: false }).click()
       await expect.element(page.getByText('Review complete', { exact: false })).toBeVisible()

@@ -28,7 +28,6 @@ import type {
   CardPatch,
   DeckPatch,
   ImportResult,
-  ReviewCommit,
   Storage,
 } from './Storage'
 
@@ -251,12 +250,6 @@ export class TauriStorage implements Storage {
     return this.call('study_end', { sessionId })
   }
 
-  async commitReview(commit: ReviewCommit): Promise<ReviewLog | null> {
-    const log = await this.call<ReviewLog | null>('storage_commit_review', { commit })
-    this.notify()
-    return log
-  }
-
   listReviewLogs(deckId: ID): Promise<ReviewLog[]> {
     return this.call('storage_list_review_logs', { deckId })
   }
@@ -271,21 +264,6 @@ export class TauriStorage implements Storage {
       days,
       now: now ?? this.now(),
     })
-  }
-
-  dueCards(deckId: ID, now: number): Promise<Card[]> {
-    return this.call('storage_due_cards', { deckId, now })
-  }
-
-  countDue(deckId: ID, now: number): Promise<number> {
-    return this.call('storage_count_due', { deckId, now })
-  }
-
-  getDailyStat(
-    deckId: ID,
-    day: string,
-  ): Promise<{ newIntroduced: number; reviewsDone: number }> {
-    return this.call('storage_get_daily_stat', { deckId, day })
   }
 
   async importDecks(decks: DeckBackup[]): Promise<ImportResult> {

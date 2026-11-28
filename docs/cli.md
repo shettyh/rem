@@ -36,15 +36,25 @@ intervals, leech handling, review logs, and stale-card protection remain identic
 | --- | --- |
 | <kbd>Space</kbd> / <kbd>Enter</kbd> | Reveal the answer. |
 | <kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd> / <kbd>4</kbd> | Grade Again / Hard / Good / Easy after reveal. |
+| <kbd>u</kbd> / <kbd>Ctrl+Z</kbd> | Undo the last grade atomically. |
+| <kbd>s</kbd> | Suspend the current card. |
 | <kbd>↑</kbd> / <kbd>↓</kbd> / <kbd>j</kbd> / <kbd>k</kbd> | Scroll long cards. |
-| <kbd>q</kbd> | End the session cleanly. |
+| <kbd>q</kbd> / <kbd>Ctrl+C</kbd> | End the session cleanly. |
 
 The header shows deck scope and progress, and grade choices show their next intervals. Markdown
 headings, lists, emphasis, links, inline code, fenced code, and cloze deletions (`{{cN::...}}`) use
-terminal styles. Images, GIFs, and audio clips are represented by explicit placeholders containing
-the asset hash. Studying a parent deck (`Parent`) automatically includes all nested subdecks
-(`Parent::Child`). If another desktop or terminal session changes the current card first, the stale
-grade is skipped and explained instead of being recorded twice.
+terminal styles. Images, GIFs, audio clips, and Image Occlusion blocks display explicit placeholders
+rather than raw asset/JSON markup. Studying a parent deck (`Parent`) automatically includes all
+nested subdecks (`Parent::Child`). If another desktop or terminal session changes the current card
+first, the stale grade is skipped and explained instead of being recorded twice.
+
+### Frozen scope
+
+Desktop and iOS are the primary full-fidelity study surfaces. `rem study` is intentionally frozen to
+lightweight terminal review of due text/Markdown cards (`--deck`, reveal, 1–4 grading, undo,
+suspend, scroll, provenance, and clean exit). Rich media rendering/audio playback, interactive Image
+Occlusion, LaTeX math typesetting (shown as raw `$...$` text in the terminal), custom study modes,
+answer timers, mid-session card editing, and deck options are intentionally Desktop/iOS-only.
 
 ## Draft proposals
 
@@ -180,8 +190,8 @@ multi-template notes into `rem` sibling groups (respecting `bury_related`), conv
 math delimiters, and replays `revlog` history into FSRS-7 scheduling state. Existing decks with the
 exact same name are replaced.
 
-*(In `rem study`, Image Occlusion cards display a concise terminal placeholder showing the active
-mask number and mode rather than raw JSON; study them visually in the desktop or iOS app.)*
+*(In `rem study`, Image Occlusion cards display a concise placeholder and a note directing you to
+the desktop or iPhone app rather than raw JSON.)*
 
 ## Cloud sync
 

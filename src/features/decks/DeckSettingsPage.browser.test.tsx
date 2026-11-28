@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom'
 import { DeckSettingsPage } from './DeckSettingsPage'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
-import { MS_PER_DAY } from '../../domain/scheduler'
+import { MS_PER_DAY } from '../../domain/models'
 import { DEFAULT_FSRS_WEIGHTS, getFsrsOptimizer } from '../../domain/scheduler/optimizer'
 
 afterEach(() => vi.restoreAllMocks())
@@ -122,8 +122,8 @@ test('optimizes and resets per-deck FSRS parameters from delayed review history'
   const storage = freshStorage()
   const deck = await storage.createDeck('Spanish')
   const card = await storage.createCard(deck.id, 'q', 'a')
-  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: 0, fsrsGrade: 'good' })
-  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: MS_PER_DAY, fsrsGrade: 'again' })
+  storage.addReviewLog({ cardId: card.id, deckId: deck.id, reviewedAt: 0, grade: 'good' })
+  storage.addReviewLog({ cardId: card.id, deckId: deck.id, reviewedAt: MS_PER_DAY, grade: 'again' })
 
   await renderRoute({
     storage,
@@ -150,8 +150,8 @@ test('guards the optimizer action while training is in flight', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Spanish')
   const card = await storage.createCard(deck.id, 'q', 'a')
-  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: 0, fsrsGrade: 'good' })
-  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: MS_PER_DAY, fsrsGrade: 'good' })
+  storage.addReviewLog({ cardId: card.id, deckId: deck.id, reviewedAt: 0, grade: 'good' })
+  storage.addReviewLog({ cardId: card.id, deckId: deck.id, reviewedAt: MS_PER_DAY, grade: 'good' })
   await renderRoute({
     storage,
     path: '/decks/:deckId/options',
@@ -170,8 +170,8 @@ test('shows a recoverable optimizer error', async () => {
   const storage = freshStorage()
   const deck = await storage.createDeck('Spanish')
   const card = await storage.createCard(deck.id, 'q', 'a')
-  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: 0, fsrsGrade: 'good' })
-  await storage.commitReview({ cardId: card.id, deckId: deck.id, patch: {}, reviewedAt: MS_PER_DAY, fsrsGrade: 'good' })
+  storage.addReviewLog({ cardId: card.id, deckId: deck.id, reviewedAt: 0, grade: 'good' })
+  storage.addReviewLog({ cardId: card.id, deckId: deck.id, reviewedAt: MS_PER_DAY, grade: 'good' })
   await renderRoute({
     storage,
     path: '/decks/:deckId/options',

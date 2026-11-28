@@ -13,7 +13,7 @@ use rem_core::{
 };
 
 use crate::editor::{format_draft_for_editor, parse_draft_from_editor};
-use crate::tui::{markdown_lines, provenance_lines, section_label, wrapped_line_count};
+use crate::tui_render::{markdown_lines, provenance_lines, section_label, wrapped_line_count};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DraftEditState {
