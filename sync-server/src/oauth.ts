@@ -660,8 +660,8 @@ export async function deleteAccountData(env: Env, userId: string): Promise<void>
   const stub = env.USER_SYNC.get(env.USER_SYNC.idFromName(userId))
   await stub.deleteAllData()
 
-  // 2. Delete all user assets in R2.
-  const prefix = `users/${userId}/assets/`
+  // 2. Delete all user objects in R2 (both assets/* and snapshots/*).
+  const prefix = `users/${userId}/`
   let cursor: string | undefined
   do {
     const listed = await env.ASSETS.list({ prefix, cursor, limit: 1000 })

@@ -21,6 +21,74 @@ pub struct ConnectResult {
     pub enqueued_bootstrap_ops: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PokeAuth {
+    pub server_url: String,
+    pub device_id: String,
+    pub access_token: String,
+}
+
+/// Prepare authenticated WebSocket poke credentials (`server_url`, `device_id`, fresh `access_token`)
+/// for a cloud-synced collection, refreshing OAuth tokens when expiring soon or when `force_refresh`
+/// is true (e.g. after a 401 handshake failure).
+pub fn prepare_poke_auth(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    now_ms: i64,
+    force_refresh: bool,
+) -> Result<PokeAuth, SyncError> {
+    let state = collection.sync_state()?;
+    if state.mode != SyncMode::Cloud {
+        return Err(SyncError::NotConfigured("sync_mode is set to local".into()));
+    }
+    let server_url = state
+        .server_url
+        .ok_or_else(|| SyncError::NotConfigured("server_url is not set".into()))?;
+    let auth_client = HttpAuthClient::new(&server_url)?;
+    prepare_poke_auth_with_client(collection, store, &auth_client, now_ms, force_refresh)
+}
+
+pub fn prepare_poke_auth_with_client(
+    collection: &Collection,
+    store: &dyn CredentialStore,
+    auth_client: &dyn AuthClient,
+    now_ms: i64,
+    force_refresh: bool,
+) -> Result<PokeAuth, SyncError> {
+    let state = collection.sync_state()?;
+    if state.mode != SyncMode::Cloud {
+        return Err(SyncError::NotConfigured("sync_mode is set to local".into()));
+    }
+    let server_url = state
+        .server_url
+        .ok_or_else(|| SyncError::NotConfigured("server_url is not set".into()))?;
+    let account_id = state
+        .account_id
+        .ok_or_else(|| SyncError::NotConfigured("account_id is not set".into()))?;
+
+    let mut creds = store.load(&server_url, &account_id)?.ok_or_else(|| {
+        SyncError::NotAuthenticated("no stored credentials for this account".into())
+    })?;
+
+    if force_refresh || creds.needs_refresh(now_ms, TOKEN_REFRESH_LEEWAY_MS) {
+        creds = refresh_and_persist(
+            store,
+            auth_client,
+            &server_url,
+            &account_id,
+            &state.device_id,
+            &creds,
+            now_ms,
+        )?;
+    }
+
+    Ok(PokeAuth {
+        server_url,
+        device_id: state.device_id,
+        access_token: creds.bearer_token().to_owned(),
+    })
+}
+
 /// Validate a personal/self-hosted dev bearer token against `GET /v1/account` and return storable credentials.
 pub fn verify_dev_token(server_url: &str, token: &str) -> Result<StoredCredentials, SyncError> {
     let trimmed = token.trim();

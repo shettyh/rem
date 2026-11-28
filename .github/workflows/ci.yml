@@ -95,6 +95,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
 
       - uses: swatinem/rust-cache@v2
         with:
@@ -114,6 +115,10 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      - name: Verify sync WASM bundle freshness
+        working-directory: .
+        run: bash tools/build-sync-wasm.sh --check
 
   sync-e2e:
     name: Sync E2E (rem-sync ↔ wrangler)

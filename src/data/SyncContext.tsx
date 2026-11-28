@@ -21,7 +21,12 @@ import {
 const WRITE_DEBOUNCE_MS = 3_000
 const FOCUS_SYNC_THROTTLE_MS = 30_000
 const ONLINE_SETTLE_DELAY_MS = 1_500
-const PERIODIC_SYNC_MS = 5 * 60_000
+export const PERIODIC_SYNC_FALLBACK_MS = 5 * 60_000
+export const PERIODIC_SYNC_POKE_CONNECTED_MS = 30 * 60_000
+
+export function periodicSyncIntervalMs(pokeConnected: boolean): number {
+  return pokeConnected ? PERIODIC_SYNC_POKE_CONNECTED_MS : PERIODIC_SYNC_FALLBACK_MS
+}
 
 function isSyncPaused(status: SyncStatus | null): boolean {
   if (!status) return false
@@ -218,11 +223,6 @@ export function SyncProvider({
 
     window.addEventListener('focus', onWake)
     window.addEventListener('online', onOnline)
-    const interval = window.setInterval(() => {
-      const current = statusRef.current
-      if (!current || current.mode !== 'cloud' || !current.signedIn || isSyncPaused(current)) return
-      void triggerSync(true)
-    }, PERIODIC_SYNC_MS)
 
     return () => {
       unsubStorage()
@@ -230,9 +230,24 @@ export function SyncProvider({
       if (onlineTimer !== null) window.clearTimeout(onlineTimer)
       window.removeEventListener('focus', onWake)
       window.removeEventListener('online', onOnline)
-      window.clearInterval(interval)
     }
   }, [autoSync, client, storage, triggerSync, updateStatus])
+
+  // Periodic fallback sync: 30 min while real-time WS poke channel is connected, 5 min otherwise.
+  const pokeConnected = Boolean(status?.pokeConnected)
+  useEffect(() => {
+    if (!autoSync || !client.supported) return
+    const intervalMs = periodicSyncIntervalMs(pokeConnected)
+    const interval = window.setInterval(() => {
+      const current = statusRef.current
+      if (!current || current.mode !== 'cloud' || !current.signedIn || isSyncPaused(current)) return
+      void triggerSync(true)
+    }, intervalMs)
+
+    return () => {
+      window.clearInterval(interval)
+    }
+  }, [autoSync, client, pokeConnected, triggerSync])
 
   const fetchProviders = useCallback(
     (serverUrl: string) => client.fetchProviders(serverUrl),

@@ -87,6 +87,8 @@ impl SyncTransport for MockTransport {
             has_more,
             acked_op_ids,
             ops: page,
+            bootstrap_required: false,
+            snapshot_seq: None,
         })
     }
 
@@ -323,31 +325,47 @@ fn http_transport_sends_bearer_auth_and_maps_error_statuses() {
     let addr = listener.local_addr().unwrap();
 
     let server_thread = thread::spawn(move || {
-        // Request 1: expect 401 Unauthorized on wrong token.
+        // Request 1: fresh device tries GET /v1/bootstrap first -> 401 Unauthorized on wrong token.
         let (mut stream, _) = listener.accept().unwrap();
         let mut buf = [0u8; 4096];
         let n = stream.read(&mut buf).unwrap();
         let req = String::from_utf8_lossy(&buf[..n]);
-        assert!(req.contains("POST /v1/sync HTTP/1.1"));
+        assert!(req.contains("GET /v1/bootstrap HTTP/1.1"));
         assert!(
             req.contains("authorization: Bearer bad-token")
                 || req.contains("Authorization: Bearer bad-token")
         );
         stream
-            .write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 24\r\n\r\n{\"error\":\"unauthorized\"}")
+            .write_all(b"HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 24\r\n\r\n{\"error\":\"unauthorized\"}")
             .unwrap();
 
-        // Request 2: expect 200 OK on valid sync.
+        // Request 2: valid token tries GET /v1/bootstrap -> 404 (no snapshot yet).
         let (mut stream, _) = listener.accept().unwrap();
         let n = stream.read(&mut buf).unwrap();
         let req = String::from_utf8_lossy(&buf[..n]);
+        assert!(req.contains("GET /v1/bootstrap HTTP/1.1"));
+        assert!(
+            req.contains("authorization: Bearer good-token")
+                || req.contains("Authorization: Bearer good-token")
+        );
+        stream
+            .write_all(
+                b"HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 21\r\n\r\n{\"error\":\"not_found\"}",
+            )
+            .unwrap();
+
+        // Request 3: falls back to POST /v1/sync -> 200 OK.
+        let (mut stream, _) = listener.accept().unwrap();
+        let n = stream.read(&mut buf).unwrap();
+        let req = String::from_utf8_lossy(&buf[..n]);
+        assert!(req.contains("POST /v1/sync HTTP/1.1"));
         assert!(
             req.contains("authorization: Bearer good-token")
                 || req.contains("Authorization: Bearer good-token")
         );
         let body = r#"{"latestSeq":0,"hasMore":false,"ackedOpIds":[],"ops":[]}"#;
         let resp = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
             body.len(),
             body
         );
@@ -793,6 +811,8 @@ fn rejects_bogus_acked_op_ids_without_spinning() {
                 has_more: false,
                 acked_op_ids: vec!["bogus-nonexistent-op-id".into()],
                 ops: vec![],
+                bootstrap_required: false,
+                snapshot_seq: None,
             })
         }
         fn post_missing_assets(&self, _: &[String]) -> Result<Vec<String>, SyncError> {
@@ -851,6 +871,8 @@ fn rejects_has_more_without_advancing_cursor() {
                 has_more: true,
                 acked_op_ids: vec![],
                 ops,
+                bootstrap_required: false,
+                snapshot_seq: None,
             })
         }
         fn post_missing_assets(&self, _: &[String]) -> Result<Vec<String>, SyncError> {

@@ -14,9 +14,9 @@ use rem_core::{
 };
 use rem_sync::{
     build_authorize_url, connect_collection, delete_cloud_account, fetch_account_authenticated,
-    generate_oauth_state, generate_pkce_pair, sign_out, start_trial_authenticated,
-    sync_authenticated, verify_apple_transaction_authenticated, AuthClient, CredentialStore,
-    HttpAuthClient, StoredCredentials, DEFAULT_CLOUD_SERVER_URL,
+    generate_oauth_state, generate_pkce_pair, prepare_poke_auth, sign_out,
+    start_trial_authenticated, sync_authenticated, verify_apple_transaction_authenticated,
+    AuthClient, CredentialStore, HttpAuthClient, StoredCredentials, DEFAULT_CLOUD_SERVER_URL,
 };
 
 pub use credentials::FfiCredentialStore;
@@ -26,8 +26,9 @@ pub use types::{
     DailyActivityDto, DeckDto, DeckFsrsStatusDto, DeckSettingsDto, DeckSettingsPatchDto,
     DeckStatsDto, DeckSummaryDto, DraftSourceDto, EntitlementInfoDto, EntitlementStateDto,
     GradeDto, GradeIntervalsDto, ImportResultDto, InsertionOrderDto, LeechActionDto,
-    LeechNoticeDto, OAuthProviderDto, OAuthStartDto, RemFfiError, StatsDto, StorageSummaryDto,
-    StudyGradeOutcomeDto, StudyViewDto, SyncModeDto, SyncReportDto, SyncStatusDto, TodaySummaryDto,
+    LeechNoticeDto, OAuthProviderDto, OAuthStartDto, PokeAuthDto, RemFfiError, StatsDto,
+    StorageSummaryDto, StudyGradeOutcomeDto, StudyViewDto, SyncModeDto, SyncReportDto,
+    SyncStatusDto, TodaySummaryDto,
 };
 
 use credentials::CredentialStoreBridge;
@@ -634,6 +635,24 @@ impl RemClient {
             applied_ops: report.applied_ops as u32,
             downloaded_assets: report.downloaded_assets as u32,
             latest_seq: report.latest_seq,
+        })
+    }
+
+    pub fn prepare_poke_auth(
+        &self,
+        now_ms: i64,
+        force_refresh: bool,
+    ) -> Result<PokeAuthDto, RemFfiError> {
+        let auth = prepare_poke_auth(
+            &self.collection,
+            self.credentials.as_ref(),
+            now_ms,
+            force_refresh,
+        )?;
+        Ok(PokeAuthDto {
+            server_url: auth.server_url,
+            device_id: auth.device_id,
+            access_token: auth.access_token,
         })
     }
 
@@ -1880,5 +1899,40 @@ mod tests {
         assert_eq!(swept, 1);
         assert!(client.get_asset(doomed_hash).unwrap().is_none());
         assert!(client.get_asset(kept_hash).unwrap().is_some());
+    }
+
+    #[test]
+    fn prepare_poke_auth_requires_cloud_mode_and_returns_cached_credentials() {
+        let (_dir, client) = open_test_client();
+        let now = 1_763_720_000_000_i64;
+        // Local mode rejects prepare_poke_auth.
+        assert!(matches!(
+            client.prepare_poke_auth(now, false),
+            Err(RemFfiError::NotConfigured { .. })
+        ));
+
+        // Bind cloud sync + save fresh OAuth token in store.
+        let creds = StoredCredentials::OAuth {
+            account_id: "acct-ios".into(),
+            email: Some("ios@example.com".into()),
+            provider: "apple".into(),
+            access_token: "ios-jwt-123".into(),
+            access_expires_at: now + 900_000,
+            refresh_token: "ios-refresh-1".into(),
+        };
+        connect_collection(
+            &client.collection,
+            client.credentials.as_ref(),
+            "https://rem-sync.shettyh.fyi",
+            &creds,
+            now,
+            false,
+        )
+        .unwrap();
+
+        let auth = client.prepare_poke_auth(now, false).unwrap();
+        assert_eq!(auth.server_url, "https://rem-sync.shettyh.fyi");
+        assert_eq!(auth.access_token, "ios-jwt-123");
+        assert_eq!(auth.device_id.len(), 8);
     }
 }

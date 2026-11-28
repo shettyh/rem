@@ -549,6 +549,13 @@ pub struct SyncReportDto {
     pub latest_seq: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct PokeAuthDto {
+    pub server_url: String,
+    pub device_id: String,
+    pub access_token: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum EntitlementStateDto {
     SelfHosted,

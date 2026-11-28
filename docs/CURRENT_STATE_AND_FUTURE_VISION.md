@@ -1,6 +1,6 @@
 # rem — Current State & Future Vision
 
-_Last reviewed: 2026-11-28 · based on `v0.29.1` plus Markdown-native Image Occlusion_
+_Last reviewed: 2026-11-28 · based on `v0.29.1` plus Image Occlusion and Cloud Sync v1.1 (compaction, `/v1/bootstrap`, and WebSocket pokes)_
 
 This document is the canonical product snapshot for future planning. Dated files under
 `docs/superpowers/` record the decisions and implementation history behind individual slices;
@@ -194,7 +194,12 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
   `revlog` into FSRS-7 state across Desktop, CLI (`rem import`), and iOS.
 - Legacy Git sync has been removed in favor of optional Cloud sync (`Local only` vs. `Cloud sync`).
   The shared `rem-sync` crate talks to the open-source Cloudflare Workers + SQLite Durable Objects +
-  D1 + R2 backend in `sync-server/` (either hosted `rem Cloud` or a self-hosted deployment).
+  D1 + R2 backend in `sync-server/` (either hosted `rem Cloud` or a self-hosted deployment), with
+  Cloud Sync v1.1 wire optimizations (gzip requests/responses, echo suppression, push-time outbox
+  coalescing, 4-way concurrent asset transfers), shared pure-Rust WASM op compaction
+  (`rem-sync-reduce` → gzipped R2 `/v1/bootstrap` snapshots + grace-period R2 orphan asset GC), and
+  Hibernatable WebSocket pokes (`GET /v1/sync/ws`, backing off Desktop polling to 30 min when
+  connected and connecting on iOS strictly while foregrounded).
 - Hosted `rem Premium` implements a structured entitlement state machine (`GET /v1/account`), an
   opt-in one-time 30-day no-card free trial (`POST /v1/trial/start`), Polar MoR checkout/portal/webhooks
   for Desktop & Web, Apple StoreKit 2 JWS verification + App Store Server Notifications v2 webhooks
@@ -207,9 +212,11 @@ rem is a local-first spaced-repetition suite built around a shared Rust core (`r
   and expired/old revoked `refresh_tokens`, and deploys via an automated GitHub Actions workflow
   (`.github/workflows/sync-server-deploy.yml`) with remote D1 migrations.
 - Unapproved drafts and local daily-cap counters are intentionally excluded from backup and cloud sync.
-- Manual sync from Settings, automatic sync triggers (startup/foreground, debounced writes,
-  focus/online, periodic, post-review), account deletion (including Apple token revocation and
-  best-effort Polar cancellation), and `rem sync` CLI commands are implemented.
+- Manual sync from Settings, real-time Hibernatable WebSocket pokes (Desktop background listener +
+  iOS foreground-only listener), automatic sync triggers (startup/foreground, debounced writes,
+  focus/online, adaptive periodic fallback, post-review), account deletion (including R2
+  assets/snapshots cleanup, active WS termination, Apple token revocation, and best-effort Polar
+  cancellation), and `rem sync` CLI commands are implemented.
 
 ### Desktop experience and delivery
 
@@ -322,13 +329,35 @@ Implemented in [`2026-11-28-image-occlusion-design.md`](superpowers/specs/2026-1
    `Header`, `Back Extra`, `revlog`) and renders a graceful fallback placeholder in `rem study`
    pointing to Desktop or iPhone.
 
+### 7. Cloud Sync v1.1 (Compaction, `/v1/bootstrap` & WebSocket Pokes)
+
+All five slices in
+[`2026-11-28-cloud-sync-v1-1-compaction-and-pokes-design.md`](superpowers/specs/2026-11-28-cloud-sync-v1-1-compaction-and-pokes-design.md)
+are implemented:
+
+1. **Wire & client quick wins** — `UserSyncDO` echo suppression (`device_id != ?`), transparent
+   HTTP gzip on `POST /v1/sync` (with zip-bomb cap), push-time outbox coalescing (preserving atomic
+   `StudySession::undo_last_grade()`), and bounded 4-way concurrent R2 asset transfers.
+2. **Shared pure-Rust reducer (`rem-sync-reduce`) & WASM** — zero-SQLite, zero-FSRS CRDT/HLC
+   reducer compiled to WASM (`sync-server/src/wasm/` via `tools/build-sync-wasm.sh` + CI freshness
+   gate) so `sync-server` compaction and `rem-core` share a single merge implementation.
+3. **Server compaction, `/v1/bootstrap` & non-destructive client merge** — `UserSyncDO` alarm-driven
+   compaction into gzipped R2 snapshots, retention-window op pruning (`ENABLE_OP_PRUNING = "true"`
+   in `wrangler.toml`, bounded by `RETAIN_TAIL_OPS = "2000"` and `RETAIN_TAIL_DAYS = "30"`),
+   `GET /v1/bootstrap`, and `Collection::apply_bootstrap_snapshot` preserving offline local edits.
+4. **Real-time Hibernatable WebSocket pokes** — header-authenticated `GET /v1/sync/ws` with
+   zero-wakeup `ping`/`pong` auto-response, Desktop `rem-sync` background listener with 30-min
+   connected poll backoff, and foreground-only native iOS `URLSessionWebSocketTask` listener.
+5. **Grace-period R2 orphan asset GC & cleanup** — alarm-driven R2 orphan asset reclamation across
+   compacted snapshots + uncompacted tail ops with a 30-day upload grace period, plus snapshot
+   prefix and WebSocket cleanup on `DELETE /v1/account`.
+
 ## Known gaps and incomplete behavior
 
 These are real gaps in the resulting product, not features already delivered.
 
 | Area | Current limitation |
 |---|---|
-| Cloud sync v1.1 | `UserSyncDO` keeps an unbounded append-only `ops` log (new devices replay from `seq = 0` in 500-op batches) and clients rely on focus/polling triggers rather than compacted `/v1/bootstrap` snapshots and real-time WebSocket pokes. |
 | iOS habit & capture extensions | WidgetKit Home/Lock Screen widgets (requiring App Group SQLite migration) and a Safari/system Share Sheet capture extension are not yet built. |
 | Draft feedback | Rejection reasons, acceptance/edit-rate summaries, and agent-readable quality feedback are not recorded. |
 | Duplicate help | Draft/card duplicate checks are exact normalized matches, not semantic suggestions. |
@@ -389,18 +418,16 @@ Core Phase 2 parity (Undo/Suspend, provenance + `rem draft review`, FTS5 global 
 *(Maintainability rule: decompose the gravity-well files noted above incrementally when touching
 those areas, and add boundary tests in `rem-ffi` / `src-tauri` / `ios` alongside new work.)*
 
-### Phase 3 — Cloud Sync v1.1 (Instant Sync & Bounded Startup)
+### Phase 3 — Cloud Sync Operations & Optional Self-Host Targets
 
-1. **Server-side op compaction & `/v1/bootstrap`:** periodically compact `UserSyncDO`'s `ops` log
-   into gzipped R2 state snapshots so new devices and long-lived accounts with thousands of reviews
-   bootstrap in a single download rather than replaying every historical op from `seq = 0`.
-2. **Real-time Hibernatable WebSocket pokes:** add a lightweight Durable Object WebSocket channel
-   that sends a small "new seq available" poke to connected devices so Desktop ↔ iPhone updates feel
-   instantaneous without continuous polling.
-3. **Optional non-Cloudflare self-host server** only if self-hosters demonstrate demand for a
+Cloud Sync v1.1 (WASM compaction + `/v1/bootstrap`, retention-window op pruning enabled via
+`ENABLE_OP_PRUNING = "true"` in `sync-server/wrangler.toml`, Hibernatable WebSocket pokes, wire
+quick wins, and grace-period R2 orphan asset GC) is implemented. Remaining optional follow-up:
+
+1. **Optional non-Cloudflare self-host server** only if self-hosters demonstrate demand for a
    VPS/Docker deployment target.
 
-**Outcome:** multi-device sync feels instantaneous and stays fast regardless of collection age.
+**Outcome:** multi-device sync stays instantaneous and bounded in storage cost as collections grow.
 
 ### Phase 4 — iOS Habit & Capture Multipliers
 

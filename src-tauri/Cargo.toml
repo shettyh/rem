@@ -1,11 +1,11 @@
 [workspace]
-members = [".", "crates/rem-core", "crates/rem-cli", "crates/rem-sync", "crates/rem-ffi"]
-default-members = [".", "crates/rem-core", "crates/rem-cli", "crates/rem-sync", "crates/rem-ffi"]
+members = [".", "crates/rem-sync-reduce", "crates/rem-core", "crates/rem-cli", "crates/rem-sync", "crates/rem-ffi"]
+default-members = [".", "crates/rem-sync-reduce", "crates/rem-core", "crates/rem-cli", "crates/rem-sync", "crates/rem-ffi"]
 resolver = "2"
 
 [package]
 name = "app"
-version = "0.31.0"
+version = "0.32.0"
 default-run = "app"
 description = "A Tauri App"
 authors = ["you"]

@@ -117,7 +117,7 @@ describe('rem-sync-server', () => {
       payload: { type: 'cardDelete', id: 'c1', hlc: '0000000001002-0000-aaaaaaaa' },
     }
 
-    // Push op1 & op2 from device A.
+    // Push op1 & op2 from device A -> echoed ops suppressed, latestSeq advances to 2.
     const push1 = await SELF.fetch('https://sync.example.com/v1/sync', {
       method: 'POST',
       headers: { ...authHeader(user), 'Content-Type': 'application/json' },
@@ -133,12 +133,9 @@ describe('rem-sync-server', () => {
     expect(body1.latestSeq).toBe(2)
     expect(body1.hasMore).toBe(false)
     expect(body1.ackedOpIds).toEqual(['op-1', 'op-2'])
-    expect(body1.ops.map((o) => [o.seq, o.opId])).toEqual([
-      [1, 'op-1'],
-      [2, 'op-2'],
-    ])
+    expect(body1.ops).toEqual([])
 
-    // Retry op2 alongside new op3 -> op2 deduplicated, op3 gets seq 3.
+    // Retry op2 alongside new op3 -> op2 deduplicated, op3 gets seq 3, own ops suppressed.
     const push2 = await SELF.fetch('https://sync.example.com/v1/sync', {
       method: 'POST',
       headers: { ...authHeader(user), 'Content-Type': 'application/json' },
@@ -152,7 +149,7 @@ describe('rem-sync-server', () => {
     }
     expect(body2.latestSeq).toBe(3)
     expect(body2.ackedOpIds).toEqual(['op-2', 'op-3'])
-    expect(body2.ops.map((o) => [o.seq, o.opId])).toEqual([[3, 'op-3']])
+    expect(body2.ops).toEqual([])
 
     // Device B pulls with limit=2 -> gets seq 1..2 with hasMore=true, then seq 3 with hasMore=false.
     const pull1 = await SELF.fetch('https://sync.example.com/v1/sync', {

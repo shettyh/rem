@@ -268,6 +268,8 @@ impl SyncTransport for DeviceTransport {
                 has_more,
                 acked_op_ids,
                 ops: page,
+                bootstrap_required: false,
+                snapshot_seq: None,
             }
         };
 

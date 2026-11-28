@@ -1,0 +1,19 @@
+[package]
+name = "rem-sync-reduce"
+version = "0.31.0"
+description = "Pure-Rust CRDT sync reducer and CompactedSnapshot schema for rem (native & WASM)"
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.88"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+wasm-bindgen = { version = "0.2.130", optional = true }

@@ -6,6 +6,9 @@ enum ReminderManager {
     private static let notificationId = "com.shettyh.rem.daily-reminder"
 
     static func requestPermission() async -> Bool {
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            return false
+        }
         let center = UNUserNotificationCenter.current()
         do {
             return try await center.requestAuthorization(options: [.alert, .sound, .badge])
@@ -21,6 +24,11 @@ enum ReminderManager {
         dueCount: UInt32,
         estimatedMinutes: UInt32
     ) async {
+        // Avoid talking to `UNUserNotificationCenter` / `usernoted` XPC during
+        // XCTest runs (blocks on headless Xcode 27 Simulators in CI).
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            return
+        }
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: [notificationId])
 
