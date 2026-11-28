@@ -4,7 +4,9 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use rem_core::{CardPatch, Collection, CollectionError, DeckPatch, FsrsState, Grade, RemoteSyncOp, ReviewCommit};
+use rem_core::{
+    CardPatch, Collection, CollectionError, DeckPatch, FsrsState, Grade, RemoteSyncOp, ReviewCommit,
+};
 use rem_sync::{
     connect_collection, sign_out_with_client, sync_collection, sync_collection_with_options,
     sync_with_credentials, sync_with_http, AccountProfile, AuthAccount, AuthClient, AuthProviders,
@@ -481,7 +483,9 @@ fn step4_get_asset_failure_persists_pending_downloads_and_recovers_on_next_sync(
             let mut fail_slot = self.fail_on_call.lock().unwrap();
             if *fail_slot == Some(*calls) {
                 *fail_slot = None;
-                return Err(SyncError::Transport("simulated Step-4 download drop".into()));
+                return Err(SyncError::Transport(
+                    "simulated Step-4 download drop".into(),
+                ));
             }
             drop(fail_slot);
             drop(calls);
@@ -531,8 +535,14 @@ fn step4_get_asset_failure_persists_pending_downloads_and_recovers_on_next_sync(
     assert_eq!(recovered.pulled_ops, 0);
     assert_eq!(recovered.downloaded_assets, 1);
     assert!(dev_b.list_pending_asset_downloads().unwrap().is_empty());
-    assert_eq!(dev_b.get_asset(&a1.hash).unwrap().unwrap().bytes, b"image-alpha");
-    assert_eq!(dev_b.get_asset(&a2.hash).unwrap().unwrap().bytes, b"image-beta");
+    assert_eq!(
+        dev_b.get_asset(&a1.hash).unwrap().unwrap().bytes,
+        b"image-alpha"
+    );
+    assert_eq!(
+        dev_b.get_asset(&a2.hash).unwrap().unwrap().bytes,
+        b"image-beta"
+    );
 }
 
 #[test]
@@ -545,13 +555,30 @@ fn step4_get_asset_401_triggers_refresh_and_completes_pending_downloads() {
         fn fetch_providers(&self) -> Result<AuthProviders, SyncError> {
             unimplemented!()
         }
-        fn exchange_code(&self, _: &str, _: &str, _: &str, _: &str) -> Result<AuthTokenResponse, SyncError> {
+        fn exchange_code(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &str,
+        ) -> Result<AuthTokenResponse, SyncError> {
             unimplemented!()
         }
-        fn exchange_apple_native(&self, _: &str, _: Option<&str>, _: &str, _: Option<&str>, _: &str) -> Result<AuthTokenResponse, SyncError> {
+        fn exchange_apple_native(
+            &self,
+            _: &str,
+            _: Option<&str>,
+            _: &str,
+            _: Option<&str>,
+            _: &str,
+        ) -> Result<AuthTokenResponse, SyncError> {
             unimplemented!()
         }
-        fn refresh_token(&self, refresh_token: &str, _: &str) -> Result<AuthTokenResponse, SyncError> {
+        fn refresh_token(
+            &self,
+            refresh_token: &str,
+            _: &str,
+        ) -> Result<AuthTokenResponse, SyncError> {
             let mut count = self.refreshes.lock().unwrap();
             *count += 1;
             Ok(AuthTokenResponse {
@@ -619,7 +646,9 @@ fn step4_get_asset_401_triggers_refresh_and_completes_pending_downloads() {
         .enable_cloud_sync(SERVER_URL, ACCOUNT_ID, 1_000)
         .unwrap();
     let deck = dev_a.create_deck("Media", 1_010).unwrap();
-    let asset = dev_a.put_asset(b"img-401-retry", "image/png", 1_020).unwrap();
+    let asset = dev_a
+        .put_asset(b"img-401-retry", "image/png", 1_020)
+        .unwrap();
     dev_a
         .create_card(
             &deck.id,
@@ -885,10 +914,23 @@ fn sign_out_offline_edits_and_reviews_sync_on_reconnect() {
         fn fetch_providers(&self) -> Result<AuthProviders, SyncError> {
             unimplemented!()
         }
-        fn exchange_code(&self, _: &str, _: &str, _: &str, _: &str) -> Result<AuthTokenResponse, SyncError> {
+        fn exchange_code(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &str,
+        ) -> Result<AuthTokenResponse, SyncError> {
             unimplemented!()
         }
-        fn exchange_apple_native(&self, _: &str, _: Option<&str>, _: &str, _: Option<&str>, _: &str) -> Result<AuthTokenResponse, SyncError> {
+        fn exchange_apple_native(
+            &self,
+            _: &str,
+            _: Option<&str>,
+            _: &str,
+            _: Option<&str>,
+            _: &str,
+        ) -> Result<AuthTokenResponse, SyncError> {
             unimplemented!()
         }
         fn refresh_token(&self, _: &str, _: &str) -> Result<AuthTokenResponse, SyncError> {
@@ -933,7 +975,13 @@ fn sign_out_offline_edits_and_reviews_sync_on_reconnect() {
 
     let deck = dev_a.create_deck("OfflineSync", 1_010).unwrap();
     let card = dev_a
-        .create_card(&deck.id, "Original Q", "Original A", vec!["v1".into()], 1_020)
+        .create_card(
+            &deck.id,
+            "Original Q",
+            "Original A",
+            vec!["v1".into()],
+            1_020,
+        )
         .unwrap();
     sync_collection(&dev_a, &transport, 1_100).unwrap();
     sync_collection(&dev_b, &transport, 1_110).unwrap();

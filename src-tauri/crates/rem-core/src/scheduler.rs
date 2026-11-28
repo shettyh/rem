@@ -4,9 +4,7 @@ use fsrs::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    FsrsState, Grade, SchedulerKind, MAX_MAXIMUM_INTERVAL_DAYS, MAX_VALID_TIMESTAMP_MS,
-};
+use crate::{FsrsState, Grade, SchedulerKind, MAX_MAXIMUM_INTERVAL_DAYS, MAX_VALID_TIMESTAMP_MS};
 
 const MS_PER_DAY: i64 = 86_400_000;
 const FSRS7_FAST_STABILITY_RATIO: f32 = 0.8;

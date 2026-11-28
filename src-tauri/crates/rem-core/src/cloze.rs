@@ -104,9 +104,7 @@ pub fn parse_cloze_spans(text: &str) -> Vec<ClozeSpan> {
                     i += 1;
                     continue;
                 }
-                Some(OpenMarker::Cloze { .. })
-                    if i + 1 < scan_limit && bytes[i + 1] == b'}' =>
-                {
+                Some(OpenMarker::Cloze { .. }) if i + 1 < scan_limit && bytes[i + 1] == b'}' => {
                     let Some(OpenMarker::Cloze {
                         start,
                         index,
@@ -226,7 +224,10 @@ fn find_code_ranges(text: &str) -> Vec<(usize, usize)> {
             }
             let run_len = i - start;
             all_runs.push((start, i));
-            runs_by_len.entry(run_len).or_default().push_back((start, i));
+            runs_by_len
+                .entry(run_len)
+                .or_default()
+                .push_back((start, i));
         } else {
             i += 1;
         }

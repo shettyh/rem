@@ -106,11 +106,10 @@ impl SimServer {
     }
 
     fn invalidate_device_token(&self, device_id: &str) {
-        self.state
-            .lock()
-            .unwrap()
-            .valid_tokens
-            .insert(device_id.to_owned(), format!("expired-server-rotated-{device_id}"));
+        self.state.lock().unwrap().valid_tokens.insert(
+            device_id.to_owned(),
+            format!("expired-server-rotated-{device_id}"),
+        );
     }
 
     fn latest_seq(&self) -> u64 {
@@ -135,13 +134,30 @@ impl AuthClient for SimAuthClient {
     fn fetch_providers(&self) -> Result<AuthProviders, SyncError> {
         unimplemented!()
     }
-    fn exchange_code(&self, _: &str, _: &str, _: &str, _: &str) -> Result<AuthTokenResponse, SyncError> {
+    fn exchange_code(
+        &self,
+        _: &str,
+        _: &str,
+        _: &str,
+        _: &str,
+    ) -> Result<AuthTokenResponse, SyncError> {
         unimplemented!()
     }
-    fn exchange_apple_native(&self, _: &str, _: Option<&str>, _: &str, _: Option<&str>, _: &str) -> Result<AuthTokenResponse, SyncError> {
+    fn exchange_apple_native(
+        &self,
+        _: &str,
+        _: Option<&str>,
+        _: &str,
+        _: Option<&str>,
+        _: &str,
+    ) -> Result<AuthTokenResponse, SyncError> {
         unimplemented!()
     }
-    fn refresh_token(&self, refresh_token: &str, device_id: &str) -> Result<AuthTokenResponse, SyncError> {
+    fn refresh_token(
+        &self,
+        refresh_token: &str,
+        device_id: &str,
+    ) -> Result<AuthTokenResponse, SyncError> {
         let mut state = self.server.state.lock().unwrap();
         state.refresh_seq += 1;
         let next_access = format!("jwt-{device_id}-{}", state.refresh_seq);
@@ -318,10 +334,14 @@ impl SyncTransport for DeviceTransport {
             });
         }
         let state = self.server.state.lock().unwrap();
-        let (mime, bytes) = state.assets.get(hash).cloned().ok_or_else(|| SyncError::Http {
-            status: 404,
-            message: format!("asset not found on server: {hash}"),
-        })?;
+        let (mime, bytes) = state
+            .assets
+            .get(hash)
+            .cloned()
+            .ok_or_else(|| SyncError::Http {
+                status: 404,
+                message: format!("asset not found on server: {hash}"),
+            })?;
         Ok(DownloadedAsset { mime, bytes })
     }
 }
@@ -375,7 +395,15 @@ impl SimDevice {
             access_expires_at: now + 900_000,
             refresh_token: format!("rt-reconn-{}-{seq}", self.device_id),
         };
-        connect_collection(&self.collection, &self.store, SERVER_URL, &creds, now, false).unwrap();
+        connect_collection(
+            &self.collection,
+            &self.store,
+            SERVER_URL,
+            &creds,
+            now,
+            false,
+        )
+        .unwrap();
         server.register_device_token(&self.device_id, &token);
         self.signed_out = false;
     }
@@ -429,14 +457,21 @@ fn assert_all_devices_converged(devices: &[SimDevice], server: &SimServer) {
 
     for (idx, dev) in devices.iter().enumerate() {
         let state = dev.collection.sync_state().unwrap();
-        assert_eq!(state.mode, SyncMode::Cloud, "device {idx} must be in cloud mode");
+        assert_eq!(
+            state.mode,
+            SyncMode::Cloud,
+            "device {idx} must be in cloud mode"
+        );
         assert_eq!(
             dev.collection.pending_outbox_count().unwrap(),
             0,
             "device {idx} must have empty outbox"
         );
         assert!(
-            dev.collection.list_pending_asset_downloads().unwrap().is_empty(),
+            dev.collection
+                .list_pending_asset_downloads()
+                .unwrap()
+                .is_empty(),
             "device {idx} must have empty pending_asset_downloads"
         );
         assert_eq!(
@@ -451,7 +486,11 @@ fn assert_all_devices_converged(devices: &[SimDevice], server: &SimServer) {
     for (idx, dev) in devices.iter().enumerate().skip(1) {
         let mut decks = dev.collection.list_decks().unwrap();
         decks.sort_by(|a, b| a.id.cmp(&b.id));
-        assert_eq!(base_decks.len(), decks.len(), "deck count mismatch on device {idx}");
+        assert_eq!(
+            base_decks.len(),
+            decks.len(),
+            "deck count mismatch on device {idx}"
+        );
 
         for (bd, dd) in base_decks.iter().zip(decks.iter()) {
             assert_eq!(bd.id, dd.id);
@@ -519,16 +558,12 @@ fn assert_all_devices_converged(devices: &[SimDevice], server: &SimServer) {
                 let mut refs = extract_asset_refs(&card.front);
                 refs.extend(extract_asset_refs(&card.back));
                 for hash in refs {
-                    let asset = dev
-                        .collection
-                        .get_asset(&hash)
-                        .unwrap()
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "device {idx} missing referenced asset {hash} for card {}",
-                                card.id
-                            )
-                        });
+                    let asset = dev.collection.get_asset(&hash).unwrap().unwrap_or_else(|| {
+                        panic!(
+                            "device {idx} missing referenced asset {hash} for card {}",
+                            card.id
+                        )
+                    });
                     assert_eq!(
                         sha256_hex(&asset.bytes),
                         hash,
@@ -927,7 +962,9 @@ fn mid_push_concurrent_undo_emits_undo_op_and_converges_across_devices() {
     .unwrap();
     session.reveal(2_000).unwrap();
     assert!(matches!(
-        session.grade(&dev_a.collection, Grade::Again, 2_001).unwrap(),
+        session
+            .grade(&dev_a.collection, Grade::Again, 2_001)
+            .unwrap(),
         StudyGradeOutcome::Graded { .. }
     ));
     assert_eq!(dev_a.collection.pending_outbox_count().unwrap(), 1);
@@ -985,9 +1022,18 @@ fn mid_push_concurrent_undo_emits_undo_op_and_converges_across_devices() {
     let devices = [dev_a, dev_b, dev_c];
     assert_all_devices_converged(&devices, &server);
     for dev in &devices {
-        assert!(dev.collection.list_review_logs(&deck.id).unwrap().is_empty());
+        assert!(dev
+            .collection
+            .list_review_logs(&deck.id)
+            .unwrap()
+            .is_empty());
         assert_eq!(
-            dev.collection.get_card(&card.id).unwrap().unwrap().scheduling.reps,
+            dev.collection
+                .get_card(&card.id)
+                .unwrap()
+                .unwrap()
+                .scheduling
+                .reps,
             0
         );
     }

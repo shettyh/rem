@@ -311,8 +311,12 @@ fn sweep_orphan_assets_preserves_assets_referenced_by_drafts() {
     let dir = tempdir().unwrap();
     let col = Collection::open(dir.path().join("draft_assets.sqlite3")).unwrap();
     let deck = col.create_deck("Drafts", BASE_NOW).unwrap();
-    let draft_asset = col.put_asset(b"draft-image-bytes", "image/png", BASE_NOW).unwrap();
-    let orphan_asset = col.put_asset(b"truly-unused", "image/png", BASE_NOW + 1).unwrap();
+    let draft_asset = col
+        .put_asset(b"draft-image-bytes", "image/png", BASE_NOW)
+        .unwrap();
+    let orphan_asset = col
+        .put_asset(b"truly-unused", "image/png", BASE_NOW + 1)
+        .unwrap();
 
     let proposed = col
         .propose_drafts(
@@ -346,7 +350,13 @@ fn update_cloze_note_unsuspends_readded_orphan_and_handles_removing_all_clozes()
     let col = Collection::open(dir.path().join("cloze_lifecycle.sqlite3")).unwrap();
     let deck = col.create_deck("Cloze", BASE_NOW).unwrap();
     let created = col
-        .create_card_or_cloze(&deck.id, "{{c1::One}} and {{c2::Two}}", "Back", vec![], BASE_NOW)
+        .create_card_or_cloze(
+            &deck.id,
+            "{{c1::One}} and {{c2::Two}}",
+            "Back",
+            vec![],
+            BASE_NOW,
+        )
         .unwrap();
     assert_eq!(created.len(), 2);
 
@@ -371,8 +381,14 @@ fn update_cloze_note_unsuspends_readded_orphan_and_handles_removing_all_clozes()
     .unwrap();
 
     // Remove c2 -> reviewed c2 gets suspended.
-    col.update_cloze_note(&created[0].id, "{{c1::One}} only", "Back", vec![], BASE_NOW + 20)
-        .unwrap();
+    col.update_cloze_note(
+        &created[0].id,
+        "{{c1::One}} only",
+        "Back",
+        vec![],
+        BASE_NOW + 20,
+    )
+    .unwrap();
     assert!(col.get_card(&created[1].id).unwrap().unwrap().suspended);
 
     // Re-add c2 -> c2 gets unsuspended rather than staying dead!
@@ -419,7 +435,9 @@ fn import_decks_rejects_duplicates_and_blank_front_and_does_not_poison_hlc() {
         settings: DeckSettings::default(),
         cards: vec![],
     };
-    assert!(col.import_decks(vec![dup.clone(), dup], BASE_NOW + 1).is_err());
+    assert!(col
+        .import_decks(vec![dup.clone(), dup], BASE_NOW + 1)
+        .is_err());
 
     // Blank front rejected.
     assert!(col

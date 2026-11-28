@@ -110,7 +110,10 @@ pub(crate) fn put_asset_in_tx(
     now: i64,
 ) -> Result<(Asset, bool), CollectionError> {
     let hash = hex::encode(Sha256::digest(bytes));
-    transaction.execute("DELETE FROM pending_asset_downloads WHERE hash = ?1", [&hash])?;
+    transaction.execute(
+        "DELETE FROM pending_asset_downloads WHERE hash = ?1",
+        [&hash],
+    )?;
     if let Some(existing) = find_asset(transaction, &hash)? {
         return Ok((existing, false));
     }

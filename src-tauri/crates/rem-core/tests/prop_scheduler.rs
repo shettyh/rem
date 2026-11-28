@@ -100,13 +100,17 @@ fn arb_valid_fsrs_state(now: i64) -> impl Strategy<Value = FsrsState> {
 }
 
 fn assert_state_invariants(state: &FsrsState, now: i64) {
-    state.validate().expect("scheduled state must pass validate");
+    state
+        .validate()
+        .expect("scheduled state must pass validate");
     assert!(state.state <= 3);
     assert!(state.stability.is_finite());
     assert!(state.difficulty.is_finite());
     if state.reps > 0 {
         assert!(state.stability > 0.0);
-        assert!(state.stability_fast.is_some_and(|sf| sf.is_finite() && sf > 0.0));
+        assert!(state
+            .stability_fast
+            .is_some_and(|sf| sf.is_finite() && sf > 0.0));
         assert!(state.difficulty > 0.0 && state.difficulty <= 10.0);
     }
     assert!(state.due >= now, "due {} < now {}", state.due, now);
@@ -191,7 +195,10 @@ fn validation_rejects_non_finite_and_out_of_range_settings_and_states() {
             desired_retention: bad_retention,
             ..DeckSettings::default()
         };
-        assert!(s.validate().is_err(), "expected error for retention {bad_retention}");
+        assert!(
+            s.validate().is_err(),
+            "expected error for retention {bad_retention}"
+        );
     }
     assert!(DeckSettings {
         maximum_interval: 0,

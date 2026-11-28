@@ -117,7 +117,8 @@ proptest! {
 
 #[test]
 fn cloze_skips_inline_and_fenced_code_and_handles_adversarial_unclosed_linearly() {
-    let text = "Inline `{{c1::ignored}}` and\n```rust\n{{c2::also_ignored}}\n```\nReal {{c3::active}}.";
+    let text =
+        "Inline `{{c1::ignored}}` and\n```rust\n{{c2::also_ignored}}\n```\nReal {{c3::active}}.";
     assert_eq!(extract_cloze_indices(text), vec![3]);
     assert_eq!(
         render_cloze_question(text, 3),
@@ -196,7 +197,10 @@ fn backup_export_parse_import_round_trip_preserves_full_collection() {
         imported_cards[1].sibling_group_id
     );
     assert_eq!(imported_cards[0].scheduling.reps, 1);
-    assert_eq!(col2.list_review_logs(&imported_decks[0].id).unwrap().len(), 1);
+    assert_eq!(
+        col2.list_review_logs(&imported_decks[0].id).unwrap().len(),
+        1
+    );
 }
 
 #[test]
@@ -236,7 +240,10 @@ fn apkg_missing_media_entries_do_not_exhaust_512mb_budget() {
     let mut manifest = serde_json::Map::new();
     let mut front = String::from("Question ");
     for i in 0..25 {
-        manifest.insert(i.to_string(), serde_json::Value::String(format!("m{i}.png")));
+        manifest.insert(
+            i.to_string(),
+            serde_json::Value::String(format!("m{i}.png")),
+        );
         front.push_str(&format!("<img src=\"m{i}.png\"> "));
     }
     conn.execute(

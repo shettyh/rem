@@ -135,13 +135,14 @@ proptest! {
         // Track (day -> group_id -> card_id) graded in non-custom mode (not undone) to assert bury_related.
         let mut normal_mode = true;
         let mut graded_groups_by_day: HashMap<String, HashMap<String, String>> = HashMap::new();
-        let mut last_graded_snapshot: Option<(
+        type GradedSnapshot = (
             rem_core::Card,
             Vec<rem_core::ReviewLog>,
             (u32, u32),
             String,
             Option<(String, String)>, // (day, group_id) inserted on that grade
-        )> = None;
+        );
+        let mut last_graded_snapshot: Option<GradedSnapshot> = None;
 
         for action in actions {
             match action {
@@ -332,7 +333,13 @@ fn today_summary_does_not_double_count_mixed_review_and_new_siblings_when_bury_r
     .unwrap();
 
     let siblings = col
-        .create_card_or_cloze(&deck.id, "{{c1::One}} and {{c2::Two}}", "", vec![], BASE_NOW - 800)
+        .create_card_or_cloze(
+            &deck.id,
+            "{{c1::One}} and {{c2::Two}}",
+            "",
+            vec![],
+            BASE_NOW - 800,
+        )
         .unwrap();
     assert_eq!(siblings.len(), 2);
 

@@ -8,9 +8,13 @@ const DEVICES: [&str; 3] = ["dev00001", "dev00002", "dev00003"];
 const BASE_TS: u64 = 1_760_000_000_000;
 
 fn make_hlc(offset_ms: u64, counter: u16, dev_idx: usize) -> String {
-    Hlc::new(BASE_TS + offset_ms, counter, DEVICES[dev_idx % DEVICES.len()])
-        .unwrap()
-        .to_string()
+    Hlc::new(
+        BASE_TS + offset_ms,
+        counter,
+        DEVICES[dev_idx % DEVICES.len()],
+    )
+    .unwrap()
+    .to_string()
 }
 
 fn valid_sched(due_offset: i64, reps: u32, lapses: u32) -> FsrsState {
@@ -72,19 +76,32 @@ enum OpSpec {
 fn arb_op_spec() -> impl Strategy<Value = OpSpec> {
     prop_oneof![
         (
-            prop_oneof![Just("F1".to_string()), Just("F2".to_string()), Just("F3".to_string())],
+            prop_oneof![
+                Just("F1".to_string()),
+                Just("F2".to_string()),
+                Just("F3".to_string())
+            ],
             prop_oneof![Just("B1".to_string()), Just("B2".to_string())],
-            prop::collection::vec(prop_oneof![Just("rust".to_string()), Just("sync".to_string()), Just("leech".to_string())], 0..=2),
+            prop::collection::vec(
+                prop_oneof![
+                    Just("rust".to_string()),
+                    Just("sync".to_string()),
+                    Just("leech".to_string())
+                ],
+                0..=2
+            ),
             10_u64..=500,
             0_usize..3,
         )
-            .prop_map(|(front, back, tags, offset_ms, dev_idx)| OpSpec::ContentPatch {
-                front,
-                back,
-                tags,
-                offset_ms,
-                dev_idx,
-            }),
+            .prop_map(
+                |(front, back, tags, offset_ms, dev_idx)| OpSpec::ContentPatch {
+                    front,
+                    back,
+                    tags,
+                    offset_ms,
+                    dev_idx,
+                }
+            ),
         (any::<bool>(), 10_u64..=500, 0_usize..3).prop_map(|(suspended, offset_ms, dev_idx)| {
             OpSpec::SuspendPatch {
                 suspended,
@@ -133,7 +150,11 @@ fn arb_op_spec() -> impl Strategy<Value = OpSpec> {
                 },
             ),
         (
-            prop_oneof![Just("DeckA".to_string()), Just("DeckB".to_string()), Just("Deck::Sub".to_string())],
+            prop_oneof![
+                Just("DeckA".to_string()),
+                Just("DeckB".to_string()),
+                Just("Deck::Sub".to_string())
+            ],
             10_u64..=500,
             0_usize..3,
         )
@@ -297,7 +318,15 @@ fn build_remote_ops(specs: &[OpSpec]) -> Vec<RemoteSyncOp> {
     ops
 }
 
-fn snapshot_state(col: &Collection) -> (Vec<rem_core::Deck>, Vec<rem_core::Card>, Vec<rem_core::ReviewLog>, Vec<rem_core::Tombstone>, String) {
+fn snapshot_state(
+    col: &Collection,
+) -> (
+    Vec<rem_core::Deck>,
+    Vec<rem_core::Card>,
+    Vec<rem_core::ReviewLog>,
+    Vec<rem_core::Tombstone>,
+    String,
+) {
     let mut decks = col.list_decks().unwrap();
     decks.sort_by(|a, b| a.id.cmp(&b.id));
     let mut cards: Vec<_> = decks
