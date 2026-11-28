@@ -244,4 +244,204 @@ describe('TauriStorage', () => {
     ])
     expect(notifications).toBe(1)
   })
+
+  it('streams raw Uint8Array bytes with x-rem-now for previewApkg and importApkg and notifies only on import', async () => {
+    const payload = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00])
+    const preview = {
+      added: ['Japanese::Core'],
+      replaced: [],
+      totalCards: 12,
+      mediaCount: 3,
+      reviewLogs: 5,
+      warnings: ['Skipped 1 empty card'],
+    }
+    const imported = {
+      added: ['Japanese::Core'],
+      replaced: [],
+      importedCards: 12,
+      importedReviews: 5,
+      importedMedia: 3,
+      warnings: ['Skipped 1 empty card'],
+    }
+    const seenHeaders: Array<Record<string, string> | Headers | undefined> = []
+    const fake = fakeInvoke((command, args, options) => {
+      seenHeaders.push(options?.headers as Record<string, string> | Headers | undefined)
+      if (command === 'storage_preview_apkg') {
+        expect(args).toBeInstanceOf(Uint8Array)
+        expect(args).toEqual(payload)
+        expect(options?.headers).toEqual({ 'x-rem-now': '1760000000000' })
+        return preview
+      }
+      if (command === 'storage_import_apkg') {
+        expect(args).toBeInstanceOf(Uint8Array)
+        expect(args).toEqual(payload)
+        expect(options?.headers).toEqual({ 'x-rem-now': '1760000000000' })
+        return imported
+      }
+      throw new Error(`unexpected command ${command}`)
+    })
+    const storage = new TauriStorage(fake.invoke, () => 1760000000000)
+    let notifications = 0
+    storage.subscribe(() => notifications++)
+
+    await expect(storage.previewApkg(payload)).resolves.toEqual(preview)
+    expect(notifications).toBe(0)
+
+    await expect(storage.importApkg(payload)).resolves.toEqual(imported)
+    expect(notifications).toBe(1)
+
+    expect(fake.calls).toEqual([
+      ['storage_preview_apkg', payload],
+      ['storage_import_apkg', payload],
+    ])
+    expect(seenHeaders).toEqual([
+      { 'x-rem-now': '1760000000000' },
+      { 'x-rem-now': '1760000000000' },
+    ])
+  })
+
+  it('does not notify subscribers when importApkg fails', async () => {
+    const payload = new Uint8Array([1, 2, 3])
+    const fake = fakeInvoke((command) => {
+      if (command === 'storage_import_apkg') {
+        return Promise.reject(new Error('invalid apkg archive'))
+      }
+      throw new Error(`unexpected command ${command}`)
+    })
+    const storage = new TauriStorage(fake.invoke, () => 999)
+    let notifications = 0
+    storage.subscribe(() => notifications++)
+
+    await expect(storage.importApkg(payload)).rejects.toThrow('invalid apkg archive')
+    expect(notifications).toBe(0)
+  })
+
+  it('forwards createCardOrCloze and updateClozeNote and notifies subscribers', async () => {
+    const scheduling = {
+      kind: 'fsrs' as const,
+      stability: 0,
+      difficulty: 0,
+      reps: 0,
+      lapses: 0,
+      state: 0,
+      step: 0,
+      lastReview: null,
+      due: 1000,
+    }
+    const createdCards = [
+      {
+        id: 'c1',
+        deckId: deck.id,
+        front: '{{c1::Ownership}} prevents {{c2::data races}}',
+        back: 'Rust core guarantee',
+        createdAt: 1000,
+        updatedAt: 1000,
+        tags: ['rust'],
+        suspended: false,
+        lastAgainAt: null,
+        scheduling,
+        siblingGroupId: 'grp-1',
+        clozeIndex: 1,
+      },
+      {
+        id: 'c2',
+        deckId: deck.id,
+        front: '{{c1::Ownership}} prevents {{c2::data races}}',
+        back: 'Rust core guarantee',
+        createdAt: 1000,
+        updatedAt: 1000,
+        tags: ['rust'],
+        suspended: false,
+        lastAgainAt: null,
+        scheduling,
+        siblingGroupId: 'grp-1',
+        clozeIndex: 2,
+      },
+    ]
+    const updatedCards = [
+      {
+        ...createdCards[0],
+        front: '{{c1::Borrowing}} prevents {{c2::aliasing}}',
+        back: 'Updated note',
+        tags: [],
+        updatedAt: 2000,
+      },
+      {
+        ...createdCards[1],
+        front: '{{c1::Borrowing}} prevents {{c2::aliasing}}',
+        back: 'Updated note',
+        tags: [],
+        updatedAt: 2000,
+      },
+    ]
+
+    let clock = 1000
+    const fake = fakeInvoke((command) => {
+      if (command === 'storage_create_card_or_cloze') return createdCards
+      if (command === 'storage_update_cloze_note') return updatedCards
+      throw new Error(`unexpected command ${command}`)
+    })
+    const storage = new TauriStorage(fake.invoke, () => clock)
+    let notifications = 0
+    storage.subscribe(() => notifications++)
+
+    await expect(
+      storage.createCardOrCloze(
+        deck.id,
+        '{{c1::Ownership}} prevents {{c2::data races}}',
+        'Rust core guarantee',
+        ['rust'],
+      ),
+    ).resolves.toEqual(createdCards)
+    expect(notifications).toBe(1)
+
+    clock = 2000
+    await expect(
+      storage.updateClozeNote(
+        'c1',
+        '{{c1::Borrowing}} prevents {{c2::aliasing}}',
+        'Updated note',
+      ),
+    ).resolves.toEqual(updatedCards)
+    expect(notifications).toBe(2)
+
+    clock = 3000
+    await expect(
+      storage.createCardOrCloze(deck.id, 'Plain front', 'Plain back'),
+    ).resolves.toEqual(createdCards)
+    expect(notifications).toBe(3)
+
+    expect(fake.calls).toEqual([
+      [
+        'storage_create_card_or_cloze',
+        {
+          deckId: deck.id,
+          front: '{{c1::Ownership}} prevents {{c2::data races}}',
+          back: 'Rust core guarantee',
+          tags: ['rust'],
+          now: 1000,
+        },
+      ],
+      [
+        'storage_update_cloze_note',
+        {
+          cardId: 'c1',
+          front: '{{c1::Borrowing}} prevents {{c2::aliasing}}',
+          back: 'Updated note',
+          tags: [],
+          now: 2000,
+        },
+      ],
+      [
+        'storage_create_card_or_cloze',
+        {
+          deckId: deck.id,
+          front: 'Plain front',
+          back: 'Plain back',
+          tags: [],
+          now: 3000,
+        },
+      ],
+    ])
+  })
 })

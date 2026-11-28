@@ -229,3 +229,57 @@ test('shows subtree counts and cascades deletion to subdecks from Deck options',
   ])
   await expect.element(page.getByText('Home')).toBeInTheDocument()
 })
+
+test('toggling buryRelated and showTimer persists to deck settings via updateDeck', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Anki Study')
+  const updateSpy = vi.spyOn(storage, 'updateDeck')
+
+  await renderRoute({
+    storage,
+    path: '/decks/:deckId/options',
+    entry: `/decks/${deck.id}/options`,
+    element: <DeckSettingsPage />,
+  })
+
+  await expect.element(page.getByText('Bury related siblings')).toBeVisible()
+  await expect.element(page.getByText('Show answer timer')).toBeVisible()
+
+  const buryRow = page.getByText('Bury related siblings').element().closest<HTMLElement>('.ds-row')!
+  const timerRow = page.getByText('Show answer timer').element().closest<HTMLElement>('.ds-row')!
+
+  const buryOff = [...buryRow.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'OFF')!
+  const buryOn = [...buryRow.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'ON')!
+  const timerOn = [...timerRow.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'ON')!
+  const timerOff = [...timerRow.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'OFF')!
+
+  // Default: buryRelated = true, showTimer = false
+  expect(buryOn.getAttribute('aria-pressed')).toBe('true')
+  expect(timerOff.getAttribute('aria-pressed')).toBe('true')
+
+  // Toggle buryRelated -> false
+  buryOff.click()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.buryRelated).toBe(false)
+  expect(updateSpy).toHaveBeenCalledWith(
+    deck.id,
+    expect.objectContaining({
+      settings: expect.objectContaining({ buryRelated: false, showTimer: false }),
+    }),
+  )
+
+  // Toggle showTimer -> true
+  timerOn.click()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.showTimer).toBe(true)
+  expect(updateSpy).toHaveBeenCalledWith(
+    deck.id,
+    expect.objectContaining({
+      settings: expect.objectContaining({ buryRelated: false, showTimer: true }),
+    }),
+  )
+
+  // Toggle both back -> buryRelated: true, showTimer: false
+  buryOn.click()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.buryRelated).toBe(true)
+  timerOff.click()
+  await expect.poll(async () => (await storage.getDeck(deck.id))?.settings.showTimer).toBe(false)
+})

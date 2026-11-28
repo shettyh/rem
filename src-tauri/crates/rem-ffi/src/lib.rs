@@ -1406,6 +1406,501 @@ mod tests {
         ));
     }
 
+    fn crc32_ieee(data: &[u8]) -> u32 {
+        let mut crc: u32 = 0xFFFF_FFFF;
+        for &byte in data {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                if crc & 1 != 0 {
+                    crc = (crc >> 1) ^ 0xEDB8_8320;
+                } else {
+                    crc >>= 1;
+                }
+            }
+        }
+        !crc
+    }
+
+    fn build_stored_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut central_dir = Vec::new();
+
+        for (name, data) in entries {
+            let name_bytes = name.as_bytes();
+            let crc = crc32_ieee(data);
+            let size = u32::try_from(data.len()).unwrap();
+            let name_len = u16::try_from(name_bytes.len()).unwrap();
+            let local_offset = u32::try_from(out.len()).unwrap();
+
+            // Local file header
+            out.extend_from_slice(&0x0403_4B50u32.to_le_bytes());
+            out.extend_from_slice(&20u16.to_le_bytes()); // version needed
+            out.extend_from_slice(&0u16.to_le_bytes()); // general purpose flags
+            out.extend_from_slice(&0u16.to_le_bytes()); // compression = stored
+            out.extend_from_slice(&0u16.to_le_bytes()); // mod time
+            out.extend_from_slice(&0u16.to_le_bytes()); // mod date
+            out.extend_from_slice(&crc.to_le_bytes());
+            out.extend_from_slice(&size.to_le_bytes());
+            out.extend_from_slice(&size.to_le_bytes());
+            out.extend_from_slice(&name_len.to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes()); // extra len
+            out.extend_from_slice(name_bytes);
+            out.extend_from_slice(data);
+
+            // Central directory header
+            central_dir.extend_from_slice(&0x0201_4B50u32.to_le_bytes());
+            central_dir.extend_from_slice(&20u16.to_le_bytes()); // version made by
+            central_dir.extend_from_slice(&20u16.to_le_bytes()); // version needed
+            central_dir.extend_from_slice(&0u16.to_le_bytes()); // flags
+            central_dir.extend_from_slice(&0u16.to_le_bytes()); // compression = stored
+            central_dir.extend_from_slice(&0u16.to_le_bytes()); // mod time
+            central_dir.extend_from_slice(&0u16.to_le_bytes()); // mod date
+            central_dir.extend_from_slice(&crc.to_le_bytes());
+            central_dir.extend_from_slice(&size.to_le_bytes());
+            central_dir.extend_from_slice(&size.to_le_bytes());
+            central_dir.extend_from_slice(&name_len.to_le_bytes());
+            central_dir.extend_from_slice(&0u16.to_le_bytes()); // extra len
+            central_dir.extend_from_slice(&0u16.to_le_bytes()); // comment len
+            central_dir.extend_from_slice(&0u16.to_le_bytes()); // disk number
+            central_dir.extend_from_slice(&0u16.to_le_bytes()); // internal attrs
+            central_dir.extend_from_slice(&0u32.to_le_bytes()); // external attrs
+            central_dir.extend_from_slice(&local_offset.to_le_bytes());
+            central_dir.extend_from_slice(name_bytes);
+        }
+
+        let cd_offset = u32::try_from(out.len()).unwrap();
+        let cd_size = u32::try_from(central_dir.len()).unwrap();
+        let entry_count = u16::try_from(entries.len()).unwrap();
+        out.extend_from_slice(&central_dir);
+
+        // End of central directory record
+        out.extend_from_slice(&0x0605_4B50u32.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes()); // disk number
+        out.extend_from_slice(&0u16.to_le_bytes()); // cd start disk
+        out.extend_from_slice(&entry_count.to_le_bytes());
+        out.extend_from_slice(&entry_count.to_le_bytes());
+        out.extend_from_slice(&cd_size.to_le_bytes());
+        out.extend_from_slice(&cd_offset.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes()); // comment len
+        out
+    }
+
+    fn exec_sqlite_script(db_path: &std::path::Path, sql: &str) {
+        use std::ffi::{c_char, c_int, c_void, CStr, CString};
+
+        extern "C" {
+            fn sqlite3_open(filename: *const c_char, pp_db: *mut *mut c_void) -> c_int;
+            fn sqlite3_exec(
+                db: *mut c_void,
+                sql: *const c_char,
+                callback: Option<
+                    unsafe extern "C" fn(
+                        *mut c_void,
+                        c_int,
+                        *mut *mut c_char,
+                        *mut *mut c_char,
+                    ) -> c_int,
+                >,
+                arg: *mut c_void,
+                errmsg: *mut *mut c_char,
+            ) -> c_int;
+            fn sqlite3_free(ptr: *mut c_void);
+            fn sqlite3_close(db: *mut c_void) -> c_int;
+        }
+
+        let c_path = CString::new(db_path.to_str().unwrap()).unwrap();
+        let c_sql = CString::new(sql).unwrap();
+        let mut db: *mut c_void = std::ptr::null_mut();
+        // SAFETY: `rem-core` links bundled libsqlite3 via `rusqlite`; all pointers are valid
+        // NUL-terminated strings or stack slots owned by this function.
+        unsafe {
+            let rc = sqlite3_open(c_path.as_ptr(), &mut db);
+            assert_eq!(rc, 0, "sqlite3_open failed with rc={rc}");
+            let mut errmsg: *mut c_char = std::ptr::null_mut();
+            let exec_rc = sqlite3_exec(db, c_sql.as_ptr(), None, std::ptr::null_mut(), &mut errmsg);
+            if exec_rc != 0 {
+                let msg = if errmsg.is_null() {
+                    format!("sqlite3_exec failed with rc={exec_rc}")
+                } else {
+                    let s = CStr::from_ptr(errmsg).to_string_lossy().into_owned();
+                    sqlite3_free(errmsg.cast());
+                    s
+                };
+                sqlite3_close(db);
+                panic!("sqlite3_exec error: {msg}");
+            }
+            let close_rc = sqlite3_close(db);
+            assert_eq!(close_rc, 0, "sqlite3_close failed with rc={close_rc}");
+        }
+    }
+
+    fn sql_quote(s: &str) -> String {
+        format!("'{}'", s.replace('\'', "''"))
+    }
+
+    fn build_rich_apkg_fixture(now_ms: i64) -> Vec<u8> {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("collection.anki21");
+        let crt_secs = (now_ms / 1000) - 30 * 86_400;
+
+        let decks_json = serde_json::json!({
+            "1": { "id": 1, "name": "Default" },
+            "10": { "id": 10, "name": "Languages::Spanish" },
+            "20": { "id": 20, "name": "STEM::Physics" },
+            "30": { "id": 30, "name": "Anatomy::Heart" }
+        })
+        .to_string();
+
+        let models_json = serde_json::json!({
+            "100": {
+                "id": 100,
+                "name": "Basic",
+                "type": 0,
+                "flds": [{"name": "Front"}, {"name": "Back"}],
+                "tmpls": [
+                    { "name": "Card 1", "qfmt": "{{Front}}", "afmt": "{{FrontSide}}<hr id=answer>{{Back}}" }
+                ]
+            },
+            "200": {
+                "id": 200,
+                "name": "Cloze",
+                "type": 1,
+                "flds": [{"name": "Text"}, {"name": "Extra"}],
+                "tmpls": [
+                    { "name": "Cloze", "qfmt": "{{cloze:Text}}", "afmt": "{{cloze:Text}}<br>{{Extra}}" }
+                ]
+            },
+            "300": {
+                "id": 300,
+                "name": "Image Occlusion",
+                "type": 1,
+                "flds": [
+                    {"name": "Occlusion"},
+                    {"name": "Image"},
+                    {"name": "Header"},
+                    {"name": "Back Extra"},
+                    {"name": "Comments"}
+                ],
+                "tmpls": [{
+                    "name": "Image Occlusion",
+                    "qfmt": "{{Header}}{{cloze:Occlusion}}",
+                    "afmt": "{{FrontSide}}<hr id=answer>{{Back Extra}}"
+                }]
+            }
+        })
+        .to_string();
+
+        let occ_field = "{{c1::image-occlusion:rect:left=.12:top=.20:width=.25:height=.10:oi=1}}<br>\
+                         {{c2::image-occlusion:ellipse:left=.50:top=.40:width=.20:height=.15:oi=1}}";
+
+        let rev1_id = now_ms - 10 * MS_PER_DAY;
+        let rev2_id = now_ms - 5 * MS_PER_DAY;
+        let rev3_id = now_ms - 2 * MS_PER_DAY;
+
+        let sql = format!(
+            "
+            CREATE TABLE col (id INTEGER PRIMARY KEY, crt INTEGER NOT NULL, models TEXT NOT NULL, decks TEXT NOT NULL);
+            CREATE TABLE notes (id INTEGER PRIMARY KEY, mid INTEGER NOT NULL, tags TEXT NOT NULL, flds TEXT NOT NULL);
+            CREATE TABLE cards (
+                id INTEGER PRIMARY KEY, nid INTEGER NOT NULL, did INTEGER NOT NULL, ord INTEGER NOT NULL,
+                type INTEGER NOT NULL, queue INTEGER NOT NULL, due INTEGER NOT NULL, ivl INTEGER NOT NULL,
+                factor INTEGER NOT NULL, reps INTEGER NOT NULL, lapses INTEGER NOT NULL, data TEXT NOT NULL DEFAULT '{{}}'
+            );
+            CREATE TABLE revlog (
+                id INTEGER PRIMARY KEY, cid INTEGER NOT NULL, ease INTEGER NOT NULL,
+                ivl INTEGER NOT NULL, lastIvl INTEGER NOT NULL, factor INTEGER NOT NULL,
+                time INTEGER NOT NULL, type INTEGER NOT NULL
+            );
+
+            INSERT INTO col(id, crt, models, decks)
+            VALUES (1, {crt_secs}, {models}, {decks});
+
+            INSERT INTO notes(id, mid, tags, flds)
+            VALUES (
+                1001, 100, ' vocab greeting ',
+                '<b>Hola</b> [sound:hola.mp3]' || char(31) || 'Hello <img src=\"wave.png\">'
+            );
+            INSERT INTO cards(id, nid, did, ord, type, queue, due, ivl, factor, reps, lapses)
+            VALUES (2001, 1001, 10, 0, 2, 2, 35, 10, 2500, 2, 0);
+            INSERT INTO revlog(id, cid, ease, ivl, lastIvl, factor, time, type)
+            VALUES ({rev1_id}, 2001, 3, 1, 0, 2500, 3000, 0);
+            INSERT INTO revlog(id, cid, ease, ivl, lastIvl, factor, time, type)
+            VALUES ({rev2_id}, 2001, 3, 10, 1, 2500, 2500, 1);
+
+            INSERT INTO notes(id, mid, tags, flds)
+            VALUES (
+                1002, 200, ' physics math ',
+                {cloze_text} || char(31) || 'Special relativity \\[\\frac{{E}}{{c^2}} = m\\]'
+            );
+            INSERT INTO cards(id, nid, did, ord, type, queue, due, ivl, factor, reps, lapses)
+            VALUES (2002, 1002, 20, 0, 0, 0, 1, 0, 0, 0, 0);
+            INSERT INTO cards(id, nid, did, ord, type, queue, due, ivl, factor, reps, lapses)
+            VALUES (2003, 1002, 20, 1, 0, 0, 2, 0, 0, 0, 0);
+
+            INSERT INTO notes(id, mid, tags, flds)
+            VALUES (
+                1003, 300, ' anatomy cardiac ',
+                {occ} || char(31) || '<img src=\"heart.png\" alt=\"Heart\">' || char(31) || 'Heart Chambers' || char(31) || 'Ventricles &amp; atria' || char(31) || ''
+            );
+            INSERT INTO cards(id, nid, did, ord, type, queue, due, ivl, factor, reps, lapses)
+            VALUES (2004, 1003, 30, 0, 2, 2, 32, 5, 2500, 1, 0);
+            INSERT INTO cards(id, nid, did, ord, type, queue, due, ivl, factor, reps, lapses)
+            VALUES (2005, 1003, 30, 1, 0, 0, 1, 0, 0, 0, 0);
+            INSERT INTO revlog(id, cid, ease, ivl, lastIvl, factor, time, type)
+            VALUES ({rev3_id}, 2004, 3, 5, 1, 2500, 1500, 1);
+            ",
+            models = sql_quote(&models_json),
+            decks = sql_quote(&decks_json),
+            cloze_text = sql_quote(r"Mass-energy equivalence is {{c1::\(E = mc^2\)}} by {{c2::Einstein}}."),
+            occ = sql_quote(occ_field),
+        );
+
+        exec_sqlite_script(&db_path, &sql);
+        let db_bytes = std::fs::read(&db_path).unwrap();
+
+        let media_json = serde_json::json!({
+            "0": "wave.png",
+            "1": "hola.mp3",
+            "2": "heart.png"
+        })
+        .to_string();
+        let wave_png: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x01, 0x02];
+        let hola_mp3: &[u8] = b"ID3\x03\x00\x00\x00\x00\x00\x00test-mp3-payload";
+        let heart_png: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xAA, 0xBB];
+
+        build_stored_zip(&[
+            ("collection.anki21", &db_bytes),
+            ("media", media_json.as_bytes()),
+            ("0", wave_png),
+            ("1", hola_mp3),
+            ("2", heart_png),
+        ])
+    }
+
+    #[test]
+    fn ffi_apkg_preview_import_replacement_and_error_handling() {
+        let (dir, client) = open_test_client();
+        let now = 1_764_400_000_000_i64;
+        let apkg_bytes = build_rich_apkg_fixture(now);
+        let apkg_path = dir.path().join("rich-fixture.apkg");
+        std::fs::write(&apkg_path, &apkg_bytes).unwrap();
+        let apkg_path_str = apkg_path.to_string_lossy().into_owned();
+
+        // Pre-create one matching nested deck so preview detects replacement vs addition.
+        let existing_spanish = client
+            .create_deck("Languages::Spanish".into(), None, now - 1_000)
+            .unwrap();
+        client
+            .create_card(
+                existing_spanish.id,
+                "Old card".into(),
+                "Old back".into(),
+                vec![],
+                now - 900,
+            )
+            .unwrap();
+
+        // Preview via both file path and raw bytes returns matching counts and replacement info.
+        let preview_path = client
+            .preview_apkg_path(apkg_path_str.clone(), now)
+            .unwrap();
+        let preview_bytes = client.preview_apkg(apkg_bytes.clone(), now).unwrap();
+        assert_eq!(preview_path.added, preview_bytes.added);
+        assert_eq!(preview_path.replaced, preview_bytes.replaced);
+        assert_eq!(preview_path.total_cards, 5);
+        assert_eq!(preview_path.media_count, 3);
+        assert_eq!(preview_path.review_logs, 3);
+        assert_eq!(preview_path.replaced, vec!["Languages::Spanish"]);
+        let mut added_sorted = preview_path.added.clone();
+        added_sorted.sort();
+        assert_eq!(added_sorted, vec!["Anatomy::Heart", "STEM::Physics"]);
+
+        // Import from file path
+        let imported = client.import_apkg_path(apkg_path_str.clone(), now).unwrap();
+        assert_eq!(imported.imported_cards, 5);
+        assert_eq!(imported.imported_media, 3);
+        assert_eq!(imported.imported_reviews, 3);
+        assert_eq!(imported.replaced, vec!["Languages::Spanish"]);
+
+        let decks = client.list_decks().unwrap();
+        // 3 imported leaf decks + 3 materialized ancestor container decks (Languages, STEM, Anatomy)
+        assert_eq!(decks.len(), 6);
+        let by_name: HashMap<String, DeckDto> =
+            decks.into_iter().map(|d| (d.name.clone(), d)).collect();
+        for expected in [
+            "Languages",
+            "Languages::Spanish",
+            "STEM",
+            "STEM::Physics",
+            "Anatomy",
+            "Anatomy::Heart",
+        ] {
+            assert!(by_name.contains_key(expected), "missing deck {expected}");
+        }
+
+        // 1. Spanish deck: replaced old card, imported audio + image assets and 2 review logs
+        let spanish = &by_name["Languages::Spanish"];
+        let spanish_cards = client.list_cards(spanish.id.clone()).unwrap();
+        assert_eq!(spanish_cards.len(), 1);
+        assert!(spanish_cards[0].front.contains("Hola"));
+        assert!(spanish_cards[0].front.contains("[Audio: hola.mp3](asset:"));
+        assert!(spanish_cards[0].back.contains("![](asset:"));
+        assert_eq!(spanish_cards[0].asset_hashes.len(), 2);
+        for hash in &spanish_cards[0].asset_hashes {
+            let asset = client.get_asset(hash.clone()).unwrap().unwrap();
+            assert!(!asset.bytes.is_empty());
+        }
+        let spanish_fsrs = client.get_deck_fsrs_status(spanish.id.clone()).unwrap();
+        assert_eq!(spanish_fsrs.review_count, 2);
+        assert!(spanish_fsrs.can_optimize);
+
+        // 2. Physics deck: cloze siblings with LaTeX preserved
+        let physics = &by_name["STEM::Physics"];
+        let physics_cards = client.list_cards(physics.id.clone()).unwrap();
+        assert_eq!(physics_cards.len(), 2);
+        assert!(physics_cards[0].sibling_group_id.is_some());
+        assert_eq!(
+            physics_cards[0].sibling_group_id,
+            physics_cards[1].sibling_group_id
+        );
+        let mut physics_indices: Vec<Option<u32>> =
+            physics_cards.iter().map(|c| c.cloze_index).collect();
+        physics_indices.sort();
+        assert_eq!(physics_indices, vec![Some(1), Some(2)]);
+        assert!(
+            physics_cards[0].front.contains("$E = mc^2$")
+                || physics_cards[0].front.contains(r"\(E = mc^2\)")
+        );
+        assert!(
+            physics_cards[0].back.contains(r"\frac{E}{c^2} = m"),
+            "unexpected physics back: {}",
+            physics_cards[0].back
+        );
+
+        // 3. Anatomy::Heart deck: Image Occlusion siblings referencing imported PNG asset + review log
+        let heart = &by_name["Anatomy::Heart"];
+        let heart_cards = client.list_cards(heart.id.clone()).unwrap();
+        assert_eq!(heart_cards.len(), 2);
+        assert!(heart_cards[0].sibling_group_id.is_some());
+        assert_eq!(
+            heart_cards[0].sibling_group_id,
+            heart_cards[1].sibling_group_id
+        );
+        let mut heart_indices: Vec<Option<u32>> =
+            heart_cards.iter().map(|c| c.cloze_index).collect();
+        heart_indices.sort();
+        assert_eq!(heart_indices, vec![Some(1), Some(2)]);
+        assert!(heart_cards[0].front.contains("```rem-occlusion"));
+        assert!(heart_cards[0].front.contains("Heart Chambers"));
+        assert_eq!(heart_cards[0].back, "Ventricles & atria");
+        assert_eq!(heart_cards[0].asset_hashes.len(), 1);
+        let heart_asset = client
+            .get_asset(heart_cards[0].asset_hashes[0].clone())
+            .unwrap()
+            .unwrap();
+        assert_eq!(heart_asset.mime, "image/png");
+        assert!(heart_asset.bytes.starts_with(b"\x89PNG"));
+
+        // Global stats reflect all 3 imported review logs
+        let stats = client.get_stats(None, 30, now).unwrap();
+        assert_eq!(stats.reviews, 3);
+        let storage = client.get_storage_summary().unwrap();
+        assert_eq!(storage.total_decks, 6);
+        assert_eq!(storage.total_cards, 5);
+        assert_eq!(storage.asset_count, 3);
+
+        // Second import via bytes detects all 3 decks as replacements
+        let second_preview = client.preview_apkg(apkg_bytes.clone(), now + 100).unwrap();
+        assert!(second_preview.added.is_empty());
+        assert_eq!(second_preview.replaced.len(), 3);
+        let second_import = client.import_apkg(apkg_bytes, now + 200).unwrap();
+        assert!(second_import.added.is_empty());
+        assert_eq!(second_import.replaced.len(), 3);
+        assert_eq!(second_import.imported_cards, 5);
+
+        // Corrupt bytes, corrupt file, and missing file return structured FFI errors
+        assert!(matches!(
+            client.import_apkg(b"not-a-zip".to_vec(), now + 300),
+            Err(RemFfiError::InvalidInput { .. })
+        ));
+        let corrupt_path = dir.path().join("corrupt.apkg");
+        std::fs::write(&corrupt_path, b"corrupt-payload").unwrap();
+        assert!(matches!(
+            client.preview_apkg_path(corrupt_path.to_string_lossy().into_owned(), now + 300),
+            Err(RemFfiError::InvalidInput { .. })
+        ));
+        assert!(matches!(
+            client.import_apkg_path(corrupt_path.to_string_lossy().into_owned(), now + 300),
+            Err(RemFfiError::InvalidInput { .. })
+        ));
+        let missing_path = dir.path().join("does-not-exist.apkg");
+        assert!(client
+            .preview_apkg_path(missing_path.to_string_lossy().into_owned(), now + 300)
+            .is_err());
+        assert!(client
+            .import_apkg_path(missing_path.to_string_lossy().into_owned(), now + 300)
+            .is_err());
+    }
+
+    #[test]
+    fn ffi_delete_deck_tree_and_sweep_orphan_assets() {
+        let (_dir, client) = open_test_client();
+        let now = 1_764_500_000_000_i64;
+
+        let n5 = client
+            .create_deck("JLPT::N5::Vocab".into(), None, now)
+            .unwrap();
+        let n4 = client
+            .create_deck("JLPT::N4::Kanji".into(), None, now + 1)
+            .unwrap();
+        let unrelated = client
+            .create_deck("JLPT2::Grammar".into(), None, now + 2)
+            .unwrap();
+
+        let doomed_hash = client
+            .put_asset("image/png".into(), vec![1, 2, 3, 4], now + 3)
+            .unwrap();
+        let kept_hash = client
+            .put_asset("image/png".into(), vec![5, 6, 7, 8], now + 4)
+            .unwrap();
+        client
+            .create_card(
+                n5.id.clone(),
+                format!("Front ![](asset:{doomed_hash})"),
+                "Back".into(),
+                vec![],
+                now + 5,
+            )
+            .unwrap();
+        client
+            .create_card(
+                unrelated.id.clone(),
+                format!("Keep ![](asset:{kept_hash})"),
+                "Back".into(),
+                vec![],
+                now + 6,
+            )
+            .unwrap();
+
+        // Deletes JLPT, materialized ancestors JLPT::N5 & JLPT::N4, and both leaf subdecks (5 total)
+        let deleted_ids = client.delete_deck_tree("JLPT".into(), now + 10).unwrap();
+        assert_eq!(deleted_ids.len(), 5);
+        assert!(deleted_ids.contains(&n5.id));
+        assert!(deleted_ids.contains(&n4.id));
+
+        let remaining = client.list_decks().unwrap();
+        let mut remaining_names: Vec<String> = remaining.iter().map(|d| d.name.clone()).collect();
+        remaining_names.sort();
+        assert_eq!(remaining_names, vec!["JLPT2", "JLPT2::Grammar"]);
+        assert!(remaining.iter().any(|d| d.id == unrelated.id));
+
+        // Sweeping orphan assets removes only the asset belonging to the deleted subtree
+        let swept = client.sweep_orphan_assets().unwrap();
+        assert_eq!(swept, 1);
+        assert!(client.get_asset(doomed_hash).unwrap().is_none());
+        assert!(client.get_asset(kept_hash).unwrap().is_some());
+    }
+
     #[test]
     fn prepare_poke_auth_requires_cloud_mode_and_returns_cached_credentials() {
         let (_dir, client) = open_test_client();

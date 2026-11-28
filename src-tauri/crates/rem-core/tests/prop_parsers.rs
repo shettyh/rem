@@ -280,3 +280,205 @@ fn apkg_missing_media_entries_do_not_exhaust_512mb_budget() {
     assert_eq!(res.imported_media, 0);
     assert!(!res.warnings.is_empty());
 }
+
+fn build_minimal_valid_sqlite_db() -> Vec<u8> {
+    let temp = NamedTempFile::new().unwrap();
+    let conn = Connection::open(temp.path()).unwrap();
+    let decks_json = serde_json::json!({ "1": { "id": 1, "name": "Valid" } }).to_string();
+    let models_json = serde_json::json!({
+        "10": {
+            "id": 10,
+            "name": "Basic",
+            "type": 0,
+            "flds": [{"name": "Front"}, {"name": "Back"}],
+            "tmpls": [{"name": "C1", "qfmt": "{{Front}}", "afmt": "{{FrontSide}}<hr id=answer>{{Back}}"}]
+        }
+    })
+    .to_string();
+    conn.execute_batch(
+        "
+        CREATE TABLE col (id INTEGER PRIMARY KEY, crt INTEGER NOT NULL, models TEXT NOT NULL, decks TEXT NOT NULL);
+        CREATE TABLE notes (id INTEGER PRIMARY KEY, mid INTEGER NOT NULL, tags TEXT NOT NULL, flds TEXT NOT NULL);
+        CREATE TABLE cards (
+            id INTEGER PRIMARY KEY, nid INTEGER NOT NULL, did INTEGER NOT NULL, ord INTEGER NOT NULL,
+            type INTEGER NOT NULL, queue INTEGER NOT NULL, due INTEGER NOT NULL, ivl INTEGER NOT NULL,
+            factor INTEGER NOT NULL, reps INTEGER NOT NULL, lapses INTEGER NOT NULL, data TEXT NOT NULL DEFAULT '{}'
+        );
+        ",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO col(id, crt, models, decks) VALUES (1, ?1, ?2, ?3)",
+        params![NOW / 1000, models_json, decks_json],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO notes(id, mid, tags, flds) VALUES (1, 10, '', 'Q\x1fA')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO cards(id, nid, did, ord, type, queue, due, ivl, factor, reps, lapses)
+         VALUES (100, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    std::fs::read(temp.path()).unwrap()
+}
+
+fn wrap_zip_entries(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut buf = Vec::new();
+    {
+        let mut zip = ZipWriter::new(std::io::Cursor::new(&mut buf));
+        let opts = SimpleFileOptions::default();
+        for (name, bytes) in entries {
+            zip.start_file(*name, opts).unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+    buf
+}
+
+fn arb_corrupt_apkg_bytes() -> impl Strategy<Value = Vec<u8>> {
+    prop_oneof![
+        prop::collection::vec(any::<u8>(), 0..=256),
+        prop::collection::vec(any::<u8>(), 0..=128).prop_map(|mut tail| {
+            let mut out = vec![0x50, 0x4b, 0x03, 0x04];
+            out.append(&mut tail);
+            out
+        }),
+        prop::collection::vec(any::<u8>(), 0..=128).prop_map(|mut tail| {
+            let mut out = vec![0x50, 0x4b, 0x05, 0x06];
+            out.append(&mut tail);
+            out
+        }),
+        prop::collection::vec(any::<u8>(), 0..=256)
+            .prop_map(|db| { wrap_zip_entries(&[("collection.anki21", &db)]) }),
+        prop::collection::vec(any::<u8>(), 0..=256).prop_map(|mut tail| {
+            let mut zstd_db = vec![0x28, 0xB5, 0x2F, 0xFD];
+            zstd_db.append(&mut tail);
+            wrap_zip_entries(&[("collection.anki21b", &zstd_db)])
+        }),
+    ]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    #[test]
+    fn apkg_preview_and_import_reject_arbitrary_corrupt_zip_zstd_and_db_bytes(
+        bytes in arb_corrupt_apkg_bytes(),
+    ) {
+        let dir = TempDir::new().unwrap();
+        let col = Collection::open(dir.path().join("col.sqlite3")).unwrap();
+
+        prop_assert!(col.preview_apkg_bytes(&bytes, NOW).is_err());
+        prop_assert!(col.import_apkg_bytes(&bytes, NOW).is_err());
+        prop_assert!(col.list_decks().unwrap().is_empty());
+    }
+
+    #[test]
+    fn apkg_import_handles_arbitrary_protobuf_and_corrupt_zstd_media_manifests(
+        media_tail in prop::collection::vec(any::<u8>(), 0..=256),
+        zstd_prefixed in any::<bool>(),
+    ) {
+        let db_bytes = build_minimal_valid_sqlite_db();
+        let mut media = Vec::new();
+        if zstd_prefixed {
+            media.extend_from_slice(&[0x28, 0xB5, 0x2F, 0xFD]);
+        }
+        media.extend_from_slice(&media_tail);
+        let apkg = wrap_zip_entries(&[
+            ("collection.anki21", &db_bytes),
+            ("media", &media),
+        ]);
+
+        let dir = TempDir::new().unwrap();
+        let col = Collection::open(dir.path().join("col.sqlite3")).unwrap();
+        let preview = col.preview_apkg_bytes(&apkg, NOW);
+        let imported = col.import_apkg_bytes(&apkg, NOW);
+        if zstd_prefixed {
+            // Random bytes after zstd magic almost always fail zstd decoding cleanly;
+            // if a random byte stream ever forms a tiny valid frame, it must still not panic.
+            prop_assert_eq!(preview.is_ok(), imported.is_ok());
+        } else {
+            // Non-zstd malformed JSON/protobuf manifest degrades gracefully without panicking.
+            prop_assert!(preview.is_ok());
+            prop_assert!(imported.is_ok());
+        }
+    }
+}
+
+#[test]
+fn truncated_valid_anki21_and_anki21b_apkg_archives_return_err_cleanly() {
+    let db_bytes = build_minimal_valid_sqlite_db();
+    let zstd_db = ruzstd::encoding::compress_to_vec(
+        db_bytes.as_slice(),
+        ruzstd::encoding::CompressionLevel::Fastest,
+    );
+    let media_pb = b"\x0a\x07\x0a\x05a.png";
+    let zstd_media = ruzstd::encoding::compress_to_vec(
+        media_pb.as_slice(),
+        ruzstd::encoding::CompressionLevel::Fastest,
+    );
+
+    let apkg_21 = wrap_zip_entries(&[
+        ("collection.anki21", &db_bytes),
+        ("media", br#"{"0":"a.png"}"#),
+    ]);
+    let apkg_21b = wrap_zip_entries(&[("collection.anki21b", &zstd_db), ("media", &zstd_media)]);
+
+    let dir = TempDir::new().unwrap();
+    let col = Collection::open(dir.path().join("col.sqlite3")).unwrap();
+
+    // Sanity check: complete archives preview cleanly.
+    assert_eq!(
+        col.preview_apkg_bytes(&apkg_21, NOW).unwrap().total_cards,
+        1
+    );
+    assert_eq!(
+        col.preview_apkg_bytes(&apkg_21b, NOW).unwrap().total_cards,
+        1
+    );
+
+    // Truncated archives at header, mid-stream, and near-EOF always error cleanly.
+    for full in [&apkg_21, &apkg_21b] {
+        let len = full.len();
+        let cut_points = [
+            0,
+            1,
+            4,
+            16,
+            32,
+            len / 4,
+            len / 2,
+            (len * 3) / 4,
+            len - 22,
+            len - 1,
+        ];
+        for cut in cut_points {
+            if cut < len {
+                let slice = &full[..cut];
+                assert!(
+                    col.preview_apkg_bytes(slice, NOW).is_err(),
+                    "preview unexpectedly succeeded for truncated slice of len {cut}/{len}"
+                );
+                assert!(
+                    col.import_apkg_bytes(slice, NOW).is_err(),
+                    "import unexpectedly succeeded for truncated slice of len {cut}/{len}"
+                );
+            }
+        }
+    }
+
+    // Truncated zstd DB inside an otherwise valid ZIP also fails cleanly.
+    let truncated_zstd_apkg = wrap_zip_entries(&[
+        ("collection.anki21b", &zstd_db[..zstd_db.len() / 2]),
+        ("media", &zstd_media),
+    ]);
+    assert!(col.preview_apkg_bytes(&truncated_zstd_apkg, NOW).is_err());
+    assert!(col.import_apkg_bytes(&truncated_zstd_apkg, NOW).is_err());
+    assert!(col.list_decks().unwrap().is_empty());
+}

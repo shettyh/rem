@@ -1,9 +1,22 @@
 import { test, expect, vi, afterEach } from 'vitest'
 import { page } from 'vitest/browser'
 import { ReviewPage } from './ReviewPage'
+import { composeOcclusionDocument } from '../cards/occlusion'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
 import { MS_PER_DAY } from '../../domain/models'
+
+/** Minimal valid 1-sample silent PCM WAV so Chromium loads it cleanly in <audio>. */
+const TINY_WAV = new Uint8Array([
+  0x52, 0x49, 0x46, 0x46, 0x26, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45,
+  0x66, 0x6d, 0x74, 0x20, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00,
+  0x44, 0xac, 0x00, 0x00, 0x88, 0x58, 0x01, 0x00, 0x02, 0x00, 0x10, 0x00,
+  0x64, 0x61, 0x74, 0x61, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+])
+
+const DIAGRAM_SVG = new TextEncoder().encode(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240"><rect width="400" height="240" fill="#eef2ff"/><rect x="30" y="30" width="140" height="70" fill="#c7d2fe"/><rect x="220" y="120" width="140" height="70" fill="#ddd6fe"/></svg>',
+)
 
 test('revealing shows the answer and grade buttons', async () => {
   const storage = freshStorage()
@@ -594,4 +607,181 @@ test('accepted draft provenance is inspectable when a card is revealed', async (
   await expect.element(page.getByText('Prevented conflicts between laptop and phone.')).toBeVisible()
   await expect.element(page.getByText('src-tauri/crates/rem-core/src/hlc.rs')).toBeVisible()
   await expect.element(page.getByText('Proposed by claude-code')).toBeVisible()
+})
+
+test('cloze review shows blank with hint before reveal, then inline answer and Extra section', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Geography')
+  await storage.createCardOrCloze(
+    deck.id,
+    'The capital of Japan is {{c1::Tokyo::city}} and France is {{c2::Paris}}.',
+    'Tokyo became the imperial capital in 1868.',
+  )
+
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await expect.element(page.getByText('Cloze · c1')).toBeVisible()
+  const blank = document.querySelector<HTMLElement>('.cloze-blank')
+  expect(blank?.textContent).toBe('[city]')
+  await expect.element(page.getByText('Paris', { exact: false })).toBeVisible()
+  await expect.element(page.getByText('Tokyo', { exact: false })).not.toBeInTheDocument()
+  await expect.element(page.getByRole('region', { name: 'Extra' })).not.toBeInTheDocument()
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+
+  await expect.poll(() => document.querySelector<HTMLElement>('.cloze-reveal')?.textContent).toBe('Tokyo')
+  expect(document.querySelector('.cloze-blank')).toBeNull()
+  const extra = page.getByRole('region', { name: 'Extra' })
+  await expect.element(extra).toBeVisible()
+  await expect.element(extra.getByText('Tokyo became the imperial capital in 1868.')).toBeVisible()
+})
+
+test('cloze review hides the Extra section when back is empty', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Rust')
+  await storage.createCardOrCloze(
+    deck.id,
+    'Rust guarantees {{c1::memory safety}} without a garbage collector.',
+    '   ',
+  )
+
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await expect.element(page.getByText('Cloze · c1')).toBeVisible()
+  expect(document.querySelector<HTMLElement>('.cloze-blank')?.textContent).toBe('[…]')
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+
+  await expect.poll(() => document.querySelector<HTMLElement>('.cloze-reveal')?.textContent).toBe('memory safety')
+  await expect.element(page.getByRole('button', { name: 'Good', exact: false })).toBeVisible()
+  await expect.element(page.getByRole('region', { name: 'Extra' })).not.toBeInTheDocument()
+  await expect.element(page.getByRole('region', { name: 'Answer' })).not.toBeInTheDocument()
+  expect(document.querySelector('.review-answer')).toBeNull()
+})
+
+test('image occlusion review renders active/inactive masks, reveals active mask, and toggles peek-all', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Anatomy')
+  const asset = await storage.putAsset(DIAGRAM_SVG, 'image/svg+xml')
+  const front = composeOcclusionDocument('Cell Structure', {
+    v: 1,
+    image: `asset:${asset.hash}`,
+    mode: 'hide-all',
+    alt: 'Cell diagram',
+    masks: [
+      { id: 1, type: 'rect', x: 0.08, y: 0.12, w: 0.35, h: 0.28 },
+      { id: 2, type: 'ellipse', x: 0.55, y: 0.5, w: 0.35, h: 0.28 },
+    ],
+  })
+  await storage.createCardOrCloze(deck.id, front, 'Nucleus houses genetic material.')
+
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await expect.element(page.getByText('Image Occlusion · #1')).toBeVisible()
+  await expect.poll(() => document.querySelector<HTMLImageElement>('img.io-img')?.getAttribute('src')).toMatch(/^blob:/)
+  expect(document.querySelector('[data-mask-id="1"]')?.getAttribute('data-mask-state')).toBe('active')
+  expect(document.querySelector('[data-mask-id="1"] .io-mask-qmark')?.textContent).toBe('?')
+  expect(document.querySelector('[data-mask-id="2"]')?.getAttribute('data-mask-state')).toBe('inactive')
+  await expect.element(page.getByRole('button', { name: 'Show all masks' })).not.toBeInTheDocument()
+
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+
+  await expect.poll(() => document.querySelector('[data-mask-id="1"]')?.getAttribute('data-mask-state')).toBe('revealed')
+  expect(document.querySelector('[data-mask-id="1"] .io-mask-qmark')).toBeNull()
+  expect(document.querySelector('[data-mask-id="2"]')?.getAttribute('data-mask-state')).toBe('inactive')
+  await expect.element(page.getByRole('region', { name: 'Extra' })).toBeVisible()
+
+  const showAllBtn = page.getByRole('button', { name: 'Show all masks' })
+  await expect.element(showAllBtn).toBeVisible()
+  await showAllBtn.click()
+  expect(document.querySelector('[data-mask-id="2"]')?.getAttribute('data-mask-state')).toBe('peek')
+
+  const hideOthersBtn = page.getByRole('button', { name: 'Hide other masks' })
+  await expect.element(hideOthersBtn).toBeVisible()
+  await hideOthersBtn.click()
+  expect(document.querySelector('[data-mask-id="2"]')?.getAttribute('data-mask-state')).toBe('inactive')
+})
+
+test('audio card in review renders a playable blob-backed audio element', async () => {
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Spanish')
+  const audio = await storage.putAsset(TINY_WAV, 'audio/wav')
+  await storage.createCard(
+    deck.id,
+    `Listen and translate:\n\n[Audio: buenos-dias.wav](asset:${audio.hash})`,
+    'Good morning.',
+  )
+
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  await expect.element(page.getByText('Audio: buenos-dias.wav')).toBeVisible()
+  await expect
+    .poll(() => document.querySelector<HTMLAudioElement>('audio.card-audio-el')?.getAttribute('src'))
+    .toMatch(/^blob:/)
+  const audioEl = document.querySelector<HTMLAudioElement>('audio.card-audio-el')!
+  expect(audioEl.controls).toBe(true)
+  expect(audioEl.getAttribute('preload')).toBe('metadata')
+})
+
+test('answer timer displays elapsed time while unrevealed and pauses on reveal', async () => {
+  const realNow = Date.now
+  let offsetMs = 0
+  vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offsetMs)
+
+  const storage = freshStorage()
+  const deck = await storage.createDeck('Timed')
+  await storage.updateDeck(deck.id, {
+    settings: { ...deck.settings, showTimer: true },
+  })
+  await storage.createCard(deck.id, 'What is 6 × 7?', '42')
+
+  await renderRoute({
+    storage,
+    entry: `/decks/${deck.id}/study`,
+    path: '/decks/:deckId/study',
+    element: <ReviewPage />,
+  })
+
+  const timer = page.getByLabelText('Answer timer')
+  await expect.element(timer).toBeVisible()
+  await expect.element(timer).toHaveTextContent('0:00')
+  expect(timer.element()).not.toHaveClass('is-paused')
+
+  offsetMs = 5_000
+  await expect.poll(() => timer.element().textContent).toBe('0:05')
+  expect(timer.element()).not.toHaveClass('is-paused')
+
+  const clearIntervalSpy = vi.spyOn(window, 'clearInterval')
+  await page.getByRole('button', { name: 'Show answer', exact: false }).click()
+
+  const pausedTimer = page.getByLabelText('Answer timer')
+  await expect.element(pausedTimer).toBeVisible()
+  await expect.element(pausedTimer).toHaveClass('is-paused')
+  await expect.element(pausedTimer).toHaveTextContent('0:05')
+  expect(clearIntervalSpy).toHaveBeenCalled()
+
+  // Advancing wall clock after reveal must not increment the paused timer.
+  offsetMs = 20_000
+  await new Promise((resolve) => requestAnimationFrame(resolve))
+  await expect.element(pausedTimer).toHaveTextContent('0:05')
 })
