@@ -1,15 +1,17 @@
 // src/features/cards/CardEditorPage.browser.test.tsx
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { page, userEvent } from 'vitest/browser'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import type { Storage } from '../../data/Storage'
 import { StorageProvider } from '../../data/StorageContext'
 import { CardEditorPage } from './CardEditorPage'
+import { extractOcclusionDocument } from './occlusion'
 import { freshStorage } from '../../test/seed'
 import { renderRoute } from '../../test/renderRoute'
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await page.viewport(1280, 800)
 })
 
@@ -273,5 +275,181 @@ describe('CardEditorPage', () => {
     await expect.poll(async () => (await storage.listCards(deck.id)).length).toBe(2)
     const saved = (await storage.listCards(deck.id)).find((c) => c.front.includes('Move semantics'))
     expect(saved?.tags).toEqual(['ownership', 'basics'])
+  })
+
+  it('creates cloze sibling cards with status banner via createCardOrCloze', async () => {
+    const storage = freshStorage()
+    const deck = await storage.createDeck('Biology', 'fsrs')
+    const createClozeSpy = vi.spyOn(storage, 'createCardOrCloze')
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
+
+    const front = screen.container.querySelector('[aria-label="Front"]') as HTMLElement
+    front.focus()
+    // Double braces escape `{` / `}` in userEvent.type key-descriptor syntax.
+    await userEvent.type(front, 'The {{{{c1::mitochondria}}}} is the {{{{c2::powerhouse}}}} of the cell.')
+
+    await expect
+      .element(screen.getByRole('status'))
+      .toHaveTextContent('Cloze note · creates 2 cards (c1, c2).')
+
+    const back = screen.container.querySelector('[aria-label="Back"]') as HTMLElement
+    back.focus()
+    await userEvent.type(back, 'Produces ATP via oxidative phosphorylation.')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save card' }))
+
+    await expect.poll(async () => (await storage.listCards(deck.id)).length).toBe(2)
+    expect(createClozeSpy).toHaveBeenCalledTimes(1)
+    const cards = await storage.listCards(deck.id)
+    expect(cards.map((c) => c.clozeIndex).sort()).toEqual([1, 2])
+    expect(cards[0].siblingGroupId).toBeTruthy()
+    expect(cards[0].siblingGroupId).toBe(cards[1].siblingGroupId)
+    expect(cards[0].back).toContain('Produces ATP')
+    await expect.element(screen.getByText('deck page')).toBeInTheDocument()
+  })
+
+  it('editing an existing cloze card shows sibling-update banner and calls updateClozeNote', async () => {
+    const storage = freshStorage()
+    const deck = await storage.createDeck('Biology', 'fsrs')
+    const [c1, c2] = await storage.createCardOrCloze(
+      deck.id,
+      'The {{c1::mitochondria}} is the {{c2::powerhouse}}.',
+      'Original extra',
+      ['cells'],
+    )
+    const updateClozeSpy = vi.spyOn(storage, 'updateClozeNote')
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/${c1.id}/edit`)
+
+    await expect
+      .element(screen.getByRole('status'))
+      .toHaveTextContent('Cloze note (c1, c2) · edits update sibling cards.')
+
+    const back = screen.container.querySelector('[aria-label="Back"]') as HTMLElement
+    back.focus()
+    await userEvent.type(back, ' — revised')
+    await userEvent.click(screen.getByRole('button', { name: 'Save card' }))
+
+    await expect.poll(() => updateClozeSpy.mock.calls.length).toBe(1)
+    expect(updateClozeSpy).toHaveBeenCalledWith(
+      c1.id,
+      expect.stringContaining('{{c1::mitochondria}}'),
+      expect.stringContaining('revised'),
+      ['cells'],
+    )
+    const refreshedC1 = await storage.getCard(c1.id)
+    const refreshedC2 = await storage.getCard(c2.id)
+    expect(refreshedC1?.back).toContain('revised')
+    expect(refreshedC2?.back).toContain('revised')
+    await expect.element(screen.getByText('deck page')).toBeInTheDocument()
+  })
+
+  it('switches into Image Occlusion mode on upload, blocks save at 0 masks, and saves once a mask is drawn', async () => {
+    const storage = freshStorage()
+    const deck = await storage.createDeck('Anatomy', 'fsrs')
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
+
+    const svgText =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240"><rect width="400" height="240" fill="#eef2ff"/><rect x="40" y="40" width="120" height="60" fill="#818cf8"/></svg>'
+    const imageFile = new File([svgText], 'diagram.svg', { type: 'image/svg+xml' })
+
+    const occlusionInput = screen.getByLabelText('Choose image for occlusion')
+    await occlusionInput.upload(imageFile)
+
+    await expect.element(screen.getByLabelText('Image Occlusion editor')).toBeVisible()
+    await expect
+      .element(screen.getByRole('status'))
+      .toHaveTextContent('Image Occlusion · draw at least one mask on the diagram to save.')
+
+    // 0 masks blocks saving.
+    const saveBtn = screen.getByRole('button', { name: 'Save card' })
+    const saveAndAddBtn = screen.getByRole('button', { name: 'Save & add another' })
+    await expect.element(saveBtn).toBeDisabled()
+    await expect.element(saveAndAddBtn).toBeDisabled()
+
+    // Wait for the diagram image to load with non-zero layout bounds, then draw a rectangle mask.
+    await expect
+      .poll(() => {
+        const img = screen.container.querySelector<HTMLImageElement>('img.io-img')
+        const rect = img?.getBoundingClientRect()
+        return Boolean(img?.src.startsWith('blob:') && img.complete && rect && rect.width > 40 && rect.height > 40)
+      })
+      .toBe(true)
+
+    const svg = screen.container.querySelector<SVGSVGElement>('svg.io-svg')!
+    const bounds = svg.getBoundingClientRect()
+    svg.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        button: 0,
+        pointerId: 1,
+        clientX: bounds.left + bounds.width * 0.15,
+        clientY: bounds.top + bounds.height * 0.2,
+      }),
+    )
+    await expect.poll(() => screen.container.querySelector('.io-mask--draft')).not.toBeNull()
+    svg.dispatchEvent(
+      new PointerEvent('pointermove', {
+        bubbles: true,
+        button: 0,
+        pointerId: 1,
+        clientX: bounds.left + bounds.width * 0.55,
+        clientY: bounds.top + bounds.height * 0.6,
+      }),
+    )
+    await expect
+      .poll(() => Number(screen.container.querySelector('.io-mask--draft')?.getAttribute('width') ?? '0'))
+      .toBeGreaterThan(20)
+    svg.dispatchEvent(
+      new PointerEvent('pointerup', {
+        bubbles: true,
+        button: 0,
+        pointerId: 1,
+        clientX: bounds.left + bounds.width * 0.55,
+        clientY: bounds.top + bounds.height * 0.6,
+      }),
+    )
+
+    await expect.poll(() => screen.container.querySelector('[data-editor-mask-index="0"]')).not.toBeNull()
+    await expect
+      .element(screen.getByRole('status'))
+      .toHaveTextContent('Image Occlusion · creates 1 card (#1).')
+    await expect.element(saveBtn).toBeEnabled()
+
+    await userEvent.click(saveBtn)
+    await expect.poll(async () => (await storage.listCards(deck.id)).length).toBe(1)
+    const [saved] = await storage.listCards(deck.id)
+    expect(saved.clozeIndex).toBe(1)
+    const doc = extractOcclusionDocument(saved.front)
+    expect(doc?.block.masks).toHaveLength(1)
+    await expect.element(screen.getByText('deck page')).toBeInTheDocument()
+  })
+
+  it('inserts an audio asset markdown link via the audio attachment picker', async () => {
+    const storage = freshStorage()
+    const deck = await storage.createDeck('Japanese', 'fsrs')
+    const screen = await renderAt(storage, `/decks/${deck.id}/cards/new`)
+
+    await expect.element(screen.getByRole('button', { name: 'Audio clip' })).toBeVisible()
+    const frontField = screen.container.querySelector<HTMLElement>('.editor-field--front')!
+    const audioInput = frontField.querySelector<HTMLInputElement>('input[type="file"][accept*="audio"]')!
+    expect(audioInput).toBeTruthy()
+
+    const audioFile = new File([new Uint8Array([0x49, 0x44, 0x33, 0x03, 0x00])], 'ohayo.mp3', {
+      type: 'audio/mpeg',
+    })
+    await userEvent.upload(audioInput, audioFile)
+
+    await expect
+      .poll(() => frontField.querySelector<HTMLAnchorElement>('.rich-editor-content a')?.getAttribute('href'))
+      .toMatch(/^asset:[0-9a-f]{64}$/)
+    const link = frontField.querySelector<HTMLAnchorElement>('.rich-editor-content a')!
+    expect(link.textContent).toBe('Audio: ohayo.mp3')
+    const hash = link.getAttribute('href')!.slice('asset:'.length)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save card' }))
+    await expect.poll(async () => (await storage.listCards(deck.id)).length).toBe(1)
+    const [saved] = await storage.listCards(deck.id)
+    expect(saved.front).toContain(`[Audio: ohayo.mp3](asset:${hash})`)
+    expect((await storage.getAsset(hash))?.mime).toBe('audio/mpeg')
   })
 })
