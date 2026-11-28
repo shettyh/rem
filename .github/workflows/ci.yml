@@ -109,9 +109,7 @@ jobs:
 
       - name: Verify sync WASM bundle freshness
         working-directory: .
-        run: |
-          bash tools/build-sync-wasm.sh
-          git diff --exit-code sync-server/src/wasm
+        run: bash tools/build-sync-wasm.sh --check
 
   ios:
     name: iOS (xcframework · test)

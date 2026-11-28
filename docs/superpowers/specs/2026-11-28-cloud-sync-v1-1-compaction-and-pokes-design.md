@@ -92,7 +92,7 @@ Extract pure, zero-SQLite, zero-FSRS sync domain primitives and state reduction 
 - **WASM build & freshness gate:**
   - Optional `wasm` Cargo feature using `wasm-bindgen` exposing streaming `ReducerHandle` (`from_snapshot_json`, `push_ops_chunk_json`, `finish_json`, `referenced_assets_json`).
   - `tools/build-sync-wasm.sh` builds `wasm32-unknown-unknown` with `wasm-bindgen --target web` into `sync-server/src/wasm/` so Workers statically `import wasmModule from './wasm/rem_sync_reduce_bg.wasm'` and call `initSync({ module: wasmModule })`.
-  - Checked-in WASM artifacts keep `sync-server` CI and Cloudflare deploy workflows free of any Rust toolchain dependency; the `rust` CI job runs `tools/build-sync-wasm.sh` and enforces `git diff --exit-code sync-server/src/wasm`.
+  - Checked-in WASM artifacts keep `sync-server` CI and Cloudflare deploy workflows free of any Rust toolchain dependency; the `rust` CI job runs `tools/build-sync-wasm.sh --check` (verifying `source.sha256` against `rem-sync-reduce` sources/dependencies, compiling the WASM target, and diffing the generated JS/TS bindings byte-for-byte).
 
 ---
 
@@ -175,7 +175,7 @@ Environment knobs in `sync-server/wrangler.toml`:
 - **Rust (`rem-sync-reduce`, `rem-core`, `rem-sync`, `rem-ffi`, `src-tauri`):**
   - Equivalence tests proving direct SQLite replay == `SnapshotReducer` + `Collection::apply_bootstrap_snapshot` (including deck-delete cascade, leech commutation, concurrent reviews, non-empty local collection, and offline outbox preservation).
   - Push-time outbox coalescing tests + `StudySession::undo_last_grade()` regression checks.
-  - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and WASM freshness (`tools/build-sync-wasm.sh && git diff --exit-code sync-server/src/wasm`).
+  - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and WASM freshness (`tools/build-sync-wasm.sh --check`).
 - **Sync server (`vitest-pool-workers`):**
   - Echo suppression + `hasMore` pagination, gzip decompression + 8 MB zip-bomb 413 guard, Hibernatable WS auth/entitlements/poke broadcast/no-echo/close-on-delete, alarm compaction with `ENABLE_OP_PRUNING` both `"false"` and `"true"`, stale-cursor `bootstrapRequired` preserving pushed ops, and grace-period orphan asset GC.
 - **Web & iOS:**
